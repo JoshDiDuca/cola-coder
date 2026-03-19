@@ -11,13 +11,18 @@ Two modes:
         Only rejects code that is clearly bad. If it can't determine quality
         (e.g., language not supported for parsing), it passes the file through.
         You lose nothing by using it — it either improves your data or does nothing.
-        Typical rejection rate: 5-15%.
+        Typical rejection rate: 40-50% on raw GitHub data (StarCoderData).
+        This sounds high, but raw GitHub repos contain huge amounts of noise:
+        tiny boilerplate files, auto-generated code, data dumps, minified
+        bundles, and syntax-broken files. The StarCoder paper itself filters
+        out ~50% of raw data. Each individual check is generous — the
+        cumulative effect of 10 checks on millions of files adds up.
 
     STRICT (--filter-strict):
         Aggressively filters for high-quality code only. Tighter thresholds on
         every check, plus additional checks for code style, naming conventions,
         and structural quality. Rejects anything that isn't clearly GOOD rather
-        than just filtering out clearly BAD. Typical rejection rate: 30-50%.
+        than just filtering out clearly BAD. Typical rejection rate: 60-75%.
         Use this when you have more data than you need and want to maximize
         quality per token (e.g., TypeScript-only training with plenty of data).
 
@@ -606,6 +611,15 @@ def filtered_stream(
             pct = stats.kept / stats.total * 100
             print(f"  [filter:{mode_label}] {stats.total:,} files processed, "
                   f"{stats.kept:,} kept ({pct:.1f}%)")
+            # Show top 3 rejection reasons every 100k files
+            if stats.total % (log_every * 10) == 0 and stats.reasons:
+                top_reasons = sorted(
+                    stats.reasons.items(), key=lambda x: -x[1],
+                )[:3]
+                reasons_str = ", ".join(
+                    f"{r}: {c:,}" for r, c in top_reasons
+                )
+                print(f"    Top rejections: {reasons_str}")
 
     # Print final summary
     print(stats.summary())
