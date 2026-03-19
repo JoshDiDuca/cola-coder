@@ -1,0 +1,39 @@
+# Medium model: ~350M parameters
+# Purpose: Best results achievable on a single consumer GPU
+# Requires gradient checkpointing on 16GB VRAM cards
+# Trains in ~2 weeks on RTX 4080
+
+model:
+  vocab_size: 32768
+  dim: 1024
+  n_layers: 24
+  n_heads: 16
+  n_kv_heads: 4
+  ffn_dim_multiplier: 2.667
+  max_seq_len: 2048
+  dropout: 0.05
+  rope_theta: 10000.0
+
+training:
+  batch_size: 2
+  gradient_accumulation: 16  # effective batch = 32
+  learning_rate: 3.0e-4
+  min_lr: 3.0e-5
+  warmup_steps: 2000
+  max_steps: 200000
+  weight_decay: 0.1
+  grad_clip: 1.0
+  precision: "bf16"
+  gradient_checkpointing: true  # REQUIRED at this size on 16GB
+
+data:
+  dataset: "bigcode/starcoderdata"
+  languages: ["python", "typescript", "javascript", "java", "go", "rust", "c", "cpp"]
+  max_tokens_per_file: 4096
+  data_dir: "./data"
+  num_workers: 4
+
+checkpoint:
+  save_every: 5000
+  output_dir: "./checkpoints/medium"
+  max_checkpoints: 3

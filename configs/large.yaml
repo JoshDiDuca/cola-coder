@@ -1,0 +1,38 @@
+# Large model: ~1B+ parameters
+# Purpose: For cloud GPUs or multi-GPU setups (A100, H100, etc.)
+# DO NOT attempt on consumer GPUs with < 24GB VRAM
+
+model:
+  vocab_size: 32768
+  dim: 2048
+  n_layers: 32
+  n_heads: 32
+  n_kv_heads: 8
+  ffn_dim_multiplier: 2.667
+  max_seq_len: 4096
+  dropout: 0.0
+  rope_theta: 10000.0
+
+training:
+  batch_size: 8
+  gradient_accumulation: 8  # effective batch = 64
+  learning_rate: 3.0e-4
+  min_lr: 3.0e-5
+  warmup_steps: 4000
+  max_steps: 500000
+  weight_decay: 0.1
+  grad_clip: 1.0
+  precision: "bf16"
+  gradient_checkpointing: true
+
+data:
+  dataset: "bigcode/starcoderdata"
+  languages: ["python", "typescript", "javascript", "java", "go", "rust", "c", "cpp", "csharp", "ruby", "php"]
+  max_tokens_per_file: 8192
+  data_dir: "./data"
+  num_workers: 8
+
+checkpoint:
+  save_every: 10000
+  output_dir: "./checkpoints/large"
+  max_checkpoints: 3

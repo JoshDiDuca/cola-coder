@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "cola-coder"
+version = "0.1.0"
+description = "A code generation transformer built from scratch — a human + Claude collaboration"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.2.0",
+    "tokenizers>=0.15.0",
+    "datasets>=2.16.0",
+    "pyyaml>=6.0",
+    "tqdm>=4.66.0",
+    "fastapi>=0.109.0",
+    "uvicorn>=0.27.0",
+    "numpy>=1.26.0",
+    "safetensors>=0.4.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "ruff>=0.2.0"]
+logging = ["wandb>=0.16.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
