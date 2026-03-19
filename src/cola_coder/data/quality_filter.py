@@ -26,7 +26,9 @@ so you can see what's being filtered and adjust thresholds.
 """
 
 import ast
+import os
 import re
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Iterator
@@ -606,4 +608,81 @@ def filtered_stream(
                   f"{stats.kept:,} kept ({pct:.1f}%)")
 
     # Print final summary
+    print(stats.summary())
+
+
+def _filter_worker(args: tuple[str, str]) -> tuple[str, bool, str]:
+    """Worker function for parallel filtering. Must be top-level for pickling."""
+    content, mode_value = args
+    mode = FilterMode(mode_value)
+    keep, reason = filter_code(content, mode=mode)
+    return content, keep, reason
+
+
+def parallel_filtered_stream(
+    source: Iterator[str],
+    mode: FilterMode = FilterMode.CONSERVATIVE,
+    stats: FilterStats | None = None,
+    log_every: int = 10000,
+    num_workers: int | None = None,
+) -> Iterator[str]:
+    """Quality filtering with multiprocessing for CPU-bound checks.
+
+    Uses a ProcessPoolExecutor to run filter_code() across multiple CPU cores.
+    Files are submitted in batches and results are yielded in order.
+
+    Falls back to sequential filtered_stream() if num_workers=1.
+
+    Args:
+        source: Iterator yielding raw code file contents.
+        mode: FilterMode.CONSERVATIVE or FilterMode.STRICT.
+        stats: Optional FilterStats to accumulate results.
+        log_every: Print progress every N files.
+        num_workers: Number of worker processes. Default: half of CPU cores.
+    """
+    if num_workers is None:
+        num_workers = max(1, min(os.cpu_count() or 4, 8) // 2)
+
+    if num_workers <= 1:
+        yield from filtered_stream(source, mode=mode, stats=stats, log_every=log_every)
+        return
+
+    if stats is None:
+        stats = FilterStats()
+
+    mode_label = mode.value.upper()
+    batch_size = num_workers * 4  # Keep workers busy with a buffer
+
+    print(f"  [filter:{mode_label}] Using {num_workers} worker processes")
+
+    with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        batch: list[str] = []
+
+        for content in source:
+            batch.append(content)
+
+            if len(batch) >= batch_size:
+                # Submit batch and yield results in order
+                args = [(text, mode.value) for text in batch]
+                for text, keep, reason in executor.map(_filter_worker, args):
+                    stats.record(keep, reason)
+                    if keep:
+                        yield text
+
+                    if stats.total % log_every == 0 and stats.total > 0:
+                        pct = stats.kept / stats.total * 100
+                        print(
+                            f"  [filter:{mode_label}] {stats.total:,} files "
+                            f"processed, {stats.kept:,} kept ({pct:.1f}%)"
+                        )
+                batch = []
+
+        # Flush remaining
+        if batch:
+            args = [(text, mode.value) for text in batch]
+            for text, keep, reason in executor.map(_filter_worker, args):
+                stats.record(keep, reason)
+                if keep:
+                    yield text
+
     print(stats.summary())

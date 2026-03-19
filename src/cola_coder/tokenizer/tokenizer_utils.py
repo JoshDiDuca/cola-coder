@@ -65,20 +65,30 @@ class CodeTokenizer:
             ids = [i for i in ids if i not in special_ids]
         return self.tokenizer.decode(ids)
 
-    def encode_batch(self, texts: list[str], add_bos: bool = True) -> list[list[int]]:
+    def encode_batch(
+        self, texts: list[str], add_bos: bool = True, add_eos: bool = False,
+    ) -> list[list[int]]:
         """Encode multiple texts at once (faster than encoding one by one).
+
+        The HuggingFace tokenizer's encode_batch uses Rust-level parallelism
+        internally, so this is significantly faster than calling encode() in a loop.
 
         Args:
             texts: List of strings to encode.
             add_bos: Whether to prepend BOS to each.
+            add_eos: Whether to append EOS to each.
 
         Returns:
             List of token ID lists.
         """
         encodings = self.tokenizer.encode_batch(texts)
         results = [enc.ids for enc in encodings]
-        if add_bos:
+        if add_bos and add_eos:
+            results = [[self.bos_id] + ids + [self.eos_id] for ids in results]
+        elif add_bos:
             results = [[self.bos_id] + ids for ids in results]
+        elif add_eos:
+            results = [ids + [self.eos_id] for ids in results]
         return results
 
     def encode_fim(self, prefix: str, suffix: str) -> list[int]:

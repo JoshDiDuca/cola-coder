@@ -6,9 +6,11 @@ and saves chunked token arrays ready for training.
 Usage:
     python scripts/prepare_data.py --config configs/tiny.yaml --tokenizer tokenizer.json
     python scripts/prepare_data.py --tokenizer tokenizer.json --max-tokens 1000000
+    python scripts/prepare_data.py --tokenizer tokenizer.json --workers 8  # parallel
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -41,6 +43,20 @@ def main():
         default="./data/processed",
         help="Output directory for processed data (default: ./data/processed).",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Number of parallel workers for quality filtering. "
+             "Default: half of CPU cores (up to 8). Use 1 for sequential.",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=64,
+        help="Number of files to tokenize at once (default: 64). Higher = faster "
+             "but more memory. The Rust tokenizer parallelizes within each batch.",
+    )
     filter_group = parser.add_mutually_exclusive_group()
     filter_group.add_argument(
         "--no-filter",
@@ -54,6 +70,10 @@ def main():
              "Keeps only clearly high-quality files. Typical rejection rate: 30-50%%.",
     )
     args = parser.parse_args()
+
+    # Default workers: half of CPU cores, capped at 8
+    if args.workers is None:
+        args.workers = max(1, min(os.cpu_count() or 4, 8) // 2)
 
     # ---- Validate inputs ----
     tokenizer_path = Path(args.tokenizer)
@@ -112,7 +132,10 @@ def main():
     try:
         from cola_coder.data.download import stream_code_data
         from cola_coder.data.preprocess import tokenize_and_chunk
-        from cola_coder.data.quality_filter import filtered_stream, FilterStats, FilterMode
+        from cola_coder.data.quality_filter import (
+            filtered_stream, parallel_filtered_stream,
+            FilterStats, FilterMode,
+        )
     except ImportError:
         print("Error: Could not import data modules.")
         sys.exit(1)
@@ -123,18 +146,37 @@ def main():
             languages=languages,
         )
 
-        # Apply quality filtering
+        # Apply quality filtering (parallel when workers > 1)
         if args.no_filter:
             print("Quality filtering: DISABLED")
         elif args.filter_strict:
             print("Quality filtering: STRICT (only keeping high-quality code)")
-            print("  Expected rejection rate: 30-50%")
+            print(f"  Expected rejection rate: 30-50%  |  Workers: {args.workers}")
             stats = FilterStats()
-            data_stream = filtered_stream(data_stream, mode=FilterMode.STRICT, stats=stats)
+            if args.workers > 1:
+                data_stream = parallel_filtered_stream(
+                    data_stream, mode=FilterMode.STRICT,
+                    stats=stats, num_workers=args.workers,
+                )
+            else:
+                data_stream = filtered_stream(
+                    data_stream, mode=FilterMode.STRICT, stats=stats,
+                )
         else:
-            print("Quality filtering: CONSERVATIVE (use --filter-strict for stricter filtering)")
+            print("Quality filtering: CONSERVATIVE (use --filter-strict for stricter)")
+            print(f"  Workers: {args.workers}")
             stats = FilterStats()
-            data_stream = filtered_stream(data_stream, mode=FilterMode.CONSERVATIVE, stats=stats)
+            if args.workers > 1:
+                data_stream = parallel_filtered_stream(
+                    data_stream, mode=FilterMode.CONSERVATIVE,
+                    stats=stats, num_workers=args.workers,
+                )
+            else:
+                data_stream = filtered_stream(
+                    data_stream, mode=FilterMode.CONSERVATIVE, stats=stats,
+                )
+
+        print(f"Batch size: {args.batch_size}  |  Tokenization: producer-consumer + Rust batch")
 
         output_file = tokenize_and_chunk(
             text_iterator=data_stream,
@@ -142,6 +184,7 @@ def main():
             chunk_size=max_seq_len,
             output_dir=args.output_dir,
             max_tokens=args.max_tokens,
+            batch_size=args.batch_size,
         )
     except KeyboardInterrupt:
         print("\nInterrupted by user. Partial data may have been saved.")
