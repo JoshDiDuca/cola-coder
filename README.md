@@ -2,7 +2,7 @@
 
 **A code generation transformer AI model.**
 
-A collaboration with an Claude — part learning project, part real engineering. 
+A collaboration with Claude — part learning project, part real engineering. 
 
 The goal: understand how modern LLMs actually work by building one from the ground up, not by reading about them.
 
