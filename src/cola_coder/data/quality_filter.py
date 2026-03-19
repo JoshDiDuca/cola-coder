@@ -5,10 +5,21 @@ This runs between the download step and the tokenization step:
 
     Stream from HuggingFace → Quality Filter → Tokenize → Train
 
-Design principle: this filter is CONSERVATIVE. It only rejects code that is
-clearly bad. If it can't determine quality (e.g., language not supported for
-parsing), it passes the file through. You lose nothing by using it — it
-either improves your data or does nothing.
+Two modes:
+
+    CONSERVATIVE (default, --filter):
+        Only rejects code that is clearly bad. If it can't determine quality
+        (e.g., language not supported for parsing), it passes the file through.
+        You lose nothing by using it — it either improves your data or does nothing.
+        Typical rejection rate: 5-15%.
+
+    STRICT (--filter-strict):
+        Aggressively filters for high-quality code only. Tighter thresholds on
+        every check, plus additional checks for code style, naming conventions,
+        and structural quality. Rejects anything that isn't clearly GOOD rather
+        than just filtering out clearly BAD. Typical rejection rate: 30-50%.
+        Use this when you have more data than you need and want to maximize
+        quality per token (e.g., TypeScript-only training with plenty of data).
 
 Every filter function returns (keep: bool, reason: str). The reason is logged
 so you can see what's being filtered and adjust thresholds.
@@ -17,7 +28,14 @@ so you can see what's being filtered and adjust thresholds.
 import ast
 import re
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Iterator
+
+
+class FilterMode(Enum):
+    """Which filtering strictness to use."""
+    CONSERVATIVE = "conservative"
+    STRICT = "strict"
 
 
 @dataclass
@@ -278,6 +296,153 @@ def check_comment_ratio(content: str, max_comment_ratio: float = 0.85) -> tuple[
 
 
 # ---------------------------------------------------------------------------
+# STRICT-ONLY checks
+# These only run in strict mode. They reject code that is mediocre,
+# not just code that is clearly broken.
+# ---------------------------------------------------------------------------
+
+def check_has_functions_or_classes(content: str, min_definitions: int = 1) -> tuple[bool, str]:
+    """Reject files with no function or class definitions.
+
+    Top-level scripts with no structure (just loose statements) are
+    typically low quality. Good code is organized into functions/classes.
+    """
+    lines = content.split("\n")
+    definition_patterns = [
+        "def ", "class ", "function ", "const ", "let ", "export ",
+        "async function", "interface ", "type ", "enum ",
+    ]
+    definitions = sum(
+        1 for l in lines
+        for pat in definition_patterns
+        if pat in l and not l.strip().startswith(("#", "//", "*"))
+    )
+    if definitions < min_definitions:
+        return False, f"no_structure ({definitions} definitions)"
+    return True, ""
+
+
+def check_naming_quality(content: str, min_avg_name_len: float = 3.0) -> tuple[bool, str]:
+    """Reject files with very short variable/function names.
+
+    Code full of single-letter variables (a, b, x, i everywhere) is
+    typically throwaway/scratch code. Good code uses descriptive names.
+
+    We only check identifiers that appear in assignments and function defs,
+    not loop variables (i, j, k are fine in for loops).
+    """
+    # Extract names from assignments and function definitions
+    # This is a rough heuristic — not a full parse
+    name_pattern = re.compile(
+        r'(?:def |function |const |let |var |export (?:const |let |function )?)([a-zA-Z_]\w*)'
+    )
+    names = name_pattern.findall(content[:10000])  # Sample first 10K chars
+
+    if len(names) < 5:
+        return True, ""  # Not enough names to judge
+
+    # Filter out common short names that are acceptable
+    acceptable_short = {"i", "j", "k", "n", "x", "y", "e", "fn", "cb", "db", "id", "ok"}
+    meaningful_names = [n for n in names if n.lower() not in acceptable_short]
+
+    if not meaningful_names:
+        return True, ""
+
+    avg_len = sum(len(n) for n in meaningful_names) / len(meaningful_names)
+    if avg_len < min_avg_name_len:
+        return False, f"short_names (avg {avg_len:.1f} chars)"
+
+    return True, ""
+
+
+def check_code_to_blank_ratio(content: str, min_code_ratio: float = 0.5) -> tuple[bool, str]:
+    """Reject files that are mostly blank lines.
+
+    Some files are padded with excessive whitespace. In strict mode,
+    at least 50% of lines should have actual content.
+    """
+    lines = content.split("\n")
+    if len(lines) < 10:
+        return True, ""
+
+    non_blank = sum(1 for l in lines if l.strip())
+    ratio = non_blank / len(lines)
+    if ratio < min_code_ratio:
+        return False, f"too_sparse ({ratio:.0%} non-blank)"
+
+    return True, ""
+
+
+def check_no_obvious_copy_paste(content: str, max_duplicate_ratio: float = 0.3) -> tuple[bool, str]:
+    """Reject files with heavy internal duplication.
+
+    Files where the same block of code is copy-pasted many times
+    (common in auto-generated tests or boilerplate) aren't useful
+    training data — the model just memorizes the repeated block.
+    """
+    lines = [l.strip() for l in content.split("\n") if l.strip() and len(l.strip()) > 10]
+    if len(lines) < 20:
+        return True, ""
+
+    # Count how many lines appear more than once
+    from collections import Counter
+    counts = Counter(lines)
+    duplicate_lines = sum(count - 1 for count in counts.values() if count > 1)
+    ratio = duplicate_lines / len(lines)
+
+    if ratio > max_duplicate_ratio:
+        return False, f"internal_duplication ({ratio:.0%} duplicate lines)"
+
+    return True, ""
+
+
+def check_has_some_documentation(content: str) -> tuple[bool, str]:
+    """In strict mode, prefer files that have at least SOME documentation.
+
+    Not requiring full JSDoc on every function — just evidence that
+    someone cared enough to write a comment or docstring somewhere.
+    """
+    doc_indicators = ['"""', "'''", "/**", "* @", "# ", "// "]
+    lines = content.split("\n")
+
+    doc_lines = sum(
+        1 for l in lines
+        if any(ind in l for ind in doc_indicators)
+    )
+
+    # Require at least 1 documentation line per 50 lines of code
+    if len(lines) > 50 and doc_lines == 0:
+        return False, "no_documentation"
+
+    return True, ""
+
+
+def check_no_hardcoded_secrets(content: str) -> tuple[bool, str]:
+    """Reject files that appear to contain hardcoded secrets.
+
+    API keys, passwords, tokens left in code are both a security issue
+    and low-quality training data (the model might learn to reproduce them).
+    """
+    secret_patterns = [
+        re.compile(r'(?:api[_-]?key|apikey)\s*[:=]\s*["\'][a-zA-Z0-9]{20,}', re.IGNORECASE),
+        re.compile(r'(?:password|passwd|pwd)\s*[:=]\s*["\'][^"\']{8,}', re.IGNORECASE),
+        re.compile(r'(?:secret|token)\s*[:=]\s*["\'][a-zA-Z0-9]{20,}', re.IGNORECASE),
+        re.compile(r'(?:aws_access_key_id|aws_secret_access_key)\s*[:=]', re.IGNORECASE),
+        re.compile(r'-----BEGIN (?:RSA |EC )?PRIVATE KEY-----'),
+        re.compile(r'sk-[a-zA-Z0-9]{32,}'),  # OpenAI-style keys
+        re.compile(r'ghp_[a-zA-Z0-9]{36}'),  # GitHub personal access tokens
+    ]
+
+    # Only check first 5K chars — secrets are usually near the top
+    sample = content[:5000]
+    for pattern in secret_patterns:
+        if pattern.search(sample):
+            return False, "hardcoded_secret"
+
+    return True, ""
+
+
+# ---------------------------------------------------------------------------
 # Heuristics for language detection
 # ---------------------------------------------------------------------------
 
@@ -304,40 +469,100 @@ def _looks_like_js_ts(content: str) -> bool:
 # Main filter pipeline
 # ---------------------------------------------------------------------------
 
-# All checks in order. Each is (function, name).
-# Order matters slightly for performance — cheap checks first.
-ALL_CHECKS = [
-    (check_length, "length"),
-    (check_avg_line_length, "avg_line_length"),
-    (check_max_line_length, "max_line_length"),
-    (check_character_diversity, "char_diversity"),
-    (check_not_autogenerated, "autogenerated"),
-    (check_not_data_file, "data_file"),
-    (check_comment_ratio, "comment_ratio"),
-    (check_not_test_heavy, "test_heavy"),
-    (check_python_parseable, "python_parse"),
-    (check_js_ts_parseable, "js_ts_parse"),
-]
+def _build_checks(mode: FilterMode) -> list[tuple]:
+    """Build the check list based on filter mode.
+
+    CONSERVATIVE: Only the base checks with generous thresholds.
+                  Rejects clearly bad code. Passes anything ambiguous.
+
+    STRICT:       Base checks with tighter thresholds, PLUS additional
+                  checks for code quality, naming, documentation, etc.
+                  Rejects anything that isn't clearly good.
+
+    Returns:
+        List of (check_function, args_dict) tuples.
+    """
+    if mode == FilterMode.CONSERVATIVE:
+        return [
+            # (function, kwargs override)  — empty dict = use defaults
+            (check_length, {}),
+            (check_avg_line_length, {}),
+            (check_max_line_length, {}),
+            (check_character_diversity, {}),
+            (check_not_autogenerated, {}),
+            (check_not_data_file, {}),
+            (check_comment_ratio, {}),
+            (check_not_test_heavy, {}),
+            (check_python_parseable, {}),
+            (check_js_ts_parseable, {}),
+        ]
+
+    # STRICT mode: tighter thresholds + extra checks
+    return [
+        # --- Base checks with tighter thresholds ---
+        (check_length, {"min_lines": 10, "max_lines": 5000}),
+        (check_avg_line_length, {"max_avg": 120}),
+        (check_max_line_length, {"max_len": 500}),
+        (check_character_diversity, {"min_unique_ratio": 0.08}),
+        (check_not_autogenerated, {}),
+        (check_not_data_file, {}),
+        (check_comment_ratio, {"max_comment_ratio": 0.60}),
+        (check_not_test_heavy, {"max_test_ratio": 0.70}),
+        (check_python_parseable, {}),
+        (check_js_ts_parseable, {}),
+        # --- Strict-only checks ---
+        (check_has_functions_or_classes, {}),
+        (check_naming_quality, {}),
+        (check_code_to_blank_ratio, {}),
+        (check_no_obvious_copy_paste, {}),
+        (check_has_some_documentation, {}),
+        (check_no_hardcoded_secrets, {}),
+    ]
 
 
-def filter_code(content: str) -> tuple[bool, str]:
-    """Run all quality checks on a single code file.
+# Summary of what changes between modes:
+#
+# | Check                 | Conservative    | Strict           |
+# |-----------------------|-----------------|------------------|
+# | min_lines             | 5               | 10               |
+# | max_lines             | 10,000          | 5,000            |
+# | max_avg_line_length   | 200             | 120              |
+# | max_single_line       | 1,000           | 500              |
+# | char_diversity        | 5%              | 8%               |
+# | max_comment_ratio     | 85%             | 60%              |
+# | max_test_ratio        | 90%             | 70%              |
+# | has_functions/classes  | -               | yes              |
+# | naming_quality        | -               | avg >= 3 chars   |
+# | code_to_blank_ratio   | -               | >= 50%           |
+# | copy-paste detection  | -               | <= 30% duplicate |
+# | has_documentation     | -               | yes              |
+# | hardcoded secrets     | -               | yes              |
+
+
+def filter_code(content: str, mode: FilterMode = FilterMode.CONSERVATIVE) -> tuple[bool, str]:
+    """Run quality checks on a single code file.
 
     Args:
         content: The raw code file content.
+        mode: FilterMode.CONSERVATIVE (default) or FilterMode.STRICT.
 
     Returns:
         (keep, reason) — keep=True if the file passes all checks.
         If rejected, reason explains which check failed.
     """
-    for check_fn, name in ALL_CHECKS:
+    checks = _build_checks(mode)
+
+    for check_fn, kwargs in checks:
         try:
-            keep, reason = check_fn(content)
+            keep, reason = check_fn(content, **kwargs) if kwargs else check_fn(content)
             if not keep:
                 return False, reason
         except Exception:
-            # If a check crashes, pass the file through.
-            # We never reject code we can't properly analyze.
+            if mode == FilterMode.STRICT:
+                # In strict mode: if we can't analyze it, reject it.
+                # We only keep code we're confident is good.
+                return False, f"analysis_failed ({check_fn.__name__})"
+            # In conservative mode: if a check crashes, pass through.
             continue
 
     return True, ""
@@ -345,6 +570,7 @@ def filter_code(content: str) -> tuple[bool, str]:
 
 def filtered_stream(
     source: Iterator[str],
+    mode: FilterMode = FilterMode.CONSERVATIVE,
     stats: FilterStats | None = None,
     log_every: int = 10000,
 ) -> Iterator[str]:
@@ -353,11 +579,9 @@ def filtered_stream(
     This is the main integration point. Wrap any Iterator[str] of code
     content, and it yields only the files that pass quality checks.
 
-    If a check fails or crashes on a file, the file passes through.
-    This filter only REMOVES clearly bad data — it never blocks good data.
-
     Args:
         source: Iterator yielding raw code file contents.
+        mode: FilterMode.CONSERVATIVE or FilterMode.STRICT.
         stats: Optional FilterStats to accumulate results. If None, creates one.
         log_every: Print progress every N files.
 
@@ -367,8 +591,10 @@ def filtered_stream(
     if stats is None:
         stats = FilterStats()
 
+    mode_label = mode.value.upper()
+
     for content in source:
-        keep, reason = filter_code(content)
+        keep, reason = filter_code(content, mode=mode)
         stats.record(keep, reason)
 
         if keep:
@@ -376,7 +602,7 @@ def filtered_stream(
 
         if stats.total % log_every == 0 and stats.total > 0:
             pct = stats.kept / stats.total * 100
-            print(f"  [filter] {stats.total:,} files processed, "
+            print(f"  [filter:{mode_label}] {stats.total:,} files processed, "
                   f"{stats.kept:,} kept ({pct:.1f}%)")
 
     # Print final summary

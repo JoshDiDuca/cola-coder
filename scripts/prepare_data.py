@@ -41,10 +41,17 @@ def main():
         default="./data/processed",
         help="Output directory for processed data (default: ./data/processed).",
     )
-    parser.add_argument(
+    filter_group = parser.add_mutually_exclusive_group()
+    filter_group.add_argument(
         "--no-filter",
         action="store_true",
         help="Disable quality filtering (use raw data as-is).",
+    )
+    filter_group.add_argument(
+        "--filter-strict",
+        action="store_true",
+        help="Use strict quality filtering (rejects mediocre code, not just bad code). "
+             "Keeps only clearly high-quality files. Typical rejection rate: 30-50%%.",
     )
     args = parser.parse_args()
 
@@ -105,7 +112,7 @@ def main():
     try:
         from cola_coder.data.download import stream_code_data
         from cola_coder.data.preprocess import tokenize_and_chunk
-        from cola_coder.data.quality_filter import filtered_stream, FilterStats
+        from cola_coder.data.quality_filter import filtered_stream, FilterStats, FilterMode
     except ImportError:
         print("Error: Could not import data modules.")
         sys.exit(1)
@@ -116,13 +123,18 @@ def main():
             languages=languages,
         )
 
-        # Apply quality filtering (unless --no-filter is set)
-        if not args.no_filter:
-            print("Quality filtering: ENABLED (use --no-filter to disable)")
-            stats = FilterStats()
-            data_stream = filtered_stream(data_stream, stats=stats)
-        else:
+        # Apply quality filtering
+        if args.no_filter:
             print("Quality filtering: DISABLED")
+        elif args.filter_strict:
+            print("Quality filtering: STRICT (only keeping high-quality code)")
+            print("  Expected rejection rate: 30-50%")
+            stats = FilterStats()
+            data_stream = filtered_stream(data_stream, mode=FilterMode.STRICT, stats=stats)
+        else:
+            print("Quality filtering: CONSERVATIVE (use --filter-strict for stricter filtering)")
+            stats = FilterStats()
+            data_stream = filtered_stream(data_stream, mode=FilterMode.CONSERVATIVE, stats=stats)
 
         output_file = tokenize_and_chunk(
             text_iterator=data_stream,
