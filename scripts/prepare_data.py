@@ -41,6 +41,11 @@ def main():
         default="./data/processed",
         help="Output directory for processed data (default: ./data/processed).",
     )
+    parser.add_argument(
+        "--no-filter",
+        action="store_true",
+        help="Disable quality filtering (use raw data as-is).",
+    )
     args = parser.parse_args()
 
     # ---- Validate inputs ----
@@ -100,6 +105,7 @@ def main():
     try:
         from cola_coder.data.download import stream_code_data
         from cola_coder.data.preprocess import tokenize_and_chunk
+        from cola_coder.data.quality_filter import filtered_stream, FilterStats
     except ImportError:
         print("Error: Could not import data modules.")
         sys.exit(1)
@@ -109,6 +115,14 @@ def main():
             dataset_name=dataset_name,
             languages=languages,
         )
+
+        # Apply quality filtering (unless --no-filter is set)
+        if not args.no_filter:
+            print("Quality filtering: ENABLED (use --no-filter to disable)")
+            stats = FilterStats()
+            data_stream = filtered_stream(data_stream, stats=stats)
+        else:
+            print("Quality filtering: DISABLED")
 
         output_file = tokenize_and_chunk(
             text_iterator=data_stream,
