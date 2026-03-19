@@ -2,11 +2,46 @@
 
 **A code generation transformer AI model.**
 
-A collaboration with Claude — part learning project, part real engineering. 
+A collaboration with Claude — part learning project, part real engineering.
 
 The goal: understand how modern LLMs actually work by building one from the ground up, not by reading about them.
 
 No cloned repos. No copy-pasted model code. Every layer, every attention head, every training loop — written and documented.
+
+---
+
+## The Vision: Multi-Agent Specialization
+
+The end goal isn't one model that's mediocre at everything — it's a **system of specialists** that each know their domain deeply, coordinated by a router model that decomposes tasks and assembles the results.
+
+```
+User prompt → [Router Model: 125M]
+                     |
+       ┌─────────────┼──────────────┐
+       ↓             ↓              ↓
+  [React 50M]   [Prisma 50M]   [Zod 50M]
+       ↓             ↓              ↓
+       └─────────────┼──────────────┘
+                     ↓
+          [Router assembles output]
+```
+
+**Why this works:** A 350M general model spreads its capacity across every framework and pattern it's ever seen. Six 50M specialists + a 125M router gives you 475M total parameters, but each specialist dedicates 100% of its capacity to one domain. The React specialist knows hooks, patterns, and conventions that no general model under 7B learns well.
+
+| Component | Size | Role |
+|-----------|------|------|
+| **Router** | 125M | Task decomposition, context extraction, output assembly |
+| **React specialist** | 50M | Components, hooks, JSX, state management |
+| **Next.js specialist** | 50M | App router, server components, server actions |
+| **GraphQL specialist** | 50M | Schemas, resolvers, Apollo patterns |
+| **Prisma/ORM specialist** | 50M | Database models, queries, migrations |
+| **Zod specialist** | 50M | Validation schemas, type inference |
+| **Testing specialist** | 50M | Vitest, React Testing Library, mocks |
+| **General TS fallback** | 125M | Anything that doesn't match a specialist |
+
+**Active per request: ~175M** (router + one specialist). **Total system knowledge: 475M+.** Runs inference in ~2 GB VRAM. Each specialist trains independently in 1-2 days on a consumer GPU.
+
+The practical path: train the base model first (this repo), fine-tune specialists from it, we could use Claude API as the router initially, then train a local router from the collected routing decisions. Full details in [`docs/deep-dives/multi-agent-specialization.md`](docs/deep-dives/multi-agent-specialization.md).
 
 ---
 
