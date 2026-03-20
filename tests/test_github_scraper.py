@@ -16,14 +16,12 @@ import tempfile
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
-import pytest
 
 from cola_coder.data.sources.github import (
     DataRecord,
     GitHubClient,
-    GitHubSource,
     MetadataCache,
     RepoFilter,
     RepoProcessor,

@@ -11,7 +11,7 @@ Default components: syntax (0.30), completeness (0.25), style (0.25), brevity (0
 import ast
 import re
 import keyword
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Optional
 
 FEATURE_ENABLED = True
@@ -243,12 +243,12 @@ class RewardShaper:
             score += 0.20
 
         # Line length
-        long_lines = sum(1 for l in lines if len(l) > 100)
+        long_lines = sum(1 for ln in lines if len(ln) > 100)
         line_penalty = long_lines / max(len(lines), 1)
         score += 0.20 * (1.0 - min(line_penalty * 5.0, 1.0))
 
         # Blank line between top-level defs (PEP-8: two blank lines)
-        top_level_defs = [i for i, l in enumerate(lines) if re.match(r"^(def|class)\s+", l)]
+        top_level_defs = [i for i, ln in enumerate(lines) if re.match(r"^(def|class)\s+", ln)]
         if len(top_level_defs) >= 2:
             has_blank_sep = any(
                 lines[top_level_defs[k] - 1].strip() == ""
@@ -277,8 +277,8 @@ class RewardShaper:
 
         # Count non-blank, non-comment lines
         content_lines = [
-            l for l in code.splitlines()
-            if l.strip() and not l.strip().startswith("#")
+            ln for ln in code.splitlines()
+            if ln.strip() and not ln.strip().startswith("#")
         ]
         n = len(content_lines)
 

@@ -8,16 +8,13 @@ HTTP responses. No real API calls are made.
 from __future__ import annotations
 
 import time
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
-import pytest
 
 from cola_coder.data.sources.software_heritage import (
     SoftwareHeritageSource,
     SWHClient,
-    _HAS_REQUESTS,
 )
-from cola_coder.data.pipeline import DataRecord
 
 
 # ---------------------------------------------------------------------------
@@ -329,7 +326,6 @@ class TestSoftwareHeritageSourceStream:
 
         # First origin works, second raises
         call_count = 0
-        original_get_visits = mock_client.get_visits.side_effect
 
         def visits_side_effect(url):
             nonlocal call_count

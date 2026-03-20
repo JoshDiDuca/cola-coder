@@ -4,6 +4,7 @@ Think of this like a TypeScript interface/type that defines the shape of your co
 except in Python we use dataclasses (similar to TS classes with readonly fields).
 """
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -118,6 +119,47 @@ class CheckpointConfig:
 
 
 @dataclass
+class StorageConfig:
+    """Configurable storage paths for data, checkpoints, and tokenizer.
+
+    Allows storing large files on a different drive (e.g., D:/cola-coder-data/).
+    All paths default to project-relative locations for backward compatibility.
+    """
+
+    data_dir: str = "./data"                    # Raw + processed data
+    checkpoints_dir: str = "./checkpoints"      # Model checkpoints
+    tokenizer_path: str = "./tokenizer.json"    # Trained tokenizer
+    cache_dir: str = "./cache"                  # HuggingFace cache
+
+
+def get_storage_config() -> StorageConfig:
+    """Resolve storage paths from env var, configs/storage.yaml, or defaults.
+
+    Resolution order (first match wins):
+    1. COLA_STORAGE_CONFIG env var — path to a custom YAML file
+    2. configs/storage.yaml — project-level storage override
+    3. StorageConfig defaults — all paths relative to project root
+    """
+    yaml_path: Optional[Path] = None
+
+    env_path = os.environ.get("COLA_STORAGE_CONFIG")
+    if env_path:
+        yaml_path = Path(env_path)
+    else:
+        candidate = Path("configs/storage.yaml")
+        if candidate.exists():
+            yaml_path = candidate
+
+    if yaml_path is not None:
+        with open(yaml_path) as f:
+            raw = yaml.safe_load(f) or {}
+        storage_raw = raw.get("storage", {})
+        return StorageConfig(**storage_raw)
+
+    return StorageConfig()
+
+
+@dataclass
 class Config:
     """Top-level config combining all sub-configs."""
 
@@ -125,6 +167,7 @@ class Config:
     training: TrainingConfig = field(default_factory=TrainingConfig)
     data: DataConfig = field(default_factory=DataConfig)
     checkpoint: CheckpointConfig = field(default_factory=CheckpointConfig)
+    storage: StorageConfig = field(default_factory=StorageConfig)
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "Config":
@@ -140,12 +183,14 @@ class Config:
         training_cfg = TrainingConfig(**raw.get("training", {}))
         data_cfg = DataConfig(**raw.get("data", {}))
         checkpoint_cfg = CheckpointConfig(**raw.get("checkpoint", {}))
+        storage_cfg = StorageConfig(**raw.get("storage", {}))
 
         return cls(
             model=model_cfg,
             training=training_cfg,
             data=data_cfg,
             checkpoint=checkpoint_cfg,
+            storage=storage_cfg,
         )
 
     def summary(self) -> str:

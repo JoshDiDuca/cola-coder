@@ -8,7 +8,6 @@ with built-in templates for common coding tasks.
 """
 
 from dataclasses import dataclass, field
-from typing import Any
 
 FEATURE_ENABLED = True
 

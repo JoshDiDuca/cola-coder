@@ -14,7 +14,6 @@ internally, but exposed as a tool for analysis and data enrichment.
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from collections import defaultdict
 
 FEATURE_ENABLED = True
 

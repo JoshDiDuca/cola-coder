@@ -201,7 +201,7 @@ class GRPOTrainer:
             num_epochs: Number of passes over all problems.
             temperature: Sampling temperature for generation.
         """
-        print(f"\nStarting GRPO training:")
+        print("\nStarting GRPO training:")
         print(f"  Problems: {len(problems)}")
         print(f"  Group size: {self.group_size}")
         print(f"  Epochs: {num_epochs}")

@@ -11,12 +11,11 @@ Inspired by the "Patience is a Virtue" and PonderNet lines of work.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 FEATURE_ENABLED = True
 

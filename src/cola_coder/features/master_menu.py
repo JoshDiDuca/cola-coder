@@ -2,6 +2,8 @@
 
 Single entry point for all Cola-Coder operations. Replaces 12 separate
 PowerShell scripts with one interactive, keyboard-driven menu.
+
+Navigation: Arrow keys to move, Enter to select, ESC/Ctrl-C to go back.
 """
 
 import importlib
@@ -170,6 +172,84 @@ def _count_enabled(features: list[dict]) -> tuple[int, int]:
     return sum(1 for f in features if f["enabled"]), len(features)
 
 
+# ── Rich helpers (graceful fallback if rich not installed) ────────────────────
+
+try:
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.text import Text
+    from rich.table import Table
+    from rich import box as rich_box
+    _rich_console = Console()
+    _HAS_RICH = True
+except ImportError:
+    _HAS_RICH = False
+    _rich_console = None  # type: ignore
+
+
+def _print_status_panel(status: dict[str, str]) -> None:
+    """Print a rich status bar panel with colored indicators."""
+    if not _HAS_RICH:
+        parts = [f"{k}: {v}" for k, v in status.items()]
+        print("  Pipeline: " + " | ".join(parts))
+        return
+
+    tokens_val = status.get("tokenizer", "missing")
+    data_val = status.get("data", "missing")
+    ckpt_val = status.get("checkpoints", "none")
+
+    def _indicator(val: str, ok_check) -> str:
+        if ok_check(val):
+            return f"[bold green]●[/bold green] [green]{val}[/green]"
+        return f"[bold red]●[/bold red] [red]{val}[/red]"
+
+    tokenizer_ind = _indicator(tokens_val, lambda v: v == "ready")
+    data_ind = _indicator(data_val, lambda v: "dataset" in v)
+    ckpt_ind = _indicator(ckpt_val, lambda v: "checkpoint" in v)
+
+    table = Table(box=None, show_header=False, padding=(0, 2), expand=True)
+    table.add_column("", justify="center")
+    table.add_column("", justify="center")
+    table.add_column("", justify="center")
+    table.add_row(
+        f"Tokenizer  {tokenizer_ind}",
+        f"Data  {data_ind}",
+        f"Checkpoints  {ckpt_ind}",
+    )
+
+    _rich_console.print(Panel(
+        table,
+        title="[bold dim]Pipeline Status[/bold dim]",
+        border_style="dim",
+        padding=(0, 1),
+    ))
+
+
+def _print_section_header(title: str, subtitle: str = "", hint: str = "") -> None:
+    """Print a polished section header panel."""
+    if not _HAS_RICH:
+        print(f"\n=== {title}" + (f" — {subtitle}" if subtitle else "") + " ===")
+        return
+
+    text = Text()
+    text.append(f" {title}", style="bold cyan")
+    if subtitle:
+        text.append(f"  {subtitle}", style="bold white")
+    if hint:
+        text.append(f"\n  {hint}", style="dim")
+
+    _rich_console.print(Panel(
+        text,
+        box=rich_box.HEAVY,
+        style="cyan",
+        padding=(0, 1),
+    ))
+    _rich_console.print(
+        "  [dim]Arrow keys to navigate  ·  Enter to select  ·  ESC/Ctrl-C to go back[/dim]"
+    )
+    _rich_console.print("")
+
+
 class MasterMenu:
     """Unified CLI menu for all Cola-Coder operations."""
 
@@ -184,11 +264,12 @@ class MasterMenu:
             if unix_python.exists():
                 self.venv_python = unix_python
             else:
-                # Last resort: try sys.executable (the current Python)
                 import sys
                 self.venv_python = Path(sys.executable)
 
-    def _run_script(self, script: str, args: list[str] | None = None):
+    # ── Script runner ─────────────────────────────────────────────────────
+
+    def _run_script(self, script: str, args: list[str] | None = None) -> None:
         """Run a Python script from the scripts/ directory."""
         cmd = [str(self.venv_python), f"scripts/{script}"]
         if args:
@@ -203,55 +284,130 @@ class MasterMenu:
         except Exception as e:
             cli.error(str(e))
 
+    def _run_shell(self, cmd: list[str]) -> None:
+        """Run an arbitrary shell command in the project root."""
+        cli.dim(f"Running: {' '.join(cmd)}")
+        try:
+            result = subprocess.run(cmd, cwd=str(self.project_root))
+            if result.returncode != 0:
+                cli.error(f"Command exited with code {result.returncode}")
+        except KeyboardInterrupt:
+            cli.warn("Interrupted.")
+        except Exception as e:
+            cli.error(str(e))
+
+    def _pause(self) -> None:
+        """Wait for Enter before returning to the menu."""
+        try:
+            input("\nPress Enter to continue...")
+        except (EOFError, KeyboardInterrupt):
+            pass
+
+    # ── Pipeline status ───────────────────────────────────────────────────
+
     def _detect_pipeline_status(self) -> dict[str, str]:
         """Detect current pipeline state: what's been completed."""
         status = {}
 
-        # Tokenizer
         tokenizer_path = self.project_root / "tokenizer.json"
         status["tokenizer"] = "ready" if tokenizer_path.exists() else "missing"
 
-        # Data
         data_dir = self.project_root / "data" / "processed"
         npy_files = list(data_dir.glob("*.npy")) if data_dir.exists() else []
         status["data"] = f"{len(npy_files)} dataset(s)" if npy_files else "missing"
 
-        # Checkpoints
         ckpt_dir = self.project_root / "checkpoints"
         if ckpt_dir.exists():
-            ckpt_dirs = [d for d in ckpt_dir.rglob("model.safetensors")]
-            status["checkpoints"] = f"{len(ckpt_dirs)} checkpoint(s)" if ckpt_dirs else "none"
+            ckpt_dirs = list(ckpt_dir.rglob("model.safetensors"))
+            status["checkpoints"] = (
+                f"{len(ckpt_dirs)} checkpoint(s)" if ckpt_dirs else "none"
+            )
         else:
             status["checkpoints"] = "none"
 
         return status
 
-    def show_status_bar(self):
-        """Show pipeline status at the top of the menu."""
-        status = self._detect_pipeline_status()
-        parts = []
-        for key, val in status.items():
-            if "missing" in val or val == "none":
-                parts.append(f"[red]{key}: {val}[/red]")
-            else:
-                parts.append(f"[green]{key}: {val}[/green]")
-        cli.print(f"  Pipeline: {' | '.join(parts)}")
+    def _show_status(self) -> None:
+        """Render the pipeline status panel."""
+        try:
+            status = self._detect_pipeline_status()
+            _print_status_panel(status)
+        except Exception:
+            pass
 
-    def main_menu(self):
-        """Show the main menu and handle selection."""
+    # ── Checkpoint helpers ────────────────────────────────────────────────
+
+    def _list_checkpoints(self) -> list[dict]:
+        """Return a list of available checkpoints as dicts with label/path/detail."""
+        ckpt_dir = self.project_root / "checkpoints"
+        checkpoints = []
+        if not ckpt_dir.exists():
+            return checkpoints
+
+        for size_dir in sorted(ckpt_dir.iterdir()):
+            if not size_dir.is_dir():
+                continue
+            latest = size_dir / "latest"
+            if latest.exists():
+                try:
+                    detail = latest.read_text().strip()
+                except Exception:
+                    detail = str(latest)
+                checkpoints.append({
+                    "label": f"{size_dir.name}/latest",
+                    "detail": detail,
+                    "path": str(latest),
+                })
+            for step_dir in sorted(size_dir.glob("step_*")):
+                checkpoints.append({
+                    "label": f"{size_dir.name}/{step_dir.name}",
+                    "detail": str(step_dir),
+                    "path": str(step_dir),
+                })
+
+        return checkpoints
+
+    def _pick_checkpoint(self, prompt: str = "Select checkpoint:") -> str | None:
+        """Show checkpoint picker and return the path, or None if cancelled."""
+        checkpoints = self._list_checkpoints()
+        if not checkpoints:
+            cli.error("No checkpoints found. Train a model first.")
+            return None
+
+        choice = cli.choose(
+            prompt,
+            [{"label": c["label"], "detail": c["detail"]} for c in checkpoints],
+            allow_cancel=True,
+        )
+        if choice is None:
+            return None
+        return checkpoints[choice]["path"]
+
+    # ── Main menu ─────────────────────────────────────────────────────────
+
+    def main_menu(self) -> None:
+        """Show the top-level menu."""
         while True:
-            cli.header("Cola-Coder", "Master Menu")
-            self.show_status_bar()
+            _print_section_header("Cola-Coder", "Master Menu")
+            self._show_status()
 
             options = [
-                {"label": "Train Model", "detail": "Train tiny/small/medium/large models"},
-                {"label": "Prepare Data", "detail": "Download, filter, tokenize training data"},
-                {"label": "Generate Code", "detail": "Interactive code generation"},
-                {"label": "Evaluate Model", "detail": "Run HumanEval benchmark"},
-                {"label": "Serve API", "detail": "Start FastAPI inference server"},
-                {"label": "Train Tokenizer", "detail": "Train BPE tokenizer from scratch"},
-                {"label": "Train Reasoning", "detail": "GRPO fine-tuning with thinking tokens"},
-                {"label": "Tools", "detail": "Tests, linting, data inspection"},
+                {"label": "Quick Start Pipeline",
+                 "detail": "One-click: tokenizer -> data -> train (auto-detect what's needed)"},
+                {"label": "Data Pipeline",
+                 "detail": "Download, filter, score, prepare training data"},
+                {"label": "Training",
+                 "detail": "Train models (tiny -> large), resume, tokenizer, reasoning"},
+                {"label": "Generate & Interact",
+                 "detail": "Code generation, interactive chat, serve API"},
+                {"label": "Evaluate & Benchmark",
+                 "detail": "HumanEval, benchmarks, checkpoint comparisons"},
+                {"label": "Tools & Utilities",
+                 "detail": "Lint, test, GPU status, dataset inspection"},
+                {"label": "Settings",
+                 "detail": "Feature toggles, storage paths"},
+                {"label": "Training Status",
+                 "detail": "Check training progress — no GPU needed"},
             ]
 
             choice = cli.choose("What would you like to do?", options, allow_cancel=True)
@@ -261,27 +417,275 @@ class MasterMenu:
                 break
 
             handlers = [
-                self.train_menu,
-                self.prepare_menu,
+                self.quick_start_menu,
+                self.data_pipeline_menu,
+                self.training_menu,
                 self.generate_menu,
                 self.evaluate_menu,
-                self.serve_menu,
-                self.tokenizer_menu,
-                self.reasoning_menu,
                 self.tools_menu,
+                self.settings_menu,
+                self.training_status_menu,
             ]
 
             handlers[choice]()
 
-    def train_menu(self):
-        """Training sub-menu."""
-        cli.header("Cola-Coder", "Train Model")
+    # ── 1. Quick Start Pipeline ───────────────────────────────────────────
+
+    def quick_start_menu(self) -> None:
+        """One-click pipeline: detects what's needed and runs it."""
+        _print_section_header(
+            "Quick Start Pipeline",
+            "Runs each stage that hasn't been completed yet",
+        )
+        self._show_status()
+
+        status = self._detect_pipeline_status()
+        stages: list[tuple[str, str, bool]] = [
+            ("Tokenizer", "train_tokenizer.py", status["tokenizer"] == "ready"),
+            ("Training Data", "prepare_data.py", "dataset" in status["data"]),
+            ("Train Model (tiny)", "train.py", "checkpoint" in status["checkpoints"]),
+        ]
+
+        if _HAS_RICH:
+            _rich_console.print("  [bold]Pipeline stages:[/bold]")
+            for name, _, done in stages:
+                icon = "[green]✓[/green]" if done else "[yellow]○[/yellow]"
+                _rich_console.print(f"    {icon}  {name}")
+            _rich_console.print("")
 
         options = [
-            {"label": "Tiny (50M)", "detail": "~3.6GB VRAM, ~4 hours"},
-            {"label": "Small (125M)", "detail": "~6.5GB VRAM, ~2 days"},
-            {"label": "Medium (350M)", "detail": "~8.2GB VRAM, ~7 days"},
-            {"label": "Large (1B+)", "detail": "Cloud only, ~24GB VRAM"},
+            {"label": "Run Full Pipeline",
+             "detail": "Runs only the missing stages automatically"},
+            {"label": "Run Tokenizer Stage",
+             "detail": "scripts/train_tokenizer.py"},
+            {"label": "Run Data Stage",
+             "detail": "scripts/prepare_data.py with tiny config"},
+            {"label": "Run Training Stage",
+             "detail": "scripts/train.py --config configs/tiny.yaml"},
+        ]
+
+        choice = cli.choose("Quick start action:", options, allow_cancel=True)
+        if choice is None:
+            return
+
+        if choice == 0:
+            # Auto-run only missing stages
+            if not stages[0][2]:
+                cli.info("Stage 1/3", "Training tokenizer...")
+                self._run_script("train_tokenizer.py")
+            else:
+                cli.success("Tokenizer already trained — skipping.")
+
+            # Re-check status after potential tokenizer run
+            status = self._detect_pipeline_status()
+            if status["tokenizer"] != "ready":
+                cli.warn("Tokenizer still missing. Stopping pipeline.")
+                self._pause()
+                return
+
+            if not stages[1][2]:
+                cli.info("Stage 2/3", "Preparing training data...")
+                self._run_script("prepare_data.py", [
+                    "--config", "configs/tiny.yaml",
+                    "--tokenizer", "tokenizer.json",
+                ])
+            else:
+                cli.success("Training data already prepared — skipping.")
+
+            # Re-check
+            status = self._detect_pipeline_status()
+            if "dataset" not in status["data"]:
+                cli.warn("Training data still missing. Stopping pipeline.")
+                self._pause()
+                return
+
+            if not stages[2][2]:
+                cli.info("Stage 3/3", "Training model (tiny)...")
+                self._run_script("train.py", ["--config", "configs/tiny.yaml"])
+            else:
+                cli.success("Checkpoint already exists — skipping training.")
+
+            cli.success("Pipeline complete!")
+
+        elif choice == 1:
+            self._run_script("train_tokenizer.py")
+        elif choice == 2:
+            self._run_script("prepare_data.py", [
+                "--config", "configs/tiny.yaml",
+                "--tokenizer", "tokenizer.json",
+            ])
+        elif choice == 3:
+            self._run_script("train.py", ["--config", "configs/tiny.yaml"])
+
+        self._pause()
+
+    # ── 2. Data Pipeline ─────────────────────────────────────────────────
+
+    def data_pipeline_menu(self) -> None:
+        """Data pipeline sub-menu."""
+        while True:
+            _print_section_header("Data Pipeline", "Download, filter, score, and prepare data")
+
+            options = [
+                {"label": "Prepare Training Data",
+                 "detail": "Download from HuggingFace, filter, tokenize"},
+                {"label": "Scrape GitHub Repos",
+                 "detail": "scripts/scrape_github.py — crawl repos for training data"},
+                {"label": "Score Code Quality",
+                 "detail": "Run quality scorer on collected data"},
+                {"label": "Combine Datasets",
+                 "detail": "scripts/combine_datasets.py — merge multiple datasets"},
+                {"label": "Inspect Dataset",
+                 "detail": "Browse random training data samples"},
+                {"label": "Generate Instructions",
+                 "detail": "scripts/generate_instructions.py — create instruction pairs"},
+                {"label": "Train Quality Classifier",
+                 "detail": "scripts/train_quality_classifier.py"},
+                {"label": "Score Repositories",
+                 "detail": "scripts/score_repos.py — rank repos by quality"},
+                {"label": "Interactive Data Prep",
+                 "detail": "scripts/prepare_data_interactive.py — guided data setup"},
+            ]
+
+            choice = cli.choose("Select data operation:", options, allow_cancel=True)
+            if choice is None:
+                return
+
+            if choice == 0:
+                self._prepare_data_menu()
+            elif choice == 1:
+                self._run_script("scrape_github.py")
+                self._pause()
+            elif choice == 2:
+                self._score_quality_menu()
+            elif choice == 3:
+                self._run_script("combine_datasets.py")
+                self._pause()
+            elif choice == 4:
+                self._inspect_dataset()
+                self._pause()
+            elif choice == 5:
+                self._run_script("generate_instructions.py")
+                self._pause()
+            elif choice == 6:
+                self._run_script("train_quality_classifier.py")
+                self._pause()
+            elif choice == 7:
+                self._run_script("score_repos.py")
+                self._pause()
+            elif choice == 8:
+                self._run_script("prepare_data_interactive.py")
+
+    def _prepare_data_menu(self) -> None:
+        """Data preparation sub-menu with mode selection."""
+        _print_section_header("Prepare Training Data", "Configure and run data pipeline")
+
+        options = [
+            {"label": "Interactive Mode",
+             "detail": "Guided, menu-driven data preparation"},
+            {"label": "Quick Tiny Dataset",
+             "detail": "Small dataset for testing — max 500k tokens"},
+            {"label": "Standard Preparation",
+             "detail": "Full pipeline with defaults from configs/tiny.yaml"},
+            {"label": "Standard (Strict Filter)",
+             "detail": "Aggressive quality filtering — ~65% rejection rate"},
+            {"label": "Standard (No Filter)",
+             "detail": "Skip quality filter — faster but lower quality"},
+            {"label": "Test/Validation Split",
+             "detail": "Prepare test split only"},
+        ]
+
+        choice = cli.choose("Preparation mode:", options, allow_cancel=True)
+        if choice is None:
+            return
+
+        base_args = ["--config", "configs/tiny.yaml", "--tokenizer", "tokenizer.json"]
+
+        if choice == 0:
+            self._run_script("prepare_data_interactive.py")
+        elif choice == 1:
+            self._run_script("prepare_data.py", base_args + ["--max-tokens", "500000"])
+        elif choice == 2:
+            self._run_script("prepare_data.py", base_args)
+        elif choice == 3:
+            self._run_script("prepare_data.py", base_args + ["--filter-strict"])
+        elif choice == 4:
+            self._run_script("prepare_data.py", base_args + ["--no-filter"])
+        elif choice == 5:
+            self._run_script("prepare_data.py", base_args + ["--split", "test"])
+
+        self._pause()
+
+    def _score_quality_menu(self) -> None:
+        """Score code quality sub-menu."""
+        _print_section_header("Score Code Quality", "Evaluate and rank collected data")
+
+        options = [
+            {"label": "Score Repositories",
+             "detail": "scripts/score_repos.py — rank repos by code quality"},
+            {"label": "Train Quality Classifier",
+             "detail": "scripts/train_quality_classifier.py — train ML quality scorer"},
+        ]
+
+        choice = cli.choose("Scoring method:", options, allow_cancel=True)
+        if choice is None:
+            return
+
+        if choice == 0:
+            self._run_script("score_repos.py")
+        elif choice == 1:
+            self._run_script("train_quality_classifier.py")
+
+        self._pause()
+
+    # ── 3. Training ───────────────────────────────────────────────────────
+
+    def training_menu(self) -> None:
+        """Training sub-menu."""
+        while True:
+            _print_section_header("Training", "Train models, tokenizer, and reasoning")
+
+            options = [
+                {"label": "Train Model (select size)",
+                 "detail": "tiny (50M) / small (125M) / medium (350M) / large (1B+)"},
+                {"label": "Resume Training",
+                 "detail": "Auto-detect latest checkpoint and continue"},
+                {"label": "Train Tokenizer",
+                 "detail": "scripts/train_tokenizer.py — BPE tokenizer from scratch"},
+                {"label": "Train Reasoning (GRPO)",
+                 "detail": "scripts/train_reasoning.py — GRPO with thinking tokens"},
+                {"label": "VRAM Estimation",
+                 "detail": "scripts/vram_estimate.py — estimate VRAM before training"},
+            ]
+
+            choice = cli.choose("Training operation:", options, allow_cancel=True)
+            if choice is None:
+                return
+
+            if choice == 0:
+                self._train_size_menu(resume=False)
+            elif choice == 1:
+                self._resume_training_menu()
+            elif choice == 2:
+                self._train_tokenizer()
+            elif choice == 3:
+                self._train_reasoning()
+            elif choice == 4:
+                self._vram_estimate_menu()
+
+    def _train_size_menu(self, resume: bool = False) -> None:
+        """Select model size and start training."""
+        _print_section_header("Train Model", "Select a model size")
+
+        options = [
+            {"label": "Tiny   (50M params)",
+             "detail": "~3.6 GB VRAM  |  ~4 hours  |  RTX 3080/4080"},
+            {"label": "Small  (125M params)",
+             "detail": "~6.5 GB VRAM  |  ~2 days   |  RTX 3080/4080"},
+            {"label": "Medium (350M params)",
+             "detail": "~8.2 GB VRAM  |  ~7 days   |  RTX 4080 (bf16)"},
+            {"label": "Large  (1B+ params)",
+             "detail": "~24 GB VRAM   |  cloud only"},
         ]
 
         choice = cli.choose("Select model size:", options, allow_cancel=True)
@@ -290,268 +694,517 @@ class MasterMenu:
 
         sizes = ["tiny", "small", "medium", "large"]
         size = sizes[choice]
+        config = f"configs/{size}.yaml"
 
-        # Check for existing checkpoints to resume
-        ckpt_dir = self.project_root / "checkpoints" / size
-        if ckpt_dir.exists():
-            latest = ckpt_dir / "latest"
-            if latest.exists() or any(ckpt_dir.glob("step_*")):
-                if cli.confirm(f"Found existing {size} checkpoints. Resume training?"):
-                    self._run_script("train.py", [
-                        "--config", f"configs/{size}.yaml",
-                        "--resume", str(ckpt_dir / "latest"),
-                    ])
-                    return
+        if resume:
+            # Look for existing checkpoint
+            ckpt_dir = self.project_root / "checkpoints" / size
+            resume_path = None
+            if ckpt_dir.exists():
+                latest = ckpt_dir / "latest"
+                if latest.exists():
+                    resume_path = str(latest)
+                else:
+                    step_dirs = sorted(ckpt_dir.glob("step_*"))
+                    if step_dirs:
+                        resume_path = str(step_dirs[-1])
 
-        # Check for wandb
-        use_wandb = cli.confirm("Enable Weights & Biases logging?", default=False)
-        args = ["--config", f"configs/{size}.yaml"]
-        if use_wandb:
-            args.append("--wandb")
+            if resume_path is None:
+                cli.error(f"No checkpoint found for {size}. Start a fresh training run instead.")
+                self._pause()
+                return
 
-        self._run_script("train.py", args)
-
-    def prepare_menu(self):
-        """Data preparation sub-menu."""
-        cli.header("Cola-Coder", "Prepare Data")
-
-        options = [
-            {"label": "Interactive Mode", "detail": "Full menu-driven data preparation"},
-            {"label": "Quick Tiny Dataset", "detail": "Small dataset for testing (~5 min)"},
-            {"label": "Standard Preparation", "detail": "Full data pipeline with defaults"},
-            {"label": "Test/Validation Data", "detail": "Prepare test split"},
-        ]
-
-        choice = cli.choose("Data preparation mode:", options, allow_cancel=True)
-        if choice is None:
-            return
-
-        scripts = [
-            ("prepare_data_interactive.py", []),
-            ("prepare_data.py", ["--config", "configs/tiny.yaml", "--tokenizer", "tokenizer.json",
-                                 "--max-tokens", "500000"]),
-            ("prepare_data.py", ["--config", "configs/tiny.yaml", "--tokenizer", "tokenizer.json"]),
-            ("prepare_data.py", ["--config", "configs/tiny.yaml", "--tokenizer", "tokenizer.json",
-                                 "--split", "test"]),
-        ]
-
-        script, args = scripts[choice]
-        self._run_script(script, args)
-
-    def generate_menu(self):
-        """Code generation."""
-        cli.header("Cola-Coder", "Generate Code")
-
-        # Find available checkpoints
-        ckpt_dir = self.project_root / "checkpoints"
-        checkpoints = []
-        if ckpt_dir.exists():
-            for size_dir in sorted(ckpt_dir.iterdir()):
-                if size_dir.is_dir():
-                    latest = size_dir / "latest"
-                    if latest.exists():
-                        # Resolve "latest" pointer to show the actual checkpoint path as detail
-                        try:
-                            detail = latest.read_text().strip()
-                        except Exception:
-                            detail = str(latest)
-                        checkpoints.append({
-                            "label": f"{size_dir.name}/latest",
-                            "detail": detail,
-                            "path": str(latest),
-                        })
-                    for step_dir in sorted(size_dir.glob("step_*")):
-                        checkpoints.append({
-                            "label": f"{size_dir.name}/{step_dir.name}",
-                            "detail": str(step_dir),
-                            "path": str(step_dir),
-                        })
-
-        if not checkpoints:
-            cli.error("No checkpoints found. Train a model first.")
-            return
-
-        # "Quick Generate" is always the first option — run.py auto-detects
-        # the latest checkpoint, its config from metadata.json, and uses
-        # default sampling params. No manual selection needed.
-        quick_option = {
-            "label": "Quick Generate (auto-detect everything)",
-            "detail": "Uses latest checkpoint + auto-detected config + default sampling",
-        }
-        menu_options = [quick_option] + [{"label": c["label"], "detail": c["detail"]} for c in checkpoints]
-
-        choice = cli.choose("Select checkpoint:", menu_options, allow_cancel=True)
-        if choice is None:
-            return
-
-        if choice == 0:
-            # Quick Generate: run.py handles checkpoint + config detection automatically
-            self._run_script("run.py", [])
+            cli.info("Resuming from", resume_path)
+            self._run_script("train.py", ["--config", config, "--resume", resume_path])
         else:
-            # Offset by 1 because index 0 is the quick option
-            selected = checkpoints[choice - 1]
-            self._run_script("generate.py", ["--checkpoint", selected["path"]])
+            # Check for existing and offer to resume
+            ckpt_dir = self.project_root / "checkpoints" / size
+            if ckpt_dir.exists():
+                has_ckpt = (ckpt_dir / "latest").exists() or bool(list(ckpt_dir.glob("step_*")))
+                if has_ckpt:
+                    if cli.confirm(f"Found existing {size} checkpoint. Resume training?"):
+                        latest = ckpt_dir / "latest"
+                        resume_arg = str(latest) if latest.exists() else str(
+                            sorted(ckpt_dir.glob("step_*"))[-1]
+                        )
+                        self._run_script("train.py", ["--config", config, "--resume", resume_arg])
+                        self._pause()
+                        return
 
-    def evaluate_menu(self):
-        """Evaluation menu."""
-        cli.header("Cola-Coder", "Evaluate Model")
+            use_wandb = cli.confirm("Enable Weights & Biases logging?", default=False)
+            args = ["--config", config]
+            if use_wandb:
+                args.append("--wandb")
 
-        # Find checkpoints (same pattern as generate)
-        ckpt_dir = self.project_root / "checkpoints"
-        checkpoints = []
-        if ckpt_dir.exists():
-            for size_dir in sorted(ckpt_dir.iterdir()):
-                if size_dir.is_dir():
-                    latest = size_dir / "latest"
-                    if latest.exists():
-                        checkpoints.append({"label": f"{size_dir.name}/latest", "path": str(latest)})
+            self._run_script("train.py", args)
 
-        if not checkpoints:
-            cli.error("No checkpoints found. Train a model first.")
+        self._pause()
+
+    def _resume_training_menu(self) -> None:
+        """Auto-detect latest checkpoint and resume."""
+        _print_section_header("Resume Training", "Continue from latest checkpoint")
+
+        sizes = ["tiny", "small", "medium", "large"]
+        found = []
+        for size in sizes:
+            ckpt_dir = self.project_root / "checkpoints" / size
+            if ckpt_dir.exists():
+                latest = ckpt_dir / "latest"
+                if latest.exists():
+                    try:
+                        detail = latest.read_text().strip()
+                    except Exception:
+                        detail = str(latest)
+                    found.append({"label": f"{size}/latest", "detail": detail, "size": size})
+                else:
+                    step_dirs = sorted(ckpt_dir.glob("step_*"))
+                    if step_dirs:
+                        found.append({
+                            "label": f"{size}/{step_dirs[-1].name}",
+                            "detail": str(step_dirs[-1]),
+                            "size": size,
+                        })
+
+        if not found:
+            cli.error("No checkpoints found. Start a fresh training run first.")
+            self._pause()
             return
 
-        choice = cli.choose("Select checkpoint to evaluate:",
-                            [{"label": c["label"], "detail": ""} for c in checkpoints],
-                            allow_cancel=True)
+        choice = cli.choose("Select checkpoint to resume:", [
+            {"label": c["label"], "detail": c["detail"]} for c in found
+        ], allow_cancel=True)
         if choice is None:
             return
 
-        self._run_script("evaluate.py", ["--checkpoint", checkpoints[choice]["path"]])
+        selected = found[choice]
+        config = f"configs/{selected['size']}.yaml"
+        ckpt_path = (
+            str(self.project_root / "checkpoints" / selected["size"] / "latest")
+            if "latest" in selected["label"]
+            else selected["detail"]
+        )
 
-    def serve_menu(self):
-        """Start API server."""
-        cli.header("Cola-Coder", "Serve API")
-        ckpt_dir = self.project_root / "checkpoints"
-        checkpoints = []
-        if ckpt_dir.exists():
-            for size_dir in sorted(ckpt_dir.iterdir()):
-                if size_dir.is_dir():
-                    latest = size_dir / "latest"
-                    if latest.exists():
-                        checkpoints.append({"label": f"{size_dir.name}/latest", "path": str(latest)})
+        self._run_script("train.py", ["--config", config, "--resume", ckpt_path])
+        self._pause()
 
-        if not checkpoints:
-            cli.error("No checkpoints found.")
-            return
-
-        choice = cli.choose("Select checkpoint to serve:",
-                            [{"label": c["label"], "detail": ""} for c in checkpoints],
-                            allow_cancel=True)
-        if choice is None:
-            return
-
-        self._run_script("serve.py", ["--checkpoint", checkpoints[choice]["path"]])
-
-    def tokenizer_menu(self):
-        """Train tokenizer."""
-        cli.header("Cola-Coder", "Train Tokenizer")
+    def _train_tokenizer(self) -> None:
+        """Train BPE tokenizer."""
+        _print_section_header("Train Tokenizer", "BPE tokenizer from scratch")
 
         tokenizer_path = self.project_root / "tokenizer.json"
         if tokenizer_path.exists():
             if not cli.confirm("tokenizer.json already exists. Retrain?", default=False):
                 return
 
-        self._run_script("train_tokenizer.py", [])
+        self._run_script("train_tokenizer.py")
+        self._pause()
 
-    def reasoning_menu(self):
-        """Reasoning/GRPO training."""
-        cli.header("Cola-Coder", "Reasoning Training")
-        cli.info("Mode", "GRPO with thinking tokens")
+    def _train_reasoning(self) -> None:
+        """GRPO reasoning training."""
+        _print_section_header("Train Reasoning (GRPO)", "Fine-tuning with thinking tokens")
+
+        if _HAS_RICH:
+            _rich_console.print("  [bold]GRPO[/bold] (Group Relative Policy Optimization)")
+            _rich_console.print("  Adds [cyan]<think>[/cyan] / [cyan]</think>[/cyan] chain-of-thought tokens.")
+            _rich_console.print("  Generates multiple solutions, tests them, reinforces correct ones.")
+            _rich_console.print("")
 
         if cli.confirm("Start reasoning training?"):
-            self._run_script("train_reasoning.py", [])
+            self._run_script("train_reasoning.py")
+            self._pause()
 
-    def tools_menu(self):
-        """Developer tools sub-menu."""
-        cli.header("Cola-Coder", "Tools")
-
-        # Build the N/M indicator for feature toggles
-        try:
-            features = _scan_feature_modules(self.project_root)
-            n_enabled, n_total = _count_enabled(features)
-            toggles_detail = f"{n_enabled}/{n_total} enabled — enable/disable optional features"
-        except Exception:
-            toggles_detail = "Enable/disable optional features"
+    def _vram_estimate_menu(self) -> None:
+        """VRAM estimation."""
+        _print_section_header("VRAM Estimation", "Estimate GPU memory before training")
 
         options = [
-            {"label": "Run Tests", "detail": "pytest tests/ -v"},
-            {"label": "Run Linter", "detail": "ruff check src/ scripts/ tests/"},
-            {"label": "GPU Status", "detail": "Show GPU info and VRAM usage"},
-            {"label": "Dataset Inspector", "detail": "Browse training data samples"},
-            {"label": "Feature Toggles", "detail": toggles_detail},
+            {"label": "Estimate for Tiny  (50M)",   "detail": "configs/tiny.yaml"},
+            {"label": "Estimate for Small (125M)",  "detail": "configs/small.yaml"},
+            {"label": "Estimate for Medium (350M)", "detail": "configs/medium.yaml"},
+            {"label": "Estimate for Large  (1B+)",  "detail": "configs/large.yaml"},
+            {"label": "Estimate All Sizes",          "detail": "Compare all four configs"},
         ]
 
-        choice = cli.choose("Select tool:", options, allow_cancel=True)
+        choice = cli.choose("Estimate for which size?", options, allow_cancel=True)
         if choice is None:
             return
 
-        if choice == 0:
-            subprocess.run([str(self.venv_python), "-m", "pytest", "tests/", "-v"],
-                           cwd=str(self.project_root))
-        elif choice == 1:
-            subprocess.run([str(self.venv_python), "-m", "ruff", "check", "src/", "scripts/",
-                            "tests/"],
-                           cwd=str(self.project_root))
-        elif choice == 2:
-            cli.gpu_info()
-            try:
-                result = subprocess.run(["nvidia-smi"], capture_output=True, text=True)
-                if result.returncode == 0:
-                    cli.print(result.stdout)
-            except FileNotFoundError:
-                cli.warn("nvidia-smi not found")
-        elif choice == 3:
-            self._inspect_dataset()
-            input("\nPress Enter to continue...")
+        sizes = ["tiny", "small", "medium", "large"]
+        if choice < 4:
+            self._run_script("vram_estimate.py", ["--config", f"configs/{sizes[choice]}.yaml"])
+        else:
+            for size in sizes:
+                cli.rule(size)
+                self._run_script("vram_estimate.py", ["--config", f"configs/{size}.yaml"])
+
+        self._pause()
+
+    # ── 4. Generate & Interact ────────────────────────────────────────────
+
+    def generate_menu(self) -> None:
+        """Code generation and serving sub-menu."""
+        while True:
+            _print_section_header("Generate & Interact", "Code generation, chat, API server")
+
+            options = [
+                {"label": "Quick Generate (auto-detect)",
+                 "detail": "scripts/run.py — auto-detects latest checkpoint + config"},
+                {"label": "Interactive Generation",
+                 "detail": "scripts/generate.py — select checkpoint manually"},
+                {"label": "Serve API",
+                 "detail": "scripts/serve.py — FastAPI inference server"},
+                {"label": "Nano Benchmark",
+                 "detail": "scripts/nano_benchmark.py — quick generation speed test"},
+            ]
+
+            choice = cli.choose("Select generation mode:", options, allow_cancel=True)
+            if choice is None:
+                return
+
+            if choice == 0:
+                self._run_script("run.py")
+                self._pause()
+            elif choice == 1:
+                self._interactive_generate()
+            elif choice == 2:
+                self._serve_api()
+            elif choice == 3:
+                self._run_script("nano_benchmark.py")
+                self._pause()
+
+    def _interactive_generate(self) -> None:
+        """Interactive generation with checkpoint selection."""
+        _print_section_header("Interactive Generation", "Select checkpoint and generate")
+
+        ckpt_path = self._pick_checkpoint("Select checkpoint for generation:")
+        if ckpt_path is None:
             return
-        elif choice == 4:
-            self._feature_toggles()
-            return  # _feature_toggles manages its own loop; skip the shared prompt
 
-        input("\nPress Enter to continue...")
+        self._run_script("generate.py", ["--checkpoint", ckpt_path])
+        self._pause()
 
-    def _inspect_dataset(self):
-        """Browse random samples from training data."""
+    def _serve_api(self) -> None:
+        """Start the FastAPI inference server."""
+        _print_section_header("Serve API", "FastAPI inference server")
+
+        if _HAS_RICH:
+            _rich_console.print("  Starts a FastAPI server on [cyan]http://localhost:8000[/cyan]")
+            _rich_console.print("  Press [bold]Ctrl-C[/bold] in the terminal to stop the server.")
+            _rich_console.print("")
+
+        ckpt_path = self._pick_checkpoint("Select checkpoint to serve:")
+        if ckpt_path is None:
+            return
+
+        self._run_script("serve.py", ["--checkpoint", ckpt_path])
+        self._pause()
+
+    # ── 5. Evaluate & Benchmark ───────────────────────────────────────────
+
+    def evaluate_menu(self) -> None:
+        """Evaluation and benchmarking sub-menu."""
+        while True:
+            _print_section_header("Evaluate & Benchmark", "Measure model quality")
+
+            options = [
+                {"label": "HumanEval Evaluation",
+                 "detail": "scripts/evaluate.py — pass@k on 164 coding problems"},
+                {"label": "Quick Benchmark",
+                 "detail": "scripts/benchmark.py — speed + quality benchmark"},
+                {"label": "Compare Checkpoints",
+                 "detail": "scripts/compare_checkpoints.py — side-by-side comparison"},
+                {"label": "Nano Benchmark",
+                 "detail": "scripts/nano_benchmark.py — fast generation speed test"},
+                {"label": "Generate Model Card",
+                 "detail": "scripts/model_card.py — create HuggingFace-style model card"},
+                {"label": "Training Status",
+                 "detail": "scripts/training_status.py — inspect logs, no GPU needed"},
+            ]
+
+            choice = cli.choose("Select evaluation:", options, allow_cancel=True)
+            if choice is None:
+                return
+
+            if choice == 0:
+                self._humaneval_menu()
+            elif choice == 1:
+                self._benchmark_menu()
+            elif choice == 2:
+                self._run_script("compare_checkpoints.py")
+                self._pause()
+            elif choice == 3:
+                self._run_script("nano_benchmark.py")
+                self._pause()
+            elif choice == 4:
+                self._model_card_menu()
+            elif choice == 5:
+                self._run_script("training_status.py")
+                self._pause()
+
+    def _humaneval_menu(self) -> None:
+        """HumanEval evaluation with checkpoint selection."""
+        _print_section_header("HumanEval Evaluation", "164 Python coding problems — pass@k metric")
+
+        ckpt_path = self._pick_checkpoint("Select checkpoint to evaluate:")
+        if ckpt_path is None:
+            return
+
+        self._run_script("evaluate.py", ["--checkpoint", ckpt_path])
+        self._pause()
+
+    def _benchmark_menu(self) -> None:
+        """Benchmark with checkpoint selection."""
+        _print_section_header("Quick Benchmark", "Speed and quality benchmark")
+
+        ckpt_path = self._pick_checkpoint("Select checkpoint to benchmark:")
+        if ckpt_path is None:
+            return
+
+        self._run_script("benchmark.py", ["--checkpoint", ckpt_path])
+        self._pause()
+
+    def _model_card_menu(self) -> None:
+        """Generate model card."""
+        _print_section_header("Generate Model Card", "HuggingFace-style model card")
+
+        ckpt_path = self._pick_checkpoint("Select checkpoint for model card:")
+        if ckpt_path is None:
+            return
+
+        self._run_script("model_card.py", ["--checkpoint", ckpt_path])
+        self._pause()
+
+    # ── 6. Tools & Utilities ─────────────────────────────────────────────
+
+    def tools_menu(self) -> None:
+        """Developer tools sub-menu."""
+        while True:
+            _print_section_header("Tools & Utilities", "Tests, linting, GPU, data inspection")
+
+            # Build feature toggles label
+            try:
+                features = _scan_feature_modules(self.project_root)
+                n_enabled, n_total = _count_enabled(features)
+                toggles_detail = f"{n_enabled}/{n_total} features enabled"
+            except Exception:
+                toggles_detail = "Enable/disable optional features"
+
+            options = [
+                {"label": "Run Tests",
+                 "detail": "pytest tests/ -v"},
+                {"label": "Run Linter",
+                 "detail": "ruff check src/ scripts/ tests/"},
+                {"label": "GPU Status",
+                 "detail": "torch.cuda info + nvidia-smi output"},
+                {"label": "Dataset Inspector",
+                 "detail": "Browse random samples from training data"},
+                {"label": "Test Type Reward",
+                 "detail": "scripts/test_type_reward.py — test GRPO reward functions"},
+                {"label": "Feature Toggles",
+                 "detail": toggles_detail},
+            ]
+
+            choice = cli.choose("Select tool:", options, allow_cancel=True)
+            if choice is None:
+                return
+
+            if choice == 0:
+                self._run_shell([
+                    str(self.venv_python), "-m", "pytest", "tests/", "-v",
+                ])
+                self._pause()
+            elif choice == 1:
+                self._run_shell([
+                    str(self.venv_python), "-m", "ruff", "check",
+                    "src/", "scripts/", "tests/",
+                ])
+                self._pause()
+            elif choice == 2:
+                self._gpu_status()
+            elif choice == 3:
+                self._inspect_dataset()
+                self._pause()
+            elif choice == 4:
+                self._run_script("test_type_reward.py")
+                self._pause()
+            elif choice == 5:
+                self._feature_toggles()
+
+    def _gpu_status(self) -> None:
+        """Show GPU info from torch and nvidia-smi."""
+        _print_section_header("GPU Status", "CUDA and VRAM information")
+
+        cli.gpu_info()
+
+        try:
+            result = subprocess.run(["nvidia-smi"], capture_output=True, text=True)
+            if result.returncode == 0:
+                cli.print(result.stdout)
+            else:
+                cli.warn("nvidia-smi returned non-zero exit code.")
+        except FileNotFoundError:
+            cli.warn("nvidia-smi not found — is the NVIDIA driver installed?")
+
+        self._pause()
+
+    # ── 7. Settings ───────────────────────────────────────────────────────
+
+    def settings_menu(self) -> None:
+        """Settings and configuration sub-menu."""
+        while True:
+            _print_section_header("Settings", "Feature toggles and storage configuration")
+
+            try:
+                features = _scan_feature_modules(self.project_root)
+                n_enabled, n_total = _count_enabled(features)
+                toggles_detail = f"{n_enabled}/{n_total} features currently enabled"
+            except Exception:
+                toggles_detail = "Enable/disable optional features"
+
+            options = [
+                {"label": "Feature Toggles",
+                 "detail": toggles_detail},
+                {"label": "Storage Paths",
+                 "detail": "Show data, checkpoint, tokenizer paths"},
+                {"label": "Project Info",
+                 "detail": "Python, torch, CUDA, project root"},
+            ]
+
+            choice = cli.choose("Settings:", options, allow_cancel=True)
+            if choice is None:
+                return
+
+            if choice == 0:
+                self._feature_toggles()
+            elif choice == 1:
+                self._storage_paths()
+            elif choice == 2:
+                self._project_info()
+
+    def _storage_paths(self) -> None:
+        """Show configured storage paths."""
+        _print_section_header("Storage Paths", "Current data and checkpoint locations")
+
+        root = self.project_root
+        paths = {
+            "Project root":     str(root),
+            "Tokenizer":        str(root / "tokenizer.json"),
+            "Data processed":   str(root / "data" / "processed"),
+            "Checkpoints":      str(root / "checkpoints"),
+            "Configs":          str(root / "configs"),
+            "Scripts":          str(root / "scripts"),
+            "Python (venv)":    str(self.venv_python),
+        }
+
+        cli.kv_table(paths, title="Paths")
+
+        # Existence indicators
+        if _HAS_RICH:
+            _rich_console.print("")
+            for label, path_str in paths.items():
+                p = Path(path_str)
+                if p.exists():
+                    _rich_console.print(f"  [green]✓[/green] {label}")
+                else:
+                    _rich_console.print(f"  [red]✗[/red] [dim]{label} — not found[/dim]")
+
+        self._pause()
+
+    def _project_info(self) -> None:
+        """Show project and environment information."""
+        _print_section_header("Project Info", "Environment and version details")
+
+        import sys
+        info: dict[str, str] = {
+            "Python":       sys.version.split()[0],
+            "Project root": str(self.project_root),
+            "Platform":     sys.platform,
+        }
+
+        try:
+            import torch
+            info["PyTorch"] = torch.__version__
+            info["CUDA available"] = str(torch.cuda.is_available())
+            if torch.cuda.is_available():
+                info["CUDA version"] = torch.version.cuda or "unknown"
+                info["GPU"] = torch.cuda.get_device_name(0)
+                props = torch.cuda.get_device_properties(0)
+                vram = (
+                    getattr(props, "total_memory", 0) or getattr(props, "total_mem", 0)
+                ) / 1e9
+                info["VRAM"] = f"{vram:.1f} GB"
+        except ImportError:
+            info["PyTorch"] = "not installed"
+
+        cli.kv_table(info, title="Environment")
+        self._pause()
+
+    # ── 8. Training Status ────────────────────────────────────────────────
+
+    def training_status_menu(self) -> None:
+        """Training status — reads logs, no GPU needed."""
+        _print_section_header("Training Status", "Inspect training progress (no GPU needed)")
+
+        self._run_script("training_status.py")
+        self._pause()
+
+    # ── Dataset inspector ─────────────────────────────────────────────────
+
+    def _inspect_dataset(self) -> None:
+        """Browse random samples from training data (inline inspection)."""
         import numpy as np
+
         data_dir = self.project_root / "data" / "processed"
         npy_files = list(data_dir.glob("*.npy")) if data_dir.exists() else []
 
         if not npy_files:
-            cli.error("No datasets found.")
+            cli.error("No datasets found in data/processed/")
             return
 
         # Pick a dataset
         if len(npy_files) == 1:
             npy_path = npy_files[0]
         else:
-            options = [{"label": f.stem, "detail": ""} for f in npy_files]
-            choice = cli.choose("Select dataset:", options, allow_cancel=True)
+            options = [{"label": f.stem, "detail": str(round(f.stat().st_size / 1e6, 1)) + " MB"}
+                       for f in npy_files]
+            choice = cli.choose("Select dataset to inspect:", options, allow_cancel=True)
             if choice is None:
                 return
             npy_path = npy_files[choice]
 
-        data = np.load(str(npy_path), mmap_mode="r")
-        cli.info("Shape", f"{data.shape[0]:,} chunks x {data.shape[1]} tokens")
-        cli.info("Total tokens", f"{data.shape[0] * data.shape[1]:,}")
+        _print_section_header("Dataset Inspector", npy_path.stem)
 
-        # Show random samples
+        data = np.load(str(npy_path), mmap_mode="r")
+        cli.info("Shape",        f"{data.shape[0]:,} chunks x {data.shape[1]} tokens")
+        cli.info("Total tokens", f"{data.shape[0] * data.shape[1]:,}")
+        cli.info("File",         str(npy_path))
+        cli.print("")
+
         try:
             from cola_coder.tokenizer.tokenizer_utils import CodeTokenizer
             tokenizer_path = self.project_root / "tokenizer.json"
-            if tokenizer_path.exists():
-                tokenizer = CodeTokenizer(str(tokenizer_path))
-                indices = np.random.choice(data.shape[0], size=min(3, data.shape[0]), replace=False)
-                for idx in indices:
-                    cli.rule(f"Sample #{idx}")
-                    tokens = data[idx].tolist()
-                    text = tokenizer.decode(tokens)
-                    # Truncate for display
-                    display_text = text[:500] + ("..." if len(text) > 500 else "")
-                    cli.print(display_text)
+            if not tokenizer_path.exists():
+                cli.warn("tokenizer.json not found — can't decode samples.")
+                return
+
+            tokenizer = CodeTokenizer(str(tokenizer_path))
+            n_samples = min(3, data.shape[0])
+            indices = np.random.choice(data.shape[0], size=n_samples, replace=False)
+
+            for idx in indices:
+                cli.rule(f"Sample #{idx}")
+                tokens = data[idx].tolist()
+                text = tokenizer.decode(tokens)
+                display = text[:600] + ("  [...]" if len(text) > 600 else "")
+                cli.print(display)
+                cli.print("")
+
         except Exception as e:
             cli.warn(f"Could not decode samples: {e}")
 
-    def _feature_toggles(self):
+    # ── Feature toggles (preserved exactly from original) ─────────────────
+
+    def _feature_toggles(self) -> None:
         """Interactive feature toggle menu — grouped by category.
 
         All features are OPTIONAL. Disabling one never breaks core functionality;
@@ -564,12 +1217,11 @@ class MasterMenu:
             cli.dim("Persisted to: configs/features.yaml")
             cli.print("")
 
-            # Reload states fresh each time we return to the category list
             try:
                 features = _scan_feature_modules(self.project_root)
             except Exception as exc:
                 cli.warn(f"Could not scan feature modules: {exc}")
-                input("\nPress Enter to continue...")
+                self._pause()
                 return
 
             n_enabled, n_total = _count_enabled(features)
@@ -591,7 +1243,6 @@ class MasterMenu:
                     "detail": f"{cat_enabled}/{cat_total} enabled",
                 })
 
-            # Bulk actions at the bottom
             cat_options.append({
                 "label": "Enable ALL Features",
                 "detail": f"Turn on all {n_total} optional features",
@@ -603,31 +1254,28 @@ class MasterMenu:
 
             choice = cli.choose("Select a category to manage:", cat_options, allow_cancel=True)
             if choice is None:
-                return  # Back to Tools menu
+                return  # Back to caller
 
-            # "Enable ALL Features"
             if choice == len(cat_options) - 2:
                 if cli.confirm(f"Enable all {n_total} features?", default=False):
                     for feat in features:
                         _save_feature_state(self.project_root, feat["name"], True)
                     cli.success(f"Enabled all {n_total} features.")
-                    input("\nPress Enter to continue...")
+                    self._pause()
                 continue
 
-            # "Disable ALL Features"
             if choice == len(cat_options) - 1:
                 if cli.confirm(f"Disable all {n_total} features?", default=False):
                     for feat in features:
                         _save_feature_state(self.project_root, feat["name"], False)
-                    cli.warn(f"Disabled all {n_total} features.  Core functionality is unaffected.")
-                    input("\nPress Enter to continue...")
+                    cli.warn(f"Disabled all {n_total} features. Core functionality is unaffected.")
+                    self._pause()
                 continue
 
-            # Category drill-down
             selected_cat = categories_in_use[choice]
             self._feature_category_menu(selected_cat, features)
 
-    def _feature_category_menu(self, category: str, features: list[dict]):
+    def _feature_category_menu(self, category: str, features: list[dict]) -> None:
         """Show features in a single category and allow toggling.
 
         Loops until the user chooses Back / Cancel.
@@ -637,11 +1285,9 @@ class MasterMenu:
             cli.dim("All features listed here are OPTIONAL.")
             cli.print("")
 
-            # Reload yaml states so the list is always current
             yaml_states = _load_feature_states(self.project_root)
             cat_features = [f for f in features if f["category"] == category]
 
-            # Apply latest persisted states before displaying
             for feat in cat_features:
                 if feat["name"] in yaml_states:
                     feat["enabled"] = yaml_states[feat["name"]]
@@ -657,7 +1303,6 @@ class MasterMenu:
             cat_enabled = sum(1 for f in cat_features if f["enabled"])
             cat_total = len(cat_features)
 
-            # Bulk actions for this category
             feat_options.append({
                 "label": "Enable All in Category",
                 "detail": f"Turn on all {cat_total} features in {category}",
@@ -673,30 +1318,27 @@ class MasterMenu:
             if choice is None:
                 return  # Back to category list
 
-            # "Enable All in Category"
             if choice == len(feat_options) - 2:
                 if cli.confirm(f"Enable all {cat_total} {category} features?", default=True):
                     for feat in cat_features:
                         feat["enabled"] = True
                         _save_feature_state(self.project_root, feat["name"], True)
                     cli.success(f"Enabled all {cat_total} features in {category}.")
-                    input("\nPress Enter to continue...")
+                    self._pause()
                 continue
 
-            # "Disable All in Category"
             if choice == len(feat_options) - 1:
                 if cli.confirm(f"Disable all {cat_total} {category} features?", default=False):
                     for feat in cat_features:
                         feat["enabled"] = False
                         _save_feature_state(self.project_root, feat["name"], False)
                     cli.warn(
-                        f"Disabled all {cat_total} features in {category}.  "
+                        f"Disabled all {cat_total} features in {category}. "
                         "Core functionality is unaffected."
                     )
-                    input("\nPress Enter to continue...")
+                    self._pause()
                 continue
 
-            # Toggle a single feature
             feat = cat_features[choice]
             new_state = not feat["enabled"]
             feat["enabled"] = new_state
@@ -706,13 +1348,15 @@ class MasterMenu:
                 cli.success(f"{feat['label']} enabled.")
             else:
                 cli.warn(
-                    f"{feat['label']} disabled.  "
+                    f"{feat['label']} disabled. "
                     "(This is optional — core functionality is unaffected.)"
                 )
-            # Loop back immediately so the user sees the updated state
+            # Loop back immediately so user sees updated state
 
 
-def run_master_menu():
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+def run_master_menu() -> None:
     """Entry point for the master menu."""
     if not is_enabled():
         cli.error("Master menu feature is disabled.")

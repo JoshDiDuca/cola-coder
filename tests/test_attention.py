@@ -1,6 +1,5 @@
 """Tests for attention components: RoPE, GQA, normalization, feedforward."""
 
-import pytest
 import torch
 
 from cola_coder.model.normalization import RMSNorm

@@ -14,7 +14,6 @@ Then:
 """
 
 import argparse
-import sys
 from pathlib import Path
 
 from cola_coder.cli import cli

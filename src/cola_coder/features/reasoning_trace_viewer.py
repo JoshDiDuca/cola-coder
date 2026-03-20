@@ -11,7 +11,7 @@ CLI flag: --trace-viewer
 """
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 FEATURE_ENABLED = True
@@ -295,8 +295,6 @@ class ReasoningTrace:
     @staticmethod
     def _classify_line(line: str) -> "TraceStep | None":
         """Map a single line of text to a TraceStep, or None if unclassified."""
-        lower = line.lower()
-
         # --- deciding ---
         deciding_re = re.compile(
             r"^(?:decision[:\-–]\s*|i decided?\s+to\s+|will use\s+|chose\s+|"

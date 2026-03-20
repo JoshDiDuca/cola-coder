@@ -249,7 +249,7 @@ class ThinkingQualityScorer:
         Returns:
             (score 0-1, where 1 = no repetition, 0 = highly repetitive)
         """
-        lines = [l.strip() for l in trace.splitlines() if l.strip()]
+        lines = [ln.strip() for ln in trace.splitlines() if ln.strip()]
 
         if not lines:
             return 1.0, {"reason": "no content"}

@@ -12,10 +12,9 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
-import torch
 import torch.nn as nn
 
 # ---------------------------------------------------------------------------

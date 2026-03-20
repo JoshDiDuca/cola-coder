@@ -9,7 +9,7 @@ big model would say, and the big model just checks "yes/no" on each guess.
 """
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import torch
 import torch.nn.functional as F

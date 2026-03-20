@@ -12,7 +12,6 @@ changes you see which layers drifted most between checkpoint A and checkpoint B.
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 from typing import Any
 
@@ -290,7 +289,7 @@ class CheckpointComparison:
         - ``path_a`` / ``path_b``: source paths if loaded from files
         """
         weight_diffs = self.compare_weights()
-        norms = self.compare_norms()
+        self.compare_norms()
 
         total_params_a = sum(t.numel() for t in self.state_a.values())
         total_params_b = sum(t.numel() for t in self.state_b.values())

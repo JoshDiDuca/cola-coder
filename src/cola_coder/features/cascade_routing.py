@@ -12,7 +12,7 @@ Uses entropy-based confidence scoring: low entropy over output distribution = hi
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, List, Optional
 
 FEATURE_ENABLED = True
@@ -178,7 +178,7 @@ class CascadeRouter:
     def route(
         self,
         prompt: Any,
-        confidence_fn: Callable[["torch.Tensor"], float] = default_confidence_fn,
+        confidence_fn: Callable[[Any], float] = default_confidence_fn,
     ) -> CascadeResult:
         """Route *prompt* through the cascade.
 

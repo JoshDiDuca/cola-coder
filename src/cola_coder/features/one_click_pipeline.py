@@ -14,7 +14,7 @@ For a TS dev: like `npm run build` that handles all the build steps
 in order, skipping ones that are already up to date.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 import json
 import time

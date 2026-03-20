@@ -6,7 +6,7 @@ optional pynvml for GPU utilization.
 """
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from collections import deque
 from typing import Optional
 

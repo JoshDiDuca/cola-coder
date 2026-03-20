@@ -64,7 +64,7 @@ def _scan_datasets(output_dir: str) -> list[dict]:
 
 def _auto_name(output_dir: str, languages: list[str], max_tokens: int | None) -> str:
     """Generate an auto-name like train_ts_js_500M."""
-    lang_tag = "_".join(l[:2] for l in languages)  # typescript -> ts
+    lang_tag = "_".join(lang[:2] for lang in languages)  # typescript -> ts
     if max_tokens:
         if max_tokens >= 1_000_000_000:
             tok_tag = f"{max_tokens / 1e9:.0f}B"

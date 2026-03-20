@@ -11,7 +11,6 @@ Tests:
 
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -20,9 +19,7 @@ from cola_coder.data.pipeline import (
     DataPipeline,
     DataRecord,
     DataSource,
-    FilterPlugin,
     PipelineStats,
-    Transform,
 )
 from cola_coder.data.registry import (
     _FILTER_REGISTRY,
@@ -31,9 +28,6 @@ from cola_coder.data.registry import (
     get_filter,
     get_source,
     get_transform,
-    register_filter,
-    register_source,
-    register_transform,
 )
 
 
@@ -379,7 +373,7 @@ class TestPipeline:
             filters=[LengthFilter(min_lines=5)],
         )
 
-        records = list(pipeline.stream())
+        list(pipeline.stream())
         assert pipeline.stats.kept == 1
         assert pipeline.stats.rejected == 1
         assert pipeline.stats.total == 2

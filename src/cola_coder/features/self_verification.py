@@ -205,7 +205,7 @@ class SelfVerifier:
         checks += 0  # penalty only, no divisor increment
 
         # 4. Length sanity: very short code for a non-trivial prompt is suspect
-        code_lines = [l for l in code.splitlines() if l.strip()]
+        code_lines = [ln for ln in code.splitlines() if ln.strip()]
         if len(prompt.split()) > 20 and len(code_lines) < 3:
             score -= 0.2
 
@@ -236,7 +236,7 @@ class SelfVerifier:
                 issues.append(f"Possibly hallucinated method call: '{method_name}' — verify this API exists.")
 
         # 3. Repetition detection (degenerate loop output)
-        lines = [l.strip() for l in code.splitlines() if l.strip()]
+        lines = [ln.strip() for ln in code.splitlines() if ln.strip()]
         if lines:
             from collections import Counter
             counts = Counter(lines)

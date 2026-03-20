@@ -17,11 +17,10 @@ def is_enabled() -> bool:
     return FEATURE_ENABLED
 
 
-import torch
-import torch.nn as nn
-from collections import defaultdict
-from dataclasses import dataclass, field
-from typing import Optional
+import torch  # noqa: E402
+import torch.nn as nn  # noqa: E402
+from collections import defaultdict  # noqa: E402
+from dataclasses import dataclass  # noqa: E402
 
 
 @dataclass

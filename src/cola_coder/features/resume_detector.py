@@ -12,7 +12,6 @@ Features:
 
 import json
 from pathlib import Path
-from datetime import datetime
 from dataclasses import dataclass
 from cola_coder.cli import cli
 

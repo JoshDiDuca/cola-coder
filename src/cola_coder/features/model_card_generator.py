@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Optional
 
@@ -205,8 +205,8 @@ class ModelCardGenerator:
         lines = [
             "## Model Information",
             "",
-            f"| Field | Value |",
-            f"|-------|-------|",
+            "| Field | Value |",
+            "|-------|-------|",
             f"| Architecture | {mi.architecture} |",
             f"| Parameters | {self._format_parameters()} |",
             f"| Languages | {languages} |",
@@ -219,8 +219,8 @@ class ModelCardGenerator:
         lines = [
             "## Training Details",
             "",
-            f"| Field | Value |",
-            f"|-------|-------|",
+            "| Field | Value |",
+            "|-------|-------|",
             f"| Dataset | {ti.dataset} |",
             f"| Epochs | {ti.epochs} |",
             f"| Learning Rate | {ti.learning_rate} |",

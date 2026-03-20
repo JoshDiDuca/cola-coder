@@ -1,6 +1,5 @@
 """Tests for the tokenizer training and usage."""
 
-import pytest
 from pathlib import Path
 
 from cola_coder.tokenizer.train_tokenizer import (

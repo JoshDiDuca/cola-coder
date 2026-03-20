@@ -23,7 +23,7 @@ def is_enabled() -> bool:
 def check_onnx_available() -> bool:
     """Check if ONNX and ONNX Runtime are available."""
     try:
-        import onnx
+        import onnx  # noqa: F401
         return True
     except ImportError:
         return False
@@ -32,7 +32,7 @@ def check_onnx_available() -> bool:
 def check_onnxruntime_available() -> bool:
     """Check if ONNX Runtime is available."""
     try:
-        import onnxruntime
+        import onnxruntime  # noqa: F401
         return True
     except ImportError:
         return False

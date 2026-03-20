@@ -10,7 +10,6 @@ Tests verify:
 7. Edge cases (single source, zero weights, etc.)
 """
 
-import math
 
 import pytest
 

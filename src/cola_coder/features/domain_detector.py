@@ -17,8 +17,7 @@ Domains:
 """
 
 import re
-from dataclasses import dataclass, field
-from cola_coder.cli import cli
+from dataclasses import dataclass
 
 FEATURE_ENABLED = True
 

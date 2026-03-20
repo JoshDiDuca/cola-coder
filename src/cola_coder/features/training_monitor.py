@@ -15,7 +15,7 @@ in the main thread via Rich Live.
 
 import time
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from collections import deque
 
 FEATURE_ENABLED = True

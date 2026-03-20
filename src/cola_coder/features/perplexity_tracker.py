@@ -14,7 +14,7 @@ Perplexity scale reference:
 
 import math
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 FEATURE_ENABLED = True

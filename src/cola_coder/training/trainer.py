@@ -147,8 +147,6 @@ class Trainer:
         # Track loss at checkpoint intervals for the manifest
         loss_history: dict[str, float] = {}
         total_tokens_seen = 0
-        # Tokens per step: effective_batch_size * max_seq_len
-        tokens_per_step = cfg.effective_batch_size * self.config.model.max_seq_len
 
         # Try to read total tokens from data manifest for epoch calculation
         total_data_tokens = 0

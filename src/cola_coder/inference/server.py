@@ -11,7 +11,6 @@ Usage:
     # Then: curl -X POST http://localhost:8000/generate -d '{"prompt": "def hello"}'
 """
 
-from dataclasses import dataclass
 
 from fastapi import FastAPI
 from pydantic import BaseModel

@@ -4,9 +4,8 @@ This wraps the raw HuggingFace tokenizer with convenience methods
 specific to our model's needs (special token IDs, batch encoding, etc.).
 """
 
-from tokenizers import Tokenizer
 
-from .train_tokenizer import SPECIAL_TOKENS, load_tokenizer
+from .train_tokenizer import load_tokenizer
 
 
 class CodeTokenizer:

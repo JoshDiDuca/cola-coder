@@ -10,7 +10,7 @@ Extends the basic router with:
 import time
 import json
 from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from collections import defaultdict
 from cola_coder.cli import cli
 

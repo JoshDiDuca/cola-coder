@@ -8,9 +8,8 @@ Monitors training and validation loss, detects when:
 Uses exponential moving average (EMA) for smooth detection.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from cola_coder.cli import cli
-import math
 
 FEATURE_ENABLED = True
 

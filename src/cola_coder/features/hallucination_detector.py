@@ -11,7 +11,7 @@ For a TS dev: like having ESLint + TypeScript compiler errors but specifically
 tuned to catch things AI models commonly get wrong.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import re
 
 FEATURE_ENABLED = True

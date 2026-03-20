@@ -13,10 +13,7 @@ where A: [in, rank], B: [rank, out], scaling = alpha / rank
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Optional
 
 FEATURE_ENABLED = True
 

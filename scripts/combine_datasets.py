@@ -111,8 +111,8 @@ def select_menu(
         console.print(f"  [bold cyan]{step}[/bold cyan]" if step else "")
         console.print(f"  [bold]{title}[/bold]")
         console.print(
-            f"  [dim]Use [bold]arrow keys[/bold] to navigate, "
-            f"[bold]Enter[/bold] to select[/dim]"
+            "  [dim]Use [bold]arrow keys[/bold] to navigate, "
+            "[bold]Enter[/bold] to select[/dim]"
         )
         console.print()
 
@@ -164,9 +164,9 @@ def multi_select_menu(
         console.print(f"  [bold cyan]{step}[/bold cyan]" if step else "")
         console.print(f"  [bold]{title}[/bold]")
         console.print(
-            f"  [dim]Use [bold]arrow keys[/bold] to navigate, "
-            f"[bold]Space[/bold] to toggle, "
-            f"[bold]Enter[/bold] to confirm[/dim]"
+            "  [dim]Use [bold]arrow keys[/bold] to navigate, "
+            "[bold]Space[/bold] to toggle, "
+            "[bold]Enter[/bold] to confirm[/dim]"
         )
         console.print()
 
@@ -238,11 +238,11 @@ def weight_editor(
 
         console.print()
         console.print(f"  [bold cyan]{step}[/bold cyan]" if step else "")
-        console.print(f"  [bold]Set weights for each dataset[/bold]")
+        console.print("  [bold]Set weights for each dataset[/bold]")
         console.print(
-            f"  [dim]Use [bold]up/down[/bold] to navigate, "
-            f"[bold]left/right[/bold] to adjust weight, "
-            f"[bold]Enter[/bold] to confirm[/dim]"
+            "  [dim]Use [bold]up/down[/bold] to navigate, "
+            "[bold]left/right[/bold] to adjust weight, "
+            "[bold]Enter[/bold] to confirm[/dim]"
         )
         console.print()
 
@@ -429,7 +429,6 @@ DEDUP_OPTIONS = [
 
 def run_menu(data_dir: str, tokenizer_path: str | None = None) -> dict:
     """Run the interactive menu and return settings."""
-    import numpy as np
 
     # Step 1: Scan for datasets
     datasets = scan_datasets(data_dir)
@@ -672,8 +671,8 @@ def run_pipeline(settings: dict, output_path: str):
             f"Tokens: {result.total_tokens:,} ({_format_tokens(result.total_tokens)})\n"
             + (f"Dedup:  {dedup_removed:,} duplicates removed\n"
                if dedup_removed else "")
-            + f"\nNext step:\n"
-            f"  [dim]python scripts/train.py --config configs/tiny.yaml[/dim]",
+            + "\nNext step:\n"
+            "  [dim]python scripts/train.py --config configs/tiny.yaml[/dim]",
             title="[bold]Complete[/bold]",
             box=box.ROUNDED,
             padding=(1, 2),

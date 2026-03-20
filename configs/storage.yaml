@@ -1,0 +1,16 @@
+# Storage configuration for Cola-Coder.
+# Change these paths to store data on a different drive.
+# All paths can be absolute (D:/ml-data/cola-coder/) or relative to project root.
+
+storage:
+  data_dir: "./data"                    # Training data (raw + processed)
+  checkpoints_dir: "./checkpoints"      # Model checkpoints (safetensors)
+  tokenizer_path: "./tokenizer.json"    # Trained BPE tokenizer
+  cache_dir: "./cache"                  # HuggingFace download cache
+
+# Example: Store everything on D: drive
+# storage:
+#   data_dir: "D:/cola-coder-data/data"
+#   checkpoints_dir: "D:/cola-coder-data/checkpoints"
+#   tokenizer_path: "D:/cola-coder-data/tokenizer.json"
+#   cache_dir: "D:/cola-coder-data/cache"

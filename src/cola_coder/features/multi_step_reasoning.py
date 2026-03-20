@@ -16,7 +16,7 @@ CLI flag: --multi-step-reasoning
 """
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from math import prod
 from typing import Optional
 

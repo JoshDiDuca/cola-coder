@@ -44,8 +44,6 @@ def validate_config(config, check_files: bool = True, check_vram: bool = True) -
     m = config.model
     t = config.training
     d = config.data
-    c = config.checkpoint
-
     # --- Model config ---
 
     # dim must be divisible by n_heads
@@ -96,7 +94,7 @@ def validate_config(config, check_files: bool = True, check_vram: bool = True) -
     if t.batch_size <= 0:
         issues.append(ValidationIssue("error", "training.batch_size", f"batch_size must be positive, got {t.batch_size}"))
     if t.gradient_accumulation <= 0:
-        issues.append(ValidationIssue("error", "training.gradient_accumulation", f"gradient_accumulation must be positive"))
+        issues.append(ValidationIssue("error", "training.gradient_accumulation", "gradient_accumulation must be positive"))
     if t.learning_rate <= 0:
         issues.append(ValidationIssue("error", "training.learning_rate", f"learning_rate must be positive, got {t.learning_rate}"))
     if t.min_lr < 0:
@@ -107,7 +105,7 @@ def validate_config(config, check_files: bool = True, check_vram: bool = True) -
             f"min_lr ({t.min_lr}) >= learning_rate ({t.learning_rate}). LR schedule will be flat.",
         ))
     if t.max_steps <= 0:
-        issues.append(ValidationIssue("error", "training.max_steps", f"max_steps must be positive"))
+        issues.append(ValidationIssue("error", "training.max_steps", "max_steps must be positive"))
     if t.warmup_steps >= t.max_steps:
         issues.append(ValidationIssue(
             "warning", "training.warmup_steps",

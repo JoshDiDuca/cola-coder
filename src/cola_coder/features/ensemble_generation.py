@@ -10,7 +10,6 @@ result — similar to best-of-N sampling or self-consistency prompting.
 
 from dataclasses import dataclass, field
 from typing import Callable
-import re
 
 FEATURE_ENABLED = True
 
@@ -179,7 +178,6 @@ class EnsembleGenerator:
 
     def generate_params_list(self) -> list[dict]:
         """Generate a list of diverse sampling parameter sets."""
-        import random
         params_list = []
         cfg = self.config
 

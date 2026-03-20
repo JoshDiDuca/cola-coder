@@ -8,7 +8,6 @@ outputs look reasonable. This catches obvious failures:
 - All-whitespace output
 """
 
-import re
 from dataclasses import dataclass
 from cola_coder.cli import cli
 
@@ -176,7 +175,7 @@ class SmokeTest:
             # Show output preview
             preview = generated[:100].replace('\n', '\\n')
             if is_empty:
-                cli.print(f"    [red]EMPTY OUTPUT[/red]")
+                cli.print("    [red]EMPTY OUTPUT[/red]")
             elif has_repetition:
                 cli.print(f"    [yellow]REPETITION DETECTED[/yellow]: {preview}")
             elif has_garbage:

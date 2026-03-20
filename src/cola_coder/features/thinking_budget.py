@@ -11,7 +11,7 @@ CLI flag: --thinking-budget
 """
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 FEATURE_ENABLED = True
 

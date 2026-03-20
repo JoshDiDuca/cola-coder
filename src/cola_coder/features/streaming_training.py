@@ -12,10 +12,9 @@ from __future__ import annotations
 
 import os
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Generator, Iterable, Iterator, List, Optional
 
-import torch
 from torch.utils.data import DataLoader, IterableDataset
 
 FEATURE_ENABLED = True

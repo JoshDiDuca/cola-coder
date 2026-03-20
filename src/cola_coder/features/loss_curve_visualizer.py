@@ -187,7 +187,7 @@ def load_run_from_json(json_path: Union[str, Path], name: Optional[str] = None) 
 
     # Try JSONL first
     if "\n" in content.strip():
-        lines = [l.strip() for l in content.splitlines() if l.strip()]
+        lines = [ln.strip() for ln in content.splitlines() if ln.strip()]
         try:
             first = json.loads(lines[0])
             if isinstance(first, dict) and ("step" in first or "train_loss" in first):

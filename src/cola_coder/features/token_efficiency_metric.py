@@ -12,7 +12,7 @@ Think of it as measuring how much actual logic you get per character/token spent
 import re
 import tokenize
 import io
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 FEATURE_ENABLED = True

@@ -366,4 +366,4 @@ class TestQualityClassifierFilter:
         filt = QualityClassifierFilter(threshold=0.4, mode="heuristic")
         record = DataRecord(content=MINIFIED_JS, metadata={"language": "javascript"})
         keep, reason = filt.check(record)
-        assert not keep, f"Minified JS should be rejected, but was kept"
+        assert not keep, "Minified JS should be rejected, but was kept"

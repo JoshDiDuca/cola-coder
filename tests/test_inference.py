@@ -1,6 +1,5 @@
 """Tests for inference components: sampling, evaluation metrics."""
 
-import pytest
 import torch
 
 from cola_coder.inference.sampling import (

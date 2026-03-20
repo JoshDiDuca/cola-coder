@@ -425,13 +425,13 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
     std_pred = (sum((p - mean_pred) ** 2 for p in pred_labels) / n) ** 0.5
     correlation = cov / max(std_true * std_pred, 1e-8)
 
-    print(f"\nResults:")
+    print("\nResults:")
     print(f"  MAE:         {mae:.3f}")
     print(f"  RMSE:        {mse ** 0.5:.3f}")
     print(f"  Correlation: {correlation:.3f}")
 
     # Score distribution
-    print(f"\nScore distribution (predicted, 1-5 scale):")
+    print("\nScore distribution (predicted, 1-5 scale):")
     for bucket in range(1, 6):
         count = sum(1 for s in pred_labels if bucket - 0.5 <= s < bucket + 0.5)
         pct = count / n * 100

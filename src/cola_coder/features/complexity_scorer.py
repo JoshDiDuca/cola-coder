@@ -141,9 +141,9 @@ class ComplexityScorer:
         metrics.comment_ratio = self._comment_ratio(code, language)
 
         # Average line length
-        non_empty = [l for l in lines if l.strip()]
+        non_empty = [ln for ln in lines if ln.strip()]
         if non_empty:
-            metrics.avg_line_length = sum(len(l) for l in non_empty) / len(non_empty)
+            metrics.avg_line_length = sum(len(ln) for ln in non_empty) / len(non_empty)
 
         return metrics
 

@@ -8,7 +8,7 @@ For a TS dev: like autocomplete in VS Code where you're typing in the middle
 of a function and the AI needs to understand both what came before AND after.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 FEATURE_ENABLED = True
 

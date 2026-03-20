@@ -8,7 +8,7 @@ instead of a Promise that resolves with the full string.
 """
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Generator, Callable
 
 import torch
@@ -249,7 +249,6 @@ class StreamingGenerator:
         Returns:
             Full generated text
         """
-        import sys
 
         print(prompt, end="", flush=True)
         parts = []

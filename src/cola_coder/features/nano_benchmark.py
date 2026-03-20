@@ -10,11 +10,10 @@ Problems are scored on:
 3. Test execution (does it produce correct output?)
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 import subprocess
 import tempfile
-import json
 from cola_coder.cli import cli
 
 FEATURE_ENABLED = True

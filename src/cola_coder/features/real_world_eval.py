@@ -10,7 +10,7 @@ Each task is scored on keyword presence in the model's output, providing a
 lightweight signal for whether the output addresses the task requirements.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 FEATURE_ENABLED = True
 

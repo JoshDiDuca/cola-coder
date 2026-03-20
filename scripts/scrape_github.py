@@ -28,7 +28,6 @@ try:
     from rich.panel import Panel
     from rich.table import Table
     from rich.text import Text
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
     from rich import box
 except ImportError:
     print("Error: 'rich' is required. Install with: pip install rich")
@@ -107,8 +106,8 @@ def select_menu(
         console.print()
         console.print(f"  [bold cyan]{step}[/bold cyan]" if step else "")
         console.print(f"  [bold]{title}[/bold]")
-        console.print(f"  [dim]Use [bold]arrow keys[/bold] to navigate, "
-                      f"[bold]Enter[/bold] to select[/dim]")
+        console.print("  [dim]Use [bold]arrow keys[/bold] to navigate, "
+                      "[bold]Enter[/bold] to select[/dim]")
         console.print()
 
         for i, opt in enumerate(options):
@@ -158,9 +157,9 @@ def multi_select_menu(
         console.print()
         console.print(f"  [bold cyan]{step}[/bold cyan]" if step else "")
         console.print(f"  [bold]{title}[/bold]")
-        console.print(f"  [dim]Use [bold]arrow keys[/bold] to navigate, "
-                      f"[bold]Space[/bold] to toggle, "
-                      f"[bold]Enter[/bold] to confirm[/dim]")
+        console.print("  [dim]Use [bold]arrow keys[/bold] to navigate, "
+                      "[bold]Space[/bold] to toggle, "
+                      "[bold]Enter[/bold] to confirm[/dim]")
         console.print()
 
         for i, opt in enumerate(options):
@@ -333,7 +332,7 @@ MAX_REPOS_OPTIONS = [
 # Custom filter builder
 # ---------------------------------------------------------------------------
 
-def build_custom_filter() -> "RepoFilter":
+def build_custom_filter():
     """Walk the user through building a custom RepoFilter."""
     from cola_coder.data.sources.github import RepoFilter
 

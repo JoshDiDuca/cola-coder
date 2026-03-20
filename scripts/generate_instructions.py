@@ -16,7 +16,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import time
 from pathlib import Path
@@ -28,7 +27,6 @@ from pathlib import Path
 try:
     from rich.console import Console
     from rich.panel import Panel
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
     from rich import box
     _HAS_RICH = True
 except ImportError:
@@ -199,8 +197,6 @@ def _run_pipeline(
     """Run the generation pipeline and save results."""
     from cola_coder.data.sources.self_align import (
         SelfAlignPipeline,
-        SeedExtractor,
-        InstructionGenerator,
     )
 
     console.print()
@@ -276,7 +272,7 @@ def _run_pipeline(
 
 
 def _generate_demo_examples(
-    pipeline: "SelfAlignPipeline", count: int
+    pipeline: object, count: int
 ) -> list:
     """Generate examples from built-in demo code snippets."""
     demo_code = [

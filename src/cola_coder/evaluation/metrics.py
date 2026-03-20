@@ -16,7 +16,6 @@ where n = total samples, c = correct samples, C = combinations.
 This avoids bias from naively computing "fraction with at least one correct."
 """
 
-import math
 from dataclasses import dataclass
 
 

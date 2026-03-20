@@ -6,7 +6,6 @@ These tests verify that:
 3. The model produces valid output for all configurations
 """
 
-import pytest
 import torch
 
 from cola_coder.model.config import ModelConfig, Config

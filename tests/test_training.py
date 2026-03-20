@@ -1,7 +1,5 @@
 """Tests for the training pipeline components."""
 
-import math
-import pytest
 import torch
 
 from cola_coder.training.optimizer import create_optimizer, create_scheduler

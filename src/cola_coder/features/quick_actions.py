@@ -4,7 +4,7 @@ Common actions with keyboard shortcuts, triggerable from a menu or CLI.
 Keeps a registry of named actions with descriptions, shortcuts, and callbacks.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable
 
 # Feature toggle - this feature is OPTIONAL

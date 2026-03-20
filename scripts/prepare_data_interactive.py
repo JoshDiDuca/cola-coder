@@ -111,8 +111,8 @@ def select_menu(
         console.print()
         console.print(f"  [bold cyan]{step}[/bold cyan]" if step else "")
         console.print(f"  [bold]{title}[/bold]")
-        console.print(f"  [dim]Use [bold]arrow keys[/bold] to navigate, "
-                      f"[bold]Enter[/bold] to select[/dim]")
+        console.print("  [dim]Use [bold]arrow keys[/bold] to navigate, "
+                      "[bold]Enter[/bold] to select[/dim]")
         console.print()
 
         for i, opt in enumerate(options):
@@ -165,9 +165,9 @@ def multi_select_menu(
         console.print()
         console.print(f"  [bold cyan]{step}[/bold cyan]" if step else "")
         console.print(f"  [bold]{title}[/bold]")
-        console.print(f"  [dim]Use [bold]arrow keys[/bold] to navigate, "
-                      f"[bold]Space[/bold] to toggle, "
-                      f"[bold]Enter[/bold] to confirm[/dim]")
+        console.print("  [dim]Use [bold]arrow keys[/bold] to navigate, "
+                      "[bold]Space[/bold] to toggle, "
+                      "[bold]Enter[/bold] to confirm[/dim]")
         console.print()
 
         for i, opt in enumerate(options):
@@ -384,8 +384,8 @@ def _get_custom_mixing_weights(languages: list[str], step: str) -> dict[str, flo
     _draw_header()
     console.print()
     console.print(f"  [bold cyan]{step}[/bold cyan]")
-    console.print(f"  [bold]Set custom mixing weights[/bold]")
-    console.print(f"  [dim]Enter a weight for each language (weights will be normalized).[/dim]")
+    console.print("  [bold]Set custom mixing weights[/bold]")
+    console.print("  [dim]Enter a weight for each language (weights will be normalized).[/dim]")
     console.print()
 
     weights: dict[str, float] = {}

@@ -208,7 +208,7 @@ def _generate_reasoning_trace(code: str) -> str:
     a step-by-step description. It's not perfect, but it gives the
     model something to learn the format from.
     """
-    lines = [l.strip() for l in code.split("\n") if l.strip() and not l.strip().startswith("#")]
+    lines = [ln.strip() for ln in code.split("\n") if ln.strip() and not ln.strip().startswith("#")]
     steps = ["Let me think through this step by step:"]
 
     step_num = 1

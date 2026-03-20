@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 from pathlib import Path
 
-from cola_coder.data.combine import DatasetCombiner, DatasetInput, CombineResult
+from cola_coder.data.combine import DatasetCombiner, DatasetInput
 from cola_coder.data.dedup import ExactDeduplicator, CrossDatasetDeduplicator
 
 
@@ -206,7 +206,7 @@ class TestWeighted:
         out_path = str(tmp_datasets["tmp_path"] / "weighted_dist.npy")
         max_tokens = 1000 * CHUNK_SIZE
 
-        result = combiner.combine(
+        combiner.combine(
             datasets=[
                 DatasetInput(tmp_datasets["a"]["path"], weight=0.7, name="A"),
                 DatasetInput(tmp_datasets["b"]["path"], weight=0.3, name="B"),
@@ -221,7 +221,6 @@ class TestWeighted:
         # Chunks from A have values < 100, from B have values >= 1000
         # Check the first token of each chunk
         from_a = np.sum(combined[:, 0] < 500)
-        from_b = np.sum(combined[:, 0] >= 500)
         ratio_a = from_a / len(combined)
         # Should be roughly 0.7 +/- 0.1
         assert 0.55 < ratio_a < 0.85, f"Expected ~70% from A, got {ratio_a:.1%}"

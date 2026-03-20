@@ -86,7 +86,6 @@ def dynamic_quantize(
     total_modules = sum(1 for _ in model.modules())
 
     # Dynamic quantization requires CPU
-    device = next(model.parameters()).device
     original_dtype = str(next(model.parameters()).dtype)
     model_cpu = model.cpu()
 
@@ -126,7 +125,6 @@ def weight_only_quantize(model: nn.Module) -> tuple[nn.Module, QuantizationResul
         Tuple of (model_with_quantized_weights, result)
     """
     original_size = get_model_size_mb(model)
-    num_linear = count_linear_layers(model)
     total_modules = sum(1 for _ in model.modules())
     original_dtype = str(next(model.parameters()).dtype)
 

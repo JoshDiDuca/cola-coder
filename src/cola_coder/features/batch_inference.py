@@ -113,7 +113,7 @@ class BatchResult:
     def summary(self) -> str:
         """Generate a text summary of the batch results."""
         lines = [
-            f"Batch Inference Results",
+            "Batch Inference Results",
             f"  Prompts: {len(self.results)}",
             f"  Total tokens: {self.total_tokens:,}",
             f"  Total time: {self.total_time_ms:.0f}ms ({self.total_time_ms/1000:.1f}s)",

@@ -20,7 +20,6 @@ For code specifically, the tokenizer needs to handle:
 - Numbers
 """
 
-from pathlib import Path
 from typing import Iterator
 
 from tokenizers import Tokenizer, models, pre_tokenizers, trainers, decoders
