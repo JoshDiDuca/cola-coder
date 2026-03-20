@@ -440,6 +440,11 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    from cola_coder.model.config import get_storage_config
+
+    storage = get_storage_config()
+    storage.apply_hf_cache()
+
     parser = argparse.ArgumentParser(
         description="Train a FineWeb-Edu style quality classifier for code"
     )
@@ -451,10 +456,11 @@ def main() -> None:
     # Annotate command
     ann = sub.add_parser("annotate", help="Score samples with LLM")
     ann.add_argument("--data", required=True, help="Path to .npy token data")
-    ann.add_argument("--tokenizer", required=True, help="Path to tokenizer.json")
+    ann.add_argument("--tokenizer", default=storage.tokenizer_path, help="Path to tokenizer.json")
     ann.add_argument("--num-samples", type=int, default=10000, help="Number of samples")
     ann.add_argument("--seq-len", type=int, default=2048, help="Tokens per sample")
-    ann.add_argument("--output", default="data/quality_labels.jsonl", help="Output path")
+    ann.add_argument("--output", default=str(Path(storage.data_dir) / "quality_labels.jsonl"),
+                     help="Output path")
     ann.add_argument("--api-key", help="Anthropic API key")
     ann.add_argument("--model", default="claude-3-haiku-20240307", help="LLM model name")
     ann.add_argument("--language", default="python", help="Code language")
@@ -462,7 +468,8 @@ def main() -> None:
     # Train command
     trn = sub.add_parser("train", help="Train classifier on labels")
     trn.add_argument("--labels", required=True, help="Path to quality_labels.jsonl")
-    trn.add_argument("--output", default="models/quality_classifier", help="Output dir")
+    trn.add_argument("--output", default=str(Path(storage.checkpoints_dir) / "quality_classifier"),
+                     help="Output dir")
     trn.add_argument("--base-model", default="distilbert-base-uncased", help="Base model")
     trn.add_argument("--epochs", type=int, default=5, help="Training epochs")
     trn.add_argument("--lr", type=float, default=2e-5, help="Learning rate")

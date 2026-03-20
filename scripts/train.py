@@ -17,6 +17,7 @@ from pathlib import Path
 import numpy as np
 
 from cola_coder.cli import cli
+from cola_coder.model.config import get_storage_config
 
 
 def _format_size(size_bytes: int) -> str:
@@ -31,8 +32,11 @@ def _format_size(size_bytes: int) -> str:
         return f"{size_bytes / 1024**3:.2f} GB"
 
 
-def _scan_datasets(data_dir: str = "./data/processed") -> list[dict]:
+def _scan_datasets(data_dir: str | None = None) -> list[dict]:
     """Scan for available .npy dataset files and return metadata."""
+    if data_dir is None:
+        storage = get_storage_config()
+        data_dir = str(Path(storage.data_dir) / "processed")
     out_path = Path(data_dir)
     if not out_path.exists():
         return []
@@ -80,8 +84,9 @@ def _pick_dataset(explicit_path: str | None) -> str:
     datasets = _scan_datasets()
 
     if not datasets:
+        storage = get_storage_config()
         cli.fatal(
-            "No training data found in ./data/processed/",
+            f"No training data found in {Path(storage.data_dir) / 'processed'}",
             hint="Prepare data first with: python scripts/prepare_data.py",
         )
 

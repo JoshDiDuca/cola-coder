@@ -1,12 +1,18 @@
-"""Interactive GitHub scraper for Cola-Coder training data.
+"""Interactive GitHub data collector for Cola-Coder training data.
 
-A CLI menu that walks you through scraping GitHub repositories:
+Uses the official GitHub REST API (api.github.com) to discover and download
+source code from public repositories. NO HTML scraping — all access is through
+the authenticated API with proper rate limiting.
+
+A CLI menu that walks you through collecting from GitHub:
   1. Mode: Search by language / Search by topic / Import repo list / Clone single repo
   2. Filter preset or custom filters
   3. Max repos to clone
   4. Output directory and name
 
-Then: search -> clone -> extract -> filter -> save as .npy
+Then: API search -> shallow clone -> extract -> filter -> save as .npy
+
+Requires: GITHUB_TOKEN env var for API authentication (higher rate limits).
 
 Usage:
     python scripts/scrape_github.py
@@ -18,6 +24,8 @@ import json
 import os
 import sys
 from pathlib import Path
+
+from cola_coder.model.config import get_storage_config
 
 # ---------------------------------------------------------------------------
 # Menu UI helpers using rich (same approach as prepare_data_interactive.py)
@@ -394,6 +402,7 @@ def build_custom_filter():
 
 def run_menu() -> dict:
     """Run the interactive menu and return the collected settings."""
+    storage = get_storage_config()
 
     # Step 1: Mode
     mode_idx = select_menu(
@@ -469,7 +478,7 @@ def run_menu() -> dict:
     _draw_header()
     settings["output_dir"] = prompt_input(
         "Output directory:",
-        "./data/github_scraped",
+        str(Path(storage.data_dir) / "github_scraped"),
     )
     settings["output_name"] = prompt_input(
         "Dataset name:",

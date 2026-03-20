@@ -20,6 +20,8 @@ import sys
 import time
 from pathlib import Path
 
+from cola_coder.model.config import get_storage_config
+
 # ---------------------------------------------------------------------------
 # Rich console (optional — falls back to plain text)
 # ---------------------------------------------------------------------------
@@ -120,6 +122,7 @@ def _print_banner() -> None:
 
 def run_interactive() -> None:
     """Run the interactive menu flow."""
+    storage = get_storage_config()
     _print_banner()
 
     # --- Step 1: Source ---
@@ -140,7 +143,7 @@ def run_interactive() -> None:
     source_type: str | None = None
 
     if source_choice == 1:
-        path = _ask_input("Directory path", "./data/raw")
+        path = _ask_input("Directory path", str(Path(storage.data_dir) / "raw"))
         source_paths = [path]
         source_type = "local"
     elif source_choice == 2:
@@ -169,7 +172,10 @@ def run_interactive() -> None:
     count = _ask_int("How many examples?", 1000)
     language = _ask_input("Language", "typescript")
     min_quality = float(_ask_input("Minimum quality score (0.0-1.0)", "0.5"))
-    output_path = _ask_input("Output file", f"data/processed/instructions_{language}_{count}.jsonl")
+    output_path = _ask_input(
+        "Output file",
+        str(Path(storage.data_dir) / "processed" / f"instructions_{language}_{count}.jsonl"),
+    )
 
     # --- Run ---
     _run_pipeline(
@@ -397,6 +403,8 @@ def run_cli(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    storage = get_storage_config()
+
     parser = argparse.ArgumentParser(
         description="Generate instruction-tuning data from raw code (SelfCodeAlign)."
     )
@@ -411,7 +419,7 @@ def main() -> None:
     parser.add_argument("--count", type=int, default=1000)
     parser.add_argument("--language", default="typescript")
     parser.add_argument("--min-quality", type=float, default=0.5)
-    parser.add_argument("--output", default="data/processed/instructions.jsonl")
+    parser.add_argument("--output", default=str(Path(storage.data_dir) / "processed" / "instructions.jsonl"))
 
     args = parser.parse_args()
 

@@ -6,6 +6,7 @@ Usage:
 import argparse
 from pathlib import Path
 from cola_coder.cli import cli
+from cola_coder.model.config import get_storage_config
 
 def main():
     parser = argparse.ArgumentParser(description="Run nano benchmark")
@@ -24,8 +25,9 @@ def main():
     from cola_coder.inference.generator import CodeGenerator
     from cola_coder.tokenizer.tokenizer_utils import CodeTokenizer
 
+    storage = get_storage_config()
     model, config = load_model_for_inference(str(ckpt_path))
-    tokenizer = CodeTokenizer("tokenizer.json")
+    tokenizer = CodeTokenizer(storage.tokenizer_path)
 
     import torch
     device = "cuda" if torch.cuda.is_available() else "cpu"

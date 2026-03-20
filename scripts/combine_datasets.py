@@ -21,6 +21,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from cola_coder.model.config import get_storage_config
+
 # ---------------------------------------------------------------------------
 # Menu UI helpers using rich (matching prepare_data_interactive.py style)
 # ---------------------------------------------------------------------------
@@ -685,13 +687,15 @@ def run_pipeline(settings: dict, output_path: str):
 # ---------------------------------------------------------------------------
 
 def main():
+    storage = get_storage_config()
+
     parser = argparse.ArgumentParser(
         description="Interactive dataset combination tool for Cola-Coder.",
     )
     parser.add_argument(
         "--data-dir",
         type=str,
-        default="./data/processed",
+        default=str(Path(storage.data_dir) / "processed"),
         help="Directory containing .npy dataset files (default: ./data/processed).",
     )
     parser.add_argument(

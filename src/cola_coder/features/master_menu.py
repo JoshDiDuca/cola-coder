@@ -10,6 +10,7 @@ import importlib
 import subprocess
 from pathlib import Path
 from cola_coder.cli import cli
+from cola_coder.model.config import get_storage_config
 
 # Feature toggle - this feature is OPTIONAL
 FEATURE_ENABLED = True
@@ -255,6 +256,7 @@ class MasterMenu:
 
     def __init__(self, project_root: Path | None = None):
         self.project_root = project_root or Path.cwd()
+        self.storage = get_storage_config()
         # Windows: .venv/Scripts/python.exe — Linux/Mac: .venv/bin/python
         win_python = self.project_root / ".venv" / "Scripts" / "python.exe"
         if win_python.exists():
@@ -303,20 +305,29 @@ class MasterMenu:
         except (EOFError, KeyboardInterrupt):
             pass
 
+    # ── Path resolution ────────────────────────────────────────────────────
+
+    def _resolve_path(self, path_str: str) -> Path:
+        """Resolve a storage path: absolute paths used as-is, relative to project_root."""
+        p = Path(path_str)
+        if p.is_absolute():
+            return p
+        return self.project_root / p
+
     # ── Pipeline status ───────────────────────────────────────────────────
 
     def _detect_pipeline_status(self) -> dict[str, str]:
         """Detect current pipeline state: what's been completed."""
         status = {}
 
-        tokenizer_path = self.project_root / "tokenizer.json"
+        tokenizer_path = self._resolve_path(self.storage.tokenizer_path)
         status["tokenizer"] = "ready" if tokenizer_path.exists() else "missing"
 
-        data_dir = self.project_root / "data" / "processed"
+        data_dir = self._resolve_path(self.storage.data_dir) / "processed"
         npy_files = list(data_dir.glob("*.npy")) if data_dir.exists() else []
         status["data"] = f"{len(npy_files)} dataset(s)" if npy_files else "missing"
 
-        ckpt_dir = self.project_root / "checkpoints"
+        ckpt_dir = self._resolve_path(self.storage.checkpoints_dir)
         if ckpt_dir.exists():
             ckpt_dirs = list(ckpt_dir.rglob("model.safetensors"))
             status["checkpoints"] = (
@@ -339,7 +350,7 @@ class MasterMenu:
 
     def _list_checkpoints(self) -> list[dict]:
         """Return a list of available checkpoints as dicts with label/path/detail."""
-        ckpt_dir = self.project_root / "checkpoints"
+        ckpt_dir = self._resolve_path(self.storage.checkpoints_dir)
         checkpoints = []
         if not ckpt_dir.exists():
             return checkpoints
@@ -487,7 +498,7 @@ class MasterMenu:
                 cli.info("Stage 2/3", "Preparing training data...")
                 self._run_script("prepare_data.py", [
                     "--config", "configs/tiny.yaml",
-                    "--tokenizer", "tokenizer.json",
+                    "--tokenizer", self.storage.tokenizer_path,
                 ])
             else:
                 cli.success("Training data already prepared — skipping.")
@@ -512,7 +523,7 @@ class MasterMenu:
         elif choice == 2:
             self._run_script("prepare_data.py", [
                 "--config", "configs/tiny.yaml",
-                "--tokenizer", "tokenizer.json",
+                "--tokenizer", self.storage.tokenizer_path,
             ])
         elif choice == 3:
             self._run_script("train.py", ["--config", "configs/tiny.yaml"])
@@ -599,7 +610,7 @@ class MasterMenu:
         if choice is None:
             return
 
-        base_args = ["--config", "configs/tiny.yaml", "--tokenizer", "tokenizer.json"]
+        base_args = ["--config", "configs/tiny.yaml", "--tokenizer", self.storage.tokenizer_path]
 
         if choice == 0:
             self._run_script("prepare_data_interactive.py")
@@ -698,7 +709,7 @@ class MasterMenu:
 
         if resume:
             # Look for existing checkpoint
-            ckpt_dir = self.project_root / "checkpoints" / size
+            ckpt_dir = self._resolve_path(self.storage.checkpoints_dir) / size
             resume_path = None
             if ckpt_dir.exists():
                 latest = ckpt_dir / "latest"
@@ -718,7 +729,7 @@ class MasterMenu:
             self._run_script("train.py", ["--config", config, "--resume", resume_path])
         else:
             # Check for existing and offer to resume
-            ckpt_dir = self.project_root / "checkpoints" / size
+            ckpt_dir = self._resolve_path(self.storage.checkpoints_dir) / size
             if ckpt_dir.exists():
                 has_ckpt = (ckpt_dir / "latest").exists() or bool(list(ckpt_dir.glob("step_*")))
                 if has_ckpt:
@@ -747,7 +758,7 @@ class MasterMenu:
         sizes = ["tiny", "small", "medium", "large"]
         found = []
         for size in sizes:
-            ckpt_dir = self.project_root / "checkpoints" / size
+            ckpt_dir = self._resolve_path(self.storage.checkpoints_dir) / size
             if ckpt_dir.exists():
                 latest = ckpt_dir / "latest"
                 if latest.exists():
@@ -779,7 +790,7 @@ class MasterMenu:
         selected = found[choice]
         config = f"configs/{selected['size']}.yaml"
         ckpt_path = (
-            str(self.project_root / "checkpoints" / selected["size"] / "latest")
+            str(self._resolve_path(self.storage.checkpoints_dir) / selected["size"] / "latest")
             if "latest" in selected["label"]
             else selected["detail"]
         )
@@ -791,9 +802,9 @@ class MasterMenu:
         """Train BPE tokenizer."""
         _print_section_header("Train Tokenizer", "BPE tokenizer from scratch")
 
-        tokenizer_path = self.project_root / "tokenizer.json"
+        tokenizer_path = self._resolve_path(self.storage.tokenizer_path)
         if tokenizer_path.exists():
-            if not cli.confirm("tokenizer.json already exists. Retrain?", default=False):
+            if not cli.confirm(f"{tokenizer_path.name} already exists. Retrain?", default=False):
                 return
 
         self._run_script("train_tokenizer.py")
@@ -1082,17 +1093,21 @@ class MasterMenu:
                 self._project_info()
 
     def _storage_paths(self) -> None:
-        """Show configured storage paths."""
+        """Show configured storage paths from StorageConfig."""
         _print_section_header("Storage Paths", "Current data and checkpoint locations")
 
-        root = self.project_root
+        tokenizer_path = self._resolve_path(self.storage.tokenizer_path)
+        data_dir = self._resolve_path(self.storage.data_dir)
+        checkpoints_dir = self._resolve_path(self.storage.checkpoints_dir)
+
         paths = {
-            "Project root":     str(root),
-            "Tokenizer":        str(root / "tokenizer.json"),
-            "Data processed":   str(root / "data" / "processed"),
-            "Checkpoints":      str(root / "checkpoints"),
-            "Configs":          str(root / "configs"),
-            "Scripts":          str(root / "scripts"),
+            "Project root":     str(self.project_root),
+            "Tokenizer":        str(tokenizer_path),
+            "Data dir":         str(data_dir),
+            "Data processed":   str(data_dir / "processed"),
+            "Checkpoints":      str(checkpoints_dir),
+            "Configs":          str(self.project_root / "configs"),
+            "Scripts":          str(self.project_root / "scripts"),
             "Python (venv)":    str(self.venv_python),
         }
 
@@ -1154,11 +1169,11 @@ class MasterMenu:
         """Browse random samples from training data (inline inspection)."""
         import numpy as np
 
-        data_dir = self.project_root / "data" / "processed"
+        data_dir = self._resolve_path(self.storage.data_dir) / "processed"
         npy_files = list(data_dir.glob("*.npy")) if data_dir.exists() else []
 
         if not npy_files:
-            cli.error("No datasets found in data/processed/")
+            cli.error(f"No datasets found in {data_dir}")
             return
 
         # Pick a dataset
@@ -1182,9 +1197,9 @@ class MasterMenu:
 
         try:
             from cola_coder.tokenizer.tokenizer_utils import CodeTokenizer
-            tokenizer_path = self.project_root / "tokenizer.json"
+            tokenizer_path = self._resolve_path(self.storage.tokenizer_path)
             if not tokenizer_path.exists():
-                cli.warn("tokenizer.json not found — can't decode samples.")
+                cli.warn(f"{tokenizer_path} not found — can't decode samples.")
                 return
 
             tokenizer = CodeTokenizer(str(tokenizer_path))

@@ -30,6 +30,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from cola_coder.model.config import get_storage_config
+
 
 # ---------------------------------------------------------------------------
 # Helpers (same pattern as run.py / benchmark.py)
@@ -327,8 +329,9 @@ def main() -> None:
     cli.header("Cola-Coder", "Model Card Generator")
 
     # ── Project root ──────────────────────────────────────────────────────
+    storage = get_storage_config()
     project_root = find_project_root()
-    checkpoints_dir = project_root / "checkpoints"
+    checkpoints_dir = Path(storage.checkpoints_dir)
 
     # ── Auto-detect checkpoint ────────────────────────────────────────────
     checkpoint_dir: str

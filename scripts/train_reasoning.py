@@ -16,9 +16,12 @@ from pathlib import Path
 import torch
 
 from cola_coder.cli import cli
+from cola_coder.model.config import get_storage_config
 
 
 def main():
+    storage = get_storage_config()
+
     parser = argparse.ArgumentParser(
         description="Run GRPO training for reasoning improvement on coding problems."
     )
@@ -37,8 +40,8 @@ def main():
     parser.add_argument(
         "--tokenizer",
         type=str,
-        default="tokenizer.json",
-        help="Path to tokenizer.json (default: tokenizer.json).",
+        default=storage.tokenizer_path,
+        help=f"Path to tokenizer.json (default: {storage.tokenizer_path}).",
     )
     parser.add_argument(
         "--epochs",

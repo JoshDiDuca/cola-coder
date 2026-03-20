@@ -23,6 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from cola_coder.cli import cli
+from cola_coder.model.config import get_storage_config
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +227,8 @@ def _describe_size(size_dir: Path, show_curve: bool = True) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    storage = get_storage_config()
+
     parser = argparse.ArgumentParser(
         description="Show training status for cola-coder checkpoints (no GPU needed).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -240,9 +243,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--checkpoints-dir",
-        default="checkpoints",
+        default=storage.checkpoints_dir,
         metavar="DIR",
-        help="Base checkpoints directory (default: checkpoints).",
+        help=f"Base checkpoints directory (default: {storage.checkpoints_dir}).",
     )
     parser.add_argument(
         "--no-curve",

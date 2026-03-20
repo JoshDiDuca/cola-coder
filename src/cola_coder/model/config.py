@@ -129,7 +129,22 @@ class StorageConfig:
     data_dir: str = "./data"                    # Raw + processed data
     checkpoints_dir: str = "./checkpoints"      # Model checkpoints
     tokenizer_path: str = "./tokenizer.json"    # Trained tokenizer
-    cache_dir: str = "./cache"                  # HuggingFace cache
+    cache_dir: str = "./cache"                  # General cache
+    hf_cache_dir: str = ""                      # HuggingFace download cache (empty = HF default)
+
+    def apply_hf_cache(self) -> None:
+        """Set HF_HOME env var if hf_cache_dir is configured.
+
+        Must be called before any huggingface_hub or datasets imports.
+        """
+        if self.hf_cache_dir:
+            resolved = str(Path(self.hf_cache_dir).resolve())
+            os.environ.setdefault("HF_HOME", resolved)
+            os.environ.setdefault("HUGGINGFACE_HUB_CACHE", resolved)
+
+
+# Module-level cache so we don't re-read the YAML on every call.
+_storage_config_cache: Optional[StorageConfig] = None
 
 
 def get_storage_config() -> StorageConfig:
@@ -139,7 +154,13 @@ def get_storage_config() -> StorageConfig:
     1. COLA_STORAGE_CONFIG env var — path to a custom YAML file
     2. configs/storage.yaml — project-level storage override
     3. StorageConfig defaults — all paths relative to project root
+
+    Result is cached for the lifetime of the process.
     """
+    global _storage_config_cache
+    if _storage_config_cache is not None:
+        return _storage_config_cache
+
     yaml_path: Optional[Path] = None
 
     env_path = os.environ.get("COLA_STORAGE_CONFIG")
@@ -154,9 +175,14 @@ def get_storage_config() -> StorageConfig:
         with open(yaml_path) as f:
             raw = yaml.safe_load(f) or {}
         storage_raw = raw.get("storage", {})
-        return StorageConfig(**storage_raw)
+        # Filter to only known fields
+        known = {f.name for f in StorageConfig.__dataclass_fields__.values()}
+        filtered = {k: v for k, v in storage_raw.items() if k in known}
+        _storage_config_cache = StorageConfig(**filtered)
+    else:
+        _storage_config_cache = StorageConfig()
 
-    return StorageConfig()
+    return _storage_config_cache
 
 
 @dataclass

@@ -14,9 +14,12 @@ import argparse
 from pathlib import Path
 
 from cola_coder.cli import cli
+from cola_coder.model.config import get_storage_config
 
 
 def main():
+    storage = get_storage_config()
+
     parser = argparse.ArgumentParser(
         description="Evaluate a trained cola-coder model on HumanEval problems."
     )
@@ -35,8 +38,8 @@ def main():
     parser.add_argument(
         "--tokenizer",
         type=str,
-        default="tokenizer.json",
-        help="Path to tokenizer.json (default: tokenizer.json).",
+        default=storage.tokenizer_path,
+        help=f"Path to tokenizer.json (default: {storage.tokenizer_path}).",
     )
     parser.add_argument(
         "--num-samples",
@@ -59,17 +62,17 @@ def main():
     if args.checkpoint is None:
         try:
             from cola_coder.training.checkpoint import detect_latest_checkpoint
-            result = detect_latest_checkpoint("checkpoints")
+            result = detect_latest_checkpoint(storage.checkpoints_dir)
             if result is None:
                 cli.fatal(
-                    "No checkpoint found in checkpoints/",
+                    f"No checkpoint found in {storage.checkpoints_dir}",
                     hint="Pass --checkpoint path/to/ckpt or train a model first",
                 )
             raw_path, _metadata = result
             # Resolve relative paths (may be Windows-style relative paths)
             resolved = Path(raw_path)
             if not resolved.is_absolute():
-                resolved = Path("checkpoints").parent / resolved
+                resolved = Path(storage.checkpoints_dir).parent / resolved
             args.checkpoint = str(resolved)
             cli.info("Auto-detected checkpoint", args.checkpoint)
         except ImportError:

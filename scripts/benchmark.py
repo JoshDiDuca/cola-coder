@@ -26,6 +26,8 @@ import sys
 import time
 from pathlib import Path
 
+from cola_coder.model.config import get_storage_config
+
 
 # ---------------------------------------------------------------------------
 # Test prompts
@@ -176,8 +178,9 @@ def main() -> None:
     cli.header("Cola-Coder", "Benchmark")
 
     # ── Project root ──────────────────────────────────────────────────────
+    storage = get_storage_config()
     project_root = find_project_root()
-    checkpoints_dir = project_root / "checkpoints"
+    checkpoints_dir = Path(storage.checkpoints_dir)
 
     # ── Auto-detect checkpoint ────────────────────────────────────────────
     checkpoint_dir: str
@@ -248,7 +251,7 @@ def main() -> None:
     if args.tokenizer is not None:
         tokenizer_path = str(Path(args.tokenizer).resolve())
     else:
-        tokenizer_path = str(project_root / "tokenizer.json")
+        tokenizer_path = storage.tokenizer_path
 
     if not Path(tokenizer_path).exists():
         cli.fatal(

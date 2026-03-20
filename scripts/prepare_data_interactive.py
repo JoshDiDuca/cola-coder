@@ -16,6 +16,8 @@ import os
 import sys
 from pathlib import Path
 
+from cola_coder.model.config import get_storage_config
+
 # ---------------------------------------------------------------------------
 # Menu UI helpers using rich
 # ---------------------------------------------------------------------------
@@ -637,15 +639,18 @@ def run_pipeline(settings: dict, tokenizer_path: str, output_dir: str, batch_siz
 # ---------------------------------------------------------------------------
 
 def main():
+    storage = get_storage_config()
+    storage.apply_hf_cache()
+
     parser = argparse.ArgumentParser(
         description="Interactive data preparation for Cola-Coder.",
     )
     parser.add_argument(
-        "--tokenizer", type=str, required=True,
+        "--tokenizer", type=str, default=storage.tokenizer_path,
         help="Path to trained tokenizer.json file.",
     )
     parser.add_argument(
-        "--output-dir", type=str, default="./data/processed",
+        "--output-dir", type=str, default=str(Path(storage.data_dir) / "processed"),
         help="Output directory (default: ./data/processed).",
     )
     parser.add_argument(

@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from cola_coder.data.curation.test_runner import TestRunner
 from cola_coder.data.curation.test_scorer import RepoScore
+from cola_coder.model.config import get_storage_config
 
 
 def find_repos(base_dir: Path) -> list[Path]:
@@ -128,6 +129,8 @@ def print_results(results: dict[Path, RepoScore], json_output: bool = False) -> 
 
 
 def main() -> None:
+    storage = get_storage_config()
+
     parser = argparse.ArgumentParser(
         description="Score repositories by test quality",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -145,7 +148,8 @@ def main() -> None:
                         help="Test timeout in seconds (default: 300)")
     parser.add_argument("--install-timeout", type=int, default=120,
                         help="Install timeout in seconds (default: 120)")
-    parser.add_argument("--cache-dir", type=Path, default=None,
+    parser.add_argument("--cache-dir", type=Path,
+                        default=Path(storage.cache_dir) / "test_cache",
                         help="Cache directory (default: data/test_cache/)")
     parser.add_argument("--no-cache", action="store_true",
                         help="Don't use cached results")

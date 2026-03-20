@@ -18,6 +18,7 @@ from pathlib import Path
 import numpy as np
 
 from cola_coder.cli import cli
+from cola_coder.model.config import get_storage_config
 
 
 def _format_size(size_bytes: int) -> str:
@@ -135,6 +136,9 @@ def _resolve_output(
 
 
 def main():
+    storage = get_storage_config()
+    storage.apply_hf_cache()
+
     parser = argparse.ArgumentParser(
         description="Download and preprocess code data for training."
     )
@@ -147,7 +151,7 @@ def main():
     parser.add_argument(
         "--tokenizer",
         type=str,
-        required=True,
+        default=storage.tokenizer_path,
         help="Path to trained tokenizer.json file.",
     )
     parser.add_argument(
@@ -159,7 +163,7 @@ def main():
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="./data/processed",
+        default=str(Path(storage.data_dir) / "processed"),
         help="Output directory for processed data (default: ./data/processed).",
     )
     parser.add_argument(

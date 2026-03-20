@@ -1,22 +1,21 @@
 # Storage configuration for Cola-Coder.
 # Change these paths to store data on a different drive.
-# All paths can be absolute (D:/ml-data/cola-coder/) or relative to project root.
+# All paths can be absolute (E:/ml-data/cola-coder/) or relative to project root.
+#
+# To use: edit the paths below. All scripts read from this file automatically.
+# To migrate existing data: python scripts/migrate_storage.py
 
-# storage:
-#   data_dir: "./data"                    # Training data (raw + processed)
-#   checkpoints_dir: "./checkpoints"      # Model checkpoints (safetensors)
-#   tokenizer_path: "./tokenizer.json"    # Trained BPE tokenizer
-#   cache_dir: "./cache"                  # HuggingFace download cache
-
-# Example: Store everything on D: drive
 storage:
-  data_dir: "E:/cola-coder-data/data"
-  checkpoints_dir: "E:/cola-coder-data/checkpoints"
-  tokenizer_path: "E:/cola-coder-data/tokenizer.json"
-  cache_dir: "E:/cola-coder-data/cache"
+  data_dir: "./data"                    # Training data (raw + processed)
+  checkpoints_dir: "./checkpoints"      # Model checkpoints (safetensors)
+  tokenizer_path: "./tokenizer.json"    # Trained BPE tokenizer
+  cache_dir: "./cache"                  # General cache
+  hf_cache_dir: ""                      # HuggingFace download cache (empty = HF default ~/.cache/huggingface)
 
+# Example: Store everything on E: drive
 # storage:
-#   data_dir: "E:/ml-data/cola-coder/"                    # Training data (raw + processed)
-#   checkpoints_dir: "E:/ml-data/cola-coder/checkpoints"      # Model checkpoints (safetensors)
-#   tokenizer_path: "E:/ml-data/cola-coder/tokenizer.json"    # Trained BPE tokenizer
-#   cache_dir: "E:/ml-data/cola-coder/cache"                  # HuggingFace download cache
+#   data_dir: "E:/cola-coder-data/data"
+#   checkpoints_dir: "E:/cola-coder-data/checkpoints"
+#   tokenizer_path: "E:/cola-coder-data/tokenizer.json"
+#   cache_dir: "E:/cola-coder-data/cache"
+#   hf_cache_dir: "E:/cola-coder-data/hf_cache"

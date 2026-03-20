@@ -23,6 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from cola_coder.cli import cli
+from cola_coder.model.config import get_storage_config
 
 
 # ---------------------------------------------------------------------------
@@ -293,6 +294,8 @@ def _print_weight_diff(dir_a: Path, dir_b: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    storage = get_storage_config()
+
     parser = argparse.ArgumentParser(
         description="Compare two cola-coder checkpoints side-by-side.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -315,13 +318,13 @@ def main() -> None:
     parser.add_argument(
         "--checkpoints-dir",
         metavar="DIR",
-        default="checkpoints",
-        help="Base checkpoints directory (default: checkpoints).",
+        default=storage.checkpoints_dir,
+        help=f"Base checkpoints directory (default: {storage.checkpoints_dir}).",
     )
     parser.add_argument(
         "--tokenizer",
-        default="tokenizer.json",
-        help="Path to tokenizer.json (default: tokenizer.json).",
+        default=storage.tokenizer_path,
+        help=f"Path to tokenizer.json (default: {storage.tokenizer_path}).",
     )
     parser.add_argument(
         "--prompt",

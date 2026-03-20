@@ -12,9 +12,13 @@ import argparse
 from pathlib import Path
 
 from cola_coder.cli import cli
+from cola_coder.model.config import get_storage_config
 
 
 def main():
+    storage = get_storage_config()
+    storage.apply_hf_cache()
+
     parser = argparse.ArgumentParser(
         description="Train a BPE tokenizer on code data from HuggingFace."
     )
@@ -27,7 +31,7 @@ def main():
     parser.add_argument(
         "--output",
         type=str,
-        default="tokenizer.json",
+        default=storage.tokenizer_path,
         help="Output path for the trained tokenizer (default: tokenizer.json).",
     )
     parser.add_argument(
@@ -62,7 +66,7 @@ def main():
 
     try:
         file_paths = download_sample_data(
-            output_dir="./data/raw",
+            output_dir=str(Path(storage.data_dir) / "raw"),
             languages=languages,
             num_samples=args.num_samples,
         )

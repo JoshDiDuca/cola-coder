@@ -256,6 +256,8 @@ class CLI:
                 ('selected', 'fg:green'),
             ])
 
+            _CANCEL = -1  # sentinel — questionary ignores value=None
+
             choices = []
             for i, opt in enumerate(options):
                 label = opt.get("label", "")
@@ -264,7 +266,7 @@ class CLI:
                 choices.append(questionary.Choice(title=display, value=i))
 
             if allow_cancel:
-                choices.append(questionary.Choice(title="Cancel", value=None))
+                choices.append(questionary.Choice(title="Cancel", value=_CANCEL))
 
             result = questionary.select(
                 prompt,
@@ -274,7 +276,10 @@ class CLI:
                 use_arrow_keys=True,
             ).ask()
 
-            return result  # index or None (cancelled or Ctrl-C)
+            # .ask() returns None on Ctrl-C; sentinel on Cancel selection
+            if result is None or result == _CANCEL:
+                return None
+            return result
 
         except ImportError:
             pass

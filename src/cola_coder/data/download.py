@@ -32,18 +32,48 @@ import pyarrow.parquet as pq
 # Cache path detection
 # ---------------------------------------------------------------------------
 
+def _find_hf_hub_dir() -> Path:
+    """Return the HuggingFace hub cache directory, respecting StorageConfig.
+
+    Resolution order:
+    1. StorageConfig.hf_cache_dir (from configs/storage.yaml)
+    2. HF_HOME / HUGGINGFACE_HUB_CACHE env vars
+    3. Default: ~/.cache/huggingface/hub
+    """
+    try:
+        from cola_coder.model.config import get_storage_config
+        storage = get_storage_config()
+        if storage.hf_cache_dir:
+            p = Path(storage.hf_cache_dir)
+            hub = p / "hub" if not str(p).endswith("hub") else p
+            return hub
+    except Exception:
+        pass
+
+    # Env vars
+    for var in ("HF_HOME", "HUGGINGFACE_HUB_CACHE"):
+        val = os.environ.get(var)
+        if val:
+            p = Path(val)
+            hub = p / "hub" if not str(p).endswith("hub") else p
+            if hub.exists():
+                return hub
+
+    return Path.home() / ".cache" / "huggingface" / "hub"
+
+
 def _find_cache_dir(dataset_name: str = "bigcode/starcoderdata") -> Path | None:
     """Find the HuggingFace cache directory for a dataset.
 
     HF stores downloaded datasets in:
-      ~/.cache/huggingface/hub/datasets--{org}--{name}/snapshots/{hash}/
+      <hf_hub>/datasets--{org}--{name}/snapshots/{hash}/
 
     Returns the snapshot directory, or None if not found.
     """
     # Convert "bigcode/starcoderdata" -> "datasets--bigcode--starcoderdata"
     safe_name = f"datasets--{dataset_name.replace('/', '--')}"
 
-    hf_hub = Path.home() / ".cache" / "huggingface" / "hub"
+    hf_hub = _find_hf_hub_dir()
     dataset_dir = hf_hub / safe_name / "snapshots"
 
     if not dataset_dir.exists():
@@ -81,18 +111,30 @@ def _download_dataset(
         allow_patterns.append(f"{lang}/**/*.parquet")
 
     print(f"  Downloading parquet files for: {', '.join(languages)}")
-    print(f"  This will saturate your bandwidth. First run only — cached after this.")
+    print("  This will saturate your bandwidth. First run only — cached after this.")
+
+    # Use configured cache dir if set
+    cache_kwargs = {}
+    try:
+        from cola_coder.model.config import get_storage_config
+        storage = get_storage_config()
+        if storage.hf_cache_dir:
+            cache_kwargs["cache_dir"] = str(Path(storage.hf_cache_dir).resolve())
+            print(f"  HF cache dir: {cache_kwargs['cache_dir']}")
+    except Exception:
+        pass
 
     try:
         snapshot_download(
             repo_id=dataset_name,
             repo_type="dataset",
             allow_patterns=allow_patterns,
+            **cache_kwargs,
         )
-        print(f"  Download complete!")
+        print("  Download complete!")
     except Exception as e:
         print(f"  Download error: {e}")
-        print(f"  If this is an auth error, run: huggingface-cli login")
+        print("  If this is an auth error, run: huggingface-cli login")
         raise
 
 
@@ -197,17 +239,17 @@ def stream_code_data(
 
     if cache_dir and not streaming:
         # Verify the languages we need are actually cached
-        missing = [l for l in languages if not (cache_dir / l).exists()
-                   or not any((cache_dir / l).glob("*.parquet"))]
+        missing = [lang for lang in languages if not (cache_dir / lang).exists()
+                   or not any((cache_dir / lang).glob("*.parquet"))]
         if missing:
             print(f"Missing cached data for: {', '.join(missing)}")
-            print(f"Downloading missing languages...")
+            print("Downloading missing languages...")
             _download_dataset(dataset_name, missing)
             # Re-detect cache after download
             cache_dir = _find_cache_dir(dataset_name)
 
         print(f"Reading from local cache: {cache_dir}")
-        print(f"  (This is ~1000x faster than HTTP streaming)")
+        print("  (This is ~1000x faster than HTTP streaming)")
     elif not streaming:
         print(f"No local cache found. Downloading {dataset_name}...")
         print(f"  Languages: {', '.join(languages)}")
@@ -217,7 +259,7 @@ def stream_code_data(
             print("Download failed. Falling back to HTTP streaming (slow).")
             streaming = True
         else:
-            print(f"Download complete. Reading from local cache.")
+            print("Download complete. Reading from local cache.")
 
     count = 0
     for lang in languages:
