@@ -310,17 +310,108 @@ LANGUAGE_PRESETS = [
 
 
 # ---------------------------------------------------------------------------
+# Type-check quality scoring options (Advanced)
+# ---------------------------------------------------------------------------
+
+def _tsc_available() -> bool:
+    """Check if TypeScript compiler is available for type-check scoring."""
+    try:
+        from cola_coder.reasoning.rewards.type_check import TypeCheckReward
+        return TypeCheckReward.is_available()
+    except ImportError:
+        return False
+
+
+TSC_SCORING_OPTIONS = [
+    {
+        "label": "Off",
+        "description": "Don't use tsc scoring",
+        "mode": None,
+    },
+    {
+        "label": "Score",
+        "description": "Score TS files with tsc, add quality_score to metadata",
+        "mode": "score",
+        "recommended": True,
+    },
+    {
+        "label": "Filter",
+        "description": "Reject TS files that don't type-check (strict quality gate)",
+        "mode": "filter",
+    },
+]
+
+MIXING_STRATEGY_OPTIONS = [
+    {
+        "label": "Equal",
+        "description": "Equal weights across all sources",
+        "preset": "equal",
+    },
+    {
+        "label": "TS-focused",
+        "description": "50% TypeScript, 25% JS, 15% Python, 10% other",
+        "preset": "typescript_focused",
+        "recommended": True,
+    },
+    {
+        "label": "Balanced",
+        "description": "Distributed across all languages",
+        "preset": "balanced_code",
+    },
+    {
+        "label": "Quality-tier",
+        "description": "Weight by data quality (verified > tested > raw)",
+        "preset": "quality_tiers",
+    },
+    {
+        "label": "Custom...",
+        "description": "Set weights manually per language",
+        "preset": None,
+    },
+]
+
+
+# ---------------------------------------------------------------------------
 # Main flow
 # ---------------------------------------------------------------------------
 
+def _get_custom_mixing_weights(languages: list[str], step: str) -> dict[str, float]:
+    """Prompt user to enter custom mixing weights for each language.
+
+    Falls back to equal weights if input is invalid.
+    """
+    console.clear()
+    _draw_header()
+    console.print()
+    console.print(f"  [bold cyan]{step}[/bold cyan]")
+    console.print(f"  [bold]Set custom mixing weights[/bold]")
+    console.print(f"  [dim]Enter a weight for each language (weights will be normalized).[/dim]")
+    console.print()
+
+    weights: dict[str, float] = {}
+    for lang in languages:
+        console.print(f"  Weight for [cyan]{lang}[/cyan]: ", end="")
+        try:
+            raw = input().strip()
+            weights[lang] = float(raw) if raw else 1.0
+        except (ValueError, EOFError):
+            weights[lang] = 1.0
+
+    return weights
+
+
 def run_menu() -> dict:
     """Run the interactive menu and return the collected settings."""
+
+    # Detect tsc for step count
+    has_tsc = _tsc_available()
+    total_steps = 5 if has_tsc else 4
 
     # Step 1: Data size
     size_idx = select_menu(
         title="How much data do you want to prepare?",
         options=SIZE_OPTIONS,
-        step="Step 1/3 \u2022 Data Size",
+        step=f"Step 1/{total_steps} \u2022 Data Size",
     )
     size = SIZE_OPTIONS[size_idx]
 
@@ -328,7 +419,7 @@ def run_menu() -> dict:
     filter_idx = select_menu(
         title="What quality filter do you want to use?",
         options=FILTER_OPTIONS,
-        step="Step 2/3 \u2022 Quality Filter",
+        step=f"Step 2/{total_steps} \u2022 Quality Filter",
     )
     filter_opt = FILTER_OPTIONS[filter_idx]
 
@@ -336,7 +427,7 @@ def run_menu() -> dict:
     lang_idx = select_menu(
         title="Which languages should be included?",
         options=LANGUAGE_PRESETS,
-        step="Step 3/3 \u2022 Languages",
+        step=f"Step 3/{total_steps} \u2022 Languages",
     )
     lang_preset = LANGUAGE_PRESETS[lang_idx]
 
@@ -345,12 +436,39 @@ def run_menu() -> dict:
         selected_indices = multi_select_menu(
             title="Select languages to include:",
             options=LANGUAGE_OPTIONS,
-            step="Step 3/3 \u2022 Languages (custom)",
+            step=f"Step 3/{total_steps} \u2022 Languages (custom)",
             preselected={0, 1},  # TS + JS preselected
         )
         languages = [LANGUAGE_OPTIONS[i]["value"] for i in selected_indices]
     else:
         languages = lang_preset["languages"]
+
+    # Step 4: Data Mixing Strategy
+    mixing_step = f"Step 4/{total_steps} \u2022 Advanced: Data Mixing Strategy"
+    mixing_idx = select_menu(
+        title="How should data from different sources be weighted?",
+        options=MIXING_STRATEGY_OPTIONS,
+        step=mixing_step,
+    )
+    mixing_opt = MIXING_STRATEGY_OPTIONS[mixing_idx]
+
+    mixing_preset = mixing_opt["preset"]
+    mixing_weights = None
+    if mixing_preset is None:
+        # Custom: prompt for per-language weights
+        mixing_weights = _get_custom_mixing_weights(languages, mixing_step)
+    elif mixing_preset == "equal":
+        mixing_weights = {lang: 1.0 / len(languages) for lang in languages}
+
+    # Step 5 (Advanced): Type-check scoring (only if tsc available and TS selected)
+    tsc_mode = None
+    if has_tsc and "typescript" in languages:
+        tsc_idx = select_menu(
+            title="Type-Check Quality Scoring (uses tsc --strict)",
+            options=TSC_SCORING_OPTIONS,
+            step=f"Step 5/{total_steps} \u2022 Advanced: Type-Check Scoring",
+        )
+        tsc_mode = TSC_SCORING_OPTIONS[tsc_idx]["mode"]
 
     workers = max(1, min(os.cpu_count() or 4, 16))
 
@@ -360,7 +478,11 @@ def run_menu() -> dict:
         "filter_label": filter_opt["label"],
         "filter_mode": filter_opt["mode"],
         "languages": languages,
+        "mixing_preset": mixing_preset,
+        "mixing_weights": mixing_weights,
+        "mixing_label": mixing_opt["label"],
         "workers": workers,
+        "tsc_scoring": tsc_mode,
     }
 
 
@@ -393,6 +515,28 @@ def show_summary(settings: dict) -> bool:
 
     # Languages
     table.add_row("Languages", ", ".join(settings["languages"]))
+
+    # Mixing strategy
+    mixing_label = settings.get("mixing_label", "Equal")
+    mixing_weights = settings.get("mixing_weights")
+    if mixing_weights:
+        total = sum(mixing_weights.values())
+        if total > 0:
+            weight_parts = [
+                f"{lang}: {w / total:.0%}"
+                for lang, w in sorted(mixing_weights.items(), key=lambda x: -x[1])
+            ]
+            table.add_row("Mixing", f"{mixing_label}  ({', '.join(weight_parts)})")
+        else:
+            table.add_row("Mixing", mixing_label)
+    else:
+        table.add_row("Mixing", mixing_label)
+
+    # Type-check scoring
+    tsc_mode = settings.get("tsc_scoring")
+    if tsc_mode:
+        tsc_label = "Score files" if tsc_mode == "score" else "Filter (reject bad)"
+        table.add_row("TSC Scoring", tsc_label)
 
     # Workers
     table.add_row("Workers", str(settings["workers"]))

@@ -227,10 +227,59 @@ because it's been rewarded for producing code that passes `tsc --strict`.
 - The existing GRPO infrastructure in `src/cola_coder/reasoning/`
 - A pre-trained base model to fine-tune (the tiny model training right now!)
 
-## Prior Art
+## Prior Art & Research Findings (Updated March 2026)
 
-- RLHF (2022): Human feedback as reward — expensive, slow
-- CodeRL (2022): Unit test execution as reward — expensive, requires tests
-- RLTF (2023): Compiler feedback for Rust — similar idea! But for Rust, not TS
+### Foundational Work
+- **RLHF (2022)**: Human feedback as reward — expensive, slow
+- **CodeRL (2022)**: Unit test execution as reward — expensive, requires tests
+- **RLTF (2023)**: Compiler feedback for Rust — similar idea! But for Rust, not TS
 - **Nobody has used TypeScript's type system specifically as an RL reward signal**
 - **RLTF for Rust is the closest prior art but was never scaled beyond a paper**
+
+### Key Recent Advances (2024-2026)
+
+**StepCoder (ACL 2024)**: RL from compiler feedback with two innovations:
+- CCCS (Curriculum of Code Completion Subtasks): breaks long code generation into a
+  curriculum of sub-tasks, making exploration tractable
+- FGO (Fine-Grained Optimization): masks unexecuted code segments so only executed
+  tokens contribute to the loss — directly relevant to our approach since we can
+  similarly weight tsc errors by location in the generated code
+
+**RLEF (ICML 2025)**: End-to-end RL grounded in execution feedback. Achieves large
+gains with both 8B and 70B models, outperforming prior work while reducing samples
+by 10x. Key insight: execution feedback is more sample-efficient than learned rewards.
+
+**CodeRL+ (October 2025)**: SOTA on all code generation benchmarks using a two-stage
+process: instruction fine-tuning + GRPO with execution semantics alignment.
+
+**Posterior-GRPO (September 2025)**: Conditions process-based rewards on task success,
+giving credit to reasoning steps that actually lead to correct solutions.
+
+**DAPO (March 2025)**: State-of-the-art GRPO variant with four key techniques:
+1. Clip-Higher: relaxes upper PPO clip bound to prevent entropy collapse
+2. Dynamic Sampling: filters out all-success/all-fail groups (no gradient signal)
+3. Token-Level Policy Gradient Loss: averages loss over all tokens in batch
+4. Overlong Reward Penalty: penalizes excessively long sequences
+
+**GTPO / GRPO-S (August 2025)**: Token and sequence-level reward shaping using
+policy entropy as a proxy for cognitive effort at pivotal junctures. Assigns
+entropy-weighted rewards to each token rather than uniform sequence-level reward.
+
+### What This Means For Us
+
+1. **Fine-grained error location** (from StepCoder/FGO): We can use tsc error line
+   numbers to weight the reward signal — penalize specific tokens where errors occur
+2. **Dynamic sampling** (from DAPO): Skip GRPO groups where all files type-check or
+   all fail — only train on groups with variance
+3. **Token-level entropy weighting** (from GTPO): Weight the reward by token entropy
+   at type-critical positions (variable declarations, function signatures)
+4. **Our unique advantage**: tsc is 1000x faster than test execution AND provides
+   structured diagnostics (error codes, line numbers, types involved) that no other
+   reward signal can match
+
+### Implementation Status
+
+Implemented in `src/cola_coder/reasoning/rewards/`:
+- `type_check.py`: Single-file TypeScript type checking with tsc
+- `batch_type_check.py`: Batch type checking (single tsc invocation for GRPO groups)
+- `combined.py`: Multi-signal reward combining type check + syntax + completeness

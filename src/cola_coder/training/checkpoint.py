@@ -19,6 +19,8 @@ from pathlib import Path
 import torch
 from safetensors.torch import save_file, load_file
 
+from ..manifest import write_training_manifest
+
 
 def save_checkpoint(
     model: torch.nn.Module,
@@ -29,6 +31,8 @@ def save_checkpoint(
     config: dict,
     output_dir: str,
     max_checkpoints: int = 5,
+    *,
+    manifest_info: dict | None = None,
 ) -> str:
     """Save a training checkpoint.
 
@@ -36,6 +40,9 @@ def save_checkpoint(
     - model.safetensors: model weights (safe format)
     - training_state.pt: optimizer + scheduler state (pickle, but just numbers)
     - metadata.json: step number, loss, config
+
+    Also creates/updates training_manifest.yaml in the output directory
+    with full provenance info when manifest_info is provided.
 
     Args:
         model: The model to save.
@@ -46,6 +53,10 @@ def save_checkpoint(
         config: Training configuration dict.
         output_dir: Base directory for checkpoints.
         max_checkpoints: Keep only this many most recent checkpoints.
+        manifest_info: Optional dict of training provenance metadata.
+            Expected keys: model_config, training_config, data_path,
+            data_manifest_path, tokens_seen, epochs_completed,
+            loss_history, max_steps.
 
     Returns:
         Path to the saved checkpoint directory.
@@ -97,6 +108,17 @@ def save_checkpoint(
         shutil.rmtree(final_dir)
     tmp_dir.rename(final_dir)
     ckpt_dir = final_dir
+
+    # Write/update training manifest
+    if manifest_info is not None:
+        manifest_path = Path(output_dir) / "training_manifest.yaml"
+        write_training_manifest(
+            manifest_path,
+            step=step,
+            loss=loss,
+            checkpoint_path=str(ckpt_dir),
+            **manifest_info,
+        )
 
     # Also save as "latest" symlink for easy access
     latest_path = Path(output_dir) / "latest"

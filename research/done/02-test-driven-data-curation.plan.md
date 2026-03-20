@@ -163,3 +163,89 @@ directly as GRPO reward functions.
 - CodeContests (2022): Uses test cases for filtering, but only for competition problems
 - APPS dataset (2021): Code + tests, but curated by hand, not auto-discovered
 - **Nobody has used test execution as a DATA QUALITY signal for pre-training**
+
+---
+
+## 2025-2026 Research Findings (March 2026 Update)
+
+### What Changed Since Original Write-Up
+
+The landscape evolved significantly. Several projects now use test execution as a quality
+signal, though none do it as a general-purpose data curation step for pre-training.
+
+### Key Projects & Papers
+
+**KodCode (ACL Findings 2025)**
+- 447K verified question-solution-test triplets, synthetically generated
+- Three-step pipeline: question synthesis → solution + test generation → reject sampling
+- Self-verification: solutions tested against unit tests, error rate <2.5%
+- Fine-tuned models beat Qwen2.5-Coder-32B-Instruct on HumanEval/MBPP/LiveCodeBench
+- Key insight: allocate extra generation attempts for hard problems rather than discarding
+- Source: https://arxiv.org/abs/2503.02951
+
+**SWE-bench Docker Infrastructure (2025)**
+- Public registry of optimized Docker images for per-repo test execution
+- 2,290 Docker images reduced to 67 GiB via layer caching (10x reduction)
+- Can run full SWE-bench Verified (500 tasks) in 62 minutes on a single VM
+- Each task: isolated Docker container, no network, git history trimmed
+- Primary metric: "fail-to-pass" — tests that fail before a patch, pass after
+- Source: https://epoch.ai/blog/swebench-docker
+
+**AlphaCode 2 (2025-2026)**
+- 85th percentile on Codeforces (Expert/Candidate Master level)
+- Generates ~100 samples (down from 1M) via improved filtering
+- Test-based filtering reduced false positive rate from 62% to 4%
+- Key: generated additional test cases beyond problem examples
+- Source: https://deepmind.google/blog/competitive-programming-with-alphacode/
+
+**Scaling Data Difficulty (ICLR 2026)**
+- Reinforcement learning on fresh, challenging problems
+- Uses test execution as reward signal during RL training
+- Confirms: test-verified data >> static-quality data for code models
+- Source: https://arxiv.org/html/2603.07779
+
+### Practical Lessons for Our Implementation
+
+1. **Docker isolation is table stakes** — SWE-bench proved per-repo Docker images work
+   at scale. Network disabled, memory capped, timeout enforced.
+
+2. **Subprocess mode is viable for trusted repos** — Not every repo needs full Docker
+   isolation. For repos we clone ourselves from known-good sources, subprocess with
+   timeout + resource limits is 10x faster than Docker.
+
+3. **Test framework detection is solvable** — package.json scripts, pyproject.toml
+   sections, and Cargo.toml/go.mod make detection straightforward for 95% of repos.
+
+4. **Flaky tests are the main challenge** — Many repos have tests that fail due to:
+   - Missing env vars or config files
+   - Network-dependent tests (API calls, database connections)
+   - Platform-specific tests (Linux-only, macOS-only)
+   - Version conflicts in dependencies
+   Strategy: run tests twice, mark consistently-failing tests as "environment issue"
+   vs "code issue."
+
+5. **Cache aggressively** — SWE-bench's Docker layer caching reduced image sizes 10x.
+   We should cache: npm install results, pip install results, test outcomes per
+   repo+commit hash.
+
+6. **Generated tests extend coverage** — KodCode and AlphaCode both generate additional
+   tests. Future work: use an LLM to generate tests for repos that lack them, then
+   verify those tests pass on the existing code.
+
+### Security Best Practices (2025-2026)
+
+- **No network**: `--network none` in Docker (prevents exfiltration)
+- **Non-root user**: Run as unprivileged user inside container
+- **Memory cap**: 2GB default (prevents OOM attacks)
+- **PID limit**: 64 PIDs max (prevents fork bombs)
+- **No /proc access**: Use `hidepid=2` or `--security-opt no-new-privileges`
+- **Read-only mounts**: `-v repo:/code:ro` (code can't modify host)
+- **Timeout everything**: 300s max for install + test combined
+
+### What We Built
+
+Implementation in `src/cola_coder/data/curation/`:
+- `test_runner.py` — Framework detection + test execution (subprocess & Docker modes)
+- `test_scorer.py` — Quality scoring based on test results
+- `docker_sandbox.py` — Isolated Docker execution with security defaults
+- `scripts/score_repos.py` — Standalone CLI tool for batch repo scoring

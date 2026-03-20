@@ -35,6 +35,7 @@ from typing import Iterator
 import numpy as np
 from tqdm import tqdm
 
+from ..manifest import write_data_manifest
 from ..tokenizer.tokenizer_utils import CodeTokenizer
 
 # Sentinel value to signal the producer thread is done
@@ -73,6 +74,8 @@ def tokenize_and_chunk(
     max_tokens: int | None = None,
     batch_size: int = 64,
     output_name: str = "train_data",
+    *,
+    manifest_info: dict | None = None,
 ) -> str:
     """Tokenize text and save as chunked memory-mapped arrays.
 
@@ -88,6 +91,9 @@ def tokenize_and_chunk(
         max_tokens: Stop after this many tokens (for testing).
         batch_size: Number of files to tokenize at once (higher = more
                     efficient Rust parallelism, more memory). Default 64.
+        manifest_info: Optional dict of extra metadata for the data manifest.
+            Expected keys: dataset, languages, filter_mode, filter_stats,
+            tokenizer_path, vocab_size, workers.
 
     Returns:
         Path to the saved .npy file.
@@ -223,6 +229,27 @@ def tokenize_and_chunk(
         print(f"Throughput: {total_tokens / elapsed:,.0f} tokens/sec, "
               f"{total_files / elapsed:,.0f} files/sec")
     print(f"Saved to: {output_file}")
+
+    # --- Write data manifest ---
+    manifest_path = str(out_path / f"{output_name}.manifest.yaml")
+    throughput = total_tokens / elapsed if elapsed > 0 else 0
+    manifest_kwargs = {
+        "output_file": f"{output_name}.npy",
+        "output_size_bytes": Path(output_file).stat().st_size,
+        "num_chunks": num_chunks,
+        "chunk_size": chunk_size,
+        "total_tokens": total_tokens,
+        "dtype": "uint16",
+        "total_files": total_files,
+        "batch_size": batch_size,
+        "max_tokens": max_tokens,
+        "wall_time_seconds": elapsed,
+        "throughput_tokens_per_sec": throughput,
+    }
+    if manifest_info:
+        manifest_kwargs.update(manifest_info)
+    write_data_manifest(manifest_path, **manifest_kwargs)
+    print(f"Manifest: {manifest_path}")
 
     return output_file
 

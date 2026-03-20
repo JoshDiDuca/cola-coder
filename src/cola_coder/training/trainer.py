@@ -134,6 +134,28 @@ class Trainer:
         print(f"Precision: {cfg.precision}")
         print()
 
+        # --- Provenance tracking ---
+        # Resolve the data manifest path (sits next to the .npy file)
+        data_manifest_path = str(Path(data_path).with_suffix(".manifest.yaml"))
+        if not Path(data_manifest_path).exists():
+            data_manifest_path = None
+
+        # Track loss at checkpoint intervals for the manifest
+        loss_history: dict[str, float] = {}
+        total_tokens_seen = 0
+        # Tokens per step: effective_batch_size * max_seq_len
+        tokens_per_step = cfg.effective_batch_size * self.config.model.max_seq_len
+
+        # Try to read total tokens from data manifest for epoch calculation
+        total_data_tokens = 0
+        if data_manifest_path:
+            try:
+                from ..manifest import read_manifest
+                dm = read_manifest(data_manifest_path)
+                total_data_tokens = dm.get("data", {}).get("total_tokens", 0)
+            except Exception:
+                pass
+
         self.model.train()  # Set to training mode (enables dropout)
 
         for step in tqdm(range(self.start_step, cfg.max_steps), initial=self.start_step,
@@ -180,6 +202,7 @@ class Trainer:
             # Track metrics
             avg_loss = step_loss / cfg.gradient_accumulation
             self.metrics.update(avg_loss, step_tokens)
+            total_tokens_seen += step_tokens
 
             # Log metrics
             current_lr = self.scheduler.get_last_lr()[0]
@@ -189,6 +212,11 @@ class Trainer:
 
             # Save checkpoint
             if step > 0 and step % self.config.checkpoint.save_every == 0:
+                loss_history[f"step_{step}"] = round(avg_loss, 4)
+                epochs = (
+                    total_tokens_seen / total_data_tokens
+                    if total_data_tokens > 0 else 0.0
+                )
                 save_checkpoint(
                     model=self.model,
                     optimizer=self.optimizer,
@@ -199,9 +227,24 @@ class Trainer:
                             "training": vars(self.config.training)},
                     output_dir=self.config.checkpoint.output_dir,
                     max_checkpoints=self.config.checkpoint.max_checkpoints,
+                    manifest_info={
+                        "model_config": vars(self.config.model),
+                        "training_config": vars(self.config.training),
+                        "data_path": data_path,
+                        "data_manifest_path": data_manifest_path,
+                        "tokens_seen": total_tokens_seen,
+                        "epochs_completed": epochs,
+                        "loss_history": loss_history,
+                        "max_steps": cfg.max_steps,
+                    },
                 )
 
         # Final checkpoint
+        loss_history[f"step_{cfg.max_steps}"] = round(avg_loss, 4)
+        epochs = (
+            total_tokens_seen / total_data_tokens
+            if total_data_tokens > 0 else 0.0
+        )
         save_checkpoint(
             model=self.model,
             optimizer=self.optimizer,
@@ -212,6 +255,16 @@ class Trainer:
                     "training": vars(self.config.training)},
             output_dir=self.config.checkpoint.output_dir,
             max_checkpoints=self.config.checkpoint.max_checkpoints,
+            manifest_info={
+                "model_config": vars(self.config.model),
+                "training_config": vars(self.config.training),
+                "data_path": data_path,
+                "data_manifest_path": data_manifest_path,
+                "tokens_seen": total_tokens_seen,
+                "epochs_completed": epochs,
+                "loss_history": loss_history,
+                "max_steps": cfg.max_steps,
+            },
         )
 
         self.metrics.finish()

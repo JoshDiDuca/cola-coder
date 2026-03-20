@@ -1,0 +1,35 @@
+# Example data pipeline configuration
+#
+# Defines a complete data pipeline: sources → filters → transforms → output
+# Load with: PipelineConfig.from_yaml("configs/pipeline.yaml")
+#
+# This is an alternative to the CLI flags in prepare_data.py.
+# Power users can define complex multi-source pipelines here.
+
+pipeline:
+  sources:
+    - type: huggingface
+      dataset: "bigcode/starcoderdata"
+      languages: ["typescript", "javascript"]
+      weight: 0.7
+
+    - type: local
+      paths: ["./data/custom/"]
+      extensions: [".ts", ".tsx", ".js", ".jsx"]
+      weight: 0.3
+
+  filters:
+    - type: quality
+      mode: conservative
+
+    - type: length
+      min_lines: 5
+      max_lines: 10000
+
+  transforms:
+    - type: normalize_whitespace
+    - type: add_metadata
+
+  output:
+    dir: "./data/processed"
+    name: auto
