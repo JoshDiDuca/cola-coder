@@ -25,6 +25,7 @@ have a 100GB dataset but only use a few GB of RAM at a time.
 """
 
 import os
+import signal
 import threading
 import time
 from pathlib import Path
@@ -111,6 +112,20 @@ def tokenize_and_chunk(
     capacity = initial_capacity
     num_chunks = 0
 
+    # --- Graceful shutdown on Ctrl+C ---
+    # Instead of losing all progress, finalize whatever we have so far.
+    _interrupted = False
+
+    def _handle_interrupt(signum, frame):
+        nonlocal _interrupted
+        if _interrupted:
+            # Second Ctrl+C: hard exit
+            raise KeyboardInterrupt
+        _interrupted = True
+        print("\n⏹ Ctrl+C received — finishing up and saving what we have...")
+
+    old_handler = signal.signal(signal.SIGINT, _handle_interrupt)
+
     # --- Tokenize and chunk ---
     token_buffer: list[int] = []
     total_tokens = 0
@@ -119,7 +134,7 @@ def tokenize_and_chunk(
 
     pbar = tqdm(desc="Processing files", unit=" files")
 
-    while True:
+    while not _interrupted:
         try:
             item = queue.get(timeout=30)
         except Empty:
@@ -173,6 +188,7 @@ def tokenize_and_chunk(
             break
 
     pbar.close()
+    signal.signal(signal.SIGINT, old_handler)  # Restore original handler
     producer.join(timeout=5)
 
     # --- Finalize: trim memmap to actual size and save as .npy ---
@@ -193,6 +209,9 @@ def tokenize_and_chunk(
 
     # --- Summary ---
     elapsed = time.time() - start_time
+    if _interrupted:
+        print(f"\n⏹ INTERRUPTED — saved partial data ({num_chunks:,} chunks)")
+        print(f"  This is perfectly usable for training!")
     print(f"\nSaved {num_chunks:,} chunks of {chunk_size} tokens each")
     print(f"Total tokens processed: {total_tokens:,}")
     print(f"Total files processed: {total_files:,}")

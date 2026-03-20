@@ -454,10 +454,35 @@ def check_no_hardcoded_secrets(content: str) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 def _looks_like_python(content: str) -> bool:
-    """Quick heuristic: does this content look like Python?"""
-    indicators = ["def ", "import ", "class ", "if __name__", "print(", "self."]
+    """Quick heuristic: does this content look like Python?
+
+    Must use Python-SPECIFIC indicators to avoid false positives on TS/JS.
+    'import' and 'class' exist in both languages, so they're not useful
+    as Python indicators. Instead use things only Python has: 'def ',
+    'self.', 'if __name__', '#!' + python, indentation-based blocks, etc.
+
+    Also: if the file looks like JS/TS, skip Python parsing even if it
+    has some Python-like keywords. This prevents rejecting valid TS/JS
+    files that happen to use 'import' + 'class'.
+    """
     header = content[:2000]
-    matches = sum(1 for ind in indicators if ind in header)
+
+    # If it looks like JS/TS, it's NOT Python — even if it has 'def' or 'self'
+    js_ts_signals = ["const ", "let ", "=> ", "require(", "export ", "interface ", "type "]
+    if sum(1 for s in js_ts_signals if s in header) >= 2:
+        return False
+
+    # Python-specific indicators (not shared with JS/TS)
+    py_indicators = [
+        "def ",          # function definitions (JS uses 'function')
+        "self.",         # instance references (JS uses 'this.')
+        "if __name__",   # Python entry point pattern
+        "elif ",         # Python-only keyword (JS uses 'else if')
+        "except ",       # Python-only (JS uses 'catch')
+        "print(",        # common in Python (less so in modern JS)
+        "#!/usr/bin",    # shebang lines
+    ]
+    matches = sum(1 for ind in py_indicators if ind in header)
     return matches >= 2
 
 
