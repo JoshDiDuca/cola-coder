@@ -1,16 +1,117 @@
-# Feature toggles for optional Cola-Coder features.
+# Feature toggles for Cola-Coder optional features.
 # Set to true/false to enable/disable each feature.
+# Features are grouped by category for easier management.
+#
+# Config is loaded by: from cola_coder.features import load_feature_config
+# Override path via env var: COLA_FEATURES_CONFIG=/path/to/features.yaml
 
 features:
-  master_menu: true
-  nano_benchmark: true
-  smoke_test: true
-  auto_validation_split: true
+
+  # ---------------------------------------------------------------------------
+  # Training
+  # ---------------------------------------------------------------------------
+  contrastive_code_learning: true
+  crash_recovery: true
+  data_versioning: true
+  dead_neuron_detection: true
+  gradient_norm_monitor: true
+  knowledge_distillation: true
+  lora_qlora: true
+  loss_curve_visualizer: true
+  moe_layer: false        # Experimental — disabled by default
+  one_click_pipeline: true
   overfitting_detector: true
+  perplexity_tracker: true
+  reasoning_curriculum: true
+  resume_detector: true
+  reward_shaping: true
+  streaming_training: true
+  syntax_validity_rate: true
+  token_efficiency_metric: true
   training_monitor: true
-  vram_estimator: true
+  training_speed_dashboard: true
+  type_correctness_rate: true
+  validation_split: true
+
+  # ---------------------------------------------------------------------------
+  # Generation
+  # ---------------------------------------------------------------------------
+  adaptive_computation: true
+  beam_search: true
+  byte_level_fallback: true
+  ensemble_generation: true
+  generation_constraints: true
+  multi_step_reasoning: true
+  multi_token_prediction: true
+  position_interpolation: true
+  prompt_templates: true
+  self_verification: true
+  speculative_decoding: true
   streaming_generation: true
-  router_system: true
-  moe_layer: false  # Experimental
+  thinking_budget: true
+  thinking_quality_scorer: true
+  token_merging: true
+
+  # ---------------------------------------------------------------------------
+  # Evaluation
+  # ---------------------------------------------------------------------------
+  checkpoint_comparison: true
+  checkpoint_leaderboard: true
+  continuous_eval: true
+  fim_benchmark: true
+  hallucination_detector: true
+  nano_benchmark: true
+  real_world_eval: true
+  reasoning_trace_viewer: true
+  side_by_side_comparison: true
+  smoke_test: true
+  synthetic_bug_injection: true
   typescript_benchmark: true
-  hallucination_detection: true
+
+  # ---------------------------------------------------------------------------
+  # Infrastructure
+  # ---------------------------------------------------------------------------
+  batch_inference: true
+  config_validator: true
+  constitutional_coding: true
+  dataset_inspector: true
+  experiment_tracker: true
+  model_card_generator: true
+  onnx_export: true
+  quantization: true
+  realtime_data_stats: true
+  sparse_attention: true
+  vram_estimator: true
+
+  # ---------------------------------------------------------------------------
+  # Routing & Specialists
+  # ---------------------------------------------------------------------------
+  cascade_routing: true
+  confidence_routing: true
+  domain_detector: true
+  hot_swap_specialists: true
+  router_data_generator: true
+  router_evaluation: true
+  router_model: true
+  specialist_registry: true
+
+  # ---------------------------------------------------------------------------
+  # Code Analysis
+  # ---------------------------------------------------------------------------
+  ast_chunking: true
+  code_diff_mode: true
+  complexity_scorer: true
+  docstring_extraction: true
+  import_graph: true
+  multi_file_context: true
+  test_code_pair_extractor: true
+
+  # ---------------------------------------------------------------------------
+  # UI & Dashboard
+  # ---------------------------------------------------------------------------
+  gpu_status_panel: true
+  master_menu: true
+  multi_turn_chat: true
+  pipeline_status_dashboard: true
+  quick_actions: true
+  recent_runs_history: true

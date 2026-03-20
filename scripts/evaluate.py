@@ -4,6 +4,8 @@ Loads a trained model, generates solutions for each problem, tests them
 against provided test cases, and computes pass@k metrics.
 
 Usage:
+    python scripts/evaluate.py
+    python scripts/evaluate.py --checkpoint ./checkpoints/step_00010000
     python scripts/evaluate.py --checkpoint ./checkpoints/step_00010000 --config configs/small.yaml
     python scripts/evaluate.py --checkpoint ./checkpoints/step_00010000 --config configs/small.yaml --num-samples 10
 """
@@ -22,14 +24,14 @@ def main():
     parser.add_argument(
         "--checkpoint",
         type=str,
-        required=True,
-        help="Path to checkpoint directory (required).",
+        default=None,
+        help="Path to checkpoint directory (auto-detected if omitted).",
     )
     parser.add_argument(
         "--config",
         type=str,
-        required=True,
-        help="Path to YAML config file (required).",
+        default=None,
+        help="Path to YAML config file (auto-detected from checkpoint metadata if omitted).",
     )
     parser.add_argument(
         "--tokenizer",
@@ -52,6 +54,53 @@ def main():
     args = parser.parse_args()
 
     cli.header("Cola-Coder", "Evaluation")
+
+    # ---- Auto-detect checkpoint ----
+    _metadata: dict = {}
+    if args.checkpoint is None:
+        try:
+            from cola_coder.training.checkpoint import detect_latest_checkpoint
+            result = detect_latest_checkpoint("checkpoints")
+            if result is None:
+                cli.fatal(
+                    "No checkpoint found in checkpoints/",
+                    hint="Pass --checkpoint path/to/ckpt or train a model first",
+                )
+            raw_path, _metadata = result
+            # Resolve relative paths (may be Windows-style relative paths)
+            resolved = Path(raw_path)
+            if not resolved.is_absolute():
+                resolved = Path("checkpoints").parent / resolved
+            args.checkpoint = str(resolved)
+            cli.info("Auto-detected checkpoint", args.checkpoint)
+        except ImportError:
+            cli.fatal(
+                "Could not import cola_coder. Make sure the package is installed.",
+                hint="Try: pip install -e .",
+            )
+
+    # ---- Auto-detect config ----
+    if args.config is None:
+        ckpt_path = Path(args.checkpoint)
+        # Try to match checkpoints/<size>/step_* -> configs/<size>.yaml
+        size_name = ckpt_path.parent.name
+        yaml_candidate = Path("configs") / f"{size_name}.yaml"
+        if yaml_candidate.exists():
+            args.config = str(yaml_candidate)
+            cli.info("Auto-detected config", args.config)
+        else:
+            # Scan configs/ as last resort
+            configs_dir = Path("configs")
+            if configs_dir.exists():
+                yamls = sorted(configs_dir.glob("*.yaml"))
+                if yamls:
+                    args.config = str(yamls[0])
+                    cli.info("Auto-detected config", args.config)
+            if args.config is None:
+                cli.fatal(
+                    "Could not auto-detect a config file",
+                    hint="Pass --config configs/<size>.yaml explicitly",
+                )
 
     # ---- Validate inputs ----
     if not Path(args.checkpoint).exists():
@@ -157,6 +206,16 @@ def main():
     report = format_results(results, k_values=k_values)
     cli.rule("Results")
     cli.print(f"\n{report}")
+
+    # ---- Nano Benchmark (optional) ----
+    try:
+        from cola_coder.features.nano_benchmark import is_enabled, NanoBenchmark
+        if is_enabled():
+            cli.rule("Nano Benchmark")
+            nano = NanoBenchmark()
+            nano.run(generator)
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

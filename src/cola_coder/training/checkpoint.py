@@ -225,6 +225,90 @@ def load_model_only(
     return model
 
 
+def get_checkpoint_info(checkpoint_dir: str) -> dict:
+    """Read metadata.json from a checkpoint and return the info dict.
+
+    Returns dict with keys: step, loss, config, size_name, checkpoint_dir.
+    Returns empty dict if metadata not found.
+    """
+    try:
+        ckpt_dir = Path(checkpoint_dir)
+
+        # Handle "latest" pointer (text file containing actual checkpoint path)
+        if ckpt_dir.name == "latest" and ckpt_dir.is_file():
+            ckpt_dir = Path(ckpt_dir.read_text().strip())
+
+        metadata_path = ckpt_dir / "metadata.json"
+        if not metadata_path.exists():
+            return {}
+
+        info = json.loads(metadata_path.read_text())
+        # size_name is the grandparent dir (e.g. checkpoints/tiny/step_00001000 -> "tiny")
+        info["size_name"] = ckpt_dir.parent.name
+        info["checkpoint_dir"] = str(ckpt_dir)
+        return info
+    except Exception:
+        return {}
+
+
+def detect_latest_checkpoint(checkpoints_dir: str = "checkpoints") -> tuple[str, dict] | None:
+    """Auto-detect the latest checkpoint across all model sizes.
+
+    Scans checkpoints/<size>/latest files and returns the most recent one.
+
+    Args:
+        checkpoints_dir: Base checkpoints directory.
+
+    Returns:
+        Tuple of (checkpoint_path, metadata_dict) or None if no checkpoints found.
+        metadata_dict contains: step, loss, config (from metadata.json).
+    """
+    base = Path(checkpoints_dir)
+    if not base.exists():
+        return None
+
+    best_path: str | None = None
+    best_info: dict = {}
+    best_step: int = -1
+
+    # First pass: scan for "latest" pointer files
+    found_latest = False
+    for size_dir in base.iterdir():
+        if not size_dir.is_dir():
+            continue
+        latest_file = size_dir / "latest"
+        if latest_file.is_file():
+            found_latest = True
+            info = get_checkpoint_info(str(latest_file))
+            if info and info.get("step", -1) > best_step:
+                best_step = info["step"]
+                best_path = info["checkpoint_dir"]
+                best_info = info
+
+    if found_latest:
+        return (best_path, best_info) if best_path is not None else None
+
+    # Fallback: scan for step_* dirs directly if no "latest" files exist
+    for size_dir in base.iterdir():
+        if not size_dir.is_dir():
+            continue
+        step_dirs = sorted(
+            size_dir.glob("step_*"),
+            key=lambda d: int(d.name.split("_")[1]),
+        )
+        if not step_dirs:
+            continue
+        # Take the highest step dir for this size
+        highest = step_dirs[-1]
+        info = get_checkpoint_info(str(highest))
+        if info and info.get("step", -1) > best_step:
+            best_step = info["step"]
+            best_path = str(highest)
+            best_info = info
+
+    return (best_path, best_info) if best_path is not None else None
+
+
 def _cleanup_old_checkpoints(output_dir: str, max_checkpoints: int):
     """Remove old checkpoints, keeping only the most recent ones."""
     ckpt_dirs = sorted(

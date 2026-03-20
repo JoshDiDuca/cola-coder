@@ -137,6 +137,11 @@ def main():
         help="Path to checkpoint directory to resume training from.",
     )
     parser.add_argument(
+        "--auto-resume",
+        action="store_true",
+        help="Auto-detect and resume from the latest checkpoint.",
+    )
+    parser.add_argument(
         "--wandb",
         action="store_true",
         help="Enable Weights & Biases logging.",
@@ -175,6 +180,76 @@ def main():
     except Exception as e:
         cli.fatal(f"Loading config: {e}")
 
+    # ---- Auto-resume: detect latest checkpoint ----
+    resume_from = args.resume
+    if args.auto_resume and not resume_from:
+        try:
+            from cola_coder.training.checkpoint import detect_latest_checkpoint
+            result = detect_latest_checkpoint()
+            if result is not None:
+                checkpoint_path, checkpoint_info = result
+                step = checkpoint_info.get("step", "?")
+                cli.info("Auto-resume", f"Found checkpoint at step {step}: {checkpoint_path}")
+                resume_from = checkpoint_path
+            else:
+                cli.warn("Auto-resume: no checkpoints found, starting fresh")
+        except ImportError:
+            cli.warn("Auto-resume: checkpoint module not available, starting fresh")
+        except Exception as e:
+            cli.warn(f"Auto-resume failed: {e}, starting fresh")
+
+    # ---- Pre-flight Checks ----
+    cli.rule("Pre-flight Checks")
+
+    # Pre-flight: validate config (optional feature)
+    try:
+        from cola_coder.features.config_validator import is_enabled as config_validator_enabled
+        if config_validator_enabled():
+            from cola_coder.features.config_validator import validate_config, ValidationIssue
+            issues = validate_config(config)
+            if issues:
+                errors = [i for i in issues if i.level == "error"]
+                warnings = [i for i in issues if i.level == "warning"]
+                cli.warn(f"Config validation: {len(errors)} error(s), {len(warnings)} warning(s)")
+                for issue in issues[:5]:  # Show first 5
+                    prefix = "ERROR" if issue.level == "error" else "WARN"
+                    cli.dim(f"  [{prefix}] [{issue.field}]: {issue.message}")
+                    if issue.suggestion:
+                        cli.dim(f"    Suggestion: {issue.suggestion}")
+                if errors:
+                    if not cli.confirm("Config has errors. Continue anyway?"):
+                        sys.exit(0)
+            else:
+                cli.success("Config validation passed")
+    except ImportError:
+        pass  # Feature not available
+    except Exception as e:
+        cli.warn(f"Config validation skipped: {e}")
+
+    # Pre-flight: VRAM estimation (optional feature)
+    try:
+        from cola_coder.features.vram_estimator import is_enabled as vram_enabled
+        if vram_enabled():
+            from cola_coder.features.vram_estimator import estimate_vram
+            estimate = estimate_vram(
+                model_config=config.model,
+                training_config=config.training,
+            )
+            cli.info("Estimated VRAM", f"{estimate.total_training_gb:.1f} GB (training)")
+            if estimate.gpu_vram_gb is not None:
+                if estimate.fits_training:
+                    cli.success(f"VRAM fits on {estimate.gpu_name} ({estimate.gpu_vram_gb:.1f} GB available)")
+                elif estimate.fits_training is False:
+                    cli.warn(
+                        f"VRAM may not fit: {estimate.total_training_gb:.1f} GB estimated "
+                        f"> {estimate.gpu_vram_gb:.1f} GB available on {estimate.gpu_name}"
+                    )
+                    cli.dim("  Tip: reduce batch_size, enable gradient_checkpointing, or use a smaller config")
+    except ImportError:
+        pass
+    except Exception as e:
+        cli.warn(f"VRAM estimation skipped: {e}")
+
     # ---- Initialize trainer ----
     cli.step(2, 3, "Initializing trainer")
 
@@ -184,7 +259,7 @@ def main():
         cli.fatal("Could not import training module.")
 
     try:
-        trainer = Trainer(config=config, resume_from=args.resume)
+        trainer = Trainer(config=config, resume_from=resume_from)
     except RuntimeError as e:
         if "out of memory" in str(e).lower() or "CUDA" in str(e):
             cli.error(f"GPU Error: {e}")

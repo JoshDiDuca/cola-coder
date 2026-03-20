@@ -5,6 +5,7 @@ PowerShell scripts with one interactive, keyboard-driven menu.
 """
 
 import sys
+import importlib
 import subprocess
 from pathlib import Path
 from cola_coder.cli import cli
@@ -16,6 +17,158 @@ FEATURE_ENABLED = True
 def is_enabled() -> bool:
     """Check if this feature is enabled."""
     return FEATURE_ENABLED
+
+
+# ── Feature category definitions ──────────────────────────────────────────────
+# Each entry maps a category name to the module stem names that belong to it.
+# Any module not listed here falls into "Other".
+
+_FEATURE_CATEGORIES: dict[str, list[str]] = {
+    "Training": [
+        "training_monitor", "loss_curve_visualizer", "gradient_norm_monitor",
+        "overfitting_detector", "perplexity_tracker", "streaming_training",
+        "crash_recovery", "resume_detector", "continuous_eval",
+        "realtime_data_stats", "training_speed_dashboard", "dead_neuron_detection",
+        "validation_split",
+    ],
+    "Generation": [
+        "streaming_generation", "beam_search", "batch_inference",
+        "generation_constraints", "multi_turn_chat", "prompt_templates",
+        "speculative_decoding", "multi_token_prediction", "thinking_budget",
+        "multi_step_reasoning",
+    ],
+    "Evaluation": [
+        "nano_benchmark", "smoke_test", "fim_benchmark", "typescript_benchmark",
+        "real_world_eval", "complexity_scorer", "syntax_validity_rate",
+        "type_correctness_rate", "token_efficiency_metric",
+        "thinking_quality_scorer", "hallucination_detector", "self_verification",
+    ],
+    "Infrastructure": [
+        "config_validator", "vram_estimator", "gpu_status_panel",
+        "checkpoint_comparison", "checkpoint_leaderboard", "experiment_tracker",
+        "data_versioning", "dataset_inspector", "model_card_generator",
+        "onnx_export", "quantization", "knowledge_distillation", "lora_qlora",
+    ],
+    "Routing & Specialists": [
+        "router_model", "router_evaluation", "router_data_generator",
+        "specialist_registry", "cascade_routing", "confidence_routing",
+        "hot_swap_specialists", "domain_detector", "moe_layer",
+        "ensemble_generation",
+    ],
+    "Code Analysis": [
+        "ast_chunking", "import_graph", "docstring_extraction", "code_diff_mode",
+        "multi_file_context", "byte_level_fallback", "test_code_pair_extractor",
+        "synthetic_bug_injection", "contrastive_code_learning",
+        "constitutional_coding",
+    ],
+    "UI & Dashboard": [
+        "master_menu", "quick_actions", "pipeline_status_dashboard",
+        "recent_runs_history", "side_by_side_comparison",
+        "reasoning_trace_viewer", "one_click_pipeline",
+    ],
+}
+
+
+def _get_features_dir() -> Path:
+    """Return the features/ directory path."""
+    return Path(__file__).parent
+
+
+def _get_yaml_path(project_root: Path) -> Path:
+    """Return the configs/features.yaml path."""
+    return project_root / "configs" / "features.yaml"
+
+
+def _load_feature_states(project_root: Path) -> dict[str, bool]:
+    """Load feature enabled states from features.yaml.
+
+    Returns a dict mapping module stem -> bool (True = enabled).
+    Falls back to FEATURE_ENABLED in each module if not in yaml.
+    """
+    yaml_path = _get_yaml_path(project_root)
+    yaml_states: dict[str, bool] = {}
+    if yaml_path.exists():
+        try:
+            import yaml
+            with open(yaml_path, "r", encoding="utf-8") as fh:
+                data = yaml.safe_load(fh) or {}
+            yaml_states = {str(k): bool(v) for k, v in (data.get("features") or {}).items()}
+        except Exception:
+            pass
+    return yaml_states
+
+
+def _save_feature_state(project_root: Path, module_name: str, enabled: bool) -> None:
+    """Write a single feature's enabled state to features.yaml."""
+    try:
+        import yaml
+        yaml_path = _get_yaml_path(project_root)
+        if yaml_path.exists():
+            with open(yaml_path, "r", encoding="utf-8") as fh:
+                data = yaml.safe_load(fh) or {}
+        else:
+            data = {}
+
+        if "features" not in data or data["features"] is None:
+            data["features"] = {}
+        data["features"][module_name] = enabled
+
+        yaml_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(yaml_path, "w", encoding="utf-8") as fh:
+            yaml.dump(data, fh, default_flow_style=False, sort_keys=True)
+    except Exception as exc:
+        cli.warn(f"Could not save to features.yaml: {exc}")
+
+
+def _scan_feature_modules(project_root: Path) -> list[dict]:
+    """Scan all feature modules and return their metadata.
+
+    Each item:  {name, label, enabled, module_obj_or_none, category}
+    """
+    features_dir = _get_features_dir()
+    yaml_states = _load_feature_states(project_root)
+
+    # Build reverse lookup: module_name -> category
+    stem_to_category: dict[str, str] = {}
+    for cat, stems in _FEATURE_CATEGORIES.items():
+        for s in stems:
+            stem_to_category[s] = cat
+
+    results = []
+    py_files = sorted(
+        f for f in features_dir.glob("*.py")
+        if f.stem not in ("__init__",) and not f.stem.startswith("_")
+    )
+
+    for py_file in py_files:
+        stem = py_file.stem
+        label = stem.replace("_", " ").title()
+        category = stem_to_category.get(stem, "Other")
+
+        # Determine enabled state: yaml overrides module default
+        if stem in yaml_states:
+            enabled = yaml_states[stem]
+        else:
+            # Try to read FEATURE_ENABLED from the module
+            try:
+                mod = importlib.import_module(f"cola_coder.features.{stem}")
+                enabled = bool(getattr(mod, "FEATURE_ENABLED", True))
+            except Exception:
+                enabled = True  # assume enabled if module can't be loaded
+
+        results.append({
+            "name": stem,
+            "label": label,
+            "enabled": enabled,
+            "category": category,
+        })
+
+    return results
+
+
+def _count_enabled(features: list[dict]) -> tuple[int, int]:
+    """Return (enabled_count, total_count)."""
+    return sum(1 for f in features if f["enabled"]), len(features)
 
 
 class MasterMenu:
@@ -190,9 +343,14 @@ class MasterMenu:
                 if size_dir.is_dir():
                     latest = size_dir / "latest"
                     if latest.exists():
+                        # Resolve "latest" pointer to show the actual checkpoint path as detail
+                        try:
+                            detail = latest.read_text().strip()
+                        except Exception:
+                            detail = str(latest)
                         checkpoints.append({
                             "label": f"{size_dir.name}/latest",
-                            "detail": str(latest),
+                            "detail": detail,
                             "path": str(latest),
                         })
                     for step_dir in sorted(size_dir.glob("step_*")):
@@ -206,13 +364,26 @@ class MasterMenu:
             cli.error("No checkpoints found. Train a model first.")
             return
 
-        choice = cli.choose("Select checkpoint:",
-                            [{"label": c["label"], "detail": ""} for c in checkpoints],
-                            allow_cancel=True)
+        # "Quick Generate" is always the first option — run.py auto-detects
+        # the latest checkpoint, its config from metadata.json, and uses
+        # default sampling params. No manual selection needed.
+        quick_option = {
+            "label": "Quick Generate (auto-detect everything)",
+            "detail": "Uses latest checkpoint + auto-detected config + default sampling",
+        }
+        menu_options = [quick_option] + [{"label": c["label"], "detail": c["detail"]} for c in checkpoints]
+
+        choice = cli.choose("Select checkpoint:", menu_options, allow_cancel=True)
         if choice is None:
             return
 
-        self._run_script("generate.py", ["--checkpoint", checkpoints[choice]["path"]])
+        if choice == 0:
+            # Quick Generate: run.py handles checkpoint + config detection automatically
+            self._run_script("run.py", [])
+        else:
+            # Offset by 1 because index 0 is the quick option
+            selected = checkpoints[choice - 1]
+            self._run_script("generate.py", ["--checkpoint", selected["path"]])
 
     def evaluate_menu(self):
         """Evaluation menu."""
@@ -287,12 +458,20 @@ class MasterMenu:
         """Developer tools sub-menu."""
         cli.header("Cola-Coder", "Tools")
 
+        # Build the N/M indicator for feature toggles
+        try:
+            features = _scan_feature_modules(self.project_root)
+            n_enabled, n_total = _count_enabled(features)
+            toggles_detail = f"{n_enabled}/{n_total} enabled — enable/disable optional features"
+        except Exception:
+            toggles_detail = "Enable/disable optional features"
+
         options = [
             {"label": "Run Tests", "detail": "pytest tests/ -v"},
             {"label": "Run Linter", "detail": "ruff check src/ scripts/ tests/"},
             {"label": "GPU Status", "detail": "Show GPU info and VRAM usage"},
             {"label": "Dataset Inspector", "detail": "Browse training data samples"},
-            {"label": "Feature Toggles", "detail": "Enable/disable optional features"},
+            {"label": "Feature Toggles", "detail": toggles_detail},
         ]
 
         choice = cli.choose("Select tool:", options, allow_cancel=True)
@@ -316,8 +495,11 @@ class MasterMenu:
                 cli.warn("nvidia-smi not found")
         elif choice == 3:
             self._inspect_dataset()
+            input("\nPress Enter to continue...")
+            return
         elif choice == 4:
             self._feature_toggles()
+            return  # _feature_toggles manages its own loop; skip the shared prompt
 
         input("\nPress Enter to continue...")
 
@@ -363,11 +545,164 @@ class MasterMenu:
             cli.warn(f"Could not decode samples: {e}")
 
     def _feature_toggles(self):
-        """Show and toggle optional features."""
-        cli.header("Cola-Coder", "Feature Toggles")
-        cli.dim("Feature toggles are managed via configs/features.yaml")
-        cli.dim("Edit that file to enable/disable optional features.")
-        # This will be expanded as features are added
+        """Interactive feature toggle menu — grouped by category.
+
+        All features are OPTIONAL. Disabling one never breaks core functionality;
+        it simply prevents that module from being used. Changes are persisted to
+        configs/features.yaml immediately.
+        """
+        while True:
+            cli.header("Cola-Coder", "Feature Toggles")
+            cli.dim("All features are OPTIONAL. Disabling a feature will not break anything.")
+            cli.dim(f"Persisted to: configs/features.yaml")
+            cli.print("")
+
+            # Reload states fresh each time we return to the category list
+            try:
+                features = _scan_feature_modules(self.project_root)
+            except Exception as exc:
+                cli.warn(f"Could not scan feature modules: {exc}")
+                input("\nPress Enter to continue...")
+                return
+
+            n_enabled, n_total = _count_enabled(features)
+            cli.info("Status", f"{n_enabled}/{n_total} features currently enabled")
+
+            # Build ordered category list (only categories that have modules)
+            categories_in_use: list[str] = []
+            for cat in list(_FEATURE_CATEGORIES.keys()) + ["Other"]:
+                if any(f["category"] == cat for f in features):
+                    categories_in_use.append(cat)
+
+            cat_options = []
+            for cat in categories_in_use:
+                cat_features = [f for f in features if f["category"] == cat]
+                cat_enabled = sum(1 for f in cat_features if f["enabled"])
+                cat_total = len(cat_features)
+                cat_options.append({
+                    "label": cat,
+                    "detail": f"{cat_enabled}/{cat_total} enabled",
+                })
+
+            # Bulk actions at the bottom
+            cat_options.append({
+                "label": "Enable ALL Features",
+                "detail": f"Turn on all {n_total} optional features",
+            })
+            cat_options.append({
+                "label": "Disable ALL Features",
+                "detail": f"Turn off all {n_total} optional features",
+            })
+
+            choice = cli.choose("Select a category to manage:", cat_options, allow_cancel=True)
+            if choice is None:
+                return  # Back to Tools menu
+
+            # "Enable ALL Features"
+            if choice == len(cat_options) - 2:
+                if cli.confirm(f"Enable all {n_total} features?", default=False):
+                    for feat in features:
+                        _save_feature_state(self.project_root, feat["name"], True)
+                    cli.success(f"Enabled all {n_total} features.")
+                    input("\nPress Enter to continue...")
+                continue
+
+            # "Disable ALL Features"
+            if choice == len(cat_options) - 1:
+                if cli.confirm(f"Disable all {n_total} features?", default=False):
+                    for feat in features:
+                        _save_feature_state(self.project_root, feat["name"], False)
+                    cli.warn(f"Disabled all {n_total} features.  Core functionality is unaffected.")
+                    input("\nPress Enter to continue...")
+                continue
+
+            # Category drill-down
+            selected_cat = categories_in_use[choice]
+            self._feature_category_menu(selected_cat, features)
+
+    def _feature_category_menu(self, category: str, features: list[dict]):
+        """Show features in a single category and allow toggling.
+
+        Loops until the user chooses Back / Cancel.
+        """
+        while True:
+            cli.header("Cola-Coder", f"Feature Toggles — {category}")
+            cli.dim("All features listed here are OPTIONAL.")
+            cli.print("")
+
+            # Reload yaml states so the list is always current
+            yaml_states = _load_feature_states(self.project_root)
+            cat_features = [f for f in features if f["category"] == category]
+
+            # Apply latest persisted states before displaying
+            for feat in cat_features:
+                if feat["name"] in yaml_states:
+                    feat["enabled"] = yaml_states[feat["name"]]
+
+            feat_options = []
+            for feat in cat_features:
+                state_icon = "[green]on [/green]" if feat["enabled"] else "[red]off[/red]"
+                feat_options.append({
+                    "label": feat["label"],
+                    "detail": f"{state_icon}  —  {feat['name']}",
+                })
+
+            cat_enabled = sum(1 for f in cat_features if f["enabled"])
+            cat_total = len(cat_features)
+
+            # Bulk actions for this category
+            feat_options.append({
+                "label": "Enable All in Category",
+                "detail": f"Turn on all {cat_total} features in {category}",
+            })
+            feat_options.append({
+                "label": "Disable All in Category",
+                "detail": f"Turn off all {cat_total} features in {category}",
+            })
+
+            cli.info("Category", f"{category}  ({cat_enabled}/{cat_total} enabled)")
+            choice = cli.choose("Select a feature to toggle:", feat_options, allow_cancel=True)
+
+            if choice is None:
+                return  # Back to category list
+
+            # "Enable All in Category"
+            if choice == len(feat_options) - 2:
+                if cli.confirm(f"Enable all {cat_total} {category} features?", default=True):
+                    for feat in cat_features:
+                        feat["enabled"] = True
+                        _save_feature_state(self.project_root, feat["name"], True)
+                    cli.success(f"Enabled all {cat_total} features in {category}.")
+                    input("\nPress Enter to continue...")
+                continue
+
+            # "Disable All in Category"
+            if choice == len(feat_options) - 1:
+                if cli.confirm(f"Disable all {cat_total} {category} features?", default=False):
+                    for feat in cat_features:
+                        feat["enabled"] = False
+                        _save_feature_state(self.project_root, feat["name"], False)
+                    cli.warn(
+                        f"Disabled all {cat_total} features in {category}.  "
+                        "Core functionality is unaffected."
+                    )
+                    input("\nPress Enter to continue...")
+                continue
+
+            # Toggle a single feature
+            feat = cat_features[choice]
+            new_state = not feat["enabled"]
+            feat["enabled"] = new_state
+            _save_feature_state(self.project_root, feat["name"], new_state)
+
+            if new_state:
+                cli.success(f"{feat['label']} enabled.")
+            else:
+                cli.warn(
+                    f"{feat['label']} disabled.  "
+                    "(This is optional — core functionality is unaffected.)"
+                )
+            # Loop back immediately so the user sees the updated state
 
 
 def run_master_menu():

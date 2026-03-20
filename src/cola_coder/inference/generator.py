@@ -19,6 +19,8 @@ For a TS dev: the KV-cache is like memoization. Once you've computed the
 attention state for a token, you cache it and never recompute it.
 """
 
+from typing import Generator
+
 import torch
 from torch.cuda.amp import autocast
 
@@ -131,6 +133,108 @@ class CodeGenerator:
         # Decode all generated tokens
         self.model.clear_caches()
         return self.tokenizer.decode(generated_ids)
+
+    @torch.no_grad()
+    def generate_stream(
+        self,
+        prompt: str,
+        max_new_tokens: int = 256,
+        temperature: float = 0.8,
+        top_k: int = 50,
+        top_p: float = 0.9,
+        repetition_penalty: float = 1.1,
+        stop_tokens: list[str] | None = None,
+    ) -> Generator[str, None, None]:
+        """Generate code given a prompt, yielding tokens incrementally as they're produced.
+
+        Uses the same KV-cache logic as generate(), but yields the new text after each
+        token rather than returning everything at the end. To handle BPE merge edge cases
+        and multi-byte characters cleanly, it decodes the full generated sequence each
+        step and yields only the incremental difference (new characters since last yield).
+
+        Args:
+            prompt: The input text/code to continue from.
+            max_new_tokens: Maximum number of tokens to generate.
+            temperature: Sampling temperature (0 = greedy, higher = more random).
+            top_k: Top-k filtering threshold.
+            top_p: Top-p (nucleus) filtering threshold.
+            repetition_penalty: Penalty for repeating tokens.
+            stop_tokens: Stop generation when any of these tokens are generated.
+
+        Yields:
+            Incremental text chunks as new tokens are generated.
+        """
+        # Encode the prompt
+        token_ids = self.tokenizer.encode(prompt, add_bos=True)
+        input_ids = torch.tensor([token_ids], dtype=torch.long, device=self.device)
+
+        # Get stop token IDs
+        stop_ids = set()
+        stop_ids.add(self.tokenizer.eos_id)
+        if stop_tokens:
+            for st in stop_tokens:
+                encoded = self.tokenizer.encode(st, add_bos=False)
+                if encoded:
+                    stop_ids.add(encoded[0])
+
+        # Clear any existing cache
+        self.model.clear_caches()
+
+        generated_ids = list(token_ids)
+        # Track what we've already yielded so we can compute the incremental diff
+        prev_decoded_len = len(self.tokenizer.decode(generated_ids))
+
+        try:
+            # Phase 1: Process the prompt (prefill)
+            # Feed the entire prompt at once to populate the KV-cache
+            with autocast(device_type="cuda", dtype=torch.bfloat16,
+                           enabled=self.device == "cuda"):
+                logits = self.model(input_ids, start_pos=0, use_cache=True)
+
+            # Get logits for the last prompt token (the prediction for the first new token)
+            next_logits = logits[0, -1, :]
+
+            # Phase 2: Generate tokens one by one, yielding each as it arrives
+            for i in range(max_new_tokens):
+                # Sample next token
+                next_token = sample_next_token(
+                    next_logits.clone(),
+                    temperature=temperature,
+                    top_k=top_k,
+                    top_p=top_p,
+                    repetition_penalty=repetition_penalty,
+                    generated_ids=generated_ids,
+                )
+
+                # Check stop condition
+                if next_token in stop_ids:
+                    break
+
+                generated_ids.append(next_token)
+
+                # Decode full sequence and yield only the new characters.
+                # This correctly handles BPE merges where a single token ID can
+                # decode differently depending on surrounding context, and
+                # multi-byte UTF-8 sequences that may span token boundaries.
+                current_decoded = self.tokenizer.decode(generated_ids)
+                new_text = current_decoded[prev_decoded_len:]
+                if new_text:
+                    yield new_text
+                prev_decoded_len = len(current_decoded)
+
+                # Feed the new token through the model (with KV-cache)
+                next_input = torch.tensor([[next_token]], dtype=torch.long, device=self.device)
+                start_pos = len(generated_ids) - 1
+
+                with autocast(device_type="cuda", dtype=torch.bfloat16,
+                               enabled=self.device == "cuda"):
+                    logits = self.model(next_input, start_pos=start_pos, use_cache=True)
+
+                next_logits = logits[0, -1, :]
+
+        finally:
+            # Always clear the KV cache, even if generation was interrupted
+            self.model.clear_caches()
 
     @torch.no_grad()
     def generate_batch(
