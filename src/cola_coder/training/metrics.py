@@ -12,13 +12,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-
-def _has_rich() -> bool:
-    try:
-        import rich  # noqa: F401
-        return True
-    except ImportError:
-        return False
+from ..cli import cli
 
 
 def _format_duration(seconds: float) -> str:
@@ -31,29 +25,6 @@ def _format_duration(seconds: float) -> str:
     h, rem = divmod(int(seconds), 3600)
     m, s = divmod(rem, 60)
     return f"{h}h {m:02d}m {s:02d}s"
-
-
-def _loss_color(loss: float) -> str:
-    """Return a rich color tag based on loss value."""
-    if loss < 2.0:
-        return "bold green"
-    if loss < 3.0:
-        return "green"
-    if loss < 4.0:
-        return "yellow"
-    if loss < 6.0:
-        return "dark_orange"
-    return "red"
-
-
-def _throughput_color(tok_s: float) -> str:
-    if tok_s >= 200_000:
-        return "bold green"
-    if tok_s >= 100_000:
-        return "green"
-    if tok_s >= 50_000:
-        return "yellow"
-    return "red"
 
 
 @dataclass
@@ -84,9 +55,9 @@ class TrainingMetrics:
         try:
             import wandb
             self._wandb_run = wandb.init(project=project, config=config)
-            print(f"wandb initialized: {wandb.run.url}")
+            cli.success(f"wandb initialized: {wandb.run.url}")
         except ImportError:
-            print("wandb not installed, skipping. Install with: pip install wandb")
+            cli.warn("wandb not installed, skipping. Install with: pip install wandb")
 
     def set_max_steps(self, max_steps: int):
         """Set total training steps for ETA calculation."""
@@ -105,7 +76,7 @@ class TrainingMetrics:
         """Log metrics if we've hit the logging interval.
 
         Returns:
-            Formatted log string (rich markup if available), or None.
+            Formatted log string (rich markup), or None.
         """
         if step % log_interval != 0 or self.loss_count == 0:
             return None
@@ -136,31 +107,43 @@ class TrainingMetrics:
         self.lr_history.append(lr)
         self.throughput_history.append(tokens_per_sec)
 
-        # Timestamp
+        # Timestamp and progress
         ts = datetime.now().strftime("%H:%M:%S")
+        pct = step / self._max_steps * 100 if self._max_steps else 0
 
-        # Build log message
-        if _has_rich():
-            loss_c = _loss_color(avg_loss)
-            tps_c = _throughput_color(tokens_per_sec)
-            pct = step / self._max_steps * 100 if self._max_steps else 0
-            msg = (
-                f"[dim]{ts}[/dim] "
-                f"[bold]step {step:>7,d}[/bold] "
-                f"[dim]({pct:4.1f}%)[/dim] "
-                f"[{loss_c}]loss {avg_loss:.4f}[/{loss_c}] "
-                f"[dim]ppl[/dim] {perplexity:>8.1f} "
-                f"[dim]lr[/dim] {lr:.2e} "
-                f"[{tps_c}]{tokens_per_sec:>9,.0f} tok/s[/{tps_c}]"
-                f"[dim]{eta_str}[/dim]"
-            )
+        # Color-code loss
+        if avg_loss < 2.0:
+            loss_style = "bold green"
+        elif avg_loss < 3.0:
+            loss_style = "green"
+        elif avg_loss < 4.0:
+            loss_style = "yellow"
+        elif avg_loss < 6.0:
+            loss_style = "dark_orange"
         else:
-            pct = step / self._max_steps * 100 if self._max_steps else 0
-            msg = (
-                f"{ts}  step {step:>7,d} ({pct:4.1f}%) | "
-                f"loss {avg_loss:.4f} | ppl {perplexity:8.1f} | "
-                f"lr {lr:.2e} | {tokens_per_sec:>9,.0f} tok/s{eta_str}"
-            )
+            loss_style = "red"
+
+        # Color-code throughput
+        if tokens_per_sec >= 200_000:
+            tps_style = "bold green"
+        elif tokens_per_sec >= 100_000:
+            tps_style = "green"
+        elif tokens_per_sec >= 50_000:
+            tps_style = "yellow"
+        else:
+            tps_style = "red"
+
+        # Build log message using cli.print markup
+        msg = (
+            f"[dim]{ts}[/dim] "
+            f"[bold]step {step:>7,d}[/bold] "
+            f"[dim]({pct:4.1f}%)[/dim] "
+            f"[{loss_style}]loss {avg_loss:.4f}[/{loss_style}] "
+            f"[dim]ppl[/dim] {perplexity:>8.1f} "
+            f"[dim]lr[/dim] {lr:.2e} "
+            f"[{tps_style}]{tokens_per_sec:>9,.0f} tok/s[/{tps_style}]"
+            f"[dim]{eta_str}[/dim]"
+        )
 
         # Log to wandb if available
         if self._wandb_run is not None:
@@ -185,35 +168,17 @@ class TrainingMetrics:
         """Print final summary and clean up wandb."""
         if self._global_start:
             total = time.time() - self._global_start
-            if _has_rich():
-                from rich.console import Console
-                console = Console()
-                console.print()
-                console.print(
-                    f"  [bold green]Training complete[/bold green] in "
-                    f"[bold]{_format_duration(total)}[/bold]  "
-                    f"[dim]({self._total_steps_seen:,} steps)[/dim]"
-                )
-                if self.loss_history:
-                    best = min(self.loss_history)
-                    final = self.loss_history[-1]
-                    avg_tps = (
-                        sum(self.throughput_history) / len(self.throughput_history)
-                        if self.throughput_history else 0
-                    )
-                    console.print(
-                        f"  [dim]Final loss:[/dim] [bold]{final:.4f}[/bold]  "
-                        f"[dim]Best loss:[/dim] [bold green]{best:.4f}[/bold green]  "
-                        f"[dim]Avg throughput:[/dim] "
-                        f"[bold]{avg_tps:,.0f}[/bold] [dim]tok/s[/dim]"
-                    )
-                console.print()
-            else:
-                print(f"\nTraining complete in {_format_duration(total)} "
-                      f"({self._total_steps_seen:,} steps)")
-                if self.loss_history:
-                    print(f"Final loss: {self.loss_history[-1]:.4f}  "
-                          f"Best: {min(self.loss_history):.4f}")
+            extras = {
+                "Duration": _format_duration(total),
+                "Steps": f"{self._total_steps_seen:,}",
+            }
+            if self.loss_history:
+                extras["Final loss"] = f"{self.loss_history[-1]:.4f}"
+                extras["Best loss"] = f"{min(self.loss_history):.4f}"
+            if self.throughput_history:
+                avg_tps = sum(self.throughput_history) / len(self.throughput_history)
+                extras["Avg throughput"] = f"{avg_tps:,.0f} tok/s"
+            cli.done("Training complete", extras=extras)
 
         if self._wandb_run is not None:
             import wandb
