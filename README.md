@@ -275,6 +275,19 @@ Tested on RTX 4080 (16GB, bf16) and RTX 3080 (10GB, fp16 + GradScaler). Medium (
 
 ---
 
+## Disclaimer
+
+This project is for **educational and research purposes only**. When collecting training data:
+
+- Always respect `robots.txt` and applicable rate limits
+- The GitHub data collector uses the **official GitHub REST API** — not HTML scraping
+- Software Heritage access follows their published API rate limits (1,200 req/hr unauthenticated, 12,000 with token)
+- HuggingFace datasets are accessed through their official Python SDK
+- Check and comply with all applicable licenses before using collected code for training
+- Be mindful of Terms of Service for any data source you access
+
+---
+
 ## License
 
 MIT
