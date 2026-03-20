@@ -13,12 +13,15 @@ Key techniques for consumer GPUs:
 - Gradient accumulation: simulate larger batches by accumulating gradients
 - Gradient checkpointing: recompute activations instead of storing them
 - Gradient clipping: prevent exploding gradients
+- torch.compile: fuses operations and eliminates Python overhead (~20-40% speedup)
+- CUDA optimizations: TF32, cuDNN benchmark, non-blocking transfers
 
 For a TS dev: this is like the main event loop of a server, except instead
 of handling requests, it processes batches of training data and updates
 the model's weights based on how wrong its predictions were.
 """
 
+import os
 from pathlib import Path
 
 import torch
@@ -31,6 +34,26 @@ from ..data.dataset import create_dataloader
 from .checkpoint import save_checkpoint, load_checkpoint
 from .metrics import TrainingMetrics
 from .optimizer import create_optimizer, create_scheduler
+
+
+def _setup_cuda_optimizations():
+    """Enable all CUDA performance knobs for maximum training speed."""
+    if not torch.cuda.is_available():
+        return
+
+    # TF32: uses Tensor Cores for float32 matmuls at ~7x the throughput
+    # of pure fp32, with slightly less precision (fine for training).
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+
+    # cuDNN benchmark: auto-tunes convolution algorithms for your exact
+    # input shapes. First batch is slower, then every batch is faster.
+    torch.backends.cudnn.benchmark = True
+
+    # Enable flash attention if available (PyTorch 2.0+)
+    # This is much faster than standard attention for long sequences.
+    torch.backends.cuda.enable_flash_sdp(True)
+    torch.backends.cuda.enable_mem_efficient_sdp(True)
 
 
 class Trainer:
@@ -49,6 +72,9 @@ class Trainer:
             print("WARNING: Training on CPU. This will be extremely slow.")
             print("CUDA GPU is required for practical training.")
 
+        # Enable all CUDA performance knobs before building anything
+        _setup_cuda_optimizations()
+
         # Build model
         print(f"\n{'='*60}")
         print("Building model...")
@@ -62,6 +88,21 @@ class Trainer:
         if config.training.gradient_checkpointing:
             self.model.enable_gradient_checkpointing()
             print("Gradient checkpointing enabled (saves VRAM, slower training)")
+
+        # torch.compile: fuses ops, eliminates Python overhead (~20-40% speedup)
+        # Only available in PyTorch 2.0+ and requires CUDA
+        self._compiled = False
+        if (
+            self.device == "cuda"
+            and hasattr(torch, "compile")
+            and os.environ.get("COLA_NO_COMPILE") != "1"
+        ):
+            try:
+                self.model = torch.compile(self.model, mode="reduce-overhead")
+                self._compiled = True
+                print("torch.compile enabled (reduce-overhead mode)")
+            except Exception as e:
+                print(f"torch.compile not available: {e}")
 
         # Create optimizer and scheduler
         self.optimizer = create_optimizer(
@@ -160,6 +201,23 @@ class Trainer:
 
         self.model.train()  # Set to training mode (enables dropout)
 
+        # Pre-compute constants for the inner loop
+        use_amp = self.use_bf16 or self.use_fp16
+        amp_dtype = torch.bfloat16 if self.use_bf16 else torch.float16
+        accum_steps = cfg.gradient_accumulation
+        inv_accum = 1.0 / accum_steps
+        is_cuda = self.device == "cuda"
+
+        # Print performance info
+        if is_cuda:
+            gpu_name = torch.cuda.get_device_name(0)
+            print(f"GPU: {gpu_name}")
+            print(f"TF32: {torch.backends.cuda.matmul.allow_tf32}")
+            print(f"cuDNN benchmark: {torch.backends.cudnn.benchmark}")
+            if self._compiled:
+                print("torch.compile: ON (first few steps will be slower due to compilation)")
+            print(f"Workers: {self.config.data.num_workers}")
+
         for step in tqdm(range(self.start_step, cfg.max_steps), initial=self.start_step,
                          total=cfg.max_steps, desc="Training"):
 
@@ -170,28 +228,25 @@ class Trainer:
             step_tokens = 0
 
             # Gradient accumulation: process multiple micro-batches
-            for micro_step in range(cfg.gradient_accumulation):
+            for micro_step in range(accum_steps):
                 batch = next(data_iter)
-                input_ids = batch["input_ids"].to(self.device)
-                # Quality weights (1.0 when not using weighted training)
+                # non_blocking=True overlaps CPU→GPU transfer with compute
+                input_ids = batch["input_ids"].to(self.device, non_blocking=True)
                 weights = batch.get("weights")
 
                 # Forward pass with mixed precision
                 with autocast(
                     device_type=self.device,
-                    dtype=torch.bfloat16 if self.use_bf16 else torch.float16,
-                    enabled=self.use_bf16 or self.use_fp16,
+                    dtype=amp_dtype,
+                    enabled=use_amp,
                 ):
                     loss = self.model.compute_loss(input_ids)
 
-                    # Apply per-example quality weights if available.
-                    # Higher-quality code contributes more to the loss.
                     if weights is not None:
-                        weights = weights.to(self.device)
+                        weights = weights.to(self.device, non_blocking=True)
                         loss = loss * weights.mean()
 
-                    # Divide by accumulation steps so the total gradient is averaged
-                    scaled_loss = loss / cfg.gradient_accumulation
+                    scaled_loss = loss * inv_accum
 
                 # Backward pass (compute gradients)
                 self.scaler.scale(scaled_loss).backward()
@@ -211,7 +266,7 @@ class Trainer:
             self.scheduler.step()
 
             # Track metrics
-            avg_loss = step_loss / cfg.gradient_accumulation
+            avg_loss = step_loss * inv_accum
             self.metrics.update(avg_loss, step_tokens)
             total_tokens_seen += step_tokens
 

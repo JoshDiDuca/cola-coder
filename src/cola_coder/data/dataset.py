@@ -223,7 +223,6 @@ def create_dataloader(
         PyTorch DataLoader ready for training.
     """
     import os
-    import sys
 
     use_weights = weights_path is not None and os.path.exists(weights_path)
 
@@ -236,17 +235,19 @@ def create_dataloader(
         dataset = CodeDataset(data_path, max_seq_len=max_seq_len)
         collator = CodeCollator()
 
-    # Windows multiprocessing with memmap files on external drives can fail
-    # with OSError: [Errno 22] Invalid argument during worker spawn.
-    # Default to 0 workers on Windows for safety — the lazy memmap re-open
-    # in __getstate__ handles most cases, but 0 workers avoids the issue entirely.
-    if sys.platform == "win32" and num_workers > 0:
-        print(f"  Note: Windows detected — using num_workers=0 (was {num_workers}) "
-              "to avoid multiprocessing issues with memory-mapped files.")
-        num_workers = 0
+    # Auto-cap workers to CPU count for maximum throughput without oversubscription
+    cpu_count = os.cpu_count() or 4
+    if num_workers > cpu_count:
+        num_workers = cpu_count
+    print(f"  DataLoader: {num_workers} workers, batch_size={batch_size}")
 
     import torch
-    use_pin_memory = torch.cuda.is_available()  # Only pin memory if GPU exists
+    use_pin_memory = torch.cuda.is_available()
+
+    # Use persistent workers to avoid respawning overhead every epoch.
+    # The lazy memmap in CodeDataset.__getstate__ lets workers pickle safely
+    # on Windows — each worker re-opens the memmap in its own process.
+    use_persistent = num_workers > 0
 
     return DataLoader(
         dataset,
@@ -254,7 +255,9 @@ def create_dataloader(
         shuffle=shuffle,
         num_workers=num_workers,
         collate_fn=collator,
-        pin_memory=use_pin_memory,  # Faster CPU→GPU transfer (only when GPU available)
-        drop_last=True,  # Drop incomplete final batch (simpler training loop)
-        persistent_workers=False,
+        pin_memory=use_pin_memory,
+        pin_memory_device="cuda" if use_pin_memory else "",
+        drop_last=True,
+        persistent_workers=use_persistent,
+        prefetch_factor=4 if num_workers > 0 else None,
     )

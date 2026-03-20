@@ -32,6 +32,8 @@ MANIFEST
 *.manifest
 *.spec
 
+wandb/
+
 data/
 checkpoints/
 plans/

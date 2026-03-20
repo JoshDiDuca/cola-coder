@@ -63,6 +63,7 @@ class GroupedQueryAttention(nn.Module):
         self.out_proj = nn.Linear(n_heads * self.head_dim, dim, bias=False)
 
         self.attn_dropout = nn.Dropout(dropout)
+        self.dropout_p = dropout
 
         # KV-cache: pre-allocated tensors for inference efficiency
         # These get filled in token-by-token during generation
@@ -148,22 +149,30 @@ class GroupedQueryAttention(nn.Module):
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
 
-        # Scaled dot-product attention
-        # scores[i][j] = "how much should token i attend to token j?"
-        # Shape: (batch, n_heads, seq_len, kv_seq_len)
-        scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
-
-        # Apply causal mask: prevent attending to future tokens
-        if mask is not None:
-            scores = scores + mask
-
-        # Softmax normalizes scores to probabilities (sum to 1 for each query position)
-        attn_weights = F.softmax(scores, dim=-1, dtype=torch.float32).type_as(q)
-        attn_weights = self.attn_dropout(attn_weights)
-
-        # Weighted sum of values
-        # Shape: (batch, n_heads, seq_len, head_dim)
-        output = torch.matmul(attn_weights, v)
+        # Use PyTorch's fused scaled_dot_product_attention (SDPA).
+        # This auto-dispatches to the fastest available backend:
+        #   1. Flash Attention 2 (fastest, ~3-5x over manual)
+        #   2. Memory-efficient attention (xFormers-style)
+        #   3. Math fallback (manual matmul+softmax)
+        # SDPA handles the causal mask internally via is_causal=True,
+        # which is faster than constructing + applying an explicit mask.
+        if use_cache:
+            # During inference with KV-cache, we can't use is_causal=True
+            # because q_len != kv_len. Use the explicit mask instead.
+            output = F.scaled_dot_product_attention(
+                q, k, v,
+                attn_mask=mask,
+                dropout_p=self.dropout_p if self.training else 0.0,
+                scale=self.scale,
+            )
+        else:
+            # Training path: is_causal=True is faster than explicit mask
+            output = F.scaled_dot_product_attention(
+                q, k, v,
+                dropout_p=self.dropout_p if self.training else 0.0,
+                is_causal=True,
+                scale=self.scale,
+            )
 
         # Reshape back: (batch, n_heads, seq_len, head_dim) → (batch, seq_len, dim)
         output = output.transpose(1, 2).contiguous().reshape(batch, seq_len, -1)

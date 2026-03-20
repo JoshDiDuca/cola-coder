@@ -106,7 +106,7 @@ class DataConfig:
     languages: list[str] = field(default_factory=lambda: ["typescript", "javascript"])
     max_tokens_per_file: int = 2048  # Truncate files longer than this
     data_dir: str = "./data"  # Where to store processed data
-    num_workers: int = 4  # Parallel data loading workers
+    num_workers: int = 8  # Parallel data loading workers (auto-capped to CPU count)
 
 
 @dataclass

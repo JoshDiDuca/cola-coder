@@ -184,13 +184,13 @@ class Transformer(nn.Module):
         h = self.dropout(h)
 
         # Step 2: Build the attention mask for this sequence
-        if use_cache and start_pos > 0:
-            # During inference with cache: only processing one new token,
-            # which can attend to all previous tokens. No mask needed.
-            mask = None
-        else:
-            # During training or first inference step: use causal mask
+        # During training: mask=None — SDPA uses is_causal=True (faster)
+        # During inference with cache and start_pos>0: mask=None (single token)
+        # During inference first step: explicit causal mask
+        if use_cache and start_pos == 0:
             mask = self.causal_mask[:seq_len, :seq_len]
+        else:
+            mask = None
 
         # Step 3: Pass through all transformer blocks
         for block in self.blocks:
