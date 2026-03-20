@@ -1,6 +1,7 @@
 # Large model: ~1B+ parameters
 # Purpose: For cloud GPUs or multi-GPU setups (A100, H100, etc.)
-# DO NOT attempt on consumer GPUs with < 24GB VRAM
+# DO NOT attempt on consumer GPUs — requires ~54 GB VRAM
+# Needs A100 80GB, H100, or multi-GPU setup
 
 model:
   vocab_size: 32768

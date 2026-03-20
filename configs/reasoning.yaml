@@ -1,6 +1,7 @@
 # Reasoning experiment config
 # Used for GRPO/CoT fine-tuning on top of a trained base model
 # Start from a checkpoint of the small or medium model
+# VRAM estimate: ~9 GB (batch=4, seq=4096, RTX 4080 16GB)
 
 model:
   vocab_size: 32768  # Will be expanded by +2 for <think> and </think> tokens

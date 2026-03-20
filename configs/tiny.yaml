@@ -1,6 +1,7 @@
 # Tiny model: ~50M parameters
-# Purpose: Fast experimentation - trains in ~2 days on RTX 4080
+# Purpose: Fast experimentation
 # Use this to verify everything works before scaling up
+# VRAM estimate: ~8 GB (batch=32, RTX 4080 16GB)
 
 model:
   vocab_size: 32768
@@ -14,8 +15,8 @@ model:
   rope_theta: 10000.0
 
 training:
-  batch_size: 64
-  gradient_accumulation: 1  # no accumulation — 50M model fits easily with large batches
+  batch_size: 32
+  gradient_accumulation: 1  # estimated ~8 GB with torch.compile overhead
   learning_rate: 3.0e-4
   min_lr: 3.0e-5
   warmup_steps: 500
