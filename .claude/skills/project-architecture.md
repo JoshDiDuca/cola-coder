@@ -6,14 +6,17 @@ src/cola_coder/
   model/       — Transformer: attention (GQA), feedforward (SwiGLU), normalization (RMSNorm), rope, config
   tokenizer/   — HuggingFace BPE tokenizer (Rust-backed)
   data/        — Download, preprocess, quality filter, quality scorer, dataset
+    filters/   — Modular filter plugins, ML quality classifier
+    sources/   — Data source connectors (HF, GitHub, local)
+    curation/  — Test execution scoring + Docker sandbox
   training/    — Trainer loop, optimizer, checkpoint, metrics
   inference/   — KV-cache generator, sampling, FastAPI server
   evaluation/  — HumanEval benchmark, pass@k
   reasoning/   — CoT thinking tokens, GRPO, reward functions
   features/    — 83 optional feature modules
   cli.py       — Shared CLI styling (rich + questionary arrow-key menus)
-scripts/       — CLI entry points (train.py, run.py, benchmark.py, etc.)
-configs/       — YAML model & training configs + features.yaml
+scripts/       — 22 CLI entry points (menu.py is the master menu)
+configs/       — YAML model & training configs + features.yaml + storage.yaml
 ```
 
 ## Architecture

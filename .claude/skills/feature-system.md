@@ -24,6 +24,11 @@ Training, Generation, Evaluation, Infrastructure, Routing & Specialists, Code An
 3. Add to `configs/features.yaml` under appropriate category
 4. Import with try/except in consuming code
 
+## Notable Features
+- `code_scorer` — Continuous quality scoring (0.0-1.0) for training weights
+- `ollama_improver` — Local AI code improvement via Ollama (DISABLED by default, needs Ollama running)
+- `master_menu` — Arrow-key CLI menu with ESC navigation, all 22 scripts accessible
+
 ## Key API
 ```python
 from cola_coder.features import list_features, get_feature_status, set_feature_enabled

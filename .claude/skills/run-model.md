@@ -1,5 +1,8 @@
 # Skill: Running Cola-Coder Models
 
+## Master Menu
+`python scripts/menu.py` — arrow-key navigable menu with all scripts accessible. ESC to go back.
+
 ## Quick Start
 - Auto-detect checkpoint: `python scripts/run.py` (finds latest checkpoint automatically)
 - Specific checkpoint: `python scripts/run.py --checkpoint checkpoints/tiny/step_00020000`

@@ -16,6 +16,10 @@
 - tok/s: tokens per second during generation
 - pass@k: probability of solving a problem in k attempts
 
+## Additional Scripts
+- `scripts/nano_benchmark.py` — Fast generation speed test
+- `scripts/model_card.py` — Generate HuggingFace-style model card
+
 ## Files
 - `scripts/benchmark.py` — Quick generation benchmark
 - `scripts/evaluate.py` — HumanEval evaluation

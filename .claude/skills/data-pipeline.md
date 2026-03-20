@@ -31,7 +31,23 @@ python scripts/prepare_data.py --config configs/tiny.yaml --tokenizer tokenizer.
 - CodeQualityClassifier — DistilBERT/CodeBERTa neural scorer (optional)
 - QualityAnnotator — LLM-based scoring with Claude API (expensive)
 
-## Ollama Integration (optional, free/local)
+## Additional Data Scripts
+- `scripts/scrape_github.py` — Crawl GitHub repos for training data
+- `scripts/combine_datasets.py` — Merge multiple datasets into one
+- `scripts/generate_instructions.py` — Create instruction pairs from code
+- `scripts/score_repos.py` — Rank repos by code quality
+- `scripts/train_quality_classifier.py` — Train ML-based quality scorer
+- `scripts/prepare_data_interactive.py` — Guided interactive data setup
+
+## Storage Config
+`configs/storage.yaml` — redirect data/checkpoints to alternate drives:
+```yaml
+storage:
+  data_dir: "D:/cola-coder-data/data"
+  checkpoints_dir: "D:/cola-coder-data/checkpoints"
+```
+
+## Ollama Integration (optional, free/local, DISABLED by default)
 `src/cola_coder/features/ollama_improver.py`
 - Local AI code improvement using Ollama (codellama model)
 - Adds comments, improves naming, adds type hints
