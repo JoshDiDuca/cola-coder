@@ -34,6 +34,8 @@ MANIFEST
 
 data/
 checkpoints/
+plans/
+research/
 
 # Installer logs
 pip-log.txt

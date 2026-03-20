@@ -129,25 +129,25 @@ End goal is a router model (125M) + domain-specific specialists (50M each: React
 | `menu.py` | Master arrow-key menu for all scripts |
 | `train_tokenizer.py` | Train BPE tokenizer |
 | `prepare_data.py` | Download, filter, tokenize training data |
+| `prepare_data_interactive.py` | Guided interactive data preparation |
 | `train.py` | Main training loop |
 | `train_reasoning.py` | GRPO reasoning fine-tune |
+| `train_quality_classifier.py` | Train ML-based quality scorer |
 | `run.py` | Interactive inference REPL |
 | `generate.py` | One-shot generation |
+| `generate_instructions.py` | Create instruction pairs from code |
 | `serve.py` | FastAPI inference server |
 | `evaluate.py` | HumanEval pass@k benchmark |
 | `benchmark.py` | Quick tok/s benchmark |
+| `nano_benchmark.py` | Fast generation speed test |
 | `compare_checkpoints.py` | Side-by-side checkpoint comparison |
 | `training_status.py` | CPU-only training progress check |
 | `model_card.py` | Generate model card markdown |
-| `export_model.py` | Export to HuggingFace format |
-| `quantize.py` | INT8/INT4 quantization |
-| `chat.py` | Instruction-tuned chat mode |
-| `inspect_data.py` | Inspect prepared dataset |
-| `inspect_tokenizer.py` | Inspect tokenizer vocab |
-| `list_checkpoints.py` | List available checkpoints |
-| `setup_check.py` | Verify environment and GPU |
-| `feature_status.py` | Show feature module status |
-| `download_data.py` | Pre-download dataset files |
+| `scrape_github.py` | Crawl GitHub repos for training data |
+| `score_repos.py` | Rank repos by code quality |
+| `combine_datasets.py` | Merge multiple datasets |
+| `vram_estimate.py` | Estimate VRAM before training |
+| `test_type_reward.py` | Test GRPO reward functions |
 
 ## Code Style
 
