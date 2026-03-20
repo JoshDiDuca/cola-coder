@@ -322,7 +322,7 @@ def main() -> None:
 
     for i, (label, prompt) in enumerate(TEST_PROMPTS, 1):
         cli.print(f"\n[bold cyan][{i}/{len(TEST_PROMPTS)}] {label}[/bold cyan]")
-        cli.print(f"[dim]Prompt:[/dim]")
+        cli.print("[dim]Prompt:[/dim]")
         # Print each line of the prompt with a leading │ so it's visually distinct
         for line in prompt.splitlines():
             cli.print(f"  [dim]│[/dim] {line}")

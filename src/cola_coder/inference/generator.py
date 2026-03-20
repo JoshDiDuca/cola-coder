@@ -24,7 +24,6 @@ from typing import Generator
 import torch
 from torch.cuda.amp import autocast
 
-from ..model.config import ModelConfig
 from ..model.transformer import Transformer
 from ..tokenizer.tokenizer_utils import CodeTokenizer
 from .sampling import sample_next_token

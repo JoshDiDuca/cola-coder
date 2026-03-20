@@ -107,7 +107,6 @@ def _perplexity(loss: float) -> float:
 def _fmt_delta(delta: float, percent: float, lower_is_better: bool = True) -> str:
     """Format a numeric delta with a directional indicator."""
     direction = "-" if delta < 0 else "+"
-    improving = (delta < 0) if lower_is_better else (delta > 0)
     sign = "↓" if delta < 0 else "↑"
     result = f"{direction}{abs(delta):.4f} ({sign}{abs(percent):.1f}%)"
     return result
@@ -180,7 +179,7 @@ def _print_generation_comparison(
 ) -> None:
     """Load both models and run the test prompt through each, showing outputs side-by-side."""
     try:
-        from cola_coder.model.config import Config, ModelConfig
+        from cola_coder.model.config import ModelConfig
         from cola_coder.model.transformer import Transformer
         from cola_coder.training.checkpoint import load_model_only
         from cola_coder.inference.generator import CodeGenerator

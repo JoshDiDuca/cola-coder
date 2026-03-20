@@ -15,7 +15,6 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
-import torch
 
 from cola_coder.cli import cli
 
@@ -159,7 +158,7 @@ def main():
         cli.fatal(f"Checkpoint not found: {args.resume}")
 
     # ---- Device check ----
-    device = cli.gpu_info()
+    cli.gpu_info()
 
     # ---- Pick dataset (interactive if multiple exist) ----
     data_path = _pick_dataset(args.data)
@@ -205,7 +204,7 @@ def main():
     try:
         from cola_coder.features.config_validator import is_enabled as config_validator_enabled
         if config_validator_enabled():
-            from cola_coder.features.config_validator import validate_config, ValidationIssue
+            from cola_coder.features.config_validator import validate_config
             issues = validate_config(config)
             if issues:
                 errors = [i for i in issues if i.level == "error"]

@@ -4,7 +4,6 @@ Single entry point for all Cola-Coder operations. Replaces 12 separate
 PowerShell scripts with one interactive, keyboard-driven menu.
 """
 
-import sys
 import importlib
 import subprocess
 from pathlib import Path
@@ -176,10 +175,18 @@ class MasterMenu:
 
     def __init__(self, project_root: Path | None = None):
         self.project_root = project_root or Path.cwd()
-        self.venv_python = self.project_root / ".venv" / "Scripts" / "python"
-        if not self.venv_python.exists():
-            # Linux/Mac fallback
-            self.venv_python = self.project_root / ".venv" / "bin" / "python"
+        # Windows: .venv/Scripts/python.exe — Linux/Mac: .venv/bin/python
+        win_python = self.project_root / ".venv" / "Scripts" / "python.exe"
+        if win_python.exists():
+            self.venv_python = win_python
+        else:
+            unix_python = self.project_root / ".venv" / "bin" / "python"
+            if unix_python.exists():
+                self.venv_python = unix_python
+            else:
+                # Last resort: try sys.executable (the current Python)
+                import sys
+                self.venv_python = Path(sys.executable)
 
     def _run_script(self, script: str, args: list[str] | None = None):
         """Run a Python script from the scripts/ directory."""
@@ -554,7 +561,7 @@ class MasterMenu:
         while True:
             cli.header("Cola-Coder", "Feature Toggles")
             cli.dim("All features are OPTIONAL. Disabling a feature will not break anything.")
-            cli.dim(f"Persisted to: configs/features.yaml")
+            cli.dim("Persisted to: configs/features.yaml")
             cli.print("")
 
             # Reload states fresh each time we return to the category list

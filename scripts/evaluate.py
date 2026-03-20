@@ -11,7 +11,6 @@ Usage:
 """
 
 import argparse
-import sys
 from pathlib import Path
 
 from cola_coder.cli import cli
@@ -126,7 +125,7 @@ def main():
         from cola_coder.tokenizer.tokenizer_utils import CodeTokenizer
         from cola_coder.evaluation.humaneval import get_all_problems
         from cola_coder.evaluation.runner import evaluate_solution, extract_function
-        from cola_coder.evaluation.metrics import ProblemResult, compute_pass_at_k, format_results
+        from cola_coder.evaluation.metrics import ProblemResult, format_results
     except ImportError:
         cli.fatal(
             "Could not import cola_coder. Make sure the package is installed.",
@@ -180,7 +179,7 @@ def main():
                 if passed:
                     num_correct += 1
 
-            except Exception as e:
+            except Exception:
                 # Count as failed
                 pass
 

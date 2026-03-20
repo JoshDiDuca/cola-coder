@@ -159,8 +159,6 @@ def _build_fallback_card(
     hardware_str = f"{gpu_name} ({vram_gb} GB VRAM)" if gpu_name != "unknown" else "unknown"
 
     # Data source
-    src = manifest.get("data", {})
-    data_file = src.get("train_file", "unknown")
     dataset_src = manifest.get("source", {}).get("dataset", "bigcode/starcoderdata")
     languages = manifest.get("source", {}).get("languages", ["Python", "TypeScript", "JavaScript"])
     lang_str = ", ".join(languages) if languages else "Python, TypeScript, JavaScript"
@@ -418,7 +416,6 @@ def main() -> None:
             cli.dim("Using ModelCardGenerator feature...")
 
             raw_cfg = metadata.get("config", {})
-            model_cfg = raw_cfg.get("model", raw_cfg)
             training_cfg = raw_cfg.get("training", {})
 
             n_params = _count_params(raw_cfg)
@@ -448,7 +445,6 @@ def main() -> None:
             dataset_str = manifest.get("source", {}).get(
                 "dataset", "bigcode/starcoderdata"
             )
-            tokens_seen = prog.get("tokens_seen") or training_cfg.get("tokens_seen", 0)
             epochs = prog.get("epochs_completed", 0)
             if isinstance(epochs, float):
                 epochs = int(epochs) or 1
@@ -525,7 +521,7 @@ def main() -> None:
     output_path.write_text(card_content, encoding="utf-8")
 
     cli.done(
-        f"Model card saved.",
+        "Model card saved.",
         extras={
             "Output": str(output_path),
             "Checkpoint": checkpoint_dir,

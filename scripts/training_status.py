@@ -177,7 +177,6 @@ def _describe_size(size_dir: Path, show_curve: bool = True) -> None:
     progress = (step / max_steps) if (max_steps and step) else None
 
     # Estimate training time remaining (tokens/sec from manifest if available)
-    eta_str = "?"
     progress_section = manifest.get("progress", {})
     tokens_seen = progress_section.get("tokens_seen", 0)
 
