@@ -54,7 +54,14 @@ def save_checkpoint(
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     # Save model weights using safetensors
-    state_dict = {k: v.contiguous() for k, v in model.state_dict().items()}
+    # Filter out tied weights — output.weight shares memory with tok_emb.weight
+    # (weight tying). safetensors refuses duplicate tensors, so we skip the alias.
+    # On load, we re-tie them in the model constructor.
+    state_dict = {}
+    for k, v in model.state_dict().items():
+        if k == "output.weight":
+            continue  # Skip — it's the same tensor as tok_emb.weight
+        state_dict[k] = v.contiguous()
     save_file(state_dict, str(ckpt_dir / "model.safetensors"))
 
     # Save optimizer and scheduler state
@@ -119,8 +126,9 @@ def load_checkpoint(
     print(f"Loading checkpoint from {ckpt_dir}...")
 
     # Load model weights
+    # strict=False because we skip saving output.weight (it's tied to tok_emb.weight)
     state_dict = load_file(str(ckpt_dir / "model.safetensors"), device=device)
-    model.load_state_dict(state_dict)
+    model.load_state_dict(state_dict, strict=False)
 
     step = 0
 
@@ -165,8 +173,9 @@ def load_model_only(
     if ckpt_dir.name == "latest" and ckpt_dir.is_file():
         ckpt_dir = Path(ckpt_dir.read_text().strip())
 
+    # strict=False because output.weight is tied to tok_emb.weight and not saved separately
     state_dict = load_file(str(ckpt_dir / "model.safetensors"), device=device)
-    model.load_state_dict(state_dict)
+    model.load_state_dict(state_dict, strict=False)
     model.eval()  # Set to evaluation mode (disables dropout)
     return model
 
