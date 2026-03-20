@@ -28,6 +28,7 @@ import torch
 from torch.amp import GradScaler, autocast
 from tqdm import tqdm
 
+from ..cli import cli
 from ..model.config import Config
 from ..model.transformer import Transformer
 from ..data.dataset import create_dataloader
@@ -136,6 +137,7 @@ class Trainer:
 
         # Metrics tracker
         self.metrics = TrainingMetrics()
+        self.metrics.set_max_steps(config.training.max_steps)
 
         # Resume from checkpoint if provided
         self.start_step = 0
@@ -299,7 +301,8 @@ class Trainer:
             current_lr = self.scheduler.get_last_lr()[0]
             log_msg = self.metrics.log(step, current_lr, log_interval=100)
             if log_msg:
-                tqdm.write(log_msg)
+                # Use cli.print so Rich markup renders (tqdm.write strips it)
+                cli.print(log_msg)
 
             # Save checkpoint
             if step > 0 and step % self.config.checkpoint.save_every == 0:
