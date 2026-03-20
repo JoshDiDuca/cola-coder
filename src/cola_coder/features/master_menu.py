@@ -540,8 +540,10 @@ class MasterMenu:
             options = [
                 {"label": "Prepare Training Data",
                  "detail": "Download from HuggingFace, filter, tokenize"},
-                {"label": "Scrape GitHub Repos",
-                 "detail": "scripts/scrape_github.py — crawl repos for training data"},
+                {"label": "GitHub API Data Collection",
+                 "detail": "Collect code via official GitHub REST API"},
+                {"label": "Browse Software Heritage",
+                 "detail": "Search the universal source code archive (SWH API)"},
                 {"label": "Score Code Quality",
                  "detail": "Run quality scorer on collected data"},
                 {"label": "Combine Datasets",
@@ -554,6 +556,8 @@ class MasterMenu:
                  "detail": "scripts/train_quality_classifier.py"},
                 {"label": "Score Repositories",
                  "detail": "scripts/score_repos.py — rank repos by quality"},
+                {"label": "Advanced Filters",
+                 "detail": "PII, dedup, license, syntax — view available filter plugins"},
                 {"label": "Interactive Data Prep",
                  "detail": "scripts/prepare_data_interactive.py — guided data setup"},
             ]
@@ -568,23 +572,27 @@ class MasterMenu:
                 self._run_script("scrape_github.py")
                 self._pause()
             elif choice == 2:
-                self._score_quality_menu()
+                self._software_heritage_info()
             elif choice == 3:
+                self._score_quality_menu()
+            elif choice == 4:
                 self._run_script("combine_datasets.py")
                 self._pause()
-            elif choice == 4:
+            elif choice == 5:
                 self._inspect_dataset()
                 self._pause()
-            elif choice == 5:
+            elif choice == 6:
                 self._run_script("generate_instructions.py")
                 self._pause()
-            elif choice == 6:
+            elif choice == 7:
                 self._run_script("train_quality_classifier.py")
                 self._pause()
-            elif choice == 7:
+            elif choice == 8:
                 self._run_script("score_repos.py")
                 self._pause()
-            elif choice == 8:
+            elif choice == 9:
+                self._advanced_filters_info()
+            elif choice == 10:
                 self._run_script("prepare_data_interactive.py")
 
     def _prepare_data_menu(self) -> None:
@@ -646,6 +654,101 @@ class MasterMenu:
             self._run_script("score_repos.py")
         elif choice == 1:
             self._run_script("train_quality_classifier.py")
+
+        self._pause()
+
+    def _software_heritage_info(self) -> None:
+        """Show info about Software Heritage data source."""
+        _print_section_header(
+            "Software Heritage Archive",
+            "Universal source code archive — archive.softwareheritage.org",
+        )
+
+        if _HAS_RICH:
+            _rich_console.print(
+                "  Software Heritage is the universal archive of software source code.\n"
+                "  It provides deduplicated, archival-quality code with rich metadata.\n"
+            )
+            _rich_console.print("  [bold cyan]Access methods:[/bold cyan]")
+            _rich_console.print("    [cyan]1.[/cyan] SWH REST API — 1,200 req/hr (12,000 with token)")
+            _rich_console.print("    [cyan]2.[/cyan] The Stack v2 on HuggingFace — SWH-derived, bulk access")
+            _rich_console.print("")
+            _rich_console.print("  [bold cyan]Setup:[/bold cyan]")
+            _rich_console.print("    Set [green]SWH_API_TOKEN[/green] env var for higher rate limits.")
+            _rich_console.print(
+                "    Get a token at: [link]https://archive.softwareheritage.org[/link]"
+            )
+            _rich_console.print("")
+            _rich_console.print("  [bold cyan]Code location:[/bold cyan]")
+            _rich_console.print("    [dim]src/cola_coder/data/sources/software_heritage.py[/dim]")
+            _rich_console.print(
+                "    Implements SWHClient, SoftwareHeritageSource (DataSource plugin)"
+            )
+            _rich_console.print("")
+            _rich_console.print(
+                "  [dim]Use via the extensible pipeline "
+                "(scripts/prepare_data_interactive.py)[/dim]"
+            )
+        else:
+            print("\n  Software Heritage — universal source code archive")
+            print("  SWH API: 1,200 req/hr (12,000 with token)")
+            print("  Set SWH_API_TOKEN env var for higher rate limits.")
+            print("  Code: src/cola_coder/data/sources/software_heritage.py")
+
+        self._pause()
+
+    def _advanced_filters_info(self) -> None:
+        """Show available data filter plugins."""
+        _print_section_header(
+            "Advanced Filters",
+            "Composable data quality filter plugins",
+        )
+
+        filters_info = [
+            ("Content Filter", "content.py", "Pattern matching — spam, boilerplate, auto-generated"),
+            ("Deduplication", "dedup.py", "MinHash LSH — near-duplicate detection"),
+            ("License Filter", "license_filter.py", "SPDX license checking and compliance"),
+            ("PII Filter", "pii.py", "Detect emails, API keys, secrets, phone numbers"),
+            ("Syntax Filter", "syntax.py", "Tree-sitter AST parsing (Python, TS, JS, Go, Rust, Java)"),
+            ("Length Filter", "length.py", "Min/max line count validation"),
+            ("Quality Filter", "quality.py", "Existing quality filter as composable plugin"),
+            ("Quality Classifier", "quality_classifier.py", "ML-based quality scoring (DistilBERT)"),
+        ]
+
+        if _HAS_RICH:
+            table = Table(
+                box=rich_box.ROUNDED, show_header=True, header_style="bold cyan",
+                padding=(0, 1), title="[bold]Available Filter Plugins[/bold]",
+                title_style="bold white",
+            )
+            table.add_column("Filter", style="bold white", width=20)
+            table.add_column("File", style="dim", width=25)
+            table.add_column("Description", style="white")
+
+            for name, filename, desc in filters_info:
+                table.add_row(name, filename, desc)
+
+            _rich_console.print(table)
+            _rich_console.print("")
+            _rich_console.print("  [bold cyan]Usage:[/bold cyan]")
+            _rich_console.print(
+                "    Filters are composable plugins in "
+                "[dim]src/cola_coder/data/filters/[/dim]"
+            )
+            _rich_console.print(
+                "    Use via the extensible pipeline "
+                "(scripts/prepare_data_interactive.py)"
+            )
+            _rich_console.print(
+                "    Or import directly: "
+                "[dim]from cola_coder.data.filters import PIIFilter[/dim]"
+            )
+        else:
+            print("\n  Available Filter Plugins:")
+            print("  " + "-" * 60)
+            for name, filename, desc in filters_info:
+                print(f"    {name:20s} {filename:25s} {desc}")
+            print("\n  Use via scripts/prepare_data_interactive.py")
 
         self._pause()
 
@@ -1077,6 +1180,8 @@ class MasterMenu:
                  "detail": toggles_detail},
                 {"label": "Storage Paths",
                  "detail": "Show data, checkpoint, tokenizer paths"},
+                {"label": "Migrate Storage",
+                 "detail": "Copy/move data to configured storage location"},
                 {"label": "Project Info",
                  "detail": "Python, torch, CUDA, project root"},
             ]
@@ -1090,6 +1195,9 @@ class MasterMenu:
             elif choice == 1:
                 self._storage_paths()
             elif choice == 2:
+                self._run_script("migrate_storage.py")
+                self._pause()
+            elif choice == 3:
                 self._project_info()
 
     def _storage_paths(self) -> None:
