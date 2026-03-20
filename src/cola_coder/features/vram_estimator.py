@@ -88,11 +88,13 @@ def estimate_vram(
     dim = model_config.dim
     n_layers = model_config.n_layers
 
-    # Each layer stores: input, attention output, FFN output
-    # Approximate: 3 * batch * seq * dim * n_layers * bytes + attention matrices
+    # Activation memory estimate with Flash Attention (SDPA).
+    # Flash Attention computes attention tile-by-tile and never materializes
+    # the full seq_len x seq_len attention matrix — so we DON'T include it.
+    # Per layer we store: input activations, QKV projections, FFN intermediates.
+    # Approximate: ~5 * batch * seq * dim per layer (input + Q + K + V + FFN gate).
     activation_bytes = (
-        3 * batch_size * seq_len * dim * n_layers * bytes_per_param  # Layer activations
-        + batch_size * model_config.n_heads * seq_len * seq_len * bytes_per_param * n_layers  # Attention matrices
+        5 * batch_size * seq_len * dim * n_layers * bytes_per_param
     )
 
     # Gradient checkpointing reduces activation memory by ~60%
