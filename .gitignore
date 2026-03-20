@@ -32,6 +32,8 @@ MANIFEST
 *.manifest
 *.spec
 
+
+CLAUDE.md
 wandb/
 
 data/
@@ -222,3 +224,5 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 tokenizer.json
+
+CLAUDE.md
