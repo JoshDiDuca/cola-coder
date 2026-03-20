@@ -14,6 +14,8 @@ import os
 import sys
 from pathlib import Path
 
+from cola_coder.cli import cli
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -64,6 +66,14 @@ def main():
              "if you can't fit the dataset on disk (~50GB for 3 languages). "
              "Default: download to cache first, then process locally (MUCH faster).",
     )
+    parser.add_argument(
+        "--languages",
+        type=str,
+        nargs="+",
+        default=None,
+        help="Override languages (e.g. --languages typescript javascript). "
+             "Also makes the filter language-aware (skips irrelevant syntax checks).",
+    )
     filter_group = parser.add_mutually_exclusive_group()
     filter_group.add_argument(
         "--no-filter",
@@ -78,6 +88,8 @@ def main():
     )
     args = parser.parse_args()
 
+    cli.header("Cola-Coder", "Data Preparation")
+
     # Default workers: all CPU cores, capped at 16
     if args.workers is None:
         args.workers = max(1, min(os.cpu_count() or 4, 16))
@@ -85,9 +97,10 @@ def main():
     # ---- Validate inputs ----
     tokenizer_path = Path(args.tokenizer)
     if not tokenizer_path.exists():
-        print(f"Error: Tokenizer file not found: {tokenizer_path}")
-        print("  Train a tokenizer first with: python scripts/train_tokenizer.py")
-        sys.exit(1)
+        cli.fatal(
+            f"Tokenizer file not found: {tokenizer_path}",
+            hint="Train a tokenizer first with: python scripts/train_tokenizer.py",
+        )
 
     # ---- Load config if provided ----
     dataset_name = "bigcode/starcoderdata"
@@ -97,47 +110,52 @@ def main():
     if args.config:
         config_path = Path(args.config)
         if not config_path.exists():
-            print(f"Error: Config file not found: {config_path}")
-            sys.exit(1)
+            cli.fatal(f"Config file not found: {config_path}")
 
-        print(f"Loading config from {config_path}...")
+        cli.dim(f"Loading config from {config_path}...")
         try:
             from cola_coder.model.config import Config
             config = Config.from_yaml(str(config_path))
             dataset_name = config.data.dataset
             languages = config.data.languages
             max_seq_len = config.model.max_seq_len
-            print(f"  Dataset: {dataset_name}")
-            print(f"  Languages: {', '.join(languages)}")
-            print(f"  Chunk size: {max_seq_len}")
+            cli.info("Dataset", dataset_name)
+            cli.info("Languages", ", ".join(languages))
+            cli.info("Chunk size", max_seq_len)
         except Exception as e:
-            print(f"Error loading config: {e}")
-            sys.exit(1)
+            cli.fatal(f"Error loading config: {e}")
+
+    # CLI --languages overrides config
+    if args.languages:
+        languages = args.languages
+        cli.info("Languages (override)", ", ".join(languages))
 
     # ---- Step 1: Load tokenizer ----
-    print(f"\nStep 1: Loading tokenizer from {tokenizer_path}...")
+    cli.step(1, 2, "Loading tokenizer")
+    cli.dim(f"Source: {tokenizer_path}")
 
     try:
         from cola_coder.tokenizer.tokenizer_utils import CodeTokenizer
     except ImportError:
-        print("Error: Could not import cola_coder. Make sure the package is installed.")
-        print("  Try: pip install -e .")
-        sys.exit(1)
+        cli.fatal(
+            "Could not import cola_coder. Make sure the package is installed.",
+            hint="Try: pip install -e .",
+        )
 
     try:
         tokenizer = CodeTokenizer(str(tokenizer_path))
-        print(f"  Vocabulary size: {tokenizer.vocab_size}")
+        cli.info("Vocabulary size", tokenizer.vocab_size)
     except Exception as e:
-        print(f"Error loading tokenizer: {e}")
-        sys.exit(1)
+        cli.fatal(f"Error loading tokenizer: {e}")
 
     # ---- Step 2: Load and preprocess data ----
+    cli.step(2, 2, "Processing data")
     if args.stream:
-        print(f"\nStep 2: Streaming data from {dataset_name} (slow HTTP mode)...")
+        cli.dim(f"Streaming data from {dataset_name} (slow HTTP mode)...")
     else:
-        print(f"\nStep 2: Downloading data from {dataset_name} (bulk download → local processing)...")
+        cli.dim(f"Downloading data from {dataset_name} (bulk download → local processing)...")
     if args.max_tokens:
-        print(f"  Token limit: {args.max_tokens:,}")
+        cli.info("Token limit", f"{args.max_tokens:,}")
 
     try:
         from cola_coder.data.download import stream_code_data
@@ -147,8 +165,7 @@ def main():
             FilterStats, FilterMode,
         )
     except ImportError:
-        print("Error: Could not import data modules.")
-        sys.exit(1)
+        cli.fatal("Could not import data modules.")
 
     try:
         data_stream = stream_code_data(
@@ -159,35 +176,40 @@ def main():
 
         # Apply quality filtering (parallel when workers > 1)
         if args.no_filter:
-            print("Quality filtering: DISABLED")
+            cli.warn("Quality filtering: DISABLED")
         elif args.filter_strict:
-            print("Quality filtering: STRICT (only keeping high-quality code)")
-            print(f"  Expected rejection rate: 60-75%  |  Workers: {args.workers}")
+            cli.info("Quality filtering", "STRICT (only keeping high-quality code)")
+            cli.info("Expected rejection rate", "60-75%")
+            cli.info("Workers", args.workers)
             stats = FilterStats()
             if args.workers > 1:
                 data_stream = parallel_filtered_stream(
                     data_stream, mode=FilterMode.STRICT,
                     stats=stats, num_workers=args.workers,
+                    languages=languages,
                 )
             else:
                 data_stream = filtered_stream(
                     data_stream, mode=FilterMode.STRICT, stats=stats,
+                    languages=languages,
                 )
         else:
-            print("Quality filtering: CONSERVATIVE (use --filter-strict for stricter)")
-            print(f"  Workers: {args.workers}")
+            cli.info("Quality filtering", "CONSERVATIVE (use --filter-strict for stricter)")
+            cli.info("Workers", args.workers)
             stats = FilterStats()
             if args.workers > 1:
                 data_stream = parallel_filtered_stream(
                     data_stream, mode=FilterMode.CONSERVATIVE,
                     stats=stats, num_workers=args.workers,
+                    languages=languages,
                 )
             else:
                 data_stream = filtered_stream(
                     data_stream, mode=FilterMode.CONSERVATIVE, stats=stats,
+                    languages=languages,
                 )
 
-        print(f"Batch size: {args.batch_size}  |  Tokenization: producer-consumer + Rust batch")
+        cli.dim(f"Batch size: {args.batch_size}  |  Tokenization: producer-consumer + Rust batch")
 
         output_file = tokenize_and_chunk(
             text_iterator=data_stream,
@@ -198,16 +220,16 @@ def main():
             batch_size=args.batch_size,
         )
     except KeyboardInterrupt:
-        print("\nInterrupted by user. Partial data may have been saved.")
+        cli.warn("Interrupted by user. Partial data may have been saved.")
         sys.exit(1)
     except Exception as e:
-        print(f"Error processing data: {e}")
-        sys.exit(1)
+        cli.fatal(f"Error processing data: {e}")
 
     # ---- Summary ----
-    print(f"\nData preprocessing complete!")
-    print(f"  Output: {Path(output_file).resolve()}")
-    print(f"  Ready for training with: python scripts/train.py --data {output_file}")
+    cli.done("Data preprocessing complete!", extras={
+        "Output": str(Path(output_file).resolve()),
+        "Next step": f"python scripts/train.py --data {output_file}",
+    })
 
 
 if __name__ == "__main__":

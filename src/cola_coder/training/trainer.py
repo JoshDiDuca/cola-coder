@@ -22,7 +22,7 @@ the model's weights based on how wrong its predictions were.
 from pathlib import Path
 
 import torch
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from tqdm import tqdm
 
 from ..model.config import Config
@@ -81,9 +81,14 @@ class Trainer:
         # Mixed precision setup
         # bf16: larger dynamic range, no scaler needed (RTX 4080+)
         # fp16: needs GradScaler to prevent underflow (RTX 3080)
-        self.use_bf16 = config.training.precision == "bf16"
-        self.use_fp16 = config.training.precision == "fp16"
-        self.scaler = GradScaler(enabled=self.use_fp16)
+        # CPU: disable mixed precision entirely (no amp on CPU)
+        if self.device == "cpu":
+            self.use_bf16 = False
+            self.use_fp16 = False
+        else:
+            self.use_bf16 = config.training.precision == "bf16"
+            self.use_fp16 = config.training.precision == "fp16"
+        self.scaler = GradScaler("cuda", enabled=self.use_fp16)
 
         # Metrics tracker
         self.metrics = TrainingMetrics()
@@ -110,11 +115,14 @@ class Trainer:
             self.metrics.init_wandb(config=vars(cfg))
 
         # Create data loader
+        # Pass max_seq_len so the dataset truncates chunks if they were
+        # prepared with a larger chunk size than the model expects
         dataloader = create_dataloader(
             data_path,
             batch_size=cfg.batch_size,
             shuffle=True,
             num_workers=self.config.data.num_workers,
+            max_seq_len=self.config.model.max_seq_len,
         )
 
         # Create infinite data iterator (loop over dataset forever)
@@ -144,7 +152,7 @@ class Trainer:
 
                 # Forward pass with mixed precision
                 with autocast(
-                    device_type="cuda",
+                    device_type=self.device,
                     dtype=torch.bfloat16 if self.use_bf16 else torch.float16,
                     enabled=self.use_bf16 or self.use_fp16,
                 ):

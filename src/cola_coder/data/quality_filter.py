@@ -501,8 +501,11 @@ def _looks_like_js_ts(content: str) -> bool:
 # Main filter pipeline
 # ---------------------------------------------------------------------------
 
-def _build_checks(mode: FilterMode) -> list[tuple]:
-    """Build the check list based on filter mode.
+def _build_checks(
+    mode: FilterMode,
+    languages: list[str] | None = None,
+) -> list[tuple]:
+    """Build the check list based on filter mode and selected languages.
 
     CONSERVATIVE: Only the base checks with generous thresholds.
                   Rejects clearly bad code. Passes anything ambiguous.
@@ -511,11 +514,20 @@ def _build_checks(mode: FilterMode) -> list[tuple]:
                   checks for code quality, naming, documentation, etc.
                   Rejects anything that isn't clearly good.
 
+    Language-aware: If languages are specified, only include syntax
+    checks for those languages. This prevents e.g. TypeScript files
+    being rejected by the Python AST parser.
+
     Returns:
         List of (check_function, args_dict) tuples.
     """
+    has_python = languages is None or "python" in languages
+    has_js_ts = languages is None or any(
+        lang in languages for lang in ("typescript", "javascript")
+    )
+
     if mode == FilterMode.CONSERVATIVE:
-        return [
+        checks = [
             # (function, kwargs override)  — empty dict = use defaults
             (check_length, {}),
             (check_avg_line_length, {}),
@@ -525,12 +537,15 @@ def _build_checks(mode: FilterMode) -> list[tuple]:
             (check_not_data_file, {}),
             (check_comment_ratio, {}),
             (check_not_test_heavy, {}),
-            (check_python_parseable, {}),
-            (check_js_ts_parseable, {}),
         ]
+        if has_python:
+            checks.append((check_python_parseable, {}))
+        if has_js_ts:
+            checks.append((check_js_ts_parseable, {}))
+        return checks
 
     # STRICT mode: tighter thresholds + extra checks
-    return [
+    checks = [
         # --- Base checks with tighter thresholds ---
         (check_length, {"min_lines": 10, "max_lines": 5000}),
         (check_avg_line_length, {"max_avg": 120}),
@@ -540,16 +555,21 @@ def _build_checks(mode: FilterMode) -> list[tuple]:
         (check_not_data_file, {}),
         (check_comment_ratio, {"max_comment_ratio": 0.60}),
         (check_not_test_heavy, {"max_test_ratio": 0.70}),
-        (check_python_parseable, {}),
-        (check_js_ts_parseable, {}),
-        # --- Strict-only checks ---
+    ]
+    if has_python:
+        checks.append((check_python_parseable, {}))
+    if has_js_ts:
+        checks.append((check_js_ts_parseable, {}))
+    # --- Strict-only checks ---
+    checks.extend([
         (check_has_functions_or_classes, {}),
         (check_naming_quality, {}),
         (check_code_to_blank_ratio, {}),
         (check_no_obvious_copy_paste, {}),
         (check_has_some_documentation, {}),
         (check_no_hardcoded_secrets, {}),
-    ]
+    ])
+    return checks
 
 
 # Summary of what changes between modes:
@@ -571,18 +591,24 @@ def _build_checks(mode: FilterMode) -> list[tuple]:
 # | hardcoded secrets     | -               | yes              |
 
 
-def filter_code(content: str, mode: FilterMode = FilterMode.CONSERVATIVE) -> tuple[bool, str]:
+def filter_code(
+    content: str,
+    mode: FilterMode = FilterMode.CONSERVATIVE,
+    languages: list[str] | None = None,
+) -> tuple[bool, str]:
     """Run quality checks on a single code file.
 
     Args:
         content: The raw code file content.
         mode: FilterMode.CONSERVATIVE (default) or FilterMode.STRICT.
+        languages: List of languages being trained on. If provided,
+                   only runs syntax checks relevant to those languages.
 
     Returns:
         (keep, reason) — keep=True if the file passes all checks.
         If rejected, reason explains which check failed.
     """
-    checks = _build_checks(mode)
+    checks = _build_checks(mode, languages=languages)
 
     for check_fn, kwargs in checks:
         try:
@@ -605,6 +631,7 @@ def filtered_stream(
     mode: FilterMode = FilterMode.CONSERVATIVE,
     stats: FilterStats | None = None,
     log_every: int = 10000,
+    languages: list[str] | None = None,
 ) -> Iterator[str]:
     """Wrap a code stream with quality filtering.
 
@@ -616,6 +643,7 @@ def filtered_stream(
         mode: FilterMode.CONSERVATIVE or FilterMode.STRICT.
         stats: Optional FilterStats to accumulate results. If None, creates one.
         log_every: Print progress every N files.
+        languages: List of languages being trained on (for language-aware checks).
 
     Yields:
         Code file contents that passed all quality checks.
@@ -626,7 +654,7 @@ def filtered_stream(
     mode_label = mode.value.upper()
 
     for content in source:
-        keep, reason = filter_code(content, mode=mode)
+        keep, reason = filter_code(content, mode=mode, languages=languages)
         stats.record(keep, reason)
 
         if keep:
@@ -650,15 +678,15 @@ def filtered_stream(
     print(stats.summary())
 
 
-def _filter_worker(args: tuple[str, str]) -> tuple[bool, str]:
+def _filter_worker(args: tuple[str, str, list[str] | None]) -> tuple[bool, str]:
     """Worker function for parallel filtering. Must be top-level for pickling.
 
     Returns (keep, reason) only — the caller matches results back to content
     by index order (executor.map preserves order).
     """
-    content, mode_value = args
+    content, mode_value, languages = args
     mode = FilterMode(mode_value)
-    keep, reason = filter_code(content, mode=mode)
+    keep, reason = filter_code(content, mode=mode, languages=languages)
     return keep, reason
 
 
@@ -668,6 +696,7 @@ def parallel_filtered_stream(
     stats: FilterStats | None = None,
     log_every: int = 10000,
     num_workers: int | None = None,
+    languages: list[str] | None = None,
 ) -> Iterator[str]:
     """Quality filtering with multiprocessing for CPU-bound checks.
 
@@ -684,12 +713,16 @@ def parallel_filtered_stream(
         stats: Optional FilterStats to accumulate results.
         log_every: Print progress every N files.
         num_workers: Number of worker processes. Default: CPU cores (up to 12).
+        languages: List of languages being trained on (for language-aware checks).
     """
     if num_workers is None:
         num_workers = max(1, min(os.cpu_count() or 4, 12))
 
     if num_workers <= 1:
-        yield from filtered_stream(source, mode=mode, stats=stats, log_every=log_every)
+        yield from filtered_stream(
+            source, mode=mode, stats=stats, log_every=log_every,
+            languages=languages,
+        )
         return
 
     if stats is None:
@@ -711,6 +744,7 @@ def parallel_filtered_stream(
             if len(batch) >= batch_size:
                 yield from _process_filter_batch(
                     executor, batch, mode, stats, log_every, mode_label,
+                    languages=languages,
                 )
                 batch = []
 
@@ -718,6 +752,7 @@ def parallel_filtered_stream(
         if batch:
             yield from _process_filter_batch(
                 executor, batch, mode, stats, log_every, mode_label,
+                languages=languages,
             )
 
     print(stats.summary())
@@ -730,6 +765,7 @@ def _process_filter_batch(
     stats: FilterStats,
     log_every: int,
     mode_label: str,
+    languages: list[str] | None = None,
 ) -> Iterator[str]:
     """Submit a batch to the process pool and yield kept files.
 
@@ -737,7 +773,7 @@ def _process_filter_batch(
     send 64 items per IPC call instead of 1. This cuts serialization
     overhead dramatically.
     """
-    args = [(text, mode.value) for text in batch]
+    args = [(text, mode.value, languages) for text in batch]
 
     # chunksize=64: send 64 files to each worker per IPC round trip
     results = executor.map(_filter_worker, args, chunksize=64)

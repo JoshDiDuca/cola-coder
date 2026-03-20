@@ -9,8 +9,9 @@ Usage:
 """
 
 import argparse
-import sys
 from pathlib import Path
+
+from cola_coder.cli import cli
 
 
 def main():
@@ -45,16 +46,19 @@ def main():
 
     languages = [lang.strip() for lang in args.languages.split(",")]
 
+    cli.header("Cola-Coder", "Tokenizer Training")
+
     # ---- Step 1: Download sample data ----
-    print(f"Step 1: Downloading {args.num_samples} code samples...")
-    print(f"  Languages: {', '.join(languages)}")
+    cli.step(1, 2, f"Downloading {args.num_samples} code samples")
+    cli.info("Languages", ", ".join(languages))
 
     try:
         from cola_coder.data.download import download_sample_data
     except ImportError:
-        print("Error: Could not import cola_coder. Make sure the package is installed.")
-        print("  Try: pip install -e .")
-        sys.exit(1)
+        cli.fatal(
+            "Could not import cola_coder",
+            hint="Make sure the package is installed: pip install -e .",
+        )
 
     try:
         file_paths = download_sample_data(
@@ -63,23 +67,23 @@ def main():
             num_samples=args.num_samples,
         )
     except Exception as e:
-        print(f"Error downloading data: {e}")
-        sys.exit(1)
+        cli.fatal(f"Error downloading data: {e}")
 
     if not file_paths:
-        print("Error: No files were downloaded. Check your network connection and dataset access.")
-        sys.exit(1)
+        cli.fatal(
+            "No files were downloaded",
+            hint="Check your network connection and dataset access.",
+        )
 
-    print(f"  Downloaded {len(file_paths)} files.\n")
+    cli.success(f"Downloaded {len(file_paths)} files")
 
     # ---- Step 2: Train the tokenizer ----
-    print(f"Step 2: Training BPE tokenizer with vocab size {args.vocab_size}...")
+    cli.step(2, 2, f"Training BPE tokenizer with vocab size {args.vocab_size}")
 
     try:
         from cola_coder.tokenizer.train_tokenizer import train_from_files
     except ImportError:
-        print("Error: Could not import tokenizer training module.")
-        sys.exit(1)
+        cli.fatal("Could not import tokenizer training module")
 
     try:
         tokenizer = train_from_files(
@@ -88,22 +92,20 @@ def main():
             output_path=args.output,
         )
     except Exception as e:
-        print(f"Error training tokenizer: {e}")
-        sys.exit(1)
+        cli.fatal(f"Error training tokenizer: {e}")
 
     # ---- Summary ----
-    print(f"\nTokenizer training complete!")
-    print(f"  Vocabulary size: {tokenizer.get_vocab_size()}")
-    print(f"  Saved to: {Path(args.output).resolve()}")
-
-    # Quick test
     test_code = "def hello_world():\n    print('Hello, world!')"
     encoded = tokenizer.encode(test_code)
     decoded = tokenizer.decode(encoded.ids)
-    print(f"\n  Quick test:")
-    print(f"    Input:    {test_code!r}")
-    print(f"    Tokens:   {len(encoded.ids)} tokens")
-    print(f"    Decoded:  {decoded!r}")
+
+    cli.dim(f"Quick test: {test_code!r}")
+    cli.dim(f"  Tokens: {len(encoded.ids)}  Decoded: {decoded!r}")
+
+    cli.done("Tokenizer training complete!", extras={
+        "Vocabulary size": str(tokenizer.get_vocab_size()),
+        "Saved to": str(Path(args.output).resolve()),
+    })
 
 
 if __name__ == "__main__":

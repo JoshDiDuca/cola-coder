@@ -26,15 +26,24 @@ class CodeDataset(Dataset):
     tries to predict token[i+1] from token[i] for every position.
     """
 
-    def __init__(self, data_path: str):
+    def __init__(self, data_path: str, max_seq_len: int | None = None):
         """
         Args:
             data_path: Path to the .npy file created by preprocess.py.
+            max_seq_len: If set, truncate chunks to this length. This handles
+                         the case where data was prepared with a larger chunk
+                         size than the model's max_seq_len. If None, use full
+                         chunk size.
         """
         # Memory-mapped: data stays on disk, loaded on demand
         self.data = load_processed_data(data_path)
         self.num_chunks = self.data.shape[0]
         self.chunk_size = self.data.shape[1]
+        self.max_seq_len = max_seq_len
+
+        if max_seq_len and max_seq_len < self.chunk_size:
+            print(f"  Note: Data chunks are {self.chunk_size} tokens but model "
+                  f"max_seq_len is {max_seq_len}. Truncating to {max_seq_len}.")
 
     def __len__(self) -> int:
         """Number of training examples."""
@@ -49,7 +58,10 @@ class CodeDataset(Dataset):
         """
         # Convert from numpy to PyTorch tensor
         # .copy() is needed because mmap arrays are read-only
-        tokens = torch.from_numpy(self.data[idx].astype(np.int64).copy())
+        chunk = self.data[idx]
+        if self.max_seq_len and self.max_seq_len < len(chunk):
+            chunk = chunk[:self.max_seq_len]
+        tokens = torch.from_numpy(chunk.astype(np.int64).copy())
         return {"input_ids": tokens}
 
 
@@ -78,6 +90,7 @@ def create_dataloader(
     batch_size: int = 32,
     shuffle: bool = True,
     num_workers: int = 4,
+    max_seq_len: int | None = None,
 ) -> DataLoader:
     """Create a DataLoader for training.
 
@@ -92,12 +105,17 @@ def create_dataloader(
         batch_size: How many examples per batch.
         shuffle: Whether to randomize order each epoch.
         num_workers: Parallel data loading threads.
+        max_seq_len: Truncate data chunks to this length (if they're longer
+                     than the model's max_seq_len).
 
     Returns:
         PyTorch DataLoader ready for training.
     """
-    dataset = CodeDataset(data_path)
+    dataset = CodeDataset(data_path, max_seq_len=max_seq_len)
     collator = CodeCollator()
+
+    import torch
+    use_pin_memory = torch.cuda.is_available()  # Only pin memory if GPU exists
 
     return DataLoader(
         dataset,
@@ -105,6 +123,6 @@ def create_dataloader(
         shuffle=shuffle,
         num_workers=num_workers,
         collate_fn=collator,
-        pin_memory=True,  # Faster CPU→GPU transfer
+        pin_memory=use_pin_memory,  # Faster CPU→GPU transfer (only when GPU available)
         drop_last=True,  # Drop incomplete final batch (simpler training loop)
     )

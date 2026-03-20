@@ -13,7 +13,7 @@ import argparse
 import sys
 from pathlib import Path
 
-import torch
+from cola_coder.cli import cli
 
 
 def main():
@@ -64,26 +64,23 @@ def main():
     )
     args = parser.parse_args()
 
+    cli.header("Cola-Coder", "Code Generation")
+
     # ---- Validate inputs ----
     if not Path(args.checkpoint).exists():
-        print(f"Error: Checkpoint not found: {args.checkpoint}")
-        sys.exit(1)
+        cli.fatal(f"Checkpoint not found: {args.checkpoint}", hint="Check the path")
 
     if not Path(args.config).exists():
-        print(f"Error: Config file not found: {args.config}")
-        sys.exit(1)
+        cli.fatal(f"Config file not found: {args.config}", hint="Check the path")
 
     if not Path(args.tokenizer).exists():
-        print(f"Error: Tokenizer file not found: {args.tokenizer}")
-        sys.exit(1)
+        cli.fatal(f"Tokenizer file not found: {args.tokenizer}", hint="Check the path")
 
     # ---- Determine device ----
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    if device == "cpu":
-        print("Note: No GPU detected. Running inference on CPU (slower).")
+    device = cli.gpu_info()
 
     # ---- Load model ----
-    print("Loading model...")
+    cli.print("Loading model...")
 
     try:
         from cola_coder.model.config import Config
@@ -92,34 +89,34 @@ def main():
         from cola_coder.inference.generator import CodeGenerator
         from cola_coder.tokenizer.tokenizer_utils import CodeTokenizer
     except ImportError:
-        print("Error: Could not import cola_coder. Make sure the package is installed.")
-        print("  Try: pip install -e .")
-        sys.exit(1)
+        cli.fatal(
+            "Could not import cola_coder. Make sure the package is installed.",
+            hint="Try: pip install -e .",
+        )
 
     try:
         config = Config.from_yaml(args.config)
-        print(f"  Model: {config.model.total_params_human} parameters")
+        cli.info("Model", f"{config.model.total_params_human} parameters")
 
         tokenizer = CodeTokenizer(args.tokenizer)
-        print(f"  Tokenizer: {tokenizer.vocab_size} tokens")
+        cli.info("Tokenizer", f"{tokenizer.vocab_size} tokens")
 
         model = Transformer(config.model).to(device)
         load_model_only(args.checkpoint, model, device=device)
-        print(f"  Checkpoint: {args.checkpoint}")
-        print(f"  Device: {device}")
+        cli.info("Checkpoint", args.checkpoint)
+        cli.info("Device", device)
 
         generator = CodeGenerator(model=model, tokenizer=tokenizer, device=device)
     except Exception as e:
-        print(f"Error loading model: {e}")
-        sys.exit(1)
+        cli.fatal(f"Loading model: {e}")
 
     # ---- REPL loop ----
-    print(f"\nCode generation ready!")
-    print(f"  Temperature: {args.temperature}")
-    print(f"  Max tokens:  {args.max_tokens}")
-    print(f"  Top-p: {args.top_p}, Top-k: {args.top_k}")
-    print(f"\nEnter a prompt, then press Enter on an empty line to submit.")
-    print(f"Press Ctrl+C to exit.\n")
+    cli.success("Code generation ready!")
+    cli.info("Temperature", args.temperature)
+    cli.info("Max tokens", args.max_tokens)
+    cli.info("Top-p", f"{args.top_p}, Top-k: {args.top_k}")
+    cli.print("\nEnter a prompt, then press Enter on an empty line to submit.")
+    cli.print("Press Ctrl+C to exit.\n")
 
     while True:
         try:
@@ -138,7 +135,7 @@ def main():
             prompt = "\n".join(lines)
 
             # Generate
-            print("\n--- Generating ---")
+            cli.rule("Generating")
             result = generator.generate(
                 prompt=prompt,
                 max_new_tokens=args.max_tokens,
@@ -149,16 +146,18 @@ def main():
 
             # Print just the generated part (after the prompt)
             print(result)
-            print("--- End ---\n")
+            cli.rule("End")
+            print()
 
         except KeyboardInterrupt:
-            print("\n\nExiting.")
+            cli.done("Session ended.")
             break
         except EOFError:
-            print("\n\nExiting.")
+            cli.done("Session ended.")
             break
         except Exception as e:
-            print(f"\nGeneration error: {e}\n")
+            cli.error(f"Generation error: {e}")
+            print()
 
 
 if __name__ == "__main__":
