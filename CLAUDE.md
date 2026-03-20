@@ -25,7 +25,7 @@ Checkpoints use safetensors format (not pickle). Tokenizer is HuggingFace BPE (R
 configs/              YAML model & training configs (+ features.yaml, storage.yaml)
 docs/                 Educational guides (01-05 + deep-dives/)
 src/cola_coder/
-  model/              Transformer: attention, feedforward, normalization, rope, config
+  model/              Transformer: attention, feedfsorward, normalization, rope, config
   tokenizer/          BPE tokenizer training & utilities
   data/               Download, preprocess, quality filter, dataset, collator
     filters/          Quality classifier, ML-based scorer, LLM annotator
