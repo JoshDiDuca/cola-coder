@@ -41,7 +41,7 @@ User prompt → [Router Model: 125M]
 
 **Active per request: ~175M** (router + one specialist). **Total system knowledge: 475M+.** Runs inference in ~2 GB VRAM. Each specialist trains independently in 1-2 days on a consumer GPU.
 
-The practical path: train the base model first (this repo), fine-tune specialists from it, we could use Claude API as the router initially, then train a local router from the collected routing decisions. Full details in [`docs/deep-dives/multi-agent-specialization.md`](docs/deep-dives/multi-agent-specialization.md).
+The practical path: train the base model first (this repo), fine-tune specialists from it, use Claude API as the router initially, then train a local router from the collected routing decisions.
 
 ---
 
@@ -71,29 +71,123 @@ Cola-Coder uses the same architecture as the models powering LLaMA 3, Mistral, D
 | **Medium** | ~350M | 24 | 1024 | 16 / 4 | 1792 | 2048 | ~8.2 GB |
 | **Large** | ~1B+ | 32 | 2048 | 32 / 8 | 3584 | 4096 | ~24 GB |
 
-### Training Pipeline
+---
 
-- **Gradient accumulation** — simulate batch sizes of 32-64 on consumer GPUs with 2-8 micro-batches
-- **Gradient checkpointing** — trade ~30% speed for ~50% VRAM savings on larger configs
-- **Gradient clipping** — prevent exploding gradients with norm-based clipping
-- **Mixed precision autocast** — bf16 on Ada/Ampere+, fp16 with GradScaler on older cards
-- **Cosine LR schedule** — linear warmup then smooth decay to 10% of peak
-- **Weight tying** — embedding and output projection share weights, saving `vocab_size * dim` parameters
-- **Fill-in-the-Middle (FIM)** — 50% of training examples randomly converted to FIM format for IDE-style completions
+## Data Pipeline
 
-### Inference Engine
+The data pipeline is production-grade, built to handle raw GitHub code and produce high-quality training tokens.
 
-- **KV-cache** — only compute attention for new tokens, cache all previous keys/values
-- **Top-k + top-p + temperature sampling** — full control over generation randomness
-- **Repetition penalty** — prevent degenerate loops
-- **FastAPI server** — serve your model over HTTP with auto-generated OpenAPI docs
+### Sources
 
-### Reasoning Module
+- **HuggingFace** — BigCode StarCoderData, streaming or bulk parquet download (cached locally)
+- **GitHub scraping** — additional domain-specific repositories for specialist fine-tuning
+- **Local files** — drop your own code into a directory and include it in training
+- All sources can be combined and deduplicated into a single dataset
 
-- **Thinking tokens** — `<think>` / `</think>` special tokens for chain-of-thought
-- **GRPO (Group Relative Policy Optimization)** — generate multiple solutions, run tests, reinforce correct ones
-- **Verifiable rewards** — binary reward from code execution (no reward model needed)
-- **HumanEval benchmark** — 20 inline coding problems with sandboxed execution and pass@k metrics
+### Quality Filtering
+
+Two filter modes, each running 15+ checks in parallel:
+
+| Mode | Rejection Rate | Use Case |
+|------|---------------|----------|
+| **Conservative** (default) | ~48% of raw GitHub | Base model training |
+| **Strict** | ~65% of raw GitHub | Fine-tuning, high-quality specialists |
+
+Filter checks include: minimum/maximum length, line length distribution, character diversity, auto-generated file headers, binary/data file detection, comment ratio bounds, test dump detection, syntax parsing (AST), and brace balance. Filters are modular plugins — easy to add or disable.
+
+### Quality Scoring
+
+Beyond binary pass/fail filtering, every file receives a continuous quality score from **0.0 to 1.0** based on 13 weighted signals:
+
+- Cyclomatic complexity, documentation density, naming conventions
+- Type annotation coverage, function/class structure
+- Import organization, test coverage indicators
+- And more — all combined into a single float score
+
+### Quality-Weighted Training
+
+High-quality code contributes more to the training loss. Files scoring near 1.0 are sampled more frequently and weighted more heavily in the loss calculation. This means the model spends proportionally more training time on well-structured, well-documented code — not random GitHub noise.
+
+### Tokenization Pipeline
+
+A producer-consumer architecture keeps your GPU saturated:
+
+1. Worker processes read and filter source files in parallel
+2. Filtered text streams to tokenizer workers (Rust-backed BPE)
+3. Tokenized chunks write directly to memory-mapped numpy arrays
+4. Training reads from the mmap file with zero RAM overhead
+
+### Optional: AI-Assisted Code Improvement
+
+Ollama integration (optional, free/local) can rewrite low-scoring files before tokenization — fixing formatting, adding docstrings, improving naming. No API costs, runs on your GPU between training runs.
+
+### Code Quality Classifier
+
+A three-tier classifier for finer-grained quality decisions:
+- **Heuristic** — fast rule-based scoring (always on)
+- **Neural** — lightweight trained classifier for ambiguous cases
+- **LLM-based** — optional Ollama pass for borderline files
+
+---
+
+## Features
+
+Cola-Coder has **83 optional feature modules** across 7 categories. Every feature follows the same pattern: a `FEATURE_ENABLED` flag in the config that defaults to `False`. Enable only what you need — the core training loop runs without any of them.
+
+### Training
+Crash recovery and auto-resume, gradient norm monitoring, perplexity tracking, loss curve smoothing, learning rate finder, batch size auto-tuner, wandb/tensorboard integration.
+
+### Generation
+Token streaming, beam search, speculative decoding, nucleus/top-k/top-p sampling, repetition penalty tuning, length penalty, early stopping heuristics.
+
+### Evaluation
+HumanEval benchmark runner, pass@k metrics, checkpoint-to-checkpoint comparison, per-language breakdown, regression detection.
+
+### Code Analysis
+AST-based chunking (split files at function/class boundaries), quality scoring pipeline, import graph analysis, complexity metrics, dead code detection.
+
+### Infrastructure
+Config validation with helpful error messages, VRAM estimation before training starts, INT8/INT4 quantization for inference, model export to GGUF format, Docker sandbox for code execution.
+
+### Routing
+Multi-agent specialist routing, domain detection from prompt, load balancing across specialists, routing decision logging for router training data collection.
+
+### UI
+Master CLI menu (`scripts/menu.py`) with arrow-key navigation, real-time training dashboard, data pipeline progress display, hardware utilization monitor.
+
+---
+
+## Quick Start
+
+```bash
+# Set up
+python -m venv .venv
+.venv/Scripts/pip install -e ".[dev,logging]"
+
+# Interactive CLI menu (recommended)
+.venv/Scripts/python scripts/menu.py
+
+# Or run steps manually:
+.venv/Scripts/python scripts/train_tokenizer.py
+.venv/Scripts/python scripts/prepare_data.py --config configs/tiny.yaml --tokenizer tokenizer.json
+.venv/Scripts/python scripts/train.py --config configs/tiny.yaml
+.venv/Scripts/python scripts/run.py
+```
+
+### Data Prep Flags
+
+```bash
+# Parallel workers (default: CPU count), larger batch size for faster processing
+.venv/Scripts/python scripts/prepare_data.py --config configs/tiny.yaml --tokenizer tokenizer.json --workers 4 --batch-size 64
+
+# Strict quality filtering
+.venv/Scripts/python scripts/prepare_data.py --config configs/tiny.yaml --tokenizer tokenizer.json --filter-strict
+
+# Cap total tokens (useful for experiments)
+.venv/Scripts/python scripts/prepare_data.py --config configs/tiny.yaml --tokenizer tokenizer.json --max-tokens 500000000
+```
+
+Prepared data is reusable across training runs. Only re-prepare if you change the tokenizer, sequence length, dataset, languages, or filter mode.
 
 ---
 
@@ -101,81 +195,83 @@ Cola-Coder uses the same architecture as the models powering LLaMA 3, Mistral, D
 
 ```
 cola-coder/
-├── configs/                          # YAML model & training configs
-│   ├── tiny.yaml                     # 50M params — fast experiments
-│   ├── small.yaml                    # 125M params — serious training
-│   ├── medium.yaml                   # 350M params — best local results
-│   ├── large.yaml                    # 1B+ params — cloud GPUs
-│   └── reasoning.yaml                # GRPO/CoT fine-tuning config
-│
-├── docs/                             # Educational guides (written for TS devs)
-│   ├── 01_python_for_ts_devs.md      # Python crash course
-│   ├── 02_how_transformers_work.md   # Intuitive transformer guide
-│   ├── 03_training_pipeline.md       # Training loop explained
-│   ├── 04_reasoning_experiments.md   # CoT + GRPO guide
-│   └── 05_hardware_guide.md          # VRAM budgets, cloud scaling
-│
+├── configs/                     # YAML configs (model, training, features, storage)
 ├── src/cola_coder/
-│   ├── model/                        # Transformer architecture
-│   │   ├── attention.py              # Grouped Query Attention + RoPE
-│   │   ├── feedforward.py            # SwiGLU FFN
-│   │   ├── normalization.py          # RMSNorm
-│   │   ├── rope.py                   # Rotary Positional Encoding
-│   │   ├── transformer.py            # Full model assembly
-│   │   └── config.py                 # Model configuration
-│   ├── tokenizer/                    # BPE tokenizer training & usage
-│   ├── data/                         # Data pipeline (HuggingFace streaming)
-│   ├── training/                     # Training loop, optimizer, checkpoints
-│   ├── inference/                    # KV-cache generation, sampling, HTTP server
-│   ├── evaluation/                   # HumanEval benchmark + pass@k
-│   └── reasoning/                    # CoT data, thinking tokens, GRPO
-│
-├── scripts/                          # CLI entry points
-│   ├── train_tokenizer.py
-│   ├── prepare_data.py
-│   ├── train.py
-│   ├── generate.py
-│   ├── evaluate.py
-│   ├── train_reasoning.py
-│   └── serve.py
-│
-└── tests/                            # Unit tests for all modules
-```
-
----
-
-## Quick Start
-
-```bash
-# Set up the environment
-make setup
-
-# Train a BPE tokenizer on code data
-make tokenizer
-
-# Download and preprocess training data (streams from HuggingFace)
-make prepare
-
-# Train the tiny model (~2 days on RTX 4080, ~3.6 GB VRAM)
-make train-tiny
-
-# Generate code interactively
-make generate
-
-# Run HumanEval evaluation
-make evaluate
-
-# Start the HTTP inference server
-make serve
+│   ├── model/                   # Transformer (GQA, SwiGLU, RMSNorm, RoPE)
+│   ├── tokenizer/               # BPE tokenizer (Rust-backed)
+│   ├── data/                    # Full data pipeline
+│   │   ├── filters/             # Modular filter plugins
+│   │   ├── sources/             # Data sources (HF, GitHub, local)
+│   │   ├── curation/            # Test execution scoring + Docker sandbox
+│   │   ├── quality_filter.py    # Binary + scored filtering
+│   │   ├── dataset.py           # Datasets (standard + weighted)
+│   │   └── preprocess.py        # Producer-consumer tokenization
+│   ├── training/                # Training loop, checkpoints, metrics
+│   ├── inference/               # KV-cache generator, sampling, API server
+│   ├── evaluation/              # HumanEval, pass@k metrics
+│   ├── reasoning/               # CoT, GRPO, reward functions
+│   ├── features/                # 83 optional feature modules
+│   └── cli.py                   # Rich CLI + questionary arrow menus
+├── scripts/                     # 22 CLI entry points
+└── tests/                       # 437+ tests
 ```
 
 ---
 
 ## Training Data
 
-Streams from [BigCode StarCoderData](https://huggingface.co/datasets/bigcode/starcoderdata) — curated, deduplicated code from GitHub across 80+ languages. Configurable per-language filtering (default: Python, TypeScript, JavaScript).
+Source: [BigCode StarCoderData](https://huggingface.co/datasets/bigcode/starcoderdata) — curated, deduplicated code from GitHub across 80+ languages. Configurable per-language filtering (default: Python, TypeScript, JavaScript).
 
-Data is tokenized and stored as memory-mapped numpy arrays for fast random access during training. With 64GB system RAM, the entire preprocessing pipeline runs smoothly.
+The dataset is gated. Set `HF_TOKEN` in your environment and accept the terms at huggingface.co/datasets/bigcode/starcoderdata before running data prep.
+
+### Quality Scoring Pipeline
+
+```
+Raw source file
+      │
+      ▼
+Binary filter (15+ checks)  ──── FAIL ──→  discard
+      │ PASS
+      ▼
+Continuous scorer (13 signals)
+      │
+      ▼
+Quality score: 0.0 ──────────────── 1.0
+                │                    │
+           low weight           high weight
+                └──────────┬─────────┘
+                           ▼
+                    Weighted dataset
+                    (loss ∝ score)
+```
+
+### Filter Mode Comparison
+
+| Check | Conservative | Strict |
+|-------|-------------|--------|
+| Min content length | 100 chars | 200 chars |
+| Max line length | 1000 chars | 500 chars |
+| Auto-generated headers | Yes | Yes |
+| Binary/data files | Yes | Yes |
+| Comment ratio | >90% | >80% |
+| Syntax validity (AST) | Yes | Yes |
+| Brace balance | Yes | Yes |
+| Naming conventions | No | Yes |
+| Min documentation | No | Yes |
+| **Rejection rate (raw GitHub)** | **~48%** | **~65%** |
+
+---
+
+## Hardware
+
+| Config | Params | VRAM | Throughput | Training Time |
+|--------|--------|------|-----------|---------------|
+| tiny   | 50M    | ~3.6 GB | ~45k tok/s | ~4 hours |
+| small  | 125M   | ~6.5 GB | ~35k tok/s | ~2 days |
+| medium | 350M   | ~8.2 GB | ~22k tok/s | ~7 days |
+| large  | 1B+    | ~24 GB  | N/A       | cloud only |
+
+Tested on RTX 4080 (16GB, bf16) and RTX 3080 (10GB, fp16 + GradScaler). Medium (350M) requires gradient checkpointing on 16GB — set `gradient_checkpointing: true` in the config to trade ~30% speed for ~50% VRAM savings.
 
 ---
 
