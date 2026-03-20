@@ -50,8 +50,16 @@ def save_checkpoint(
     Returns:
         Path to the saved checkpoint directory.
     """
-    ckpt_dir = Path(output_dir) / f"step_{step:08d}"
-    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    # Save to a temp directory first, then rename — this makes the save atomic.
+    # If we crash mid-write, only the temp dir is corrupted, not a real checkpoint.
+    import shutil
+    final_dir = Path(output_dir) / f"step_{step:08d}"
+    tmp_dir = Path(output_dir) / f".tmp_step_{step:08d}"
+
+    # Clean up any previous failed temp dir
+    if tmp_dir.exists():
+        shutil.rmtree(tmp_dir)
+    tmp_dir.mkdir(parents=True, exist_ok=True)
 
     # Save model weights using safetensors
     # Filter out tied weights — output.weight shares memory with tok_emb.weight
@@ -62,7 +70,7 @@ def save_checkpoint(
         if k == "output.weight":
             continue  # Skip — it's the same tensor as tok_emb.weight
         state_dict[k] = v.contiguous()
-    save_file(state_dict, str(ckpt_dir / "model.safetensors"))
+    save_file(state_dict, str(tmp_dir / "model.safetensors"))
 
     # Save optimizer and scheduler state
     # These are just numbers (momentum buffers, LR values), not code
@@ -73,7 +81,7 @@ def save_checkpoint(
             "step": step,
             "rng_state": torch.random.get_rng_state(),
         },
-        ckpt_dir / "training_state.pt",
+        tmp_dir / "training_state.pt",
     )
 
     # Save metadata as JSON (human-readable)
@@ -82,7 +90,13 @@ def save_checkpoint(
         "loss": loss,
         "config": config,
     }
-    (ckpt_dir / "metadata.json").write_text(json.dumps(metadata, indent=2))
+    (tmp_dir / "metadata.json").write_text(json.dumps(metadata, indent=2))
+
+    # Atomic rename: tmp -> final (if final already exists, replace it)
+    if final_dir.exists():
+        shutil.rmtree(final_dir)
+    tmp_dir.rename(final_dir)
+    ckpt_dir = final_dir
 
     # Also save as "latest" symlink for easy access
     latest_path = Path(output_dir) / "latest"
@@ -125,9 +139,18 @@ def load_checkpoint(
 
     print(f"Loading checkpoint from {ckpt_dir}...")
 
+    # Validate checkpoint is complete (not a partial save from a crash)
+    model_path = ckpt_dir / "model.safetensors"
+    if not model_path.exists():
+        raise FileNotFoundError(
+            f"Incomplete checkpoint at {ckpt_dir} — model.safetensors is missing. "
+            f"This usually means a previous save crashed mid-write. "
+            f"Delete this directory and resume from an earlier checkpoint."
+        )
+
     # Load model weights
     # strict=False because we skip saving output.weight (it's tied to tok_emb.weight)
-    state_dict = load_file(str(ckpt_dir / "model.safetensors"), device=device)
+    state_dict = load_file(str(model_path), device=device)
     model.load_state_dict(state_dict, strict=False)
 
     step = 0
