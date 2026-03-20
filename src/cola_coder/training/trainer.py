@@ -98,9 +98,12 @@ class Trainer:
             and os.environ.get("COLA_NO_COMPILE") != "1"
         ):
             try:
-                self.model = torch.compile(self.model, mode="reduce-overhead")
+                # "default" mode: good speedup without extra VRAM overhead.
+                # "reduce-overhead" uses CUDA graphs which pre-allocate memory
+                # and can cause OOM on 16GB cards.
+                self.model = torch.compile(self.model, mode="default")
                 self._compiled = True
-                print("torch.compile enabled (reduce-overhead mode)")
+                print("torch.compile enabled (default mode)")
             except Exception as e:
                 print(f"torch.compile not available: {e}")
 

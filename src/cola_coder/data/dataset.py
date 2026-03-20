@@ -256,7 +256,6 @@ def create_dataloader(
         num_workers=num_workers,
         collate_fn=collator,
         pin_memory=use_pin_memory,
-        pin_memory_device="cuda" if use_pin_memory else "",
         drop_last=True,
         persistent_workers=use_persistent,
         prefetch_factor=4 if num_workers > 0 else None,
