@@ -116,13 +116,17 @@ class Trainer:
 
         # Create data loader
         # Pass max_seq_len so the dataset truncates chunks if they were
-        # prepared with a larger chunk size than the model expects
+        # prepared with a larger chunk size than the model expects.
+        # If a quality-weights file exists next to the data file, weighted
+        # training is activated automatically (no flag needed).
+        weights_path = str(Path(data_path).with_suffix(".weights.npy"))
         dataloader = create_dataloader(
             data_path,
             batch_size=cfg.batch_size,
             shuffle=True,
             num_workers=self.config.data.num_workers,
             max_seq_len=self.config.model.max_seq_len,
+            weights_path=weights_path,
         )
 
         # Create infinite data iterator (loop over dataset forever)
@@ -171,6 +175,8 @@ class Trainer:
             for micro_step in range(cfg.gradient_accumulation):
                 batch = next(data_iter)
                 input_ids = batch["input_ids"].to(self.device)
+                # Quality weights (1.0 when not using weighted training)
+                weights = batch.get("weights")
 
                 # Forward pass with mixed precision
                 with autocast(
@@ -179,6 +185,13 @@ class Trainer:
                     enabled=self.use_bf16 or self.use_fp16,
                 ):
                     loss = self.model.compute_loss(input_ids)
+
+                    # Apply per-example quality weights if available.
+                    # Higher-quality code contributes more to the loss.
+                    if weights is not None:
+                        weights = weights.to(self.device)
+                        loss = loss * weights.mean()
+
                     # Divide by accumulation steps so the total gradient is averaged
                     scaled_loss = loss / cfg.gradient_accumulation
 

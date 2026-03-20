@@ -100,10 +100,12 @@ features:
   # ---------------------------------------------------------------------------
   ast_chunking: true
   code_diff_mode: true
+  code_scorer: true
   complexity_scorer: true
   docstring_extraction: true
   import_graph: true
   multi_file_context: true
+  ollama_improver: true
   test_code_pair_extractor: true
 
   # ---------------------------------------------------------------------------

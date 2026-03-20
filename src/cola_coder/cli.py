@@ -29,7 +29,6 @@ try:
     # Force UTF-8 on Windows to avoid cp1252 encoding errors with symbols
     import sys
     if sys.platform == "win32":
-        import io
         if hasattr(sys.stdout, 'reconfigure'):
             try:
                 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -231,18 +230,56 @@ class CLI:
         *,
         allow_cancel: bool = False,
     ) -> int | None:
-        """Show a numbered menu and return the selected index.
+        """Show an arrow-key navigable menu and return the selected index.
+
+        Uses questionary for arrow-key navigation when available, falls back
+        to a numbered input menu otherwise.
 
         Args:
             prompt: Title shown above the options.
             options: List of dicts with 'label' and optional 'detail' keys.
-                     Each option is rendered as a numbered row.
             allow_cancel: If True, adds a "Cancel" option and returns None
                           if selected.
 
         Returns:
             Index of selected option, or None if cancelled.
         """
+        try:
+            import questionary
+            from questionary import Style
+
+            custom_style = Style([
+                ('qmark', 'fg:cyan bold'),
+                ('question', 'bold'),
+                ('pointer', 'fg:cyan bold'),
+                ('highlighted', 'fg:cyan bold'),
+                ('selected', 'fg:green'),
+            ])
+
+            choices = []
+            for i, opt in enumerate(options):
+                label = opt.get("label", "")
+                detail = opt.get("detail", "")
+                display = f"{label}  ({detail})" if detail else label
+                choices.append(questionary.Choice(title=display, value=i))
+
+            if allow_cancel:
+                choices.append(questionary.Choice(title="Cancel", value=None))
+
+            result = questionary.select(
+                prompt,
+                choices=choices,
+                style=custom_style,
+                use_shortcuts=False,
+                use_arrow_keys=True,
+            ).ask()
+
+            return result  # index or None (cancelled or Ctrl-C)
+
+        except ImportError:
+            pass
+
+        # ── Fallback: numbered menu (questionary not installed) ──────────────
         if _HAS_RICH:
             _console.print()
             table = Table(
@@ -297,6 +334,9 @@ class CLI:
     def confirm(self, prompt: str, default: bool = True) -> bool:
         """Ask a yes/no question and return the answer.
 
+        Uses questionary for a styled prompt when available, falls back to
+        plain input otherwise.
+
         Args:
             prompt: The question to ask.
             default: Default value if user just presses Enter.
@@ -304,6 +344,28 @@ class CLI:
         Returns:
             True for yes, False for no.
         """
+        try:
+            import questionary
+            from questionary import Style
+
+            custom_style = Style([
+                ('qmark', 'fg:cyan bold'),
+                ('question', 'bold'),
+            ])
+
+            result = questionary.confirm(
+                prompt,
+                default=default,
+                style=custom_style,
+            ).ask()
+
+            # .ask() returns None on Ctrl-C / EOF — fall back to default
+            return result if result is not None else default
+
+        except ImportError:
+            pass
+
+        # ── Fallback: plain input (questionary not installed) ────────────────
         suffix = "[Y/n]" if default else "[y/N]"
         if _HAS_RICH:
             _console.print(f"\n  [bold]{prompt}[/bold] [dim]{suffix}[/dim] ", end="")

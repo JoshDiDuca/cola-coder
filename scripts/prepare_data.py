@@ -197,6 +197,14 @@ def main():
         help="Override languages (e.g. --languages typescript javascript). "
              "Also makes the filter language-aware (skips irrelevant syntax checks).",
     )
+    parser.add_argument(
+        "--score",
+        action="store_true",
+        help="Compute quality scores for each chunk and save as a .weights.npy "
+             "sidecar file. When this file exists, training automatically uses "
+             "quality-weighted loss (high-quality code contributes more). "
+             "Adds ~30%% to preprocessing time.",
+    )
     filter_group = parser.add_mutually_exclusive_group()
     filter_group.add_argument(
         "--no-filter",
@@ -356,11 +364,73 @@ def main():
     except Exception as e:
         cli.fatal(f"Error processing data: {e}")
 
+    # ---- Quality scoring (optional) ----
+    if args.score:
+        cli.rule("Quality Scoring")
+        cli.info("Scoring mode", "Computing quality scores for weighted training")
+        try:
+            from cola_coder.features.code_scorer import is_enabled as scorer_enabled
+            if scorer_enabled():
+                from cola_coder.features.code_scorer import CodeScorer
+                scorer = CodeScorer()
+
+                # Load the data we just saved and score each chunk
+                data = np.load(output_file, mmap_mode="r")
+                num_chunks = data.shape[0]
+                weights = np.zeros(num_chunks, dtype=np.float32)
+
+                cli.info("Chunks to score", f"{num_chunks:,}")
+
+                # We need the tokenizer to decode chunks back to text for scoring
+                from tqdm import tqdm as scoring_tqdm
+                for i in scoring_tqdm(range(num_chunks), desc="Scoring"):
+                    # Decode chunk back to text
+                    chunk_ids = data[i].tolist()
+                    text = tokenizer.decode(chunk_ids)
+                    # Score and convert to training weight
+                    result = scorer.score(text)
+                    weights[i] = scorer.score_to_weight(result)
+
+                # Save weights file
+                weights_path = str(Path(output_file).with_suffix(".weights.npy"))
+                np.save(weights_path, weights)
+
+                # Stats
+                mean_weight = weights.mean()
+                excellent = (weights >= 1.8).sum()
+                good = ((weights >= 1.3) & (weights < 1.8)).sum()
+                average = ((weights >= 0.8) & (weights < 1.3)).sum()
+                poor = ((weights >= 0.1) & (weights < 0.8)).sum()
+                reject = (weights < 0.1).sum()
+
+                cli.kv_table({
+                    "Mean weight": f"{mean_weight:.3f}",
+                    "Excellent (2.0x)": f"{excellent:,} ({excellent/num_chunks*100:.1f}%)",
+                    "Good (1.5x)": f"{good:,} ({good/num_chunks*100:.1f}%)",
+                    "Average (1.0x)": f"{average:,} ({average/num_chunks*100:.1f}%)",
+                    "Poor (0.3x)": f"{poor:,} ({poor/num_chunks*100:.1f}%)",
+                    "Reject (0.0x)": f"{reject:,} ({reject/num_chunks*100:.1f}%)",
+                }, title="Quality Score Distribution")
+
+                cli.success(f"Quality weights saved to {weights_path}")
+            else:
+                cli.warn("Code scorer feature is disabled. Enable in configs/features.yaml")
+        except ImportError:
+            cli.warn("Code scorer feature not available. Skipping quality scoring.")
+        except Exception as e:
+            cli.warn(f"Quality scoring failed: {e}. Training will use uniform weights.")
+
     # ---- Summary ----
-    cli.done("Data preprocessing complete!", extras={
+    extras = {
         "Output": str(Path(output_file).resolve()),
         "Next step": f"python scripts/train.py --data {output_file}",
-    })
+    }
+    if args.score:
+        weights_path = str(Path(output_file).with_suffix(".weights.npy"))
+        if Path(weights_path).exists():
+            extras["Weights"] = weights_path
+            extras["Note"] = "Training will auto-detect weights and use quality-weighted loss"
+    cli.done("Data preprocessing complete!", extras=extras)
 
 
 if __name__ == "__main__":
