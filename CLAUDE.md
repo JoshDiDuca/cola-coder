@@ -93,6 +93,16 @@ When `--score` is passed to `prepare_data.py`, a `.weights.npy` sidecar file is 
 - Config: `configs/reasoning.yaml`
 - Script: `scripts/train_reasoning.py`
 
+## Checkpoints (CRITICAL)
+
+Checkpoints use safetensors format. Key invariants — **breaking any of these will crash training**:
+
+1. **Weight tying**: `tok_emb.weight` and `output.weight` share the same tensor. `output.weight` is EXCLUDED from saved state dict. On load, the model constructor re-ties them.
+2. **torch.compile**: Wraps state dict keys with `_orig_mod.` prefix. Checkpoint save STRIPS this prefix; load ADDS it back if model is compiled. This keeps checkpoint format portable.
+3. **Always run `pytest tests/test_checkpoint.py`** before starting training or after any changes to checkpoint.py, transformer.py, or model configs.
+
+If checkpoint tests fail, DO NOT start training — a broken checkpoint means losing hours of GPU time.
+
 ## Vision: Multi-Agent Specialization
 
 End goal is a router model (125M) + domain-specific specialists (50M each: React, Next.js, GraphQL, Prisma, Zod, Testing) + general TS fallback (125M). Each specialist trains independently in 1-2 days. Active per request: ~175M params. See `docs/deep-dives/multi-agent-specialization.md`.
@@ -118,6 +128,7 @@ End goal is a router model (125M) + domain-specific specialists (50M each: React
 
 # Tests & lint
 .venv/Scripts/pytest tests/ -v
+.venv/Scripts/pytest tests/test_checkpoint.py -v  # MUST pass before any training run
 .venv/Scripts/ruff check src/ scripts/ tests/
 .venv/Scripts/ruff check --fix src/ scripts/ tests/  # auto-fix
 ```
