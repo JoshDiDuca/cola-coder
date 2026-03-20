@@ -36,7 +36,7 @@ reasoning:
 data:
   dataset: "local"  # Will use locally generated CoT data
   data_dir: "./data/reasoning"
-  num_workers: 2
+  num_workers: 8
 
 checkpoint:
   save_every: 500

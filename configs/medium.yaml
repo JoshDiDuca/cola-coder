@@ -31,7 +31,7 @@ data:
   languages: ["python", "typescript", "javascript", "java", "go", "rust", "c", "cpp"]
   max_tokens_per_file: 4096
   data_dir: "./data"
-  num_workers: 4
+  num_workers: 8
 
 checkpoint:
   save_every: 5000
