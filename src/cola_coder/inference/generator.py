@@ -22,7 +22,7 @@ attention state for a token, you cache it and never recompute it.
 from typing import Generator
 
 import torch
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 
 from ..model.transformer import Transformer
 from ..tokenizer.tokenizer_utils import CodeTokenizer

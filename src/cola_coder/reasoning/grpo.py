@@ -31,7 +31,7 @@ to produce more solutions like the working ones.
 
 import torch
 import torch.nn.functional as F
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 from tqdm import tqdm
 
 from ..model.transformer import Transformer
