@@ -75,12 +75,16 @@ def save_checkpoint(
     # Save model weights using safetensors
     # Filter out tied weights — output.weight shares memory with tok_emb.weight
     # (weight tying). safetensors refuses duplicate tensors, so we skip the alias.
-    # On load, we re-tie them in the model constructor.
+    # torch.compile wraps keys with "_orig_mod." prefix, so we strip that too
+    # to keep checkpoint format consistent regardless of compilation.
+    raw_state = model.state_dict()
     state_dict = {}
-    for k, v in model.state_dict().items():
-        if k == "output.weight":
+    for k, v in raw_state.items():
+        # Strip torch.compile prefix for consistent checkpoint format
+        clean_key = k.removeprefix("_orig_mod.")
+        if clean_key == "output.weight":
             continue  # Skip — it's the same tensor as tok_emb.weight
-        state_dict[k] = v.contiguous()
+        state_dict[clean_key] = v.contiguous()
     save_file(state_dict, str(tmp_dir / "model.safetensors"))
 
     # Save optimizer and scheduler state
@@ -173,6 +177,12 @@ def load_checkpoint(
     # Load model weights
     # strict=False because we skip saving output.weight (it's tied to tok_emb.weight)
     state_dict = load_file(str(model_path), device=device)
+
+    # Handle torch.compile: if model is compiled, keys need _orig_mod. prefix
+    # Checkpoints always store clean keys (no prefix) for portability.
+    if hasattr(model, "_orig_mod"):
+        state_dict = {f"_orig_mod.{k}": v for k, v in state_dict.items()}
+
     model.load_state_dict(state_dict, strict=False)
 
     step = 0
@@ -220,6 +230,8 @@ def load_model_only(
 
     # strict=False because output.weight is tied to tok_emb.weight and not saved separately
     state_dict = load_file(str(ckpt_dir / "model.safetensors"), device=device)
+    if hasattr(model, "_orig_mod"):
+        state_dict = {f"_orig_mod.{k}": v for k, v in state_dict.items()}
     model.load_state_dict(state_dict, strict=False)
     model.eval()  # Set to evaluation mode (disables dropout)
     return model
