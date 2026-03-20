@@ -87,15 +87,28 @@ def estimate_vram(
     seq_len = model_config.max_seq_len
     dim = model_config.dim
     n_layers = model_config.n_layers
+    hidden_dim = model_config.ffn_hidden_dim
+    kv_dim = model_config.n_kv_heads * model_config.head_dim
 
-    # Activation memory estimate with Flash Attention (SDPA).
-    # Flash Attention computes attention tile-by-tile and never materializes
-    # the full seq_len x seq_len attention matrix — so we DON'T include it.
-    # Per layer we store: input activations, QKV projections, FFN intermediates.
-    # Approximate: ~5 * batch * seq * dim per layer (input + Q + K + V + FFN gate).
-    activation_bytes = (
-        5 * batch_size * seq_len * dim * n_layers * bytes_per_param
+    # Activation memory per layer for backward pass (PyTorch stores these).
+    # Flash Attention never materializes the full attention matrix.
+    #
+    # Attention saved activations: x, Q, K, V, attn_output
+    #   = batch * seq * (3*dim + 2*kv_dim)
+    #
+    # SwiGLU FFN saved activations: x, gate_proj_out, silu_out, up_proj_out, gate*value
+    #   = batch * seq * (dim + 4*hidden_dim)
+    #
+    # Note: hidden_dim (e.g. 2048) is often much larger than dim (e.g. 768),
+    # so the FFN dominates activation memory.
+    per_layer_elements = batch_size * seq_len * (
+        3 * dim + 2 * kv_dim  # attention
+        + dim + 4 * hidden_dim  # FFN
     )
+    activation_bytes = per_layer_elements * n_layers * bytes_per_param
+
+    # torch.compile adds ~20% overhead for intermediate buffers
+    activation_bytes = int(activation_bytes * 1.2)
 
     # Gradient checkpointing reduces activation memory by ~60%
     gradient_ckpt = getattr(training_config, 'gradient_checkpointing', False) if training_config else False
