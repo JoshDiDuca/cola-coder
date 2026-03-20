@@ -105,7 +105,7 @@ features:
   docstring_extraction: true
   import_graph: true
   multi_file_context: true
-  ollama_improver: true
+  ollama_improver: false       # Requires Ollama running locally — enable when ready
   test_code_pair_extractor: true
 
   # ---------------------------------------------------------------------------
