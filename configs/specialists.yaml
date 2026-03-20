@@ -1,0 +1,13 @@
+# Specialist Registry: maps domains to model checkpoints.
+# Add entries here as you train domain-specific models.
+#
+# Example:
+#   specialists:
+#     react:
+#       checkpoint: checkpoints/react/latest
+#       config: configs/tiny.yaml
+#       keywords: [react, jsx, component, hook, useState]
+#       confidence_threshold: 0.6
+#       description: "React component generation specialist"
+
+specialists: {}

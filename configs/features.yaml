@@ -1,0 +1,16 @@
+# Feature toggles for optional Cola-Coder features.
+# Set to true/false to enable/disable each feature.
+
+features:
+  master_menu: true
+  nano_benchmark: true
+  smoke_test: true
+  auto_validation_split: true
+  overfitting_detector: true
+  training_monitor: true
+  vram_estimator: true
+  streaming_generation: true
+  router_system: true
+  moe_layer: false  # Experimental
+  typescript_benchmark: true
+  hallucination_detection: true
