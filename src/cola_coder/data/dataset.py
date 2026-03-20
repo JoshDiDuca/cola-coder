@@ -30,6 +30,10 @@ class CodeDataset(Dataset):
 
     Each item is a sequence of token IDs. During training, the model
     tries to predict token[i+1] from token[i] for every position.
+
+    The memmap is opened lazily per-process so that DataLoader workers
+    on Windows can pickle/unpickle this object without hitting
+    OSError: [Errno 22] Invalid argument on cross-drive memmap files.
     """
 
     def __init__(self, data_path: str, max_seq_len: int | None = None):
@@ -41,15 +45,33 @@ class CodeDataset(Dataset):
                          size than the model's max_seq_len. If None, use full
                          chunk size.
         """
-        # Memory-mapped: data stays on disk, loaded on demand
-        self.data = load_processed_data(data_path)
-        self.num_chunks = self.data.shape[0]
-        self.chunk_size = self.data.shape[1]
+        # Store path instead of the memmap itself — each worker reopens it.
+        self.data_path = data_path
+        self._data = None  # lazily opened memmap (not pickled)
         self.max_seq_len = max_seq_len
+
+        # Read shape once in the main process so __len__ works immediately
+        tmp = load_processed_data(data_path)
+        self.num_chunks = tmp.shape[0]
+        self.chunk_size = tmp.shape[1]
+        del tmp  # release the memmap handle
 
         if max_seq_len and max_seq_len < self.chunk_size:
             print(f"  Note: Data chunks are {self.chunk_size} tokens but model "
                   f"max_seq_len is {max_seq_len}. Truncating to {max_seq_len}.")
+
+    @property
+    def data(self) -> np.ndarray:
+        """Lazily open the memmap — safe for each DataLoader worker."""
+        if self._data is None:
+            self._data = load_processed_data(self.data_path)
+        return self._data
+
+    def __getstate__(self):
+        """Drop the memmap when pickling so workers re-open their own."""
+        state = self.__dict__.copy()
+        state["_data"] = None
+        return state
 
     def __len__(self) -> int:
         """Number of training examples."""
@@ -201,6 +223,7 @@ def create_dataloader(
         PyTorch DataLoader ready for training.
     """
     import os
+    import sys
 
     use_weights = weights_path is not None and os.path.exists(weights_path)
 
@@ -213,6 +236,15 @@ def create_dataloader(
         dataset = CodeDataset(data_path, max_seq_len=max_seq_len)
         collator = CodeCollator()
 
+    # Windows multiprocessing with memmap files on external drives can fail
+    # with OSError: [Errno 22] Invalid argument during worker spawn.
+    # Default to 0 workers on Windows for safety — the lazy memmap re-open
+    # in __getstate__ handles most cases, but 0 workers avoids the issue entirely.
+    if sys.platform == "win32" and num_workers > 0:
+        print(f"  Note: Windows detected — using num_workers=0 (was {num_workers}) "
+              "to avoid multiprocessing issues with memory-mapped files.")
+        num_workers = 0
+
     import torch
     use_pin_memory = torch.cuda.is_available()  # Only pin memory if GPU exists
 
@@ -224,4 +256,5 @@ def create_dataloader(
         collate_fn=collator,
         pin_memory=use_pin_memory,  # Faster CPU→GPU transfer (only when GPU available)
         drop_last=True,  # Drop incomplete final batch (simpler training loop)
+        persistent_workers=False,
     )
