@@ -87,10 +87,9 @@ class CodeDataset(Dataset):
         chunk = self.data[idx]
         if self.max_seq_len and self.max_seq_len < len(chunk):
             chunk = chunk[:self.max_seq_len]
-        # Data is uint16 (vocab < 65536). Convert to int32 in one step —
-        # avoids the expensive int64 upcast (8 bytes vs 4 bytes per token).
-        # PyTorch embedding layers accept both int32 and int64.
-        tokens = torch.as_tensor(np.array(chunk, dtype=np.int32))
+        # Single copy: numpy memmap (uint16) → contiguous int64 array → tensor.
+        # np.array(..., dtype=) does the cast + copy in one C-level operation.
+        tokens = torch.from_numpy(np.array(chunk, dtype=np.int64))
         return {"input_ids": tokens}
 
 
