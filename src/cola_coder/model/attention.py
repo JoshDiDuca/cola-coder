@@ -135,43 +135,34 @@ class GroupedQueryAttention(nn.Module):
             k = self.cache_k[:batch, : start_pos + seq_len]
             v = self.cache_v[:batch, : start_pos + seq_len]
 
-        # Expand KV heads to match Q heads (GQA → full attention computation)
-        # If n_groups=3: each KV head is repeated 3 times to serve 3 Q heads
-        # (batch, kv_seq_len, n_kv_heads, head_dim) → (batch, kv_seq_len, n_heads, head_dim)
-        if self.n_groups > 1:
-            k = k.unsqueeze(3).expand(-1, -1, -1, self.n_groups, -1)
-            k = k.reshape(batch, -1, self.n_heads, self.head_dim)
-            v = v.unsqueeze(3).expand(-1, -1, -1, self.n_groups, -1)
-            v = v.reshape(batch, -1, self.n_heads, self.head_dim)
+        # Transpose to (batch, n_heads, seq_len, head_dim) for SDPA
+        q = q.transpose(1, 2)  # (batch, n_heads, seq_len, head_dim)
+        k = k.transpose(1, 2)  # (batch, n_kv_heads, kv_len, head_dim)
+        v = v.transpose(1, 2)  # (batch, n_kv_heads, kv_len, head_dim)
 
-        # Transpose to (batch, n_heads, seq_len, head_dim) for attention
-        q = q.transpose(1, 2)
-        k = k.transpose(1, 2)
-        v = v.transpose(1, 2)
+        # GQA: expand KV heads to match Q heads.
+        # PyTorch SDPA requires Q and KV to have the same number of heads,
+        # but we use expand (not repeat) so it's a zero-copy view —
+        # Flash Attention still gets the efficient memory layout.
+        if self.n_groups > 1:
+            k = k.unsqueeze(2).expand(-1, -1, self.n_groups, -1, -1)
+            k = k.reshape(batch, self.n_heads, -1, self.head_dim)
+            v = v.unsqueeze(2).expand(-1, -1, self.n_groups, -1, -1)
+            v = v.reshape(batch, self.n_heads, -1, self.head_dim)
 
         # Use PyTorch's fused scaled_dot_product_attention (SDPA).
-        # This auto-dispatches to the fastest available backend:
-        #   1. Flash Attention 2 (fastest, ~3-5x over manual)
-        #   2. Memory-efficient attention (xFormers-style)
-        #   3. Math fallback (manual matmul+softmax)
-        # SDPA handles the causal mask internally via is_causal=True,
-        # which is faster than constructing + applying an explicit mask.
+        # Auto-dispatches to Flash Attention 2 > memory-efficient > math fallback.
+        # is_causal=True is faster than constructing + applying an explicit mask.
+        drop_p = self.dropout_p if self.training else 0.0
         if use_cache:
-            # During inference with KV-cache, we can't use is_causal=True
-            # because q_len != kv_len. Use the explicit mask instead.
+            # Inference with KV-cache: q_len != kv_len, need explicit mask
             output = F.scaled_dot_product_attention(
-                q, k, v,
-                attn_mask=mask,
-                dropout_p=self.dropout_p if self.training else 0.0,
-                scale=self.scale,
+                q, k, v, attn_mask=mask, dropout_p=drop_p, scale=self.scale,
             )
         else:
-            # Training path: is_causal=True is faster than explicit mask
+            # Training: is_causal=True — no mask tensor needed
             output = F.scaled_dot_product_attention(
-                q, k, v,
-                dropout_p=self.dropout_p if self.training else 0.0,
-                is_causal=True,
-                scale=self.scale,
+                q, k, v, dropout_p=drop_p, is_causal=True, scale=self.scale,
             )
 
         # Reshape back: (batch, n_heads, seq_len, head_dim) → (batch, seq_len, dim)
