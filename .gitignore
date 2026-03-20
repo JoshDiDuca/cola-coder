@@ -33,6 +33,7 @@ MANIFEST
 *.spec
 
 data/
+checkpoints/
 
 # Installer logs
 pip-log.txt
