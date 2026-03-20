@@ -14,7 +14,7 @@ model:
   rope_theta: 10000.0
 
 training:
-  batch_size: 24
+  batch_size: 16
   gradient_accumulation: 1  # no accumulation — full batch in one pass for max GPU throughput
   learning_rate: 6.0e-4
   min_lr: 6.0e-5

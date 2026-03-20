@@ -211,15 +211,21 @@ class Trainer:
         inv_accum = 1.0 / accum_steps
         is_cuda = self.device == "cuda"
 
-        # Print performance info
+        # Print performance info and VRAM check
         if is_cuda:
             gpu_name = torch.cuda.get_device_name(0)
-            print(f"GPU: {gpu_name}")
+            props = torch.cuda.get_device_properties(0)
+            total_vram_gb = props.total_mem / 1e9 if hasattr(props, 'total_mem') else 0
+            if not total_vram_gb:
+                total_vram_gb = getattr(props, 'total_memory', 0) / 1e9
+            print(f"GPU: {gpu_name} ({total_vram_gb:.1f} GB VRAM)")
             print(f"TF32: {torch.backends.cuda.matmul.allow_tf32}")
             print(f"cuDNN benchmark: {torch.backends.cudnn.benchmark}")
             if self._compiled:
                 print("torch.compile: ON (first few steps will be slower due to compilation)")
             print(f"Workers: {self.config.data.num_workers}")
+            print(f"Batch: {cfg.batch_size} x seq {self.config.model.max_seq_len} "
+                  f"= {cfg.batch_size * self.config.model.max_seq_len:,} tok/step")
 
         for step in tqdm(range(self.start_step, cfg.max_steps), initial=self.start_step,
                          total=cfg.max_steps, desc="Training"):
@@ -237,22 +243,38 @@ class Trainer:
                 input_ids = batch["input_ids"].to(self.device, non_blocking=True)
                 weights = batch.get("weights")
 
-                # Forward pass with mixed precision
-                with autocast(
-                    device_type=self.device,
-                    dtype=amp_dtype,
-                    enabled=use_amp,
-                ):
-                    loss = self.model.compute_loss(input_ids)
+                try:
+                    # Forward pass with mixed precision
+                    with autocast(
+                        device_type=self.device,
+                        dtype=amp_dtype,
+                        enabled=use_amp,
+                    ):
+                        loss = self.model.compute_loss(input_ids)
 
-                    if weights is not None:
-                        weights = weights.to(self.device, non_blocking=True)
-                        loss = loss * weights.mean()
+                        if weights is not None:
+                            weights = weights.to(self.device, non_blocking=True)
+                            loss = loss * weights.mean()
 
-                    scaled_loss = loss * inv_accum
+                        scaled_loss = loss * inv_accum
 
-                # Backward pass (compute gradients)
-                self.scaler.scale(scaled_loss).backward()
+                    # Backward pass (compute gradients)
+                    self.scaler.scale(scaled_loss).backward()
+                except RuntimeError as e:
+                    if "CUBLAS" in str(e) or "out of memory" in str(e).lower():
+                        if is_cuda:
+                            alloc = torch.cuda.memory_allocated() / 1e9
+                            reserved = torch.cuda.memory_reserved() / 1e9
+                        else:
+                            alloc = reserved = 0
+                        raise RuntimeError(
+                            f"CUDA OOM during forward/backward pass.\n"
+                            f"  VRAM allocated: {alloc:.1f} GB, reserved: {reserved:.1f} GB\n"
+                            f"  batch_size={cfg.batch_size}, seq_len={self.config.model.max_seq_len}\n"
+                            f"  Fix: reduce batch_size in your config YAML "
+                            f"(try {max(1, cfg.batch_size // 2)})"
+                        ) from e
+                    raise
 
                 step_loss += loss.item()
                 step_tokens += input_ids.numel()
