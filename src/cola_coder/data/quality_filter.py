@@ -625,12 +625,16 @@ def filtered_stream(
     print(stats.summary())
 
 
-def _filter_worker(args: tuple[str, str]) -> tuple[str, bool, str]:
-    """Worker function for parallel filtering. Must be top-level for pickling."""
+def _filter_worker(args: tuple[str, str]) -> tuple[bool, str]:
+    """Worker function for parallel filtering. Must be top-level for pickling.
+
+    Returns (keep, reason) only — the caller matches results back to content
+    by index order (executor.map preserves order).
+    """
     content, mode_value = args
     mode = FilterMode(mode_value)
     keep, reason = filter_code(content, mode=mode)
-    return content, keep, reason
+    return keep, reason
 
 
 def parallel_filtered_stream(
@@ -642,8 +646,10 @@ def parallel_filtered_stream(
 ) -> Iterator[str]:
     """Quality filtering with multiprocessing for CPU-bound checks.
 
-    Uses a ProcessPoolExecutor to run filter_code() across multiple CPU cores.
-    Files are submitted in batches and results are yielded in order.
+    Uses ProcessPoolExecutor with chunksize to amortize IPC overhead.
+    The key optimization is chunksize=64 in executor.map() — this sends
+    64 files per IPC call instead of 1, reducing serialization overhead
+    by ~64x.
 
     Falls back to sequential filtered_stream() if num_workers=1.
 
@@ -652,10 +658,10 @@ def parallel_filtered_stream(
         mode: FilterMode.CONSERVATIVE or FilterMode.STRICT.
         stats: Optional FilterStats to accumulate results.
         log_every: Print progress every N files.
-        num_workers: Number of worker processes. Default: half of CPU cores.
+        num_workers: Number of worker processes. Default: CPU cores (up to 12).
     """
     if num_workers is None:
-        num_workers = max(1, min(os.cpu_count() or 4, 8) // 2)
+        num_workers = max(1, min(os.cpu_count() or 4, 12))
 
     if num_workers <= 1:
         yield from filtered_stream(source, mode=mode, stats=stats, log_every=log_every)
@@ -665,9 +671,11 @@ def parallel_filtered_stream(
         stats = FilterStats()
 
     mode_label = mode.value.upper()
-    batch_size = num_workers * 4  # Keep workers busy with a buffer
+    # Large batch = keep all workers fed. Small batch = too much idle time.
+    batch_size = num_workers * 64
 
-    print(f"  [filter:{mode_label}] Using {num_workers} worker processes")
+    print(f"  [filter:{mode_label}] Using {num_workers} worker processes, "
+          f"batch size {batch_size}, chunksize 64")
 
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
         batch: list[str] = []
@@ -676,27 +684,55 @@ def parallel_filtered_stream(
             batch.append(content)
 
             if len(batch) >= batch_size:
-                # Submit batch and yield results in order
-                args = [(text, mode.value) for text in batch]
-                for text, keep, reason in executor.map(_filter_worker, args):
-                    stats.record(keep, reason)
-                    if keep:
-                        yield text
-
-                    if stats.total % log_every == 0 and stats.total > 0:
-                        pct = stats.kept / stats.total * 100
-                        print(
-                            f"  [filter:{mode_label}] {stats.total:,} files "
-                            f"processed, {stats.kept:,} kept ({pct:.1f}%)"
-                        )
+                yield from _process_filter_batch(
+                    executor, batch, mode, stats, log_every, mode_label,
+                )
                 batch = []
 
         # Flush remaining
         if batch:
-            args = [(text, mode.value) for text in batch]
-            for text, keep, reason in executor.map(_filter_worker, args):
-                stats.record(keep, reason)
-                if keep:
-                    yield text
+            yield from _process_filter_batch(
+                executor, batch, mode, stats, log_every, mode_label,
+            )
 
     print(stats.summary())
+
+
+def _process_filter_batch(
+    executor: ProcessPoolExecutor,
+    batch: list[str],
+    mode: FilterMode,
+    stats: FilterStats,
+    log_every: int,
+    mode_label: str,
+) -> Iterator[str]:
+    """Submit a batch to the process pool and yield kept files.
+
+    The chunksize=64 parameter is critical — it tells executor.map to
+    send 64 items per IPC call instead of 1. This cuts serialization
+    overhead dramatically.
+    """
+    args = [(text, mode.value) for text in batch]
+
+    # chunksize=64: send 64 files to each worker per IPC round trip
+    results = executor.map(_filter_worker, args, chunksize=64)
+
+    for content, (keep, reason) in zip(batch, results):
+        stats.record(keep, reason)
+        if keep:
+            yield content
+
+        if stats.total % log_every == 0 and stats.total > 0:
+            pct = stats.kept / stats.total * 100
+            print(
+                f"  [filter:{mode_label}] {stats.total:,} files "
+                f"processed, {stats.kept:,} kept ({pct:.1f}%)"
+            )
+            if stats.total % (log_every * 10) == 0 and stats.reasons:
+                top_reasons = sorted(
+                    stats.reasons.items(), key=lambda x: -x[1],
+                )[:3]
+                reasons_str = ", ".join(
+                    f"{r}: {c:,}" for r, c in top_reasons
+                )
+                print(f"    Top rejections: {reasons_str}")

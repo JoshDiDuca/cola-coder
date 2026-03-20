@@ -102,7 +102,7 @@ class DataConfig:
     """Controls what data the model trains on."""
 
     dataset: str = "bigcode/starcoderdata"  # HuggingFace dataset name
-    languages: list[str] = field(default_factory=lambda: ["python", "typescript", "javascript"])
+    languages: list[str] = field(default_factory=lambda: ["typescript", "javascript"])
     max_tokens_per_file: int = 2048  # Truncate files longer than this
     data_dir: str = "./data"  # Where to store processed data
     num_workers: int = 4  # Parallel data loading workers

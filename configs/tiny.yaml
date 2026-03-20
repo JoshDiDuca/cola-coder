@@ -27,7 +27,7 @@ training:
 
 data:
   dataset: "bigcode/starcoderdata"
-  languages: ["python", "typescript", "javascript"]
+  languages: ["typescript", "javascript"]
   max_tokens_per_file: 2048
   data_dir: "./data"
   num_workers: 4

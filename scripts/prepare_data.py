@@ -48,14 +48,21 @@ def main():
         type=int,
         default=None,
         help="Number of parallel workers for quality filtering. "
-             "Default: half of CPU cores (up to 8). Use 1 for sequential.",
+             "Default: all CPU cores (up to 16). Use 1 for sequential.",
     )
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=64,
-        help="Number of files to tokenize at once (default: 64). Higher = faster "
+        default=256,
+        help="Number of files to tokenize at once (default: 256). Higher = faster "
              "but more memory. The Rust tokenizer parallelizes within each batch.",
+    )
+    parser.add_argument(
+        "--stream",
+        action="store_true",
+        help="Use slow HTTP streaming instead of bulk download. Only use this "
+             "if you can't fit the dataset on disk (~50GB for 3 languages). "
+             "Default: download to cache first, then process locally (MUCH faster).",
     )
     filter_group = parser.add_mutually_exclusive_group()
     filter_group.add_argument(
@@ -71,9 +78,9 @@ def main():
     )
     args = parser.parse_args()
 
-    # Default workers: half of CPU cores, capped at 8
+    # Default workers: all CPU cores, capped at 16
     if args.workers is None:
-        args.workers = max(1, min(os.cpu_count() or 4, 8) // 2)
+        args.workers = max(1, min(os.cpu_count() or 4, 16))
 
     # ---- Validate inputs ----
     tokenizer_path = Path(args.tokenizer)
@@ -84,7 +91,7 @@ def main():
 
     # ---- Load config if provided ----
     dataset_name = "bigcode/starcoderdata"
-    languages = ["python", "typescript", "javascript"]
+    languages = ["typescript", "javascript"]
     max_seq_len = 2048
 
     if args.config:
@@ -124,8 +131,11 @@ def main():
         print(f"Error loading tokenizer: {e}")
         sys.exit(1)
 
-    # ---- Step 2: Stream and preprocess data ----
-    print(f"\nStep 2: Streaming data from {dataset_name}...")
+    # ---- Step 2: Load and preprocess data ----
+    if args.stream:
+        print(f"\nStep 2: Streaming data from {dataset_name} (slow HTTP mode)...")
+    else:
+        print(f"\nStep 2: Downloading data from {dataset_name} (bulk download → local processing)...")
     if args.max_tokens:
         print(f"  Token limit: {args.max_tokens:,}")
 
@@ -144,6 +154,7 @@ def main():
         data_stream = stream_code_data(
             dataset_name=dataset_name,
             languages=languages,
+            streaming=args.stream,
         )
 
         # Apply quality filtering (parallel when workers > 1)
@@ -151,7 +162,7 @@ def main():
             print("Quality filtering: DISABLED")
         elif args.filter_strict:
             print("Quality filtering: STRICT (only keeping high-quality code)")
-            print(f"  Expected rejection rate: 30-50%  |  Workers: {args.workers}")
+            print(f"  Expected rejection rate: 60-75%  |  Workers: {args.workers}")
             stats = FilterStats()
             if args.workers > 1:
                 data_stream = parallel_filtered_stream(
