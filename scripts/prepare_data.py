@@ -12,9 +12,126 @@ Usage:
 import argparse
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
+import numpy as np
+
 from cola_coder.cli import cli
+
+
+def _format_size(size_bytes: int) -> str:
+    """Format bytes as a human-readable string."""
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 ** 2:
+        return f"{size_bytes / 1024:.1f} KB"
+    elif size_bytes < 1024 ** 3:
+        return f"{size_bytes / 1024**2:.1f} MB"
+    else:
+        return f"{size_bytes / 1024**3:.2f} GB"
+
+
+def _scan_datasets(output_dir: str) -> list[dict]:
+    """Scan for existing .npy dataset files and return metadata."""
+    out_path = Path(output_dir)
+    if not out_path.exists():
+        return []
+
+    datasets = []
+    for f in sorted(out_path.glob("*.npy")):
+        if f.name.endswith("_tmp.npy"):
+            continue  # Skip temp files from in-progress runs
+        stat = f.stat()
+        # Read shape from npy header without loading into memory
+        try:
+            arr = np.load(str(f), mmap_mode="r")
+            chunks, seq_len = arr.shape
+            token_count = chunks * seq_len
+            detail = f"{chunks:,} chunks x {seq_len} tokens = {token_count:,} total"
+        except Exception:
+            detail = "unknown format"
+
+        datasets.append({
+            "name": f.stem,
+            "path": str(f),
+            "size": _format_size(stat.st_size),
+            "date": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
+            "detail": detail,
+        })
+    return datasets
+
+
+def _auto_name(output_dir: str, languages: list[str], max_tokens: int | None) -> str:
+    """Generate an auto-name like train_ts_js_500M."""
+    lang_tag = "_".join(l[:2] for l in languages)  # typescript -> ts
+    if max_tokens:
+        if max_tokens >= 1_000_000_000:
+            tok_tag = f"{max_tokens / 1e9:.0f}B"
+        elif max_tokens >= 1_000_000:
+            tok_tag = f"{max_tokens / 1e6:.0f}M"
+        else:
+            tok_tag = f"{max_tokens / 1e3:.0f}K"
+        base = f"train_{lang_tag}_{tok_tag}"
+    else:
+        base = f"train_{lang_tag}_full"
+
+    # Ensure unique: add _2, _3 etc if name already exists
+    out_path = Path(output_dir)
+    if not (out_path / f"{base}.npy").exists():
+        return base
+    i = 2
+    while (out_path / f"{base}_{i}.npy").exists():
+        i += 1
+    return f"{base}_{i}"
+
+
+def _resolve_output(
+    output_dir: str,
+    languages: list[str],
+    max_tokens: int | None,
+) -> str:
+    """Interactive output file selection. Returns the output name (no .npy)."""
+    existing = _scan_datasets(output_dir)
+
+    if not existing:
+        # No existing datasets — auto-name and go
+        name = _auto_name(output_dir, languages, max_tokens)
+        cli.info("Output", f"{name}.npy (new dataset)")
+        return name
+
+    # Show existing datasets
+    cli.file_table("Existing Datasets", existing)
+
+    options = [
+        {"label": "Create new dataset", "detail": "Auto-named, won't touch existing data"},
+    ]
+    for ds in existing:
+        options.append({
+            "label": f"Overwrite {ds['name']}.npy",
+            "detail": f"{ds['size']}  |  {ds['date']}",
+        })
+
+    choice = cli.choose("What would you like to do?", options, allow_cancel=True)
+
+    if choice is None:
+        cli.dim("Cancelled.")
+        sys.exit(0)
+    elif choice == 0:
+        # Create new
+        name = _auto_name(output_dir, languages, max_tokens)
+        cli.info("Output", f"{name}.npy (new dataset)")
+        return name
+    else:
+        # Overwrite existing
+        ds = existing[choice - 1]
+        if not cli.confirm(
+            f"Overwrite {ds['name']}.npy ({ds['size']})? This cannot be undone."
+        ):
+            cli.dim("Cancelled.")
+            sys.exit(0)
+        cli.info("Output", f"{ds['name']}.npy (overwriting)")
+        return ds["name"]
 
 
 def main():
@@ -44,6 +161,12 @@ def main():
         type=str,
         default="./data/processed",
         help="Output directory for processed data (default: ./data/processed).",
+    )
+    parser.add_argument(
+        "--output-name",
+        type=str,
+        default=None,
+        help="Output filename (without .npy). If not set, interactive chooser is shown.",
     )
     parser.add_argument(
         "--workers",
@@ -84,7 +207,7 @@ def main():
         "--filter-strict",
         action="store_true",
         help="Use strict quality filtering (rejects mediocre code, not just bad code). "
-             "Keeps only clearly high-quality files. Typical rejection rate: 30-50%%.",
+             "Keeps only clearly high-quality files. Typical rejection rate: 60-75%%.",
     )
     args = parser.parse_args()
 
@@ -130,6 +253,13 @@ def main():
         languages = args.languages
         cli.info("Languages (override)", ", ".join(languages))
 
+    # ---- Resolve output file ----
+    if args.output_name:
+        output_name = args.output_name
+        cli.info("Output", f"{output_name}.npy")
+    else:
+        output_name = _resolve_output(args.output_dir, languages, args.max_tokens)
+
     # ---- Step 1: Load tokenizer ----
     cli.step(1, 2, "Loading tokenizer")
     cli.dim(f"Source: {tokenizer_path}")
@@ -153,7 +283,7 @@ def main():
     if args.stream:
         cli.dim(f"Streaming data from {dataset_name} (slow HTTP mode)...")
     else:
-        cli.dim(f"Downloading data from {dataset_name} (bulk download → local processing)...")
+        cli.dim(f"Downloading data from {dataset_name} (bulk download -> local processing)...")
     if args.max_tokens:
         cli.info("Token limit", f"{args.max_tokens:,}")
 
@@ -218,6 +348,7 @@ def main():
             output_dir=args.output_dir,
             max_tokens=args.max_tokens,
             batch_size=args.batch_size,
+            output_name=output_name,
         )
     except KeyboardInterrupt:
         cli.warn("Interrupted by user. Partial data may have been saved.")

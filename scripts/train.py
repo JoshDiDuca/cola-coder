@@ -11,11 +11,106 @@ Usage:
 
 import argparse
 import sys
+from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import torch
 
 from cola_coder.cli import cli
+
+
+def _format_size(size_bytes: int) -> str:
+    """Format bytes as a human-readable string."""
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 ** 2:
+        return f"{size_bytes / 1024:.1f} KB"
+    elif size_bytes < 1024 ** 3:
+        return f"{size_bytes / 1024**2:.1f} MB"
+    else:
+        return f"{size_bytes / 1024**3:.2f} GB"
+
+
+def _scan_datasets(data_dir: str = "./data/processed") -> list[dict]:
+    """Scan for available .npy dataset files and return metadata."""
+    out_path = Path(data_dir)
+    if not out_path.exists():
+        return []
+
+    datasets = []
+    for f in sorted(out_path.glob("*.npy")):
+        if f.name.endswith("_tmp.npy"):
+            continue  # Skip temp files
+        stat = f.stat()
+        try:
+            arr = np.load(str(f), mmap_mode="r")
+            chunks, seq_len = arr.shape
+            token_count = chunks * seq_len
+            detail = f"{chunks:,} chunks x {seq_len} = {token_count:,} tokens"
+        except Exception:
+            detail = "unknown format"
+
+        datasets.append({
+            "name": f.stem,
+            "path": str(f),
+            "size": _format_size(stat.st_size),
+            "date": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
+            "detail": detail,
+        })
+    return datasets
+
+
+def _pick_dataset(explicit_path: str | None) -> str:
+    """Resolve the training data path, interactively if needed.
+
+    If --data is explicitly passed and the file exists, use it.
+    If not, scan for available datasets and let the user choose.
+    """
+    # Explicit path provided
+    if explicit_path:
+        p = Path(explicit_path)
+        if p.exists():
+            return str(p)
+        cli.fatal(
+            f"Training data not found: {p}",
+            hint="Prepare data first with: python scripts/prepare_data.py",
+        )
+
+    # Auto-scan for datasets
+    datasets = _scan_datasets()
+
+    if not datasets:
+        cli.fatal(
+            "No training data found in ./data/processed/",
+            hint="Prepare data first with: python scripts/prepare_data.py",
+        )
+
+    if len(datasets) == 1:
+        # Only one dataset — use it automatically
+        ds = datasets[0]
+        cli.info("Training data", f"{ds['name']}.npy ({ds['size']}, {ds['detail']})")
+        return ds["path"]
+
+    # Multiple datasets — let user choose
+    cli.file_table("Available Datasets", datasets)
+
+    options = []
+    for ds in datasets:
+        options.append({
+            "label": f"{ds['name']}.npy",
+            "detail": f"{ds['size']}  |  {ds['date']}  |  {ds['detail']}",
+        })
+
+    choice = cli.choose("Which dataset to train on?", options, allow_cancel=True)
+
+    if choice is None:
+        cli.dim("Cancelled.")
+        sys.exit(0)
+
+    ds = datasets[choice]
+    cli.info("Training data", f"{ds['name']}.npy ({ds['size']})")
+    return ds["path"]
 
 
 def main():
@@ -31,8 +126,9 @@ def main():
     parser.add_argument(
         "--data",
         type=str,
-        default="./data/processed/train_data.npy",
-        help="Path to preprocessed training data .npy file (default: ./data/processed/train_data.npy).",
+        default=None,
+        help="Path to preprocessed training data .npy file. "
+             "If not set, scans ./data/processed/ and lets you choose.",
     )
     parser.add_argument(
         "--resume",
@@ -49,23 +145,19 @@ def main():
 
     cli.header("Cola-Coder", "Model Training")
 
-    # ---- Validate inputs ----
+    # ---- Validate config ----
     config_path = Path(args.config)
     if not config_path.exists():
         cli.fatal(f"Config file not found: {config_path}")
-
-    data_path = Path(args.data)
-    if not data_path.exists():
-        cli.fatal(
-            f"Training data not found: {data_path}",
-            hint="Prepare data first with: python scripts/prepare_data.py",
-        )
 
     if args.resume and not Path(args.resume).exists():
         cli.fatal(f"Checkpoint not found: {args.resume}")
 
     # ---- Device check ----
     device = cli.gpu_info()
+
+    # ---- Pick dataset (interactive if multiple exist) ----
+    data_path = _pick_dataset(args.data)
 
     # ---- Load config ----
     cli.step(1, 3, f"Loading config from {config_path}")

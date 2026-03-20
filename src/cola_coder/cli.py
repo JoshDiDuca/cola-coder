@@ -222,6 +222,147 @@ class CLI:
         else:
             print(*args, **kwargs)
 
+    # ── Interactive menus ──────────────────────────────────────────────────
+
+    def choose(
+        self,
+        prompt: str,
+        options: list[dict[str, str]],
+        *,
+        allow_cancel: bool = False,
+    ) -> int | None:
+        """Show a numbered menu and return the selected index.
+
+        Args:
+            prompt: Title shown above the options.
+            options: List of dicts with 'label' and optional 'detail' keys.
+                     Each option is rendered as a numbered row.
+            allow_cancel: If True, adds a "Cancel" option and returns None
+                          if selected.
+
+        Returns:
+            Index of selected option, or None if cancelled.
+        """
+        if _HAS_RICH:
+            _console.print()
+            table = Table(
+                box=box.ROUNDED, show_header=True, header_style="bold cyan",
+                padding=(0, 1), title=f"[bold]{prompt}[/bold]",
+                title_style="bold white",
+            )
+            table.add_column("#", style="bold cyan", width=4, justify="right")
+            table.add_column("Option", style="bold white")
+            table.add_column("Details", style="dim")
+
+            for i, opt in enumerate(options):
+                table.add_row(
+                    str(i + 1),
+                    opt.get("label", ""),
+                    opt.get("detail", ""),
+                )
+            if allow_cancel:
+                table.add_row(
+                    str(len(options) + 1),
+                    "[dim]Cancel[/dim]",
+                    "",
+                )
+            _console.print(table)
+            _console.print()
+        else:
+            print(f"\n{prompt}")
+            print("─" * 40)
+            for i, opt in enumerate(options):
+                detail = f"  ({opt['detail']})" if opt.get("detail") else ""
+                print(f"  {i + 1}) {opt.get('label', '')}{detail}")
+            if allow_cancel:
+                print(f"  {len(options) + 1}) Cancel")
+            print()
+
+        max_choice = len(options) + (1 if allow_cancel else 0)
+        while True:
+            try:
+                raw = input("  Select [1-{}]: ".format(max_choice)).strip()
+                choice = int(raw)
+                if 1 <= choice <= max_choice:
+                    if allow_cancel and choice == max_choice:
+                        return None
+                    return choice - 1
+            except (ValueError, EOFError):
+                pass
+            if _HAS_RICH:
+                _console.print(f"  [red]Please enter a number 1-{max_choice}[/red]")
+            else:
+                print(f"  Please enter a number 1-{max_choice}")
+
+    def confirm(self, prompt: str, default: bool = True) -> bool:
+        """Ask a yes/no question and return the answer.
+
+        Args:
+            prompt: The question to ask.
+            default: Default value if user just presses Enter.
+
+        Returns:
+            True for yes, False for no.
+        """
+        suffix = "[Y/n]" if default else "[y/N]"
+        if _HAS_RICH:
+            _console.print(f"\n  [bold]{prompt}[/bold] [dim]{suffix}[/dim] ", end="")
+        else:
+            print(f"\n  {prompt} {suffix} ", end="")
+
+        try:
+            raw = input().strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            return default
+
+        if raw in ("y", "yes"):
+            return True
+        elif raw in ("n", "no"):
+            return False
+        return default
+
+    def file_table(
+        self,
+        title: str,
+        files: list[dict[str, str]],
+    ) -> None:
+        """Show a table of files with metadata.
+
+        Args:
+            title: Table title.
+            files: List of dicts with keys: name, size, date, detail (all str).
+        """
+        if _HAS_RICH:
+            table = Table(
+                box=box.ROUNDED, show_header=True, header_style="bold cyan",
+                padding=(0, 1), title=f"[bold]{title}[/bold]",
+                title_style="bold white",
+            )
+            table.add_column("#", style="bold cyan", width=4, justify="right")
+            table.add_column("Dataset", style="bold white")
+            table.add_column("Size", style="green", justify="right")
+            table.add_column("Created", style="dim")
+            table.add_column("Details", style="dim")
+
+            for i, f in enumerate(files):
+                table.add_row(
+                    str(i + 1),
+                    f.get("name", ""),
+                    f.get("size", ""),
+                    f.get("date", ""),
+                    f.get("detail", ""),
+                )
+            _console.print()
+            _console.print(table)
+            _console.print()
+        else:
+            print(f"\n{title}")
+            print("─" * 60)
+            for i, f in enumerate(files):
+                print(f"  {i + 1}) {f.get('name', '')}  "
+                      f"({f.get('size', '')}  {f.get('date', '')})")
+            print()
+
 
 # Singleton — import and use directly
 cli = CLI()

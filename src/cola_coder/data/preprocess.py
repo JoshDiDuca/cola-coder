@@ -72,6 +72,7 @@ def tokenize_and_chunk(
     output_dir: str = "./data/processed",
     max_tokens: int | None = None,
     batch_size: int = 64,
+    output_name: str = "train_data",
 ) -> str:
     """Tokenize text and save as chunked memory-mapped arrays.
 
@@ -93,7 +94,7 @@ def tokenize_and_chunk(
     """
     out_path = Path(output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
-    output_file = str(out_path / "train_data.npy")
+    output_file = str(out_path / f"{output_name}.npy")
 
     # --- Start producer thread to overlap I/O with tokenization ---
     queue: Queue = Queue(maxsize=16)  # Backpressure: max 16 batches buffered
@@ -107,7 +108,7 @@ def tokenize_and_chunk(
     # --- Pre-allocate memmap for streaming writes ---
     # Start with space for 100k chunks, grow if needed
     initial_capacity = 100_000
-    tmp_file = str(out_path / "train_data_tmp.npy")
+    tmp_file = str(out_path / f"{output_name}_tmp.npy")
     mmap_data = _create_memmap(tmp_file, initial_capacity, chunk_size)
     capacity = initial_capacity
     num_chunks = 0
