@@ -123,9 +123,13 @@ class Transformer(nn.Module):
         # Precompute RoPE frequencies (cached, not learned)
         # register_buffer makes it part of the model state but NOT a parameter
         # (it won't be updated by the optimizer)
+        # We precompute 2x the max seq len as a safety buffer — this handles
+        # cases where data chunks are larger than the model's configured
+        # max_seq_len (the model will still only see max_seq_len at a time,
+        # but having extra frequencies avoids index-out-of-range crashes).
         rope_freqs = precompute_rope_freqs(
             dim=config.head_dim,
-            max_seq_len=config.max_seq_len,
+            max_seq_len=config.max_seq_len * 2,
         )
         self.register_buffer("rope_freqs", rope_freqs, persistent=False)
 
