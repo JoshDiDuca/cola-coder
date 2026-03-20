@@ -84,12 +84,13 @@ class CodeDataset(Dataset):
             Dictionary with 'input_ids' tensor.
             Labels are the same as input_ids shifted by 1 (handled in the model).
         """
-        # Convert from numpy to PyTorch tensor
-        # .copy() is needed because mmap arrays are read-only
         chunk = self.data[idx]
         if self.max_seq_len and self.max_seq_len < len(chunk):
             chunk = chunk[:self.max_seq_len]
-        tokens = torch.from_numpy(chunk.astype(np.int64).copy())
+        # Data is uint16 (vocab < 65536). Convert to int32 in one step —
+        # avoids the expensive int64 upcast (8 bytes vs 4 bytes per token).
+        # PyTorch embedding layers accept both int32 and int64.
+        tokens = torch.as_tensor(np.array(chunk, dtype=np.int32))
         return {"input_ids": tokens}
 
 
