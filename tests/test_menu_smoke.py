@@ -52,16 +52,16 @@ def test_master_menu_uses_cwd_when_no_root():
 def test_pick_checkpoint_returns_none_when_no_checkpoints(tmp_path):
     """_pick_checkpoint returns None when checkpoint directory is empty."""
     menu = _make_menu(tmp_path)
-    with patch.object(menu, "_list_checkpoints", return_value=[]):
-        result = menu._pick_checkpoint()
+    with patch.object(menu, "_scan_all_checkpoints", return_value={}):
+        result = menu._pick_checkpoint(model="tiny")
     assert result is None
 
 
 def test_pick_checkpoint_returns_none_for_missing_dir(tmp_path):
     """_pick_checkpoint returns None when the checkpoints directory doesn't exist."""
     menu = _make_menu(tmp_path)
-    with patch.object(menu, "_list_checkpoints", return_value=[]):
-        result = menu._pick_checkpoint()
+    with patch.object(menu, "_scan_all_checkpoints", return_value={}):
+        result = menu._pick_checkpoint(model="small")
     assert result is None
 
 
@@ -102,39 +102,38 @@ def test_config_for_checkpoint_unknown_defaults_to_tiny(tmp_path):
     assert result == "configs/tiny.yaml"
 
 
-# ── 4. _list_checkpoints ──────────────────────────────────────────────────────
+# ── 4. _scan_all_checkpoints ──────────────────────────────────────────────────
 
-def test_list_checkpoints_empty_dir(tmp_path):
-    """_list_checkpoints returns empty list when no checkpoints exist."""
+def test_scan_all_checkpoints_empty_dir(tmp_path):
+    """_scan_all_checkpoints returns empty dict when no checkpoints exist."""
     menu = _make_menu(tmp_path)
-    # Override _resolve_path so storage.checkpoints_dir maps to an empty tmp dir
     ckpt_root = tmp_path / "checkpoints"
     ckpt_root.mkdir()
     with patch.object(menu, "_resolve_path", return_value=ckpt_root):
-        result = menu._list_checkpoints()
-    assert result == []
+        result = menu._scan_all_checkpoints()
+    assert result == {}
 
 
-def test_list_checkpoints_missing_dir(tmp_path):
-    """_list_checkpoints returns empty list when the checkpoints directory is absent."""
+def test_scan_all_checkpoints_missing_dir(tmp_path):
+    """_scan_all_checkpoints returns empty dict when dir is absent."""
     menu = _make_menu(tmp_path)
     nonexistent = tmp_path / "no_checkpoints_here"
     with patch.object(menu, "_resolve_path", return_value=nonexistent):
-        result = menu._list_checkpoints()
-    assert result == []
+        result = menu._scan_all_checkpoints()
+    assert result == {}
 
 
-def test_list_checkpoints_finds_step_dirs(tmp_path):
-    """_list_checkpoints finds step directories inside size subdirs."""
-    # Create a fake checkpoint structure
+def test_scan_all_checkpoints_finds_step_dirs(tmp_path):
+    """_scan_all_checkpoints finds step directories inside size subdirs."""
     ckpt_root = tmp_path / "checkpoints"
     step_dir = ckpt_root / "tiny" / "step_00000001"
     step_dir.mkdir(parents=True)
     (step_dir / "metadata.json").write_text('{"step": 1, "loss": 3.0}')
 
-    # Point storage at tmp_path/checkpoints
     menu = _make_menu(tmp_path)
     with patch.object(menu, "_resolve_path", return_value=ckpt_root):
-        result = menu._list_checkpoints()
-    assert len(result) >= 1
-    assert any("step_00000001" in r["label"] for r in result)
+        result = menu._scan_all_checkpoints()
+    assert "tiny" in result
+    assert len(result["tiny"]) == 1
+    assert result["tiny"][0]["step"] == 1
+    assert result["tiny"][0]["loss"] == 3.0

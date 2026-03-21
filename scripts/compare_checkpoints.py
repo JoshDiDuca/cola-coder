@@ -173,12 +173,12 @@ def _print_generation_comparison(
     dir_b: Path,
     meta_a: dict,
     meta_b: dict,
-    prompt: str,
+    prompts: list[str],
     tokenizer_path: str,
     max_new_tokens: int,
     device: str,
 ) -> None:
-    """Load both models and run the test prompt through each, showing outputs side-by-side."""
+    """Load both models and run test prompts through each, showing outputs side-by-side."""
     try:
         from cola_coder.model.config import ModelConfig
         from cola_coder.model.transformer import Transformer
@@ -219,29 +219,38 @@ def _print_generation_comparison(
             return None
 
     cli.rule("Generation Comparison")
-    cli.info("Test prompt", repr(prompt))
+    cli.info("Prompts", f"{len(prompts)} test prompt(s)")
     cli.info("Max new tokens", max_new_tokens)
 
     cli.print(f"\n  Loading checkpoint A ({dir_a.name})...")
     gen_a = _load_generator(dir_a, meta_a)
-    if gen_a:
-        output_a = gen_a.generate(prompt, max_new_tokens=max_new_tokens, temperature=0.0, top_k=1)
-    else:
-        output_a = "(failed to load)"
 
     cli.print(f"  Loading checkpoint B ({dir_b.name})...")
     gen_b = _load_generator(dir_b, meta_b)
-    if gen_b:
-        output_b = gen_b.generate(prompt, max_new_tokens=max_new_tokens, temperature=0.0, top_k=1)
-    else:
-        output_b = "(failed to load)"
 
-    # Print results side-by-side (stacked, since terminals are narrow)
-    cli.rule(f"Output — Checkpoint A ({dir_a.name})")
-    cli.print(output_a)
+    for i, prompt in enumerate(prompts, 1):
+        cli.rule(f"Prompt {i}/{len(prompts)}")
+        cli.print(f"  {repr(prompt)}\n")
 
-    cli.rule(f"Output — Checkpoint B ({dir_b.name})")
-    cli.print(output_b)
+        if gen_a:
+            output_a = gen_a.generate(
+                prompt, max_new_tokens=max_new_tokens, temperature=0.0, top_k=1,
+            )
+        else:
+            output_a = "(failed to load)"
+
+        if gen_b:
+            output_b = gen_b.generate(
+                prompt, max_new_tokens=max_new_tokens, temperature=0.0, top_k=1,
+            )
+        else:
+            output_b = "(failed to load)"
+
+        cli.rule(f"Checkpoint A ({dir_a.name})")
+        cli.print(output_a)
+
+        cli.rule(f"Checkpoint B ({dir_b.name})")
+        cli.print(output_b)
 
     cli.rule()
 
@@ -327,9 +336,13 @@ def main() -> None:
         help=f"Path to tokenizer.json (default: {storage.tokenizer_path}).",
     )
     parser.add_argument(
-        "--prompt",
-        default="def fibonacci(n):\n",
-        help='Test prompt for generation comparison (default: "def fibonacci(n):\\n").',
+        "--prompts",
+        nargs="+",
+        default=[
+            "def fibonacci(n):\n",
+            "function fetchUserData(userId: string) {\n",
+        ],
+        help="Test prompts for generation comparison (default: Python + JS).",
     )
     parser.add_argument(
         "--max-tokens",
@@ -401,7 +414,7 @@ def main() -> None:
             dir_b=dir_b,
             meta_a=meta_a,
             meta_b=meta_b,
-            prompt=args.prompt,
+            prompts=args.prompts,
             tokenizer_path=args.tokenizer,
             max_new_tokens=args.max_tokens,
             device=device,

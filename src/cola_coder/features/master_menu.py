@@ -7,6 +7,7 @@ Navigation: Arrow keys to move, Enter to select, ESC/Ctrl-C to go back.
 """
 
 import importlib
+import json
 import subprocess
 from pathlib import Path
 from cola_coder.cli import cli
@@ -348,56 +349,172 @@ class MasterMenu:
 
     # ── Checkpoint helpers ────────────────────────────────────────────────
 
-    def _list_checkpoints(self) -> list[dict]:
-        """Return a list of available checkpoints as dicts with label/path/detail."""
-        ckpt_dir = self._resolve_path(self.storage.checkpoints_dir)
-        checkpoints = []
-        if not ckpt_dir.exists():
-            return checkpoints
+    # Known model sizes and their parameter counts for display.
+    _MODEL_PARAMS: dict[str, str] = {
+        "tiny": "50M", "small": "125M", "medium": "299M",
+        "4080_max": "455M", "large": "1B+",
+    }
+    # Canonical ordering for the model picker.
+    _MODEL_ORDER: list[str] = ["tiny", "small", "medium", "4080_max", "large"]
 
-        for size_dir in sorted(ckpt_dir.iterdir()):
-            if not size_dir.is_dir():
+    @staticmethod
+    def _read_checkpoint_meta(step_dir: Path) -> dict:
+        """Read metadata.json from a checkpoint dir and return a display dict."""
+        meta_path = step_dir / "metadata.json"
+        info: dict = {
+            "path": str(step_dir),
+            "step": 0,
+            "loss": None,
+            "label": step_dir.name,
+        }
+        if meta_path.exists():
+            try:
+                data = json.loads(meta_path.read_text())
+                info["step"] = data.get("step", 0)
+                info["loss"] = data.get("loss")
+            except Exception:
+                pass
+        return info
+
+    def _scan_all_checkpoints(self) -> dict[str, list[dict]]:
+        """Scan all checkpoint locations and return ``{model: [info_dicts]}``."""
+        seen: set[Path] = set()
+        by_model: dict[str, list[dict]] = {}
+
+        # Scan both the storage.yaml path AND the default ./checkpoints/
+        dirs_to_scan: list[Path] = []
+        storage_dir = self._resolve_path(self.storage.checkpoints_dir)
+        default_dir = self._resolve_path("checkpoints")
+        dirs_to_scan.append(storage_dir)
+        if default_dir.resolve() != storage_dir.resolve():
+            dirs_to_scan.append(default_dir)
+
+        for ckpt_dir in dirs_to_scan:
+            if not ckpt_dir.exists():
                 continue
-            latest = size_dir / "latest"
-            if latest.exists():
+            for size_dir in sorted(ckpt_dir.iterdir()):
+                if not size_dir.is_dir():
+                    continue
+                model_name = size_dir.name
+                for step_dir in sorted(size_dir.glob("step_*")):
+                    resolved = step_dir.resolve()
+                    if resolved in seen:
+                        continue
+                    seen.add(resolved)
+                    info = self._read_checkpoint_meta(step_dir)
+                    by_model.setdefault(model_name, []).append(info)
+
+        # Sort each model's checkpoints by step descending (newest first).
+        for model in by_model:
+            by_model[model].sort(key=lambda x: x["step"], reverse=True)
+
+        return by_model
+
+    def _resolve_latest_path(self, model: str) -> Path | None:
+        """Return the resolved path that a ``latest`` pointer points to."""
+        for base in (
+            self._resolve_path(self.storage.checkpoints_dir),
+            self._resolve_path("checkpoints"),
+        ):
+            latest = base / model / "latest"
+            if latest.is_file():
                 try:
-                    detail = latest.read_text().strip()
+                    return Path(latest.read_text().strip()).resolve()
                 except Exception:
-                    detail = str(latest)
-                checkpoints.append({
-                    "label": f"{size_dir.name}/latest",
-                    "detail": detail,
-                    "path": str(latest),
-                })
-            for step_dir in sorted(size_dir.glob("step_*")):
-                checkpoints.append({
-                    "label": f"{size_dir.name}/{step_dir.name}",
-                    "detail": str(step_dir),
-                    "path": str(step_dir),
-                })
+                    pass
+        return None
 
-        return checkpoints
-
-    def _pick_checkpoint(self, prompt: str = "Select checkpoint:") -> str | None:
-        """Show checkpoint picker and return the path, or None if cancelled."""
-        checkpoints = self._list_checkpoints()
-        if not checkpoints:
+    def _pick_model(
+        self, prompt: str = "Select model:",
+    ) -> str | None:
+        """Show model picker with checkpoint counts and latest metrics."""
+        by_model = self._scan_all_checkpoints()
+        if not by_model:
             cli.error("No checkpoints found. Train a model first.")
             return None
 
-        choice = cli.choose(
-            prompt,
-            [{"label": c["label"], "detail": c["detail"]} for c in checkpoints],
-            allow_cancel=True,
-        )
+        options: list[dict[str, str]] = []
+        model_names: list[str] = []
+        for name in self._MODEL_ORDER:
+            if name not in by_model:
+                continue
+            ckpts = by_model[name]
+            latest = ckpts[0]  # sorted descending by step
+            params = self._MODEL_PARAMS.get(name, "?")
+            loss_str = f", loss {latest['loss']:.4f}" if latest.get("loss") else ""
+            detail = (
+                f"{params} — {len(ckpts)} checkpoint(s)"
+                f", latest: step {latest['step']:,}{loss_str}"
+            )
+            options.append({"label": name, "detail": detail})
+            model_names.append(name)
+
+        # Include any unknown model names (in case of custom dirs).
+        for name in sorted(by_model):
+            if name in model_names:
+                continue
+            ckpts = by_model[name]
+            latest = ckpts[0]
+            loss_str = f", loss {latest['loss']:.4f}" if latest.get("loss") else ""
+            detail = (
+                f"? — {len(ckpts)} checkpoint(s)"
+                f", latest: step {latest['step']:,}{loss_str}"
+            )
+            options.append({"label": name, "detail": detail})
+            model_names.append(name)
+
+        choice = cli.choose(prompt, options, allow_cancel=True)
         if choice is None:
             return None
-        return checkpoints[choice]["path"]
+        return model_names[choice]
+
+    def _pick_checkpoint(
+        self,
+        prompt: str = "Select checkpoint:",
+        model: str | None = None,
+    ) -> str | None:
+        """Model-first checkpoint picker.
+
+        If *model* is ``None``, prompts the user to select a model first.
+        Then shows the checkpoints for that model with metadata.
+        """
+        if model is None:
+            model = self._pick_model()
+            if model is None:
+                return None
+
+        by_model = self._scan_all_checkpoints()
+        ckpts = by_model.get(model, [])
+        if not ckpts:
+            cli.error(f"No checkpoints found for {model}.")
+            return None
+
+        latest_path = self._resolve_latest_path(model)
+
+        options: list[dict[str, str]] = []
+        for c in ckpts:
+            is_latest = (
+                latest_path is not None
+                and Path(c["path"]).resolve() == latest_path
+            )
+            tag = "  (latest)" if is_latest else ""
+            loss_str = f"loss {c['loss']:.4f}" if c.get("loss") else ""
+            options.append({
+                "label": f"{c['label']}{tag}",
+                "detail": loss_str,
+            })
+
+        params = self._MODEL_PARAMS.get(model, "")
+        header = f"{prompt}  ({model} — {params})" if params else prompt
+        choice = cli.choose(header, options, allow_cancel=True)
+        if choice is None:
+            return None
+        return ckpts[choice]["path"]
 
     def _config_for_checkpoint(self, ckpt_path: str) -> str:
         """Infer the config file from a checkpoint path (e.g. .../tiny/latest → configs/tiny.yaml)."""
         parts = Path(ckpt_path).parts
-        for size in ("tiny", "small", "medium", "large", "4080_max"):
+        for size in self._MODEL_ORDER:
             if size in parts:
                 return f"configs/{size}.yaml"
         return "configs/tiny.yaml"
@@ -1149,8 +1266,7 @@ class MasterMenu:
             elif choice == 1:
                 self._benchmark_menu()
             elif choice == 2:
-                self._run_script("compare_checkpoints.py")
-                self._pause()
+                self._compare_checkpoints_menu()
             elif choice == 3:
                 self._nano_benchmark()
             elif choice == 4:
@@ -1261,11 +1377,50 @@ class MasterMenu:
         self._run_script("quality_report.py", ["--checkpoint", ckpt_path, "--config", config])
         self._pause()
 
-    def _compare_models_menu(self) -> None:
-        """Side-by-side model comparison."""
-        _print_section_header("Compare Models", "Side-by-side comparison of two checkpoints")
+    def _compare_checkpoints_menu(self) -> None:
+        """Compare two checkpoints from the same model."""
+        _print_section_header(
+            "Compare Checkpoints",
+            "Side-by-side comparison of two checkpoints",
+        )
 
-        self._run_script("compare_models.py")
+        model = self._pick_model("Select model to compare checkpoints:")
+        if model is None:
+            return
+        ckpt_a = self._pick_checkpoint(
+            "Select checkpoint A:", model=model,
+        )
+        if ckpt_a is None:
+            return
+        ckpt_b = self._pick_checkpoint(
+            "Select checkpoint B:", model=model,
+        )
+        if ckpt_b is None:
+            return
+
+        self._run_script(
+            "compare_checkpoints.py",
+            ["--a", ckpt_a, "--b", ckpt_b],
+        )
+        self._pause()
+
+    def _compare_models_menu(self) -> None:
+        """Side-by-side comparison of checkpoints from different models."""
+        _print_section_header(
+            "Compare Models",
+            "Side-by-side comparison of two model checkpoints",
+        )
+
+        ckpt_a = self._pick_checkpoint("Select first model checkpoint:")
+        if ckpt_a is None:
+            return
+        ckpt_b = self._pick_checkpoint("Select second model checkpoint:")
+        if ckpt_b is None:
+            return
+
+        self._run_script(
+            "compare_models.py", ["--checkpoints", ckpt_a, ckpt_b],
+        )
         self._pause()
 
     # ── 5b. Router & Specialists ─────────────────────────────────────────

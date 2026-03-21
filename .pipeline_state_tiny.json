@@ -1,6 +1,6 @@
 {
-  "config_path": "C:\\Users\\josh\\AppData\\Local\\Temp\\pytest-of-Josh\\pytest-73\\test_file_not_found_returns_fa0\\tiny.yaml",
-  "updated_at": "2026-03-21T01:54:42.050137",
+  "config_path": "C:\\Users\\josh\\AppData\\Local\\Temp\\pytest-of-Josh\\pytest-78\\test_file_not_found_returns_fa0\\tiny.yaml",
+  "updated_at": "2026-03-21T14:44:13.611877",
   "artifacts": {
     "checkpoint": "checkpoints/tiny/step_05000"
   },
