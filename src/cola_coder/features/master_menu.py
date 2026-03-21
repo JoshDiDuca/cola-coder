@@ -397,7 +397,7 @@ class MasterMenu:
     def _config_for_checkpoint(self, ckpt_path: str) -> str:
         """Infer the config file from a checkpoint path (e.g. .../tiny/latest → configs/tiny.yaml)."""
         parts = Path(ckpt_path).parts
-        for size in ("tiny", "small", "medium", "large"):
+        for size in ("tiny", "small", "medium", "large", "4080_max"):
             if size in parts:
                 return f"configs/{size}.yaml"
         return "configs/tiny.yaml"

@@ -9,7 +9,7 @@ Josh is an experienced TypeScript developer learning ML — frame explanations i
 - **Package manager:** pip with venv (`.venv/`)
 - **Install:** `python -m venv .venv && .venv/Scripts/pip install -e ".[dev,logging]"`
 - **Platform:** Windows 11 (no `make` — use PowerShell scripts in parent dir `~/ai research/cola-*.ps1`)
-- **Configs:** `configs/tiny.yaml` (50M), `small.yaml` (125M), `medium.yaml` (350M), `large.yaml` (1B+)
+- **Configs:** `configs/tiny.yaml` (50M), `small.yaml` (125M), `medium.yaml` (350M), `4080_max.yaml` (455M), `large.yaml` (1B+)
 - **GPU:** RTX 4080 (16GB, bf16) and RTX 3080 (10GB, fp16+GradScaler). Use `precision: "bf16"` for 4080, `precision: "fp16"` for 3080.
 - **RAM:** 64GB system
 
@@ -174,6 +174,7 @@ End goal is a router model (125M) + domain-specific specialists (50M each: React
 | tiny   | 50M    | ~3.6 GB | ~86 tok/s | ~4 hours |
 | small  | 125M   | ~6.5 GB | ~45 tok/s | ~2 days |
 | medium | 350M   | ~8.2 GB | ~22 tok/s | ~7 days |
+| 4080_max | 455M | ~14.1 GB | ~16 tok/s | ~10 days |
 | large  | 1B+    | ~24 GB  | N/A        | cloud only |
 
 ## Feature System (83 modules)

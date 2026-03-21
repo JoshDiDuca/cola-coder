@@ -1,0 +1,54 @@
+# 4080 Super Max: ~455M parameters
+# Purpose: Best model achievable on RTX 4080 Super 16GB
+# Pushes VRAM to ~14.1 GB — leaves ~1.9 GB safety margin
+# Architecture: LLaMA 3 style (RoPE, GQA, SwiGLU, RMSNorm)
+#
+# Key optimizations over medium.yaml:
+#   - dim 1024 -> 1280 (+25% width, more expressive representations)
+#   - seq_len 2048 -> 4096 (full file-level context for real code)
+#   - RoPE theta 10K -> 500K (research: dramatically better long-context)
+#   - dropout 0.05 -> 0.0 (larger models regularize via data, not dropout)
+#   - 6 languages (broader training signal)
+#
+# VRAM breakdown (estimated):
+#   Model weights (bf16):  0.91 GB
+#   Optimizer state (fp32): 3.64 GB
+#   Gradients (bf16):       0.91 GB
+#   Activations (ckpt):     7.34 GB
+#   Overhead (~10%):        1.28 GB
+#   Total:                 ~14.1 GB
+
+model:
+  vocab_size: 32768
+  dim: 1280
+  n_layers: 24
+  n_heads: 20           # 20 query heads, head_dim=64 (GPU-optimal)
+  n_kv_heads: 4         # 5:1 GQA ratio — saves inference VRAM, minimal quality loss
+  ffn_dim_multiplier: 2.667  # SwiGLU standard -> ffn_hidden=3456
+  max_seq_len: 4096     # 2x medium — critical for real-world code files
+  dropout: 0.0          # zero dropout: DeepSeek/Qwen approach for 400M+ models
+  rope_theta: 500000.0  # Yi-Coder/LLaMA-3 style — spreads frequencies for long context
+
+training:
+  batch_size: 4
+  gradient_accumulation: 4  # effective batch = 16 (good gradient estimates)
+  learning_rate: 2.5e-4     # slightly lower than medium (larger model needs gentler LR)
+  min_lr: 2.5e-5
+  warmup_steps: 2000
+  max_steps: 200000         # ~13B tokens — adjust based on data size
+  weight_decay: 0.1
+  grad_clip: 1.0
+  precision: "bf16"
+  gradient_checkpointing: true  # REQUIRED — saves ~60% activation VRAM
+
+data:
+  dataset: "bigcode/starcoderdata"
+  languages: ["python", "typescript", "javascript", "java", "go", "rust"]
+  max_tokens_per_file: 8192  # allow longer files (truncated to seq_len during training)
+  data_dir: "./data"
+  num_workers: 8
+
+checkpoint:
+  save_every: 5000
+  output_dir: "./checkpoints/4080_max"
+  max_checkpoints: 3
