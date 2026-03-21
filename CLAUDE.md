@@ -9,7 +9,7 @@ Josh is an experienced TypeScript developer learning ML — frame explanations i
 - **Package manager:** pip with venv (`.venv/`)
 - **Install:** `python -m venv .venv && .venv/Scripts/pip install -e ".[dev,logging]"`
 - **Platform:** Windows 11 (no `make` — use PowerShell scripts in parent dir `~/ai research/cola-*.ps1`)
-- **Configs:** `configs/tiny.yaml` (50M), `small.yaml` (125M), `medium.yaml` (350M), `4080_max.yaml` (455M), `large.yaml` (1B+)
+- **Configs:** `configs/tiny.yaml` (50M), `small.yaml` (125M), `medium.yaml` (299M), `4080_max.yaml` (455M), `large.yaml` (1B+)
 - **GPU:** RTX 4080 Super (16GB, bf16) and RTX 3080 (10GB, fp16+GradScaler). Use `precision: "bf16"` for 4080, `precision: "fp16"` for 3080.
 - **RAM:** 64GB system
 
@@ -85,10 +85,10 @@ See `docs/deep-dives/quality-weighted-training.md` for the full pipeline explana
 
 ## Key Training Concepts
 
-- Loss starts ~10.4 (random), target 2.0-2.5 for small, 1.8-2.2 for medium/4080_max
+- Loss starts ~10.4 (random), target 2.0-2.5 for small, 1.5-2.0 for medium, 1.3-1.8 for 4080_max
 - Perplexity = exp(loss), target 8-15 for good code generation
 - Gradient accumulation: effective_batch = batch_size * gradient_accumulation
-- Gradient checkpointing: required for medium+ (350M+) on 16GB, trades ~30% speed for ~50% VRAM
+- Gradient checkpointing: optional for medium (299M, fits without at batch=5), required for 4080_max (455M), trades ~30% speed for ~50% VRAM
 - bf16 on 4080 (no GradScaler), fp16 on 3080 (needs GradScaler)
 - Total tokens = effective_batch * max_seq_len * max_steps
 - torch.compile: fuses GPU kernels for ~20-40% speedup (handles `_orig_mod.` prefix in checkpoints)
@@ -289,7 +289,7 @@ End goal is a router model (125M) + domain-specific specialists (50M each: React
 |--------|--------|------|-----------|---------------|
 | tiny   | 50M    | ~3.6 GB | ~86 tok/s | ~4 hours |
 | small  | 125M   | ~6.5 GB | ~45 tok/s | ~2 days |
-| medium | 350M   | ~8.2 GB | ~22 tok/s | ~7 days |
+| medium | 299M   | ~14.1 GB | ~5K tok/s | ~14 days |
 | 4080_max | 455M | ~14.1 GB | ~16 tok/s | ~10 days |
 | large  | 1B+    | ~24 GB  | N/A        | cloud only |
 

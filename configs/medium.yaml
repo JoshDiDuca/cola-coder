@@ -1,34 +1,60 @@
-# Medium model: ~350M parameters
-# Purpose: Best results achievable on a single consumer GPU
-# Requires gradient checkpointing on 16GB VRAM cards
-# VRAM estimate: ~9 GB (batch=4, grad_ckpt=true, RTX 4080 16GB)
+# Medium model (optimized): ~299M parameters
+# Purpose: Best medium-size model on RTX 4080 Super 16GB
+# Optimized: no gradient checkpointing, higher batch, tuned hyperparams
+# VRAM estimate: ~14.1 GB — fits 16GB with ~2 GB safety margin
+# Architecture: LLaMA 3 style (RoPE, GQA, SwiGLU, RMSNorm)
+#
+# Key optimizations over original medium.yaml:
+#   - gradient_checkpointing OFF → ~30% faster (no activation recomputation)
+#   - batch_size 4 → 5 (fills VRAM properly instead of wasting 9 GB)
+#   - dropout 0.05 → 0.0 (consensus: no dropout for pretraining at 300M)
+#   - learning_rate 3e-4 → 5e-4 (research-backed optimum for ~300M models)
+#   - languages: 8 → 6 (dropped C/C++ — noisier data, focus budget better)
+#   - max_steps: 200K → 150K (Chinchilla-optimal: ~6.1B tokens for 299M params)
+#
+# VRAM breakdown (estimated):
+#   Model weights (bf16):  0.60 GB
+#   Optimizer state (fp32): 2.40 GB
+#   Gradients (bf16):       0.60 GB
+#   Activations (no ckpt):  9.22 GB
+#   Overhead (~10%):        1.28 GB
+#   Total:                 ~14.1 GB
+#
+# Training time estimate:
+#   ~5K tok/s → ~14 days for Chinchilla-optimal 6.1B tokens
+#   Can reduce to ~7 days with max_steps: 75000 (3B tokens, ~80% quality)
+#
+# Quality expectations (HumanEval pass@1):
+#   Standard data: ~10-13% (vs ~7-9% for small 125M)
+#   With quality-weighted training: potentially 15-20%
+#   For reference: Codex-300M achieved 13.2% pass@1
 
 model:
   vocab_size: 32768
   dim: 1024
   n_layers: 24
-  n_heads: 16
-  n_kv_heads: 4
-  ffn_dim_multiplier: 2.667
-  max_seq_len: 2048
-  dropout: 0.05
-  rope_theta: 10000.0
+  n_heads: 16           # 16 query heads, head_dim=64 (GPU tensor core optimal)
+  n_kv_heads: 4         # 4:1 GQA ratio — saves KV cache VRAM at inference
+  ffn_dim_multiplier: 2.667  # SwiGLU standard → ffn_hidden=2752
+  max_seq_len: 2048     # sweet spot for this size (2x would need grad_ckpt)
+  dropout: 0.0          # zero dropout: DeepSeek/LLaMA/Qwen consensus for pretraining
+  rope_theta: 10000.0   # standard for seq_len 2048
 
 training:
-  batch_size: 4
-  gradient_accumulation: 4  # effective batch = 16, better GPU utilization than batch=2
-  learning_rate: 3.0e-4
-  min_lr: 3.0e-5
-  warmup_steps: 2000
-  max_steps: 200000
+  batch_size: 5
+  gradient_accumulation: 4  # effective batch = 20 (good gradient estimates)
+  learning_rate: 5.0e-4     # research-optimal for ~300M (Chinchilla/LLaMA scaling)
+  min_lr: 5.0e-5
+  warmup_steps: 1500
+  max_steps: 150000         # ~6.1B tokens — Chinchilla-optimal (299M × 20)
   weight_decay: 0.1
   grad_clip: 1.0
   precision: "bf16"
-  gradient_checkpointing: true  # REQUIRED at this size on 16GB
+  gradient_checkpointing: false  # OFF — saves ~30% time, fits at 14.1 GB
 
 data:
   dataset: "bigcode/starcoderdata"
-  languages: ["python", "typescript", "javascript", "java", "go", "rust", "c", "cpp"]
+  languages: ["python", "typescript", "javascript", "java", "go", "rust"]
   max_tokens_per_file: 4096
   data_dir: "./data"
   num_workers: 8
