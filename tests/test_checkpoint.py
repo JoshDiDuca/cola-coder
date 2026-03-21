@@ -12,7 +12,6 @@ Covers the critical paths that have broken in production:
 """
 
 import json
-import shutil
 from pathlib import Path
 
 import pytest
@@ -127,13 +126,6 @@ class TestCheckpointRoundTrip:
         """Optimizer momentum buffers survive a save→load cycle."""
         model = _make_model()
         opt, sched = _make_training_state(model)
-
-        # Grab optimizer state before save
-        orig_opt_state = {
-            k: v.clone() if isinstance(v, torch.Tensor) else v
-            for group in opt.state_dict()["state"].values()
-            for k, v in (group.items() if isinstance(group, dict) else [])
-        }
 
         ckpt = save_checkpoint(
             model, opt, sched, step=10, loss=4.0,

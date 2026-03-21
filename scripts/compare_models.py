@@ -186,7 +186,7 @@ def _print_rich_comparison(result: "ComparisonResult") -> None:  # noqa: F821
 
         # Determine best (fastest, lowest loss)
         losses = [m.get("loss", float("nan")) for m in result.models]
-        valid_losses = [l for l in losses if l == l]  # filter NaN
+        valid_losses = [v for v in losses if v == v]  # filter NaN
         best_loss = min(valid_losses) if valid_losses else None
 
         tpss = [m.get("tokens_per_sec", 0.0) for m in result.metrics]

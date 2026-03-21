@@ -21,11 +21,9 @@ from cola_coder.cli import cli
 
 
 def _parse_args() -> argparse.Namespace:
-    storage_default_config = "configs/tiny.yaml"
     try:
-        from cola_coder.model.config import get_storage_config
-        storage = get_storage_config()
-        # If we can detect the latest checkpoint from storage, use that as hint
+        from cola_coder.model.config import get_storage_config  # noqa: F401
+        get_storage_config()  # Warm the config cache
     except Exception:
         pass
 
@@ -243,7 +241,6 @@ def main() -> int:
     if not args.no_save:
         generator.save_report(report, output_dir=args.output)
         from pathlib import Path as _P
-        from cola_coder.evaluation.quality_report import _human_params as _hp
         out_path = _P(args.output)
         ckpt_name = _P(report.checkpoint_path).name
         step_str = f"step_{report.training_step:07d}"
