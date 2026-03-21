@@ -87,6 +87,20 @@ class GroupedQueryAttention(nn.Module):
         self.cache_k = None
         self.cache_v = None
 
+    def expand_cache(self, batch_size: int):
+        """Expand KV-cache from batch=1 to batch=N for batched generation.
+
+        After prefilling the prompt with batch=1, call this to clone the cached
+        state across the batch dimension so that N completions can be generated
+        in parallel from the same starting state.
+
+        Args:
+            batch_size: Target batch size (e.g. group_size in GRPO).
+        """
+        if self.cache_k is not None:
+            self.cache_k = self.cache_k[:1].expand(batch_size, -1, -1, -1).contiguous()
+            self.cache_v = self.cache_v[:1].expand(batch_size, -1, -1, -1).contiguous()
+
     def forward(
         self,
         x: torch.Tensor,

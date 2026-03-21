@@ -8,8 +8,14 @@
 features:
 
   # ---------------------------------------------------------------------------
+  # Reasoning / GRPO
+  # ---------------------------------------------------------------------------
+  typescript_rewards: true  # Use TypeScript compiler rewards in GRPO (requires tsc/Node.js)
+
+  # ---------------------------------------------------------------------------
   # Training
   # ---------------------------------------------------------------------------
+  sft_warmup: true            # SFT cold-start before GRPO (recommended)
   contrastive_code_learning: true
   crash_recovery: true
   data_versioning: true
@@ -32,10 +38,12 @@ features:
   training_speed_dashboard: true
   type_correctness_rate: true
   validation_split: true
+  sft_warmup: true
 
   # ---------------------------------------------------------------------------
   # Generation
   # ---------------------------------------------------------------------------
+  parallel_generation: true   # Batched GRPO generation (prefill once, decode N in parallel)
   adaptive_computation: true
   beam_search: true
   byte_level_fallback: true
@@ -55,6 +63,7 @@ features:
   # ---------------------------------------------------------------------------
   # Evaluation
   # ---------------------------------------------------------------------------
+  expanded_problems: true    # 62 built-in GRPO problems with difficulty tags + curriculum learning
   checkpoint_comparison: true
   checkpoint_leaderboard: true
   continuous_eval: true

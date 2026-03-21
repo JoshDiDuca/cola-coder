@@ -66,6 +66,95 @@ def sample_next_token(
     return torch.multinomial(probs, num_samples=1).item()
 
 
+def sample_next_tokens_batch(
+    logits: torch.Tensor,
+    temperature: float = 0.8,
+    top_k: int = 50,
+    top_p: float = 0.9,
+) -> torch.Tensor:
+    """Sample next tokens for a batch of sequences independently.
+
+    Unlike sample_next_token (single sequence), this operates on a full batch
+    in one vectorised call — no Python loop over sequences needed.
+
+    Repetition penalty is intentionally omitted here: tracking per-sequence
+    history for a batch would require passing ragged lists and would dominate
+    the runtime.  Use generate_group (which handles this at the caller level)
+    if you need rep-penalty with batched generation.
+
+    Args:
+        logits: Raw model output, shape (batch_size, vocab_size).
+        temperature: Sampling temperature.  0 → greedy argmax per row.
+        top_k: Keep only the top-k logits per row (0 = disabled).
+        top_p: Nucleus filtering — keep tokens up to cumulative prob p.
+
+    Returns:
+        Tensor of shape (batch_size,) with one sampled token ID per row.
+    """
+    if temperature == 0:
+        return logits.argmax(dim=-1)
+
+    logits = logits / temperature
+
+    if top_k > 0:
+        logits = _top_k_filter_batch(logits, top_k)
+
+    if top_p < 1.0:
+        logits = _top_p_filter_batch(logits, top_p)
+
+    probs = F.softmax(logits, dim=-1)
+    # torch.multinomial on a 2-D tensor samples independently per row
+    return torch.multinomial(probs, num_samples=1).squeeze(1)
+
+
+def _top_k_filter_batch(logits: torch.Tensor, k: int) -> torch.Tensor:
+    """Top-k filter for a batch of logit rows.
+
+    Args:
+        logits: Shape (batch, vocab).
+        k: Number of top tokens to keep.
+
+    Returns:
+        Filtered logits with the same shape; values outside top-k → -inf.
+    """
+    vocab = logits.shape[-1]
+    if k >= vocab:
+        return logits
+
+    # kth_value: per-row minimum among the top-k values
+    top_k_values, _ = torch.topk(logits, k, dim=-1)
+    min_top_k = top_k_values[:, -1].unsqueeze(1)  # (batch, 1)
+    logits = logits.masked_fill(logits < min_top_k, float("-inf"))
+    return logits
+
+
+def _top_p_filter_batch(logits: torch.Tensor, p: float) -> torch.Tensor:
+    """Nucleus (top-p) filter for a batch of logit rows.
+
+    Args:
+        logits: Shape (batch, vocab).
+        p: Cumulative probability threshold.
+
+    Returns:
+        Filtered logits with the same shape; tokens outside the nucleus → -inf.
+    """
+    sorted_logits, sorted_indices = torch.sort(logits, dim=-1, descending=True)
+    cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+
+    # Tokens whose cumulative prob is already above p can be removed,
+    # but we always keep the first token (shift by 1).
+    sorted_mask = cumulative_probs > p
+    sorted_mask[:, 1:] = sorted_mask[:, :-1].clone()
+    sorted_mask[:, 0] = False
+
+    # Scatter the mask back to the original (unsorted) token order
+    mask = torch.zeros_like(logits, dtype=torch.bool).scatter_(
+        dim=-1, index=sorted_indices, src=sorted_mask
+    )
+    logits = logits.masked_fill(mask, float("-inf"))
+    return logits
+
+
 def _apply_repetition_penalty(
     logits: torch.Tensor,
     generated_ids: list[int],

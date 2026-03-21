@@ -26,6 +26,14 @@ training:
   precision: "bf16"
   gradient_checkpointing: false
 
+# SFT warmup settings (cold-start SFT before GRPO, following DeepSeek-R1)
+# Fine-tunes the model on curated <think>...</think> examples before GRPO starts.
+# Disable with --no-sft-warmup or set enabled: false here.
+sft_warmup:
+  enabled: true
+  epochs: 5
+  learning_rate: 5.0e-5
+
 # GRPO-specific settings
 reasoning:
   group_size: 8  # Generate this many completions per problem
@@ -33,6 +41,19 @@ reasoning:
   reward_baseline: "group_mean"  # Subtract group mean from rewards
   max_thinking_tokens: 512  # Cap reasoning trace length
   base_checkpoint: "./checkpoints/small/latest"  # Start from trained model
+  # Reward function to use during GRPO training.
+  # Options: python_exec (default), typescript, combined
+  # Override at runtime with: --reward <name>
+  reward_function: "python_exec"
+  # Parallel/batched generation (feature: parallel_generation)
+  # When true, all group_size completions are generated in one batched forward
+  # pass (prefill once, decode in parallel).  Falls back to serial on OOM.
+  parallel_generation: true
+  # Parallel reward computation via ProcessPoolExecutor.
+  # Falls back to serial on any process-pool error.
+  parallel_rewards: true
+  # Number of worker processes for parallel reward computation.
+  reward_workers: 4
 
 data:
   dataset: "local"  # Will use locally generated CoT data
@@ -43,3 +64,11 @@ checkpoint:
   save_every: 500
   output_dir: "./checkpoints/reasoning"
   max_checkpoints: 5
+
+# Problem set configuration for GRPO training
+problem_set:
+  source: "builtin"          # "builtin" (20) | "extended" / "all" (62) | "curriculum" | "jsonl"
+  jsonl_path: ""             # Path to JSONL file when source="jsonl"
+  difficulty: "all"          # "all" | "easy" | "medium" | "hard"
+  max_problems: 0            # 0 = use all; >0 = random sample of N problems
+  curriculum_learning: false # Sort easy→medium→hard and apply per-difficulty temperatures

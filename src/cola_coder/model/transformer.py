@@ -247,6 +247,18 @@ class Transformer(nn.Module):
         for block in self.blocks:
             block.attention.clear_cache()
 
+    def expand_caches(self, batch_size: int):
+        """Expand all layer KV-caches from batch=1 to batch=N.
+
+        Call this after prefilling the prompt (with batch=1) and before
+        batched generation so all N completions share the same prompt context.
+
+        Args:
+            batch_size: Target batch size (e.g. group_size in GRPO).
+        """
+        for block in self.blocks:
+            block.attention.expand_cache(batch_size)
+
     def enable_gradient_checkpointing(self):
         """Enable gradient checkpointing to save VRAM.
 

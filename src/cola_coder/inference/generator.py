@@ -26,7 +26,11 @@ from torch.amp import autocast
 
 from ..model.transformer import Transformer
 from ..tokenizer.tokenizer_utils import CodeTokenizer
-from .sampling import sample_next_token
+import logging
+
+from .sampling import sample_next_token, sample_next_tokens_batch
+
+logger = logging.getLogger(__name__)
 
 
 class CodeGenerator:
@@ -234,6 +238,229 @@ class CodeGenerator:
         finally:
             # Always clear the KV cache, even if generation was interrupted
             self.model.clear_caches()
+
+    @torch.no_grad()
+    def generate_group(
+        self,
+        prompt: str,
+        num_completions: int = 8,
+        max_new_tokens: int = 512,
+        temperature: float = 0.8,
+        top_k: int = 50,
+        top_p: float = 0.9,
+    ) -> list[str]:
+        """Generate multiple completions for the SAME prompt in a single batched pass.
+
+        Optimised for GRPO: because all completions share the same prompt, we:
+        1. Prefill the KV-cache once (batch=1, full prompt).
+        2. Expand the KV-cache along the batch dimension to num_completions.
+        3. Generate all completions in parallel (one forward pass per token step).
+        4. Each completion samples independently via sample_next_tokens_batch.
+        5. Track per-sequence EOS with a mask so stopped sequences don't grow.
+
+        If the full batch does not fit in VRAM (torch.cuda.OutOfMemoryError), the
+        method transparently retries with progressively smaller mini-batches
+        (halving each time) and stitches results together.  If even batch=1
+        fails it falls back to the serial generate() path.
+
+        Args:
+            prompt: The input text/code shared by all completions.
+            num_completions: How many independent completions to produce (G).
+            max_new_tokens: Maximum number of new tokens per completion.
+            temperature: Sampling temperature (0 = greedy).
+            top_k: Top-k filtering (0 = disabled).
+            top_p: Nucleus sampling threshold.
+
+        Returns:
+            List of num_completions decoded strings (prompt + generated tokens).
+        """
+        # Try batched generation, falling back to smaller batches on OOM.
+        return self._generate_group_with_fallback(
+            prompt=prompt,
+            num_completions=num_completions,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_k=top_k,
+            top_p=top_p,
+            batch_size=num_completions,
+        )
+
+    def _generate_group_with_fallback(
+        self,
+        prompt: str,
+        num_completions: int,
+        max_new_tokens: int,
+        temperature: float,
+        top_k: int,
+        top_p: float,
+        batch_size: int,
+    ) -> list[str]:
+        """Internal helper — attempts batched generation, retries with smaller batches on OOM."""
+        if batch_size <= 1:
+            # Last-resort: fully serial fallback
+            logger.warning(
+                "generate_group: falling back to serial generation "
+                "(VRAM insufficient for batched mode)"
+            )
+            return [
+                self.generate(
+                    prompt=prompt,
+                    max_new_tokens=max_new_tokens,
+                    temperature=temperature,
+                    top_k=top_k,
+                    top_p=top_p,
+                )
+                for _ in range(num_completions)
+            ]
+
+        try:
+            return self._generate_group_batched(
+                prompt=prompt,
+                num_completions=num_completions,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+                batch_size=batch_size,
+            )
+        except torch.cuda.OutOfMemoryError:
+            torch.cuda.empty_cache()
+            new_batch = max(1, batch_size // 2)
+            logger.warning(
+                "generate_group: OOM with batch_size=%d, retrying with %d",
+                batch_size,
+                new_batch,
+            )
+            return self._generate_group_with_fallback(
+                prompt=prompt,
+                num_completions=num_completions,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+                batch_size=new_batch,
+            )
+
+    @torch.no_grad()
+    def _generate_group_batched(
+        self,
+        prompt: str,
+        num_completions: int,
+        max_new_tokens: int,
+        temperature: float,
+        top_k: int,
+        top_p: float,
+        batch_size: int,
+    ) -> list[str]:
+        """Core batched generation logic.
+
+        Runs multiple mini-batches of size `batch_size` when batch_size < num_completions
+        and stitches results together.
+        """
+        results: list[str] = []
+        remaining = num_completions
+
+        while remaining > 0:
+            current_batch = min(batch_size, remaining)
+            batch_results = self._generate_group_single_batch(
+                prompt=prompt,
+                batch_size=current_batch,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+            )
+            results.extend(batch_results)
+            remaining -= current_batch
+
+        return results
+
+    @torch.no_grad()
+    def _generate_group_single_batch(
+        self,
+        prompt: str,
+        batch_size: int,
+        max_new_tokens: int,
+        temperature: float,
+        top_k: int,
+        top_p: float,
+    ) -> list[str]:
+        """Generate a single mini-batch of completions for the same prompt.
+
+        Steps:
+            1. Encode the prompt and prefill the KV-cache (batch=1).
+            2. Expand the KV-cache to batch_size.
+            3. Loop up to max_new_tokens:
+               a. Sample batch_size next tokens in one call.
+               b. Mark finished sequences (EOS hit).
+               c. Run a forward pass with the new token for all unfinished seqs.
+            4. Decode each sequence and return.
+        """
+        eos_id = self.tokenizer.eos_id
+
+        # --- Phase 1: encode prompt ---
+        token_ids = self.tokenizer.encode(prompt, add_bos=True)
+        prompt_len = len(token_ids)
+        input_ids = torch.tensor([token_ids], dtype=torch.long, device=self.device)
+
+        self.model.clear_caches()
+
+        # --- Phase 2: prefill (batch=1) ---
+        with autocast(device_type="cuda", dtype=torch.bfloat16, enabled=self.device == "cuda"):
+            logits = self.model(input_ids, start_pos=0, use_cache=True)
+
+        # logits for the last prompt token → first generation step
+        # Expand from (1, vocab) to (batch_size, vocab)
+        next_logits = logits[:, -1, :].expand(batch_size, -1).clone()
+
+        # --- Phase 3: expand KV-cache to batch_size ---
+        self.model.expand_caches(batch_size)
+
+        # Per-sequence token buffers (start with the prompt tokens)
+        # Shape: (batch_size, dynamic_len) — stored as a list of lists for flexibility
+        seq_tokens: list[list[int]] = [list(token_ids) for _ in range(batch_size)]
+        finished = [False] * batch_size
+
+        # --- Phase 4: autoregressive decode ---
+        for step in range(max_new_tokens):
+            # Sample next tokens for all sequences in one vectorised call
+            sampled = sample_next_tokens_batch(
+                next_logits.clone(),
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+            )  # (batch_size,)
+
+            # Check EOS and append tokens
+            all_done = True
+            for i in range(batch_size):
+                if finished[i]:
+                    continue
+                tok = sampled[i].item()
+                if tok == eos_id:
+                    finished[i] = True
+                else:
+                    seq_tokens[i].append(tok)
+                    all_done = False
+
+            if all_done:
+                break
+
+            # Build next input: (batch_size, 1) — use EOS as a dummy token
+            # for already-finished sequences (their logits are discarded).
+            next_token_ids = sampled.unsqueeze(1)  # (batch_size, 1)
+
+            start_pos = prompt_len + step
+
+            with autocast(device_type="cuda", dtype=torch.bfloat16, enabled=self.device == "cuda"):
+                logits = self.model(next_token_ids, start_pos=start_pos, use_cache=True)
+
+            next_logits = logits[:, -1, :]  # (batch_size, vocab)
+
+        self.model.clear_caches()
+
+        # Decode each sequence
+        return [self.tokenizer.decode(toks) for toks in seq_tokens]
 
     @torch.no_grad()
     def generate_batch(

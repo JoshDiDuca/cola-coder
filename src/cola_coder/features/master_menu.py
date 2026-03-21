@@ -394,6 +394,14 @@ class MasterMenu:
             return None
         return checkpoints[choice]["path"]
 
+    def _config_for_checkpoint(self, ckpt_path: str) -> str:
+        """Infer the config file from a checkpoint path (e.g. .../tiny/latest → configs/tiny.yaml)."""
+        parts = Path(ckpt_path).parts
+        for size in ("tiny", "small", "medium", "large"):
+            if size in parts:
+                return f"configs/{size}.yaml"
+        return "configs/tiny.yaml"
+
     # ── Main menu ─────────────────────────────────────────────────────────
 
     def main_menu(self) -> None:
@@ -413,8 +421,10 @@ class MasterMenu:
                  "detail": "Code generation, interactive chat, serve API"},
                 {"label": "Evaluate & Benchmark",
                  "detail": "HumanEval, benchmarks, checkpoint comparisons"},
+                {"label": "Router & Specialists",
+                 "detail": "Domain router, MoE, specialist training & management"},
                 {"label": "Tools & Utilities",
-                 "detail": "Lint, test, GPU status, dataset inspection"},
+                 "detail": "Lint, test, GPU status, dataset inspection, export"},
                 {"label": "Settings",
                  "detail": "Feature toggles, storage paths"},
                 {"label": "Training Status",
@@ -433,6 +443,7 @@ class MasterMenu:
                 self.training_menu,
                 self.generate_menu,
                 self.evaluate_menu,
+                self.router_menu,
                 self.tools_menu,
                 self.settings_menu,
                 self.training_status_menu,
@@ -933,7 +944,7 @@ class MasterMenu:
         self._pause()
 
     def _train_reasoning(self) -> None:
-        """GRPO reasoning training."""
+        """GRPO reasoning training with optional enhancements."""
         _print_section_header("Train Reasoning (GRPO)", "Fine-tuning with thinking tokens")
 
         if _HAS_RICH:
@@ -942,8 +953,38 @@ class MasterMenu:
             _rich_console.print("  Generates multiple solutions, tests them, reinforces correct ones.")
             _rich_console.print("")
 
+        args: list[str] = []
+
+        # SFT Warmup
+        if cli.confirm("Enable SFT warmup phase? (DeepSeek-R1 approach)", default=True):
+            args.append("--sft-warmup")
+            if _HAS_RICH:
+                _rich_console.print("  [green]✓[/green] SFT warmup enabled")
+
+        # Reward function
+        reward_options = [
+            {"label": "Python Execution (default)",
+             "detail": "Run code and check output correctness"},
+            {"label": "TypeScript Type Checking",
+             "detail": "tsc --noEmit --strict validation"},
+            {"label": "Combined (multi-signal)",
+             "detail": "Type-check + syntax + style + completeness"},
+        ]
+        reward_choice = cli.choose("Reward function:", reward_options, allow_cancel=True)
+        if reward_choice is None:
+            return
+        reward_names = ["python_exec", "typescript", "combined"]
+        args.extend(["--reward", reward_names[reward_choice]])
+
+        # Problem set
+        if cli.confirm("Use expanded problem set? (60+ problems)", default=True):
+            args.append("--problems")
+            args.append("builtin")
+            if cli.confirm("Enable curriculum learning? (easy→hard)", default=False):
+                args.append("--curriculum")
+
         if cli.confirm("Start reasoning training?"):
-            self._run_script("train_reasoning.py")
+            self._run_script("train_reasoning.py", args)
             self._pause()
 
     def _vram_estimate_menu(self) -> None:
@@ -1025,8 +1066,7 @@ class MasterMenu:
             elif choice == 2:
                 self._serve_api()
             elif choice == 3:
-                self._run_script("nano_benchmark.py")
-                self._pause()
+                self._nano_benchmark()
 
     def _interactive_generate(self) -> None:
         """Interactive generation with checkpoint selection."""
@@ -1036,7 +1076,8 @@ class MasterMenu:
         if ckpt_path is None:
             return
 
-        self._run_script("generate.py", ["--checkpoint", ckpt_path])
+        config = self._config_for_checkpoint(ckpt_path)
+        self._run_script("generate.py", ["--checkpoint", ckpt_path, "--config", config])
         self._pause()
 
     def _serve_api(self) -> None:
@@ -1052,7 +1093,19 @@ class MasterMenu:
         if ckpt_path is None:
             return
 
-        self._run_script("serve.py", ["--checkpoint", ckpt_path])
+        config = self._config_for_checkpoint(ckpt_path)
+        self._run_script("serve.py", ["--checkpoint", ckpt_path, "--config", config])
+        self._pause()
+
+    def _nano_benchmark(self) -> None:
+        """Nano benchmark with checkpoint selection."""
+        _print_section_header("Nano Benchmark", "Quick generation speed test")
+
+        ckpt_path = self._pick_checkpoint("Select checkpoint to benchmark:")
+        if ckpt_path is None:
+            return
+
+        self._run_script("nano_benchmark.py", ["--checkpoint", ckpt_path])
         self._pause()
 
     # ── 5. Evaluate & Benchmark ───────────────────────────────────────────
@@ -1099,8 +1152,7 @@ class MasterMenu:
                 self._run_script("compare_checkpoints.py")
                 self._pause()
             elif choice == 3:
-                self._run_script("nano_benchmark.py")
-                self._pause()
+                self._nano_benchmark()
             elif choice == 4:
                 self._model_card_menu()
             elif choice == 5:
@@ -1124,7 +1176,8 @@ class MasterMenu:
         if ckpt_path is None:
             return
 
-        self._run_script("evaluate.py", ["--checkpoint", ckpt_path])
+        config = self._config_for_checkpoint(ckpt_path)
+        self._run_script("evaluate.py", ["--checkpoint", ckpt_path, "--config", config])
         self._pause()
 
     def _benchmark_menu(self) -> None:
@@ -1135,7 +1188,8 @@ class MasterMenu:
         if ckpt_path is None:
             return
 
-        self._run_script("benchmark.py", ["--checkpoint", ckpt_path])
+        config = self._config_for_checkpoint(ckpt_path)
+        self._run_script("benchmark.py", ["--checkpoint", ckpt_path, "--config", config])
         self._pause()
 
     def _model_card_menu(self) -> None:
@@ -1146,7 +1200,8 @@ class MasterMenu:
         if ckpt_path is None:
             return
 
-        self._run_script("model_card.py", ["--checkpoint", ckpt_path])
+        config = self._config_for_checkpoint(ckpt_path)
+        self._run_script("model_card.py", ["--checkpoint", ckpt_path, "--config", config])
         self._pause()
 
     def _smoke_test_menu(self) -> None:
@@ -1162,7 +1217,8 @@ class MasterMenu:
         if ckpt_path is None:
             return
 
-        args = ["--checkpoint", ckpt_path]
+        config = self._config_for_checkpoint(ckpt_path)
+        args = ["--checkpoint", ckpt_path, "--config", config]
         if cli.confirm("Quick mode (fewer samples)?", default=True):
             args.append("--quick")
 
@@ -1177,7 +1233,8 @@ class MasterMenu:
         if ckpt_path is None:
             return
 
-        self._run_script("ts_benchmark.py", ["--checkpoint", ckpt_path])
+        config = self._config_for_checkpoint(ckpt_path)
+        self._run_script("ts_benchmark.py", ["--checkpoint", ckpt_path, "--config", config])
         self._pause()
 
     def _regression_test_menu(self) -> None:
@@ -1188,7 +1245,8 @@ class MasterMenu:
         if ckpt_path is None:
             return
 
-        self._run_script("regression_test.py", ["--checkpoint", ckpt_path])
+        config = self._config_for_checkpoint(ckpt_path)
+        self._run_script("regression_test.py", ["--checkpoint", ckpt_path, "--config", config])
         self._pause()
 
     def _quality_report_menu(self) -> None:
@@ -1199,7 +1257,8 @@ class MasterMenu:
         if ckpt_path is None:
             return
 
-        self._run_script("quality_report.py", ["--checkpoint", ckpt_path])
+        config = self._config_for_checkpoint(ckpt_path)
+        self._run_script("quality_report.py", ["--checkpoint", ckpt_path, "--config", config])
         self._pause()
 
     def _compare_models_menu(self) -> None:
@@ -1207,6 +1266,262 @@ class MasterMenu:
         _print_section_header("Compare Models", "Side-by-side comparison of two checkpoints")
 
         self._run_script("compare_models.py")
+        self._pause()
+
+    # ── 5b. Router & Specialists ─────────────────────────────────────────
+
+    def router_menu(self) -> None:
+        """Router model and specialist management."""
+        while True:
+            _print_section_header(
+                "Router & Specialists",
+                "Domain routing, MoE, specialist training & management",
+            )
+
+            options = [
+                {"label": "Generate Router Training Data",
+                 "detail": "Auto-label code samples for router training"},
+                {"label": "Train Router Model",
+                 "detail": "scripts/train_router.py — train MLP or Transformer router"},
+                {"label": "Evaluate Router",
+                 "detail": "Test router accuracy on labeled examples"},
+                {"label": "Manage Specialist Registry",
+                 "detail": "View/add/remove specialist checkpoints"},
+                {"label": "MoE Configuration",
+                 "detail": "Configure Mixture of Experts layer settings"},
+                {"label": "Domain Detection Test",
+                 "detail": "Test heuristic domain detector on sample code"},
+            ]
+
+            choice = cli.choose("Select operation:", options, allow_cancel=True)
+            if choice is None:
+                return
+
+            if choice == 0:
+                self._generate_router_data_menu()
+            elif choice == 1:
+                self._train_router_menu()
+            elif choice == 2:
+                self._evaluate_router()
+            elif choice == 3:
+                self._specialist_registry_menu()
+            elif choice == 4:
+                self._moe_config_menu()
+            elif choice == 5:
+                self._domain_detection_test()
+
+    def _generate_router_data_menu(self) -> None:
+        """Generate router training data sub-menu."""
+        _print_section_header("Generate Router Data", "Create labeled data for router training")
+
+        options = [
+            {"label": "From Training Data (.npy)",
+             "detail": "Decode existing tokenized data and auto-label domains"},
+            {"label": "From Source Directory",
+             "detail": "Scan a directory of source code files"},
+            {"label": "Synthetic (Bootstrap)",
+             "detail": "Generate template-based synthetic examples"},
+        ]
+
+        choice = cli.choose("Data source:", options, allow_cancel=True)
+        if choice is None:
+            return
+
+        if choice == 0:
+            self._run_script("generate_router_data.py", [
+                "--source", "data/processed/train_data.npy",
+                "--tokenizer", self.storage.tokenizer_path,
+            ])
+        elif choice == 1:
+            cli.info("Tip", "Enter the path to a directory containing .ts/.tsx/.js files")
+            self._run_script("generate_router_data.py", ["--source-dir", "."])
+        elif choice == 2:
+            self._run_script("generate_router_data.py", ["--synthetic"])
+
+        self._pause()
+
+    def _train_router_menu(self) -> None:
+        """Train router model sub-menu."""
+        _print_section_header("Train Router Model", "Lightweight domain classifier (<5M params)")
+
+        options = [
+            {"label": "MLP Router (fast, ~100us inference)",
+             "detail": "Bag-of-embeddings → MLP → softmax"},
+            {"label": "Transformer Router (better quality, ~1ms)",
+             "detail": "Embedding → 2 transformer layers → classification"},
+        ]
+
+        choice = cli.choose("Router architecture:", options, allow_cancel=True)
+        if choice is None:
+            return
+
+        arch = "mlp" if choice == 0 else "transformer"
+        args = ["--arch", arch, "--generate-data"]
+
+        # Check if training data exists
+        data_path = Path("data/router_training_data.jsonl")
+        if data_path.exists():
+            if cli.confirm("Router training data exists. Regenerate?", default=False):
+                args.append("--generate-data")
+            else:
+                args = ["--arch", arch, "--data", str(data_path)]
+
+        self._run_script("train_router.py", args)
+        self._pause()
+
+    def _evaluate_router(self) -> None:
+        """Evaluate router accuracy."""
+        _print_section_header("Evaluate Router", "Test routing accuracy")
+
+        if _HAS_RICH:
+            _rich_console.print("  Running router evaluation on built-in test dataset...")
+            _rich_console.print("  Checks: accuracy, per-domain precision/recall/F1,")
+            _rich_console.print("  confusion matrix, confidence calibration")
+            _rich_console.print("")
+
+        try:
+            from cola_coder.features.router_evaluation import (
+                RouterEvaluator, create_test_dataset,
+            )
+            from cola_coder.features.domain_detector import classify
+
+            evaluator = RouterEvaluator()
+            test_data = create_test_dataset()
+
+            for sample in test_data:
+                predicted = classify(sample.prompt)
+                evaluator.record(
+                    predicted=predicted,
+                    actual=sample.expected_domain,
+                    confidence=0.8,
+                )
+
+            metrics = evaluator.compute_metrics()
+
+            cli.info("Overall accuracy", f"{metrics['accuracy']:.1%}")
+            cli.info("Macro F1", f"{metrics['macro_f1']:.3f}")
+            cli.info("Weighted F1", f"{metrics['weighted_f1']:.3f}")
+
+            if _HAS_RICH:
+                _rich_console.print("")
+                _rich_console.print("  [bold]Per-domain results:[/bold]")
+                for domain, stats in metrics.get("per_domain", {}).items():
+                    p = stats.get("precision", 0)
+                    r = stats.get("recall", 0)
+                    f1 = stats.get("f1", 0)
+                    _rich_console.print(
+                        f"    {domain:12s}  P={p:.2f}  R={r:.2f}  F1={f1:.2f}"
+                    )
+
+        except Exception as e:
+            cli.error(f"Evaluation failed: {e}")
+
+        self._pause()
+
+    def _specialist_registry_menu(self) -> None:
+        """View and manage specialist registry."""
+        _print_section_header("Specialist Registry", "Manage domain specialist checkpoints")
+
+        try:
+            from cola_coder.features.specialist_registry import SpecialistRegistry
+            registry = SpecialistRegistry(str(self.project_root / "configs" / "specialists.yaml"))
+            specialists = registry.list_specialists()
+
+            if not specialists:
+                cli.warn("No specialists registered yet.")
+                cli.dim("Train domain-specific models and register them here.")
+                cli.dim("Registry file: configs/specialists.yaml")
+            else:
+                for spec in specialists:
+                    exists = Path(spec.checkpoint).exists() if spec.checkpoint else False
+                    status = "[green]ready[/green]" if exists else "[red]missing[/red]"
+                    if _HAS_RICH:
+                        _rich_console.print(
+                            f"  {spec.domain:12s}  {status}  {spec.checkpoint}"
+                        )
+                    else:
+                        cli.print(f"  {spec.domain:12s}  {spec.checkpoint}")
+
+        except Exception as e:
+            cli.warn(f"Could not load registry: {e}")
+            cli.dim("Registry file: configs/specialists.yaml")
+
+        self._pause()
+
+    def _moe_config_menu(self) -> None:
+        """Configure MoE layer settings."""
+        _print_section_header("Mixture of Experts (MoE)", "Configure sparse expert layers")
+
+        if _HAS_RICH:
+            _rich_console.print("  [bold]What is MoE?[/bold]")
+            _rich_console.print(
+                "  Replaces standard FFN layers with multiple expert FFNs.\n"
+                "  A router sends each token to the top-k experts.\n"
+                "  Result: more parameters without proportionally more compute.\n"
+            )
+            _rich_console.print("  [bold]Current settings:[/bold]")
+            _rich_console.print("    Experts: 8  |  Top-K: 2  |  Capacity: 1.25")
+            _rich_console.print("    Aux loss weight: 0.01 (prevents expert collapse)")
+            _rich_console.print("")
+            _rich_console.print("  [bold]Status:[/bold]", end=" ")
+
+            try:
+                from cola_coder.features import moe_layer
+                if moe_layer.is_enabled():
+                    _rich_console.print("[green]Enabled[/green]")
+                else:
+                    _rich_console.print("[red]Disabled[/red] (toggle in Feature Toggles)")
+            except Exception:
+                _rich_console.print("[red]Disabled[/red]")
+
+            _rich_console.print("")
+            _rich_console.print("  [dim]MoE is experimental. Enable via Settings → Feature Toggles → Training → moe_layer[/dim]")
+            _rich_console.print("  [dim]When enabled, add to model config: moe_layers: [4, 8, 12][/dim]")
+
+        self._pause()
+
+    def _domain_detection_test(self) -> None:
+        """Test heuristic domain detection on sample code."""
+        _print_section_header("Domain Detection Test", "Test the heuristic classifier")
+
+        if _HAS_RICH:
+            _rich_console.print("  Testing domain detection on built-in samples...\n")
+
+        try:
+            from cola_coder.features.router_evaluation import create_test_dataset
+            from cola_coder.features.domain_detector import detect_domain
+
+            test_data = create_test_dataset()
+            correct = 0
+
+            for sample in test_data:
+                scores = detect_domain(sample.prompt)
+                predicted = scores[0].domain if scores else "unknown"
+                is_correct = predicted == sample.expected_domain
+                if is_correct:
+                    correct += 1
+
+                icon = "[green]✓[/green]" if is_correct else "[red]✗[/red]"
+                conf = f"{scores[0].confidence:.2f}" if scores else "0.00"
+
+                if _HAS_RICH:
+                    _rich_console.print(
+                        f"  {icon}  expected=[cyan]{sample.expected_domain:12s}[/cyan]"
+                        f"  predicted={predicted:12s}  conf={conf}"
+                    )
+                else:
+                    mark = "✓" if is_correct else "✗"
+                    cli.print(
+                        f"  {mark}  expected={sample.expected_domain:12s}"
+                        f"  predicted={predicted:12s}  conf={conf}"
+                    )
+
+            acc = correct / len(test_data) if test_data else 0
+            cli.info("Accuracy", f"{correct}/{len(test_data)} ({acc:.0%})")
+
+        except Exception as e:
+            cli.error(f"Detection test failed: {e}")
+
         self._pause()
 
     # ── 6. Tools & Utilities ─────────────────────────────────────────────
