@@ -560,6 +560,8 @@ class MasterMenu:
                  "detail": "PII, dedup, license, syntax — view available filter plugins"},
                 {"label": "Interactive Data Prep",
                  "detail": "scripts/prepare_data_interactive.py — guided data setup"},
+                {"label": "Prepare FIM Data",
+                 "detail": "scripts/prepare_fim_data.py — fill-in-the-middle training data"},
             ]
 
             choice = cli.choose("Select data operation:", options, allow_cancel=True)
@@ -594,6 +596,9 @@ class MasterMenu:
                 self._advanced_filters_info()
             elif choice == 10:
                 self._run_script("prepare_data_interactive.py")
+            elif choice == 11:
+                self._run_script("prepare_fim_data.py")
+                self._pause()
 
     def _prepare_data_menu(self) -> None:
         """Data preparation sub-menu with mode selection."""
@@ -770,6 +775,12 @@ class MasterMenu:
                  "detail": "scripts/train_reasoning.py — GRPO with thinking tokens"},
                 {"label": "VRAM Estimation",
                  "detail": "scripts/vram_estimate.py — estimate VRAM before training"},
+                {"label": "Learning Rate Finder",
+                 "detail": "scripts/find_lr.py — find optimal LR via range test"},
+                {"label": "Training Dashboard (TUI)",
+                 "detail": "scripts/training_dashboard.py — real-time Rich dashboard"},
+                {"label": "Auto-Eval History",
+                 "detail": "scripts/training_eval_history.py — view eval snapshots"},
             ]
 
             choice = cli.choose("Training operation:", options, allow_cancel=True)
@@ -786,6 +797,14 @@ class MasterMenu:
                 self._train_reasoning()
             elif choice == 4:
                 self._vram_estimate_menu()
+            elif choice == 5:
+                self._lr_finder_menu()
+            elif choice == 6:
+                self._run_script("training_dashboard.py")
+                self._pause()
+            elif choice == 7:
+                self._run_script("training_eval_history.py")
+                self._pause()
 
     def _train_size_menu(self, resume: bool = False) -> None:
         """Select model size and start training."""
@@ -953,6 +972,29 @@ class MasterMenu:
 
         self._pause()
 
+    def _lr_finder_menu(self) -> None:
+        """Learning rate finder."""
+        _print_section_header("Learning Rate Finder", "Smith's LR Range Test")
+
+        if _HAS_RICH:
+            _rich_console.print("  Sweeps learning rate from low to high, plotting loss vs LR.")
+            _rich_console.print("  Pick the LR where loss drops fastest (steepest descent).")
+            _rich_console.print("")
+
+        options = [
+            {"label": "Tiny   (50M)",   "detail": "configs/tiny.yaml"},
+            {"label": "Small  (125M)",  "detail": "configs/small.yaml"},
+            {"label": "Medium (350M)",  "detail": "configs/medium.yaml"},
+        ]
+
+        choice = cli.choose("Select model config:", options, allow_cancel=True)
+        if choice is None:
+            return
+
+        sizes = ["tiny", "small", "medium"]
+        self._run_script("find_lr.py", ["--config", f"configs/{sizes[choice]}.yaml"])
+        self._pause()
+
     # ── 4. Generate & Interact ────────────────────────────────────────────
 
     def generate_menu(self) -> None:
@@ -1033,6 +1075,16 @@ class MasterMenu:
                  "detail": "scripts/model_card.py — create HuggingFace-style model card"},
                 {"label": "Training Status",
                  "detail": "scripts/training_status.py — inspect logs, no GPU needed"},
+                {"label": "Smoke Test",
+                 "detail": "scripts/smoke_test.py — 8 quick validation checks (<30s)"},
+                {"label": "TypeScript Benchmark",
+                 "detail": "scripts/ts_benchmark.py — 50 TS-specific coding problems"},
+                {"label": "Regression Tests",
+                 "detail": "scripts/regression_test.py — track quality across checkpoints"},
+                {"label": "Quality Report",
+                 "detail": "scripts/quality_report.py — auto-generate markdown report"},
+                {"label": "Compare Models",
+                 "detail": "scripts/compare_models.py — side-by-side model comparison"},
             ]
 
             choice = cli.choose("Select evaluation:", options, allow_cancel=True)
@@ -1052,8 +1104,17 @@ class MasterMenu:
             elif choice == 4:
                 self._model_card_menu()
             elif choice == 5:
-                self._run_script("training_status.py")
-                self._pause()
+                self.training_status_menu()
+            elif choice == 6:
+                self._smoke_test_menu()
+            elif choice == 7:
+                self._ts_benchmark_menu()
+            elif choice == 8:
+                self._regression_test_menu()
+            elif choice == 9:
+                self._quality_report_menu()
+            elif choice == 10:
+                self._compare_models_menu()
 
     def _humaneval_menu(self) -> None:
         """HumanEval evaluation with checkpoint selection."""
@@ -1088,6 +1149,66 @@ class MasterMenu:
         self._run_script("model_card.py", ["--checkpoint", ckpt_path])
         self._pause()
 
+    def _smoke_test_menu(self) -> None:
+        """Quick smoke test for a checkpoint."""
+        _print_section_header("Smoke Test", "8 quick validation checks in <30 seconds")
+
+        if _HAS_RICH:
+            _rich_console.print("  Checks: token generation, syntax, perplexity, repetition,")
+            _rich_console.print("  diversity, special tokens, temperature sensitivity, code keywords")
+            _rich_console.print("")
+
+        ckpt_path = self._pick_checkpoint("Select checkpoint to smoke-test:")
+        if ckpt_path is None:
+            return
+
+        args = ["--checkpoint", ckpt_path]
+        if cli.confirm("Quick mode (fewer samples)?", default=True):
+            args.append("--quick")
+
+        self._run_script("smoke_test.py", args)
+        self._pause()
+
+    def _ts_benchmark_menu(self) -> None:
+        """TypeScript-specific benchmark."""
+        _print_section_header("TypeScript Benchmark", "50 TS-specific coding problems")
+
+        ckpt_path = self._pick_checkpoint("Select checkpoint to benchmark:")
+        if ckpt_path is None:
+            return
+
+        self._run_script("ts_benchmark.py", ["--checkpoint", ckpt_path])
+        self._pause()
+
+    def _regression_test_menu(self) -> None:
+        """Regression test suite."""
+        _print_section_header("Regression Tests", "Track quality across checkpoint versions")
+
+        ckpt_path = self._pick_checkpoint("Select checkpoint to test:")
+        if ckpt_path is None:
+            return
+
+        self._run_script("regression_test.py", ["--checkpoint", ckpt_path])
+        self._pause()
+
+    def _quality_report_menu(self) -> None:
+        """Generate quality report."""
+        _print_section_header("Quality Report", "Auto-generate markdown quality report")
+
+        ckpt_path = self._pick_checkpoint("Select checkpoint for report:")
+        if ckpt_path is None:
+            return
+
+        self._run_script("quality_report.py", ["--checkpoint", ckpt_path])
+        self._pause()
+
+    def _compare_models_menu(self) -> None:
+        """Side-by-side model comparison."""
+        _print_section_header("Compare Models", "Side-by-side comparison of two checkpoints")
+
+        self._run_script("compare_models.py")
+        self._pause()
+
     # ── 6. Tools & Utilities ─────────────────────────────────────────────
 
     def tools_menu(self) -> None:
@@ -1116,6 +1237,12 @@ class MasterMenu:
                  "detail": "scripts/test_type_reward.py — test GRPO reward functions"},
                 {"label": "Feature Toggles",
                  "detail": toggles_detail},
+                {"label": "Export Model (GGUF/Ollama/Quantize)",
+                 "detail": "scripts/export_model.py — export, quantize, create Modelfile"},
+                {"label": "Average Checkpoints",
+                 "detail": "scripts/average_checkpoints.py — uniform/EMA checkpoint merging"},
+                {"label": "Run Full Pipeline",
+                 "detail": "scripts/run_pipeline.py — tokenize→train→eval→export"},
             ]
 
             choice = cli.choose("Select tool:", options, allow_cancel=True)
@@ -1143,6 +1270,46 @@ class MasterMenu:
                 self._pause()
             elif choice == 5:
                 self._feature_toggles()
+            elif choice == 6:
+                self._run_script("export_model.py")
+                self._pause()
+            elif choice == 7:
+                self._run_script("average_checkpoints.py")
+                self._pause()
+            elif choice == 8:
+                self._pipeline_menu()
+
+    def _pipeline_menu(self) -> None:
+        """Full pipeline orchestrator."""
+        _print_section_header("Pipeline Orchestrator", "tokenize → train → eval → export")
+
+        if _HAS_RICH:
+            _rich_console.print("  Runs up to 6 stages: tokenizer, data_prep, training,")
+            _rich_console.print("  smoke_test, evaluation, export. Smart caching skips done stages.")
+            _rich_console.print("")
+
+        options = [
+            {"label": "Run All Stages",
+             "detail": "Full pipeline with smart caching"},
+            {"label": "Dry Run",
+             "detail": "Show what would run without executing"},
+            {"label": "Continue from Failure",
+             "detail": "Resume pipeline, skip failed stages"},
+        ]
+
+        choice = cli.choose("Pipeline mode:", options, allow_cancel=True)
+        if choice is None:
+            return
+
+        if choice == 0:
+            self._run_script("run_pipeline.py", ["--config", "configs/tiny.yaml"])
+        elif choice == 1:
+            self._run_script("run_pipeline.py", ["--config", "configs/tiny.yaml", "--dry-run"])
+        elif choice == 2:
+            self._run_script("run_pipeline.py", [
+                "--config", "configs/tiny.yaml", "--continue-on-failure",
+            ])
+        self._pause()
 
     def _gpu_status(self) -> None:
         """Show GPU info from torch and nvidia-smi."""
@@ -1268,7 +1435,23 @@ class MasterMenu:
         """Training status — reads logs, no GPU needed."""
         _print_section_header("Training Status", "Inspect training progress (no GPU needed)")
 
-        self._run_script("training_status.py")
+        options = [
+            {"label": "All Models",    "detail": "Show status for every model size"},
+            {"label": "Tiny   (50M)",  "detail": "configs/tiny.yaml checkpoints only"},
+            {"label": "Small  (125M)", "detail": "configs/small.yaml checkpoints only"},
+            {"label": "Medium (350M)", "detail": "configs/medium.yaml checkpoints only"},
+            {"label": "Large  (1B+)",  "detail": "configs/large.yaml checkpoints only"},
+        ]
+
+        choice = cli.choose("Which model?", options, allow_cancel=True)
+        if choice is None:
+            return
+
+        if choice == 0:
+            self._run_script("training_status.py")
+        else:
+            sizes = ["tiny", "small", "medium", "large"]
+            self._run_script("training_status.py", ["--size", sizes[choice - 1]])
         self._pause()
 
     # ── Dataset inspector ─────────────────────────────────────────────────

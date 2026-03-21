@@ -35,6 +35,8 @@ from ..data.dataset import create_dataloader
 from .checkpoint import save_checkpoint, load_checkpoint
 from .metrics import TrainingMetrics
 from .optimizer import create_optimizer, create_scheduler
+from .early_stopping import EarlyStopping
+from .auto_eval import AutoEvaluator
 
 
 def _setup_cuda_optimizations():
@@ -139,6 +141,12 @@ class Trainer:
         self.metrics = TrainingMetrics()
         self.metrics.set_max_steps(config.training.max_steps)
 
+        # Early stopping (disabled by default; enabled via train() kwarg)
+        self.early_stopping: EarlyStopping | None = None
+
+        # Auto-evaluator (optional; pass via train() kwarg)
+        self.auto_evaluator: AutoEvaluator | None = None
+
         # Resume from checkpoint if provided
         self.start_step = 0
         if resume_from:
@@ -147,14 +155,35 @@ class Trainer:
             )
             print(f"Resuming from step {self.start_step}")
 
-    def train(self, data_path: str, use_wandb: bool = False):
+    def train(
+        self,
+        data_path: str,
+        use_wandb: bool = False,
+        early_stopping: EarlyStopping | None = None,
+        val_loader=None,
+        val_check_every: int = 500,
+        auto_evaluator: AutoEvaluator | None = None,
+        tokenizer=None,
+    ):
         """Run the full training loop.
 
         Args:
             data_path: Path to preprocessed training data (.npy file).
             use_wandb: Whether to log to Weights & Biases.
+            early_stopping: Optional EarlyStopping instance. When provided, the
+                trainer evaluates on val_loader every val_check_every steps and
+                calls early_stopping.step(val_loss). Training stops if the stopper
+                signals should_stop. Pass None (default) to disable.
+            val_loader: DataLoader for validation set. Required if early_stopping
+                is provided. If None and early_stopping is set, training loss is
+                used as the monitored metric instead.
+            val_check_every: How often (in optimizer steps) to evaluate on the
+                validation set. Only used when early_stopping is set.
         """
         cfg = self.config.training
+        self.early_stopping = early_stopping
+        if auto_evaluator is not None:
+            self.auto_evaluator = auto_evaluator
 
         # Initialize logging
         if use_wandb:
@@ -304,6 +333,64 @@ class Trainer:
                 # Use cli.print so Rich markup renders (tqdm.write strips it)
                 cli.print(log_msg)
 
+            # Early stopping check
+            if (
+                self.early_stopping is not None
+                and step > 0
+                and step % val_check_every == 0
+            ):
+                if val_loader is not None:
+                    val_loss = self._evaluate(val_loader, use_amp, amp_dtype)
+                    metric_label = "val_loss"
+                    metric_value = val_loss
+                else:
+                    # Fall back to training loss as the monitored metric
+                    metric_value = avg_loss
+                    metric_label = "train_loss (no val_loader)"
+
+                cli.print(
+                    f"[dim]EarlyStopping check — {metric_label}: "
+                    f"[bold]{metric_value:.4f}[/bold][/dim]"
+                )
+                if self.early_stopping.step(metric_value, model=self.model, step=step):
+                    cli.print(
+                        f"[bold yellow]Early stopping triggered at step {step}. "
+                        f"Best metric: {self.early_stopping.best_score:.4f} "
+                        f"at step {self.early_stopping.best_step}.[/bold yellow]"
+                    )
+                    # Save final checkpoint before stopping
+                    save_checkpoint(
+                        model=self.model,
+                        optimizer=self.optimizer,
+                        scheduler=self.scheduler,
+                        step=step,
+                        loss=avg_loss,
+                        config={"model": vars(self.config.model),
+                                "training": vars(self.config.training)},
+                        output_dir=self.config.checkpoint.output_dir,
+                        max_checkpoints=self.config.checkpoint.max_checkpoints,
+                        manifest_info=None,
+                    )
+                    self.metrics.finish()
+                    return
+
+            # Auto-eval check (optional — only runs at configured intervals)
+            if (
+                self.auto_evaluator is not None
+                and tokenizer is not None
+                and self.auto_evaluator.should_eval(step)
+            ):
+                self.auto_evaluator.evaluate(
+                    self.model, tokenizer, step, device=self.device
+                )
+                cli.print(self.auto_evaluator.format_report())
+                if self.auto_evaluator.check_regression(self.auto_evaluator.history[-1]):
+                    cli.warn(
+                        f"Auto-eval regression detected at step {step}! "
+                        f"pass@1 {self.auto_evaluator.history[-1].pass_at_1:.1%} vs "
+                        f"best {self.auto_evaluator.best_score:.1%}"
+                    )
+
             # Save checkpoint
             if step > 0 and step % self.config.checkpoint.save_every == 0:
                 loss_history[f"step_{step}"] = round(avg_loss, 4)
@@ -363,6 +450,39 @@ class Trainer:
 
         self.metrics.finish()
         print("\nTraining complete!")
+
+    def _evaluate(self, val_loader, use_amp: bool, amp_dtype) -> float:
+        """Compute average loss on a validation DataLoader.
+
+        Runs in eval mode (no gradients, no dropout) and averages the loss
+        over all batches in val_loader.
+
+        Args:
+            val_loader: DataLoader with validation data.
+            use_amp: Whether mixed precision is enabled.
+            amp_dtype: Mixed precision dtype (bfloat16 or float16).
+
+        Returns:
+            Average validation loss (scalar float).
+        """
+        self.model.eval()
+        total_loss = 0.0
+        num_batches = 0
+
+        with torch.no_grad():
+            for batch in val_loader:
+                input_ids = batch["input_ids"].to(self.device, non_blocking=True)
+                with autocast(
+                    device_type=self.device,
+                    dtype=amp_dtype,
+                    enabled=use_amp,
+                ):
+                    loss = self.model.compute_loss(input_ids)
+                total_loss += loss.item()
+                num_batches += 1
+
+        self.model.train()
+        return total_loss / max(num_batches, 1)
 
     def _infinite_dataloader(self, dataloader):
         """Create an infinite iterator that loops over the dataloader.
