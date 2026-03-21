@@ -9,6 +9,7 @@ Usage:
     python scripts/model_card.py --checkpoint checkpoints/tiny/step_00017000
     python scripts/model_card.py --output MODEL_CARD.md   # custom output path
     python scripts/model_card.py --checkpoint path/to/ckpt --output path/to/output.md
+    python scripts/model_card.py --benchmarks eval_results.json  # add benchmark section
 
 Output:
     MODEL_CARD.md in the project root (or the path you provide via --output).
@@ -17,6 +18,9 @@ The generated card includes:
     - Model name, size, and version
     - Architecture details (from config embedded in metadata.json)
     - Training details: step, loss, tokens seen, data source, hardware
+    - Benchmark results section (if --benchmarks provided or eval_results.json found)
+    - Training data summary
+    - Hardware requirements section
     - How to run the model (copy-pasteable run.py command)
     - Known limitations of small code-generation models
     - License
@@ -115,6 +119,7 @@ def _build_fallback_card(
     metadata: dict,
     manifest: dict,
     project_root: Path,
+    benchmarks_path: Path | None = None,
 ) -> str:
     """Build a model card as a markdown string without using ModelCardGenerator.
 
@@ -235,7 +240,7 @@ LLaMA / Mistral architecture.
 | Hardware | {hardware_str} |
 | Checkpoint | `{checkpoint_dir}` |
 
-## How to Use
+{_build_benchmark_section(benchmarks_path)}{_build_data_summary_section(manifest, training_cfg)}{_build_hardware_section(manifest, training_cfg)}## How to Use
 
 Make sure you have the Cola-Coder package installed and a trained tokenizer:
 
@@ -301,6 +306,128 @@ Apache License 2.0 — see [LICENSE](LICENSE) for details.
 # Main
 # ---------------------------------------------------------------------------
 
+def _build_benchmark_section(benchmarks_path: Path | None) -> str:
+    """Build a markdown Benchmark Results section from an eval_results.json file.
+
+    Returns an empty string if no benchmark data is available.
+    """
+    if benchmarks_path is None or not benchmarks_path.exists():
+        return ""
+
+    try:
+        data = json.loads(benchmarks_path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+
+    results = data.get("results", [])
+    if not results:
+        return ""
+
+    lines = ["## Benchmark Results\n"]
+    lines.append("| Benchmark | Status | Duration |")
+    lines.append("|-----------|--------|----------|")
+    for r in results:
+        name = r.get("name", "?")
+        if r.get("skipped"):
+            status = "Skipped"
+        elif r.get("passed"):
+            status = "PASS"
+        else:
+            status = "FAIL"
+        dur = r.get("duration_sec", 0)
+        dur_str = f"{dur:.1f}s" if dur else "—"
+        lines.append(f"| {name} | {status} | {dur_str} |")
+
+    summary = (
+        f"\n*Ran {data.get('n_passed', 0)} / "
+        f"{data.get('n_passed', 0) + data.get('n_failed', 0)} benchmarks passing.  "
+        f"Total evaluation time: {data.get('total_sec', 0):.1f}s.*"
+    )
+    lines.append(summary)
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def _build_data_summary_section(manifest: dict, training_cfg: dict) -> str:
+    """Build a markdown Training Data Summary section."""
+    prog = manifest.get("progress", {})
+    source = manifest.get("source", {})
+    dataset = source.get("dataset", "bigcode/starcoderdata")
+    languages = source.get("languages", ["Python", "TypeScript", "JavaScript"])
+    tokens_seen = prog.get("tokens_seen") or training_cfg.get("tokens_seen", "unknown")
+    filter_mode = source.get("filter_mode", "conservative")
+
+    if isinstance(tokens_seen, int):
+        tokens_str = f"{tokens_seen / 1e9:.2f}B" if tokens_seen >= 1e9 else f"{tokens_seen / 1e6:.0f}M"
+    else:
+        tokens_str = str(tokens_seen)
+
+    lang_str = ", ".join(languages) if languages else "Python, TypeScript, JavaScript"
+
+    return f"""\
+## Training Data Summary
+
+| Field | Value |
+|-------|-------|
+| Dataset | [{dataset}](https://huggingface.co/datasets/{dataset}) |
+| Languages | {lang_str} |
+| Tokens seen | {tokens_str} |
+| Quality filter | {filter_mode} (conservative ≈ 48% rejection, strict ≈ 65%) |
+| Quality scoring | Continuous 0.0–1.0 weights; high-quality code trains harder |
+| Data source | Open-source code repositories (GitHub via StarCoder pipeline) |
+
+> **Note**: The dataset is gated — requires HuggingFace account with accepted
+> [terms of service](https://huggingface.co/datasets/bigcode/starcoderdata) and
+> `HF_TOKEN` environment variable.
+
+"""
+
+
+def _build_hardware_section(manifest: dict, training_cfg: dict) -> str:
+    """Build a markdown Hardware Requirements section."""
+    hw = manifest.get("hardware", {})
+    gpu_name = hw.get("gpu", "NVIDIA RTX 4080")
+    vram_gb = hw.get("vram_gb", 16)
+    precision = training_cfg.get("precision", "bf16")
+    batch_size = training_cfg.get("batch_size", "?")
+    grad_accum = training_cfg.get("gradient_accumulation", "?")
+    max_seq_len = training_cfg.get("max_seq_len", 2048)
+
+    # Inference VRAM estimate: model weights + KV cache
+    # Very rough: 2 bytes/param for bf16; KV cache scales with seq_len
+    if isinstance(vram_gb, (int, float)):
+        inference_vram = max(2, int(vram_gb / 4))
+        inference_vram_str = f"~{inference_vram} GB (bf16 weights + KV cache)"
+    else:
+        inference_vram_str = "depends on model size"
+
+    return f"""\
+## Hardware Requirements
+
+### Training
+
+| Field | Value |
+|-------|-------|
+| Training GPU | {gpu_name} ({vram_gb} GB VRAM) |
+| Precision | {precision} |
+| Batch size | {batch_size} |
+| Gradient accumulation | {grad_accum} |
+| Sequence length | {max_seq_len} tokens |
+
+> **Minimum for training**: GPU with at least 6 GB VRAM for the tiny (50M) config.
+> Gradient checkpointing is required for medium (350M) on 16 GB VRAM.
+
+### Inference
+
+| Field | Value |
+|-------|-------|
+| Minimum VRAM | {inference_vram_str} |
+| Supported precisions | bf16 (RTX 4080+), fp16 (RTX 3080) |
+| CPU inference | Supported but slow (no KV-cache optimisation) |
+
+"""
+
+
 def main() -> None:
     from cola_coder.cli import cli
 
@@ -323,6 +450,12 @@ def main() -> None:
         type=str,
         default=None,
         help="Output path for MODEL_CARD.md. Default: MODEL_CARD.md in project root.",
+    )
+    parser.add_argument(
+        "--benchmarks",
+        type=str,
+        default=None,
+        help="Path to eval_results.json from run_eval_suite.py (adds benchmark section).",
     )
     args = parser.parse_args()
 
@@ -510,6 +643,17 @@ def main() -> None:
     except Exception as exc:
         cli.warn(f"ModelCardGenerator failed ({exc}) — falling back to built-in template.")
 
+    # ── Resolve benchmarks file ───────────────────────────────────────────
+    benchmarks_path: Path | None = None
+    if args.benchmarks:
+        benchmarks_path = Path(args.benchmarks)
+    else:
+        # Auto-detect eval_results.json in project root
+        auto_bench = project_root / "eval_results.json"
+        if auto_bench.exists():
+            benchmarks_path = auto_bench
+            cli.dim(f"Auto-detected benchmark results: {auto_bench}")
+
     # ── Fallback: build card from template ────────────────────────────────
     if card_content is None:
         card_content = _build_fallback_card(
@@ -517,6 +661,7 @@ def main() -> None:
             metadata=metadata,
             manifest=manifest,
             project_root=project_root,
+            benchmarks_path=benchmarks_path,
         )
 
     # ── Write output ──────────────────────────────────────────────────────

@@ -6,7 +6,6 @@ All model loading and generation is mocked — no GPU required.
 from __future__ import annotations
 
 import json
-import math
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 

@@ -89,6 +89,52 @@ def validate_config(config, check_files: bool = True, check_vram: bool = True) -
             "Use a multiple of 64 for optimal GPU kernel utilization",
         ))
 
+    # hidden_dim should equal round(4 * dim * 2/3) to nearest multiple of 256
+    # (SwiGLU canonical sizing used by LLaMA/Mistral)
+    raw_hidden = int(m.dim * 4 * 2 / 3)
+    canonical_hidden = ((raw_hidden + 255) // 256) * 256
+    actual_hidden = m.ffn_hidden_dim
+    if actual_hidden != canonical_hidden:
+        issues.append(ValidationIssue(
+            "warning", "model.ffn_hidden_dim",
+            f"ffn_hidden_dim ({actual_hidden}) differs from LLaMA canonical "
+            f"round(4*dim*2/3) rounded to 256 = {canonical_hidden}",
+            f"Set ffn_dim_multiplier so hidden_dim = {canonical_hidden} "
+            f"(multiplier ≈ {canonical_hidden / m.dim:.4f})",
+        ))
+
+    # n_kv_heads must divide n_heads (already checked above for remainder != 0,
+    # but that covers n_heads % n_kv_heads; this ensures the inverse relationship)
+    if m.n_kv_heads > m.n_heads:
+        issues.append(ValidationIssue(
+            "error", "model.n_kv_heads",
+            f"n_kv_heads ({m.n_kv_heads}) cannot exceed n_heads ({m.n_heads})",
+            "n_kv_heads must be <= n_heads for Grouped Query Attention",
+        ))
+
+    # vocab_size should be a multiple of 64 for efficient embedding table layout
+    if m.vocab_size % 64 != 0:
+        issues.append(ValidationIssue(
+            "warning", "model.vocab_size",
+            f"vocab_size ({m.vocab_size}) is not a multiple of 64",
+            "Pad vocab_size to the next multiple of 64 for GPU efficiency "
+            f"(e.g. {((m.vocab_size + 63) // 64) * 64})",
+        ))
+
+    # max_seq_len should be a power of 2 (flash-attention and RoPE work best with powers of 2)
+    seq_len = m.max_seq_len
+    if seq_len > 0 and (seq_len & (seq_len - 1)) != 0:
+        # Find next power of 2
+        next_pow2 = 1
+        while next_pow2 < seq_len:
+            next_pow2 <<= 1
+        issues.append(ValidationIssue(
+            "warning", "model.max_seq_len",
+            f"max_seq_len ({seq_len}) is not a power of 2",
+            f"Use a power of 2 for optimal attention kernel performance "
+            f"(e.g. {next_pow2 // 2} or {next_pow2})",
+        ))
+
     # --- Training config ---
 
     if t.batch_size <= 0:

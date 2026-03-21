@@ -1,29 +1,39 @@
 """Code Complexity Scorer: measure code complexity for quality filtering.
 
-Computes complexity metrics like cyclomatic complexity, nesting depth,
-and line count. Used for:
+Computes complexity metrics like cyclomatic complexity, cognitive complexity,
+nesting depth, function length, and line count.  Used for:
 - Data quality filtering (exclude trivially simple or overly complex code)
 - Curriculum learning (train on easy examples first, then harder ones)
 - Benchmark difficulty estimation
 
 For a TS dev: like ESLint's complexity rule but as a standalone scorer
 that categorizes code into difficulty buckets.
+
+Enhancements over v1:
+- cognitive_complexity: penalises nested branching more than flat branching
+- nesting_depth_per_function: per-function max nesting
+- avg_function_length: mean lines per function
+- max_function_length: longest function in lines
+- Works for both Python and TypeScript/JavaScript
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 FEATURE_ENABLED = True
 
 
 def is_enabled() -> bool:
+    """Return True if the complexity scorer feature is active."""
     return FEATURE_ENABLED
 
 
 @dataclass
 class ComplexityMetrics:
     """Complexity metrics for a piece of code."""
+
     cyclomatic: int = 1  # Cyclomatic complexity (decision points + 1)
+    cognitive_complexity: int = 0  # Cognitive complexity (nesting-penalised)
     max_nesting: int = 0  # Maximum nesting depth
     line_count: int = 0
     function_count: int = 0
@@ -31,6 +41,9 @@ class ComplexityMetrics:
     import_count: int = 0
     comment_ratio: float = 0.0  # Fraction of lines that are comments
     avg_line_length: float = 0.0
+    avg_function_length: float = 0.0  # Mean lines per function
+    max_function_length: int = 0  # Longest function in lines
+    nesting_depth_per_function: list[int] = field(default_factory=list)
 
     @property
     def difficulty_bucket(self) -> int:
@@ -98,8 +111,11 @@ class ComplexityMetrics:
     def summary(self) -> str:
         return (
             f"Complexity: cyclomatic={self.cyclomatic}, "
+            f"cognitive={self.cognitive_complexity}, "
             f"nesting={self.max_nesting}, lines={self.line_count}, "
             f"functions={self.function_count}, classes={self.class_count}, "
+            f"avg_fn_len={self.avg_function_length:.1f}, "
+            f"max_fn_len={self.max_function_length}, "
             f"difficulty={self.difficulty_bucket}/5"
         )
 
@@ -144,6 +160,18 @@ class ComplexityScorer:
         non_empty = [ln for ln in lines if ln.strip()]
         if non_empty:
             metrics.avg_line_length = sum(len(ln) for ln in non_empty) / len(non_empty)
+
+        # Cognitive complexity
+        metrics.cognitive_complexity = self._cognitive_complexity(code, language)
+
+        # Per-function length stats
+        fn_lengths = self._function_lengths(code, language)
+        if fn_lengths:
+            metrics.avg_function_length = sum(fn_lengths) / len(fn_lengths)
+            metrics.max_function_length = max(fn_lengths)
+
+        # Per-function nesting depth
+        metrics.nesting_depth_per_function = self._nesting_per_function(code, language)
 
         return metrics
 
@@ -234,6 +262,145 @@ class ComplexityScorer:
                     comment_count += 1
 
         return comment_count / len(lines)
+
+    # ------------------------------------------------------------------
+    # New metrics (v2)
+    # ------------------------------------------------------------------
+
+    def _cognitive_complexity(self, code: str, language: str) -> int:
+        """Compute cognitive complexity — nesting penalises more than flat branches.
+
+        Each decision point adds (1 + current_nesting_level) to the score,
+        making deeply nested branches cost more than flat ones.
+        """
+        score = 0
+        if language == "python":
+            branch_re = re.compile(
+                r"^\s*(if|elif|for|while|except|with|match)\b", re.MULTILINE
+            )
+            for line in code.splitlines():
+                stripped = line.lstrip()
+                indent = len(line) - len(stripped)
+                nesting = indent // 4
+                if branch_re.match(line):
+                    score += 1 + nesting
+                # logical operators add flat +1
+                score += len(re.findall(r"\band\b|\bor\b", stripped))
+        else:
+            # JS/TS: track brace depth as nesting proxy
+            depth = 0
+            flat_branch_re = re.compile(
+                r"\b(if|else\s+if|for|while|catch|switch)\b"
+            )
+            for line in code.splitlines():
+                matches = flat_branch_re.findall(line)
+                for _ in matches:
+                    score += 1 + depth
+                score += len(re.findall(r"&&|\|\|", line))
+                depth += line.count("{") - line.count("}")
+                depth = max(0, depth)
+        return score
+
+    def _function_lengths(self, code: str, language: str) -> list[int]:
+        """Return a list of line-counts for each function/method body."""
+        lines = code.splitlines()
+        lengths: list[int] = []
+
+        if language == "python":
+            fn_start_re = re.compile(r"^\s*(?:async\s+)?def\s+\w+")
+            starts: list[int] = [i for i, ln in enumerate(lines) if fn_start_re.match(ln)]
+            for idx, start in enumerate(starts):
+                end = starts[idx + 1] if idx + 1 < len(starts) else len(lines)
+                # Find actual body end by looking for de-indent
+                base_indent = len(lines[start]) - len(lines[start].lstrip())
+                body_end = start + 1
+                for j in range(start + 1, end):
+                    ln = lines[j]
+                    if not ln.strip():
+                        continue
+                    ln_indent = len(ln) - len(ln.lstrip())
+                    if ln_indent <= base_indent and fn_start_re.match(ln):
+                        break
+                    body_end = j + 1
+                lengths.append(body_end - start)
+        else:
+            # JS/TS: count brace-delimited function bodies
+            fn_re = re.compile(
+                r"(?:function\s+\w+|(?:const|let|var)\s+\w+\s*=\s*(?:async\s+)?[\w(])"
+            )
+            i = 0
+            while i < len(lines):
+                if fn_re.search(lines[i]):
+                    start = i
+                    depth = 0
+                    found_open = False
+                    j = i
+                    while j < len(lines):
+                        depth += lines[j].count("{") - lines[j].count("}")
+                        if "{" in lines[j]:
+                            found_open = True
+                        if found_open and depth <= 0:
+                            lengths.append(j - start + 1)
+                            i = j
+                            break
+                        j += 1
+                    else:
+                        lengths.append(len(lines) - start)
+                i += 1
+        return lengths
+
+    def _nesting_per_function(self, code: str, language: str) -> list[int]:
+        """Return max nesting depth for each detected function."""
+        lines = code.splitlines()
+        depths: list[int] = []
+
+        if language == "python":
+            fn_start_re = re.compile(r"^\s*(?:async\s+)?def\s+\w+")
+            starts: list[int] = [i for i, ln in enumerate(lines) if fn_start_re.match(ln)]
+            for idx, start in enumerate(starts):
+                end = starts[idx + 1] if idx + 1 < len(starts) else len(lines)
+                base_indent = len(lines[start]) - len(lines[start].lstrip())
+                max_d = 0
+                for ln in lines[start + 1 : end]:
+                    if not ln.strip():
+                        continue
+                    ind = len(ln) - len(ln.lstrip())
+                    rel = max(0, (ind - base_indent) // 4)
+                    max_d = max(max_d, rel)
+                depths.append(max_d)
+        else:
+            fn_re = re.compile(
+                r"(?:function\s+\w+|(?:const|let|var)\s+\w+\s*=\s*(?:async\s+)?[\w(])"
+            )
+            i = 0
+            while i < len(lines):
+                if fn_re.search(lines[i]):
+                    depth = 0
+                    max_d = 0
+                    found_open = False
+                    base_depth: int | None = None
+                    j = i
+                    while j < len(lines):
+                        opens = lines[j].count("{")
+                        closes = lines[j].count("}")
+                        if opens > 0 and not found_open:
+                            found_open = True
+                            depth += opens - closes
+                            base_depth = depth
+                        else:
+                            depth += opens - closes
+                        if found_open and base_depth is not None:
+                            rel = max(0, depth - base_depth)
+                            max_d = max(max_d, rel)
+                        if found_open and depth <= 0:
+                            depths.append(max_d)
+                            i = j
+                            break
+                        j += 1
+                    else:
+                        depths.append(max_d)
+                i += 1
+        return depths
 
     def filter_by_complexity(
         self,
