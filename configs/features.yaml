@@ -126,3 +126,11 @@ features:
   pipeline_status_dashboard: true
   quick_actions: true
   recent_runs_history: true
+
+  # ---------------------------------------------------------------------------
+  # Context & Documentation (optional, off by default)
+  # ---------------------------------------------------------------------------
+  doc_scraper: false
+  repo_context: false
+  context_training: false
+  doc_fetcher: false

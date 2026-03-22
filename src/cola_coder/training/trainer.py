@@ -147,6 +147,10 @@ class Trainer:
         # Auto-evaluator (optional; pass via train() kwarg)
         self.auto_evaluator: AutoEvaluator | None = None
 
+        # Step callback (optional; used by background trainer for throttling/status)
+        # Signature: callback(step: int, loss: float) -> None
+        self._step_callback: callable | None = None
+
         # Resume from checkpoint if provided
         self.start_step = 0
         if resume_from:
@@ -419,6 +423,10 @@ class Trainer:
                         "max_steps": cfg.max_steps,
                     },
                 )
+
+            # Post-step callback (background trainer uses this for throttling)
+            if self._step_callback is not None:
+                self._step_callback(step, avg_loss)
 
         # Final checkpoint
         loss_history[f"step_{cfg.max_steps}"] = round(avg_loss, 4)

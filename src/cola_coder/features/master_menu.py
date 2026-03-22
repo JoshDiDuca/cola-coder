@@ -676,6 +676,8 @@ class MasterMenu:
                  "detail": "Run quality scorer on collected data"},
                 {"label": "Combine Datasets",
                  "detail": "scripts/combine_datasets.py — merge multiple datasets"},
+                {"label": "Combine Datasets (weighted)",
+                 "detail": "Interactive weighted dataset mixing with per-dataset ratios"},
                 {"label": "Inspect Dataset",
                  "detail": "Browse random training data samples"},
                 {"label": "Generate Instructions",
@@ -690,6 +692,12 @@ class MasterMenu:
                  "detail": "scripts/prepare_data_interactive.py — guided data setup"},
                 {"label": "Prepare FIM Data",
                  "detail": "scripts/prepare_fim_data.py — fill-in-the-middle training data"},
+                {"label": "Scrape Framework Docs",
+                 "detail": "scripts/scrape_docs.py — scrape React/Next.js/Zod/TypeORM docs"},
+                {"label": "Prepare Docs Training Data",
+                 "detail": "scripts/prepare_docs_data.py — tokenize scraped docs"},
+                {"label": "Prepare Context Training Data",
+                 "detail": "scripts/prepare_repo_context_data.py — repo context pairs"},
             ]
 
             choice = cli.choose("Select data operation:", options, allow_cancel=True)
@@ -709,23 +717,33 @@ class MasterMenu:
                 self._run_script("combine_datasets.py")
                 self._pause()
             elif choice == 5:
+                self._combine_datasets_menu()
+            elif choice == 6:
                 self._inspect_dataset()
                 self._pause()
-            elif choice == 6:
+            elif choice == 7:
                 self._run_script("generate_instructions.py")
                 self._pause()
-            elif choice == 7:
+            elif choice == 8:
                 self._run_script("train_quality_classifier.py")
                 self._pause()
-            elif choice == 8:
+            elif choice == 9:
                 self._run_script("score_repos.py")
                 self._pause()
-            elif choice == 9:
-                self._advanced_filters_info()
             elif choice == 10:
-                self._run_script("prepare_data_interactive.py")
+                self._advanced_filters_info()
             elif choice == 11:
+                self._run_script("prepare_data_interactive.py")
+            elif choice == 12:
                 self._run_script("prepare_fim_data.py")
+                self._pause()
+            elif choice == 13:
+                self._scrape_docs_menu()
+            elif choice == 14:
+                self._run_script("prepare_docs_data.py")
+                self._pause()
+            elif choice == 15:
+                self._run_script("prepare_repo_context_data.py")
                 self._pause()
 
     def _prepare_data_menu(self) -> None:
@@ -885,6 +903,113 @@ class MasterMenu:
 
         self._pause()
 
+    def _scrape_docs_menu(self) -> None:
+        """Scrape framework documentation with interactive framework/version selection."""
+        _print_section_header("Scrape Framework Docs", "Download docs for training data")
+
+        options = [
+            {"label": "React",   "detail": "reactjs.org / react.dev"},
+            {"label": "Next.js", "detail": "nextjs.org"},
+            {"label": "Zod",     "detail": "zod.dev"},
+            {"label": "TypeORM", "detail": "typeorm.io"},
+            {"label": "All",     "detail": "Scrape all four frameworks"},
+        ]
+
+        choice = cli.choose("Select framework:", options, allow_cancel=True)
+        if choice is None:
+            return
+
+        frameworks = ["react", "nextjs", "zod", "typeorm", "all"]
+        framework = frameworks[choice]
+
+        try:
+            version = input("Enter version (or 'latest'): ").strip() or "latest"
+        except (EOFError, KeyboardInterrupt):
+            cli.warn("Cancelled.")
+            return
+
+        args = ["--framework", framework, "--version", version]
+        self._run_script("scrape_docs.py", args)
+        self._pause()
+
+    def _combine_datasets_menu(self) -> None:
+        """Interactive weighted dataset mixing."""
+        import numpy as np
+
+        _print_section_header("Combine Datasets (weighted)", "Mix datasets with custom sampling ratios")
+
+        data_dir = self._resolve_path(self.storage.data_dir) / "processed"
+        npy_files = sorted(data_dir.glob("*.npy")) if data_dir.exists() else []
+
+        if not npy_files:
+            cli.error(f"No .npy datasets found in {data_dir}")
+            cli.dim("Run a data preparation step first.")
+            self._pause()
+            return
+
+        # Multi-select datasets
+        file_options = []
+        for f in npy_files:
+            try:
+                arr = np.load(str(f), mmap_mode="r")
+                size_str = f"{f.stat().st_size / 1e6:.1f} MB"
+                shape_str = f"{arr.shape[0]:,} x {arr.shape[1]}" if arr.ndim == 2 else str(arr.shape)
+                file_options.append({"label": f.stem, "detail": f"{shape_str}  •  {size_str}"})
+            except Exception:
+                file_options.append({"label": f.stem, "detail": str(f)})
+
+        cli.info("Datasets found", str(len(npy_files)))
+
+        # Sequential selection with weights
+        selected_paths: list[str] = []
+        selected_weights: list[float] = []
+
+        for i, opt in enumerate(file_options):
+            try:
+                include = input(
+                    f"Include '{opt['label']}' ({opt['detail']})? [y/N]: "
+                ).strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                cli.warn("Cancelled.")
+                return
+            if include == "y":
+                try:
+                    weight_str = input(f"  Weight for '{opt['label']}' (e.g. 0.8): ").strip()
+                    weight = float(weight_str) if weight_str else 1.0
+                except (ValueError, EOFError, KeyboardInterrupt):
+                    weight = 1.0
+                selected_paths.append(str(npy_files[i]))
+                selected_weights.append(weight)
+
+        if not selected_paths:
+            cli.warn("No datasets selected.")
+            self._pause()
+            return
+
+        # Normalise weights so they display nicely, but pass raw (script handles it)
+        total = sum(selected_weights)
+        cli.info("Selected", str(len(selected_paths)))
+        for path, w in zip(selected_paths, selected_weights):
+            cli.info("  weight", f"{w / total:.1%}  —  {Path(path).stem}")
+
+        # Build --datasets args with :weight suffix
+        datasets_args: list[str] = []
+        for path, w in zip(selected_paths, selected_weights):
+            datasets_args.append(f"{path}:{w}")
+
+        try:
+            output = input("Output path (leave blank for auto): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            cli.warn("Cancelled.")
+            return
+
+        args = ["--datasets"] + datasets_args
+        if output:
+            args += ["--output", output]
+
+        self._run_script("combine_datasets.py", args)
+        self._pause()
+
     # ── 3. Training ───────────────────────────────────────────────────────
 
     def training_menu(self) -> None:
@@ -897,6 +1022,8 @@ class MasterMenu:
                  "detail": "tiny (50M) / small (125M) / medium (350M) / large (1B+)"},
                 {"label": "Resume Training",
                  "detail": "Auto-detect latest checkpoint and continue"},
+                {"label": "Background Training",
+                 "detail": "Automated overnight/idle training with GPU throttling"},
                 {"label": "Train Tokenizer",
                  "detail": "scripts/train_tokenizer.py — BPE tokenizer from scratch"},
                 {"label": "Train Reasoning (GRPO)",
@@ -920,17 +1047,19 @@ class MasterMenu:
             elif choice == 1:
                 self._resume_training_menu()
             elif choice == 2:
-                self._train_tokenizer()
+                self._background_training_menu()
             elif choice == 3:
-                self._train_reasoning()
+                self._train_tokenizer()
             elif choice == 4:
-                self._vram_estimate_menu()
+                self._train_reasoning()
             elif choice == 5:
-                self._lr_finder_menu()
+                self._vram_estimate_menu()
             elif choice == 6:
+                self._lr_finder_menu()
+            elif choice == 7:
                 self._run_script("training_dashboard.py")
                 self._pause()
-            elif choice == 7:
+            elif choice == 8:
                 self._run_script("training_eval_history.py")
                 self._pause()
 
@@ -1047,6 +1176,404 @@ class MasterMenu:
 
         self._run_script("train.py", ["--config", config, "--resume", ckpt_path])
         self._pause()
+
+    # ── Background Training ────────────────────────────────────────────
+
+    def _background_training_menu(self) -> None:
+        """Background training sub-menu with GPU throttling."""
+        while True:
+            _print_section_header(
+                "Background Training",
+                "Automated training with GPU clock/power throttling",
+            )
+
+            # Check if background training is running for any model
+            is_running, status = self._check_any_background_running()
+
+            if is_running and status:
+                cli.info("Status", "[green]RUNNING[/green]")
+                cli.info("Config", status.get("config_path", "?"))
+                cli.info("Step", f"{status.get('step', '?'):,}")
+                cli.info("Loss", f"{status.get('loss', 0):.4f}")
+                cli.info(
+                    "GPU",
+                    f"{status.get('gpu_clock_mhz', '?')} MHz / "
+                    f"{status.get('gpu_power_watts', '?')}W",
+                )
+                cli.info("GPU Util (other)", f"{status.get('gpu_util', 0):.0f}%")
+                cli.info("Sleep", f"{status.get('sleep_ms', 0)} ms/step")
+                elapsed = status.get("elapsed_seconds", 0)
+                h, m = int(elapsed) // 3600, (int(elapsed) % 3600) // 60
+                cli.info("Elapsed", f"{h}h {m}m")
+
+            options = []
+            if not is_running:
+                options.append({
+                    "label": "Start Background Training",
+                    "detail": "Select model, configure GPU throttle, launch in background",
+                })
+            else:
+                options.append({
+                    "label": "Stop Background Training",
+                    "detail": "Graceful shutdown — saves checkpoint before stopping",
+                })
+            options.append({
+                "label": "Background Training Status",
+                "detail": "View current or last training session details",
+            })
+            options.append({
+                "label": "Schedule Overnight Training",
+                "detail": "Set up Windows Task Scheduler for automatic training",
+            })
+            options.append({
+                "label": "Remove Overnight Schedule",
+                "detail": "Unregister the Windows scheduled task",
+            })
+
+            choice = cli.choose("Background training:", options, allow_cancel=True)
+            if choice is None:
+                return
+
+            if not is_running:
+                # Start / Status / Schedule / Remove
+                if choice == 0:
+                    self._start_background_training()
+                elif choice == 1:
+                    self._show_background_status()
+                elif choice == 2:
+                    self._schedule_overnight_training()
+                elif choice == 3:
+                    self._remove_overnight_schedule()
+            else:
+                # Stop / Status / Schedule / Remove
+                if choice == 0:
+                    self._stop_background_training()
+                elif choice == 1:
+                    self._show_background_status()
+                elif choice == 2:
+                    self._schedule_overnight_training()
+                elif choice == 3:
+                    self._remove_overnight_schedule()
+
+    def _start_background_training(self) -> None:
+        """Configure and launch background training."""
+        _print_section_header("Start Background Training", "Configure and launch")
+
+        # 1. Pick model size
+        options = [
+            {"label": "Tiny   (50M params)",
+             "detail": "~3.6 GB VRAM  |  configs/tiny.yaml"},
+            {"label": "Small  (125M params)",
+             "detail": "~6.5 GB VRAM  |  configs/small.yaml"},
+            {"label": "Medium (299M params)",
+             "detail": "~14 GB VRAM   |  configs/medium.yaml"},
+            {"label": "4080 Max (455M params)",
+             "detail": "~14.1 GB VRAM |  configs/4080_max.yaml"},
+            {"label": "Large  (1B+ params)",
+             "detail": "~24 GB VRAM   |  configs/large.yaml"},
+        ]
+        choice = cli.choose("Select model to train:", options, allow_cancel=True)
+        if choice is None:
+            return
+
+        sizes = ["tiny", "small", "medium", "4080_max", "large"]
+        size = sizes[choice]
+        config_path = f"configs/{size}.yaml"
+
+        # 2. Duration mode
+        dur_options = [
+            {"label": "8 hours (overnight)",
+             "detail": "Good for sleeping — about 8 hours of training"},
+            {"label": "Until morning (stop at 7:00 AM)",
+             "detail": "Trains until 7:00 AM then saves and stops"},
+            {"label": "Run indefinitely",
+             "detail": "Runs until max_steps or manually stopped"},
+            {"label": "Custom duration",
+             "detail": "Specify hours (e.g. 4h, 2h30m)"},
+        ]
+        dur_choice = cli.choose("Training duration:", dur_options, allow_cancel=True)
+        if dur_choice is None:
+            return
+
+        duration_arg = None
+        stop_at_arg = None
+        if dur_choice == 0:
+            duration_arg = "8h"
+        elif dur_choice == 1:
+            stop_at_arg = "07:00"
+        elif dur_choice == 2:
+            pass  # No limit
+        elif dur_choice == 3:
+            duration_arg = input("  Enter duration (e.g. 4h, 2h30m): ").strip()
+            if not duration_arg:
+                return
+
+        # 3. GPU throttle level
+        gpu_options = [
+            {"label": "Light throttle (1800 MHz / 250W)",
+             "detail": "~75% speed, desktop should be smooth"},
+            {"label": "Medium throttle (1500 MHz / 200W) (Recommended)",
+             "detail": "~55% speed, YouTube/browsing very smooth"},
+            {"label": "Heavy throttle (1200 MHz / 175W)",
+             "detail": "~40% speed, can game while training"},
+            {"label": "No throttle (full speed)",
+             "detail": "100% speed, desktop may lag during steps"},
+        ]
+        gpu_choice = cli.choose("GPU throttle level:", gpu_options, allow_cancel=True)
+        if gpu_choice is None:
+            return
+
+        clock_power = [
+            (1800, 250), (1500, 200), (1200, 175), (0, 0),
+        ]
+        gpu_clock, gpu_power = clock_power[gpu_choice]
+
+        # 4. Show summary and confirm
+        cli.rule("Summary")
+        cli.info("Model", f"{size} ({config_path})")
+        if duration_arg:
+            cli.info("Duration", duration_arg)
+        elif stop_at_arg:
+            cli.info("Stop at", stop_at_arg)
+        else:
+            cli.info("Duration", "Until max_steps or manual stop")
+        if gpu_clock > 0:
+            cli.info("GPU Throttle", f"{gpu_clock} MHz / {gpu_power}W")
+        else:
+            cli.info("GPU Throttle", "None (full speed)")
+        cli.info("Save every", "1000 steps")
+        cli.print("")
+
+        if not cli.confirm("Launch background training?"):
+            return
+
+        # 5. Build command and launch as detached process
+        cmd = [
+            str(self.venv_python), "scripts/background_train.py",
+            "--config", config_path,
+            "--save-every", "1000",
+        ]
+        if duration_arg:
+            cmd.extend(["--duration", duration_arg])
+        if stop_at_arg:
+            cmd.extend(["--stop-at", stop_at_arg])
+        if gpu_clock > 0:
+            cmd.extend(["--gpu-clock", str(gpu_clock)])
+            cmd.extend(["--gpu-power", str(gpu_power)])
+        else:
+            cmd.append("--no-throttle")
+
+        try:
+            # Windows: CREATE_NO_WINDOW + DETACHED_PROCESS
+            # This lets the background process survive after the menu exits
+            CREATE_NO_WINDOW = 0x08000000
+            DETACHED_PROCESS = 0x00000008
+
+            log_path = self.project_root / "logs" / "background_train.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(self.project_root),
+                stdout=open(str(log_path), "a"),
+                stderr=subprocess.STDOUT,
+                creationflags=CREATE_NO_WINDOW | DETACHED_PROCESS,
+            )
+
+            cli.success(f"Background training launched! (PID: {proc.pid})")
+            cli.info("Log file", str(log_path))
+            cli.print("\n  You can close this menu — training continues in background.")
+            cli.print("  Use 'Background Training → Stop' to stop gracefully.")
+            cli.print("  Use 'Background Training → Status' to check progress.\n")
+        except Exception as e:
+            cli.error(f"Failed to launch background training: {e}")
+
+        self._pause()
+
+    def _stop_background_training(self) -> None:
+        """Send stop signal to running background training."""
+        from cola_coder.features.background_trainer import send_stop_signal
+
+        # Find the checkpoint dir that has an active lock
+        for size in self._MODEL_ORDER:
+            ckpt_dir = self._resolve_path(self.storage.checkpoints_dir) / size
+            lock_file = ckpt_dir / ".background_train.lock"
+            if lock_file.exists():
+                success = send_stop_signal(str(ckpt_dir))
+                if success:
+                    cli.success(
+                        f"Stop signal sent to {size} training. "
+                        "It will save a checkpoint and exit within one step."
+                    )
+                else:
+                    cli.error("Failed to send stop signal.")
+                self._pause()
+                return
+
+        # Also check default ./checkpoints/
+        default_dir = self._resolve_path("checkpoints")
+        for size_dir in default_dir.iterdir() if default_dir.exists() else []:
+            lock_file = size_dir / ".background_train.lock"
+            if lock_file.exists():
+                success = send_stop_signal(str(size_dir))
+                if success:
+                    cli.success("Stop signal sent. Training will save and exit.")
+                else:
+                    cli.error("Failed to send stop signal.")
+                self._pause()
+                return
+
+        cli.warn("No running background training found.")
+        self._pause()
+
+    def _show_background_status(self) -> None:
+        """Show background training status."""
+        from cola_coder.features.background_trainer import (
+            is_background_running, read_background_status,
+        )
+
+        _print_section_header("Background Training Status", "Current session details")
+
+        found_any = False
+        for size in self._MODEL_ORDER:
+            ckpt_dir = self._resolve_path(self.storage.checkpoints_dir) / size
+            running, status = is_background_running(str(ckpt_dir))
+            if running and status:
+                found_any = True
+                cli.info("Model", size)
+                cli.info("Status", "[green]RUNNING[/green]")
+                cli.info("Step", f"{status.get('step', '?'):,}")
+                cli.info("Loss", f"{status.get('loss', 0):.4f}")
+                cli.info("Tokens/sec", f"{status.get('tokens_per_sec', 0):,.0f}")
+                cli.info(
+                    "GPU",
+                    f"{status.get('gpu_clock_mhz', '?')} MHz / "
+                    f"{status.get('gpu_power_watts', '?')}W",
+                )
+                cli.info("GPU Util (other)", f"{status.get('gpu_util', 0):.0f}%")
+                cli.info("Sleep", f"{status.get('sleep_ms', 0)} ms/step")
+                elapsed = status.get("elapsed_seconds", 0)
+                h, m = int(elapsed) // 3600, (int(elapsed) % 3600) // 60
+                cli.info("Elapsed", f"{h}h {m}m")
+                cli.info("Updated", status.get("updated", "?"))
+            elif not running:
+                # Check for stale status file (last session info)
+                last_status = read_background_status(str(ckpt_dir))
+                if last_status:
+                    found_any = True
+                    cli.info("Model", size)
+                    cli.info("Status", "[dim]STOPPED[/dim]")
+                    cli.info("Last step", f"{last_status.get('step', '?'):,}")
+                    cli.info("Last loss", f"{last_status.get('loss', 0):.4f}")
+
+        if not found_any:
+            cli.dim("No background training sessions found.")
+
+        # Also show log file info
+        log_path = self.project_root / "logs" / "background_train.log"
+        if log_path.exists():
+            size_mb = log_path.stat().st_size / (1024 * 1024)
+            cli.info("Log file", f"{log_path} ({size_mb:.1f} MB)")
+
+        self._pause()
+
+    def _schedule_overnight_training(self) -> None:
+        """Register a Windows Task Scheduler task for overnight training."""
+        from cola_coder.features.background_scheduler import WindowsTaskScheduler
+
+        _print_section_header(
+            "Schedule Overnight Training",
+            "Register a daily task in Windows Task Scheduler",
+        )
+
+        scheduler = WindowsTaskScheduler(self.project_root)
+
+        if scheduler.is_task_registered():
+            cli.warn(
+                f"Task '{scheduler.task_name}' already exists. "
+                "It will be overwritten."
+            )
+
+        # Pick model
+        options = [
+            {"label": size, "detail": f"configs/{size}.yaml"}
+            for size in self._MODEL_ORDER
+        ]
+        choice = cli.choose("Select model for overnight training:", options,
+                            allow_cancel=True)
+        if choice is None:
+            return
+
+        size = self._MODEL_ORDER[choice]
+        config_path = f"configs/{size}.yaml"
+
+        # Show defaults and confirm
+        cli.rule("Overnight Schedule")
+        cli.info("Model", size)
+        cli.info("Start time", "10:00 PM (22:00)")
+        cli.info("Stop time", "7:00 AM (07:00)")
+        cli.info("GPU", "1500 MHz / 200W")
+        cli.info("Save every", "1000 steps")
+        cli.print("")
+
+        if not cli.confirm("Register this schedule?"):
+            return
+
+        success, msg = scheduler.create_overnight_task(
+            config_path=config_path,
+            start_time="22:00",
+            stop_time="07:00",
+            gpu_clock=1500,
+            gpu_power=200,
+        )
+
+        if success:
+            cli.success(msg)
+        else:
+            cli.error(msg)
+
+        self._pause()
+
+    def _remove_overnight_schedule(self) -> None:
+        """Remove the Windows Task Scheduler overnight training task."""
+        from cola_coder.features.background_scheduler import WindowsTaskScheduler
+
+        scheduler = WindowsTaskScheduler(self.project_root)
+
+        if not scheduler.is_task_registered():
+            cli.dim("No overnight training task is registered.")
+            self._pause()
+            return
+
+        if cli.confirm("Remove the overnight training schedule?"):
+            success, msg = scheduler.remove_task()
+            if success:
+                cli.success(msg)
+            else:
+                cli.error(msg)
+
+        self._pause()
+
+    def _check_any_background_running(self) -> tuple[bool, dict | None]:
+        """Check if background training is running for any model."""
+        from cola_coder.features.background_trainer import is_background_running
+
+        for size in self._MODEL_ORDER:
+            ckpt_dir = self._resolve_path(self.storage.checkpoints_dir) / size
+            running, status = is_background_running(str(ckpt_dir))
+            if running:
+                return True, status
+
+        # Also check default ./checkpoints/
+        default_dir = self._resolve_path("checkpoints")
+        if default_dir.exists():
+            for size_dir in default_dir.iterdir():
+                if size_dir.is_dir():
+                    running, status = is_background_running(str(size_dir))
+                    if running:
+                        return True, status
+
+        return False, None
 
     def _train_tokenizer(self) -> None:
         """Train BPE tokenizer."""
@@ -1165,6 +1692,8 @@ class MasterMenu:
                  "detail": "scripts/run.py — auto-detects latest checkpoint + config"},
                 {"label": "Interactive Generation",
                  "detail": "scripts/generate.py — select checkpoint manually"},
+                {"label": "Context-Aware Generation",
+                 "detail": "scripts/generate.py --repo <dir> — uses repo context for generation"},
                 {"label": "Serve API",
                  "detail": "scripts/serve.py — FastAPI inference server"},
                 {"label": "Nano Benchmark",
@@ -1181,8 +1710,10 @@ class MasterMenu:
             elif choice == 1:
                 self._interactive_generate()
             elif choice == 2:
-                self._serve_api()
+                self._context_aware_generate()
             elif choice == 3:
+                self._serve_api()
+            elif choice == 4:
                 self._nano_benchmark()
 
     def _interactive_generate(self) -> None:
@@ -1223,6 +1754,33 @@ class MasterMenu:
             return
 
         self._run_script("nano_benchmark.py", ["--checkpoint", ckpt_path])
+        self._pause()
+
+    def _context_aware_generate(self) -> None:
+        """Context-aware generation using a repository directory."""
+        _print_section_header("Context-Aware Generation", "Generate with repo context")
+
+        ckpt_path = self._pick_checkpoint("Select checkpoint for generation:")
+        if ckpt_path is None:
+            return
+
+        try:
+            repo_dir = input("Repository directory path: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            cli.warn("Cancelled.")
+            return
+
+        if not repo_dir:
+            cli.error("No repository path provided.")
+            self._pause()
+            return
+
+        config = self._config_for_checkpoint(ckpt_path)
+        self._run_script("generate.py", [
+            "--checkpoint", ckpt_path,
+            "--config", config,
+            "--repo", repo_dir,
+        ])
         self._pause()
 
     # ── 5. Evaluate & Benchmark ───────────────────────────────────────────
@@ -1713,6 +2271,8 @@ class MasterMenu:
                  "detail": "scripts/average_checkpoints.py — uniform/EMA checkpoint merging"},
                 {"label": "Run Full Pipeline",
                  "detail": "scripts/run_pipeline.py — tokenize→train→eval→export"},
+                {"label": "Scan Repository",
+                 "detail": "Scan a source repo and display structure/stats"},
             ]
 
             choice = cli.choose("Select tool:", options, allow_cancel=True)
@@ -1748,6 +2308,8 @@ class MasterMenu:
                 self._pause()
             elif choice == 8:
                 self._pipeline_menu()
+            elif choice == 9:
+                self._scan_repository()
 
     def _pipeline_menu(self) -> None:
         """Full pipeline orchestrator."""
@@ -1779,6 +2341,66 @@ class MasterMenu:
             self._run_script("run_pipeline.py", [
                 "--config", "configs/tiny.yaml", "--continue-on-failure",
             ])
+        self._pause()
+
+    def _scan_repository(self) -> None:
+        """Scan a repository directory and display file structure and stats."""
+        _print_section_header("Scan Repository", "Analyse a source code repository")
+
+        try:
+            repo_path = input("Repository path: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            cli.warn("Cancelled.")
+            return
+
+        if not repo_path:
+            cli.error("No path provided.")
+            self._pause()
+            return
+
+        repo = Path(repo_path)
+        if not repo.exists():
+            cli.error(f"Path does not exist: {repo_path}")
+            self._pause()
+            return
+
+        cli.info("Scanning", str(repo))
+
+        ext_counts: dict[str, int] = {}
+        total_files = 0
+        total_lines = 0
+
+        for p in repo.rglob("*"):
+            if not p.is_file():
+                continue
+            # Skip hidden dirs and common noise
+            parts = p.parts
+            if any(part.startswith(".") or part in ("node_modules", "__pycache__", ".venv")
+                   for part in parts):
+                continue
+            total_files += 1
+            suffix = p.suffix.lower() or "(no ext)"
+            ext_counts[suffix] = ext_counts.get(suffix, 0) + 1
+            try:
+                total_lines += sum(1 for _ in p.open(encoding="utf-8", errors="ignore"))
+            except OSError:
+                pass
+
+        cli.info("Total files", str(total_files))
+        cli.info("Total lines", f"{total_lines:,}")
+
+        if ext_counts:
+            top = sorted(ext_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+            if _HAS_RICH:
+                _rich_console.print("\n  [bold]Top file types:[/bold]")
+                for ext, count in top:
+                    bar = "█" * min(count, 40)
+                    _rich_console.print(f"    {ext:12s}  {count:5d}  [dim]{bar}[/dim]")
+            else:
+                cli.print("\nTop file types:")
+                for ext, count in top:
+                    cli.print(f"  {ext:12s}  {count:5d}")
+
         self._pause()
 
     def _gpu_status(self) -> None:

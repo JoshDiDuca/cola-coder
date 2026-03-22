@@ -686,6 +686,100 @@ def run_pipeline(settings: dict, output_path: str):
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _parse_weighted_datasets(dataset_args: list[str]) -> tuple[list[str], list[float]]:
+    """Parse ``path:weight`` entries from --datasets CLI arg.
+
+    Each element may be ``path`` (weight defaults to 1.0) or ``path:weight``
+    (weight is a positive float).  Returns ``(paths, weights)`` where weights
+    are the raw values before normalisation — callers are responsible for
+    normalising if required.
+    """
+    paths: list[str] = []
+    weights: list[float] = []
+    for entry in dataset_args:
+        if ":" in entry:
+            # Split on the *last* colon so Windows absolute paths (C:\...) work.
+            colon_pos = entry.rfind(":")
+            path_part = entry[:colon_pos]
+            weight_part = entry[colon_pos + 1:]
+            try:
+                w = float(weight_part)
+                if w <= 0:
+                    raise ValueError("weight must be positive")
+            except ValueError:
+                console.print(
+                    f"[yellow]Warning:[/yellow] invalid weight '{weight_part}' "
+                    f"for '{path_part}' — defaulting to 1.0"
+                )
+                w = 1.0
+            paths.append(path_part)
+            weights.append(w)
+        else:
+            paths.append(entry)
+            weights.append(1.0)
+    return paths, weights
+
+
+def _run_weighted_mix(paths: list[str], weights: list[float], output_path: str) -> None:
+    """Load .npy datasets and mix them proportionally to their weights.
+
+    Uses numpy random choice (with replacement) to sample rows from each
+    dataset according to normalised weights, then concatenates and saves the
+    result.  The total row count is the sum of all input row counts.
+    """
+    import numpy as np
+
+    total_weight = sum(weights)
+    norm_weights = [w / total_weight for w in weights]
+
+    arrays = []
+    for p in paths:
+        arr = np.load(p, mmap_mode="r")
+        if arr.ndim != 2:
+            console.print(f"[red]Error:[/red] {p} is not a 2-D array — skipping")
+            continue
+        arrays.append(arr)
+
+    if not arrays:
+        console.print("[red]No valid datasets loaded. Aborting.[/red]")
+        sys.exit(1)
+
+    # Total number of rows in the output == sum of all input row counts.
+    total_rows = sum(a.shape[0] for a in arrays)
+
+    # Compute how many rows to sample from each dataset.
+    row_counts = [max(1, round(total_rows * w)) for w in norm_weights]
+    # Adjust last dataset to hit exact total.
+    row_counts[-1] = total_rows - sum(row_counts[:-1])
+
+    console.print(f"\n  [bold]Weighted mixing:[/bold]  {total_rows:,} total rows")
+    for p, arr, w, n in zip(paths, arrays, norm_weights, row_counts):
+        console.print(
+            f"    {Path(p).stem:<30}  weight={w:.1%}  "
+            f"sample {n:,} / {arr.shape[0]:,} rows"
+        )
+
+    rng = np.random.default_rng(seed=42)
+    parts = []
+    for arr, n in zip(arrays, row_counts):
+        idx = rng.choice(arr.shape[0], size=n, replace=(n > arr.shape[0]))
+        parts.append(np.array(arr[idx]))
+
+    mixed = np.concatenate(parts, axis=0)
+    # Shuffle the concatenated result.
+    shuffle_idx = rng.permutation(mixed.shape[0])
+    mixed = mixed[shuffle_idx]
+
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    np.save(str(out), mixed)
+
+    console.print(
+        f"\n  [green]Done.[/green]  Saved {mixed.shape[0]:,} x {mixed.shape[1]} "
+        f"to [cyan]{out.resolve()}[/cyan]"
+    )
+
+
 def main():
     storage = get_storage_config()
 
@@ -710,8 +804,48 @@ def main():
         default=None,
         help="Output path for combined dataset (default: auto-generated).",
     )
+    parser.add_argument(
+        "--datasets",
+        nargs="+",
+        default=None,
+        metavar="PATH[:WEIGHT]",
+        help=(
+            "Non-interactive weighted mix.  Provide two or more dataset paths, "
+            "each optionally suffixed with :weight (e.g. data/code.npy:0.8 "
+            "data/docs.npy:0.2).  Weights are normalised automatically.  "
+            "Bypasses the interactive TUI."
+        ),
+    )
     args = parser.parse_args()
 
+    # ── Non-interactive weighted mix (--datasets supplied) ────────────────
+    if args.datasets:
+        if len(args.datasets) < 1:
+            console.print("[red]Error:[/red] --datasets requires at least one path.")
+            sys.exit(1)
+
+        paths, weights = _parse_weighted_datasets(args.datasets)
+
+        # Validate files exist
+        missing = [p for p in paths if not Path(p).exists()]
+        if missing:
+            for m in missing:
+                console.print(f"[red]Error:[/red] file not found: {m}")
+            sys.exit(1)
+
+        # Auto-generate output path if not provided
+        if args.output:
+            output_path = args.output
+        else:
+            stems = [Path(p).stem for p in paths]
+            combined_name = "_".join(stems) if len(stems) <= 3 else f"combined_{len(stems)}ds"
+            output_path = str(Path(args.data_dir) / f"{combined_name}_weighted.npy")
+
+        _draw_header()
+        _run_weighted_mix(paths, weights, output_path)
+        return
+
+    # ── Interactive TUI flow ───────────────────────────────────────────────
     try:
         settings = run_menu(args.data_dir, args.tokenizer)
 
