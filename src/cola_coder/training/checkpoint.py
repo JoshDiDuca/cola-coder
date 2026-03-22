@@ -203,7 +203,17 @@ def load_checkpoint(
 
         # Restore RNG state for reproducibility
         if "rng_state" in training_state:
-            torch.random.set_rng_state(training_state["rng_state"])
+            rng_state = training_state["rng_state"]
+            # Handle compatibility: ensure rng_state is a ByteTensor
+            # (checkpoints from different PyTorch versions may have different types)
+            if not isinstance(rng_state, torch.ByteTensor):
+                try:
+                    rng_state = torch.ByteTensor(rng_state)
+                except (TypeError, ValueError) as e:
+                    print(f"Warning: Could not restore RNG state (type mismatch): {e}")
+                    rng_state = None
+            if rng_state is not None:
+                torch.random.set_rng_state(rng_state)
 
     print(f"Loaded checkpoint at step {step}")
     return step

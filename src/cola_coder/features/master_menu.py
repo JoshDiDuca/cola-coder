@@ -1137,23 +1137,32 @@ class MasterMenu:
         sizes = ["tiny", "small", "medium", "large"]
         found = []
         for size in sizes:
-            ckpt_dir = self._resolve_path(self.storage.checkpoints_dir) / size
-            if ckpt_dir.exists():
-                latest = ckpt_dir / "latest"
-                if latest.exists():
-                    try:
-                        detail = latest.read_text().strip()
-                    except Exception:
-                        detail = str(latest)
-                    found.append({"label": f"{size}/latest", "detail": detail, "size": size})
-                else:
-                    step_dirs = sorted(ckpt_dir.glob("step_*"))
-                    if step_dirs:
-                        found.append({
-                            "label": f"{size}/{step_dirs[-1].name}",
-                            "detail": str(step_dirs[-1]),
-                            "size": size,
-                        })
+
+            dirs_to_scan: list[Path] = []
+            storage_dir = self._resolve_path(self.storage.checkpoints_dir) / size
+            default_dir = self._resolve_path("checkpoints") / size
+            dirs_to_scan.append(storage_dir)
+            if default_dir.resolve() != storage_dir.resolve():
+                dirs_to_scan.append(default_dir)
+
+                for ckpt_dir in dirs_to_scan:
+                    if ckpt_dir.exists():
+                        latest = ckpt_dir / "latest"
+                        if latest.exists():
+                            try:
+                                detail = latest.read_text().strip()
+                            except Exception:
+                                detail = str(latest)
+                            found.append({"label": f"{size}/latest", "detail": detail, "size": size, "path": ckpt_dir})
+                        else:
+                            step_dirs = sorted(ckpt_dir.glob("step_*"))
+                            if step_dirs:
+                                found.append({
+                                    "label": f"{size}/{step_dirs[-1].name}",
+                                    "detail": str(step_dirs[-1]),
+                                    "size": size,
+                                    "path": ckpt_dir
+                                })
 
         if not found:
             cli.error("No checkpoints found. Start a fresh training run first.")
@@ -1169,7 +1178,7 @@ class MasterMenu:
         selected = found[choice]
         config = f"configs/{selected['size']}.yaml"
         ckpt_path = (
-            str(self._resolve_path(self.storage.checkpoints_dir) / selected["size"] / "latest")
+            str(self._resolve_path(selected["path"] / "latest"))
             if "latest" in selected["label"]
             else selected["detail"]
         )
