@@ -158,6 +158,10 @@ activemq-data/
 # SageMath parsed files
 *.sage.py
 
+TODO.md
+.pipeline_state_tiny.json
+.pipeline_state_small.json
+
 # Environments
 .env
 .envrc
