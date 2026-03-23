@@ -82,7 +82,7 @@ def main() -> None:
             sys.exit(1)
         gen.generate_from_files(str(source_dir), args.output)
     elif args.synthetic:
-        gen.generate_synthetic(args.output, num_per_domain=500)
+        gen.generate_synthetic(args.output, samples_per_domain=500)
     else:
         cli.error("Specify --source, --source-dir, or --synthetic")
         sys.exit(1)

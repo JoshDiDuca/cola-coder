@@ -236,7 +236,7 @@ def generate_router_data(
         return gen.generate_from_files(source_dir, output)
     else:
         # Generate synthetic data for bootstrap
-        return gen.generate_synthetic(output, num_per_domain=500)
+        return gen.generate_synthetic(output, samples_per_domain=500)
 
 
 # ---------------------------------------------------------------------------
