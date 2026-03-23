@@ -1,8 +1,8 @@
-# Cola-Coder Tiny
+# Cola-Coder Small
 
-**Version:** tiny  
+**Version:** small  
 **License:** Apache 2.0  
-**Generated:** 2026-03-20 14:57 UTC
+**Generated:** 2026-03-23 19:35 UTC
 
 ## Model Information
 
@@ -18,17 +18,18 @@
 | Field | Value |
 |-------|-------|
 | Dataset | bigcode/starcoderdata |
-| Epochs | 0 |
-| Learning Rate | 0.0003 |
-| Batch Size | 16 |
-| Hardware | unknown |
-| Training Time | 20,000 steps |
+| Epochs | 1 |
+| Learning Rate | 0.0006 |
+| Batch Size | 12 |
+| Hardware | NVIDIA GeForce RTX 4080 SUPER (16.0 GB VRAM) |
+| Training Time | 100,000 steps |
 
 ## Performance
 
 | Metric | Value | Dataset |
 |--------|-------|---------|
-| Training loss (final) | 1.5011 | — |
+| Training loss (final) | 0.986 | — |
+| Best training loss | 0.986 | — |
 
 ## Limitations
 
