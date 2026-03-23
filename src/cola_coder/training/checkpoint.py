@@ -204,13 +204,15 @@ def load_checkpoint(
         # Restore RNG state for reproducibility
         if "rng_state" in training_state:
             rng_state = training_state["rng_state"]
-            # Handle compatibility: ensure rng_state is a ByteTensor
-            # (checkpoints from different PyTorch versions may have different types)
-            if not isinstance(rng_state, torch.ByteTensor):
+            # set_rng_state requires a CPU ByteTensor, but map_location=device
+            # may have loaded it onto GPU — move it back to CPU
+            if isinstance(rng_state, torch.Tensor):
+                rng_state = rng_state.cpu().to(torch.uint8)
+            else:
                 try:
                     rng_state = torch.ByteTensor(rng_state)
                 except (TypeError, ValueError) as e:
-                    print(f"Warning: Could not restore RNG state (type mismatch): {e}")
+                    print(f"Warning: Could not restore RNG state: {e}")
                     rng_state = None
             if rng_state is not None:
                 torch.random.set_rng_state(rng_state)

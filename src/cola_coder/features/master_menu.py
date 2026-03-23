@@ -725,11 +725,9 @@ class MasterMenu:
                 self._run_script("generate_instructions.py")
                 self._pause()
             elif choice == 8:
-                self._run_script("train_quality_classifier.py")
-                self._pause()
+                self._train_quality_classifier_menu()
             elif choice == 9:
-                self._run_script("score_repos.py")
-                self._pause()
+                self._score_repos_menu()
             elif choice == 10:
                 self._advanced_filters_info()
             elif choice == 11:
@@ -786,6 +784,33 @@ class MasterMenu:
 
         self._pause()
 
+    def _score_repos_menu(self) -> None:
+        """Prompt for a repo path then run score_repos.py."""
+        repo_path = input("Repository/directory path to score: ").strip()
+        if not repo_path:
+            cli.warn("No path entered — cancelled.")
+            return
+        args = [repo_path]
+        if Path(repo_path).is_dir():
+            args.append("--all")
+        self._run_script("score_repos.py", args)
+        self._pause()
+
+    def _train_quality_classifier_menu(self) -> None:
+        """Pick a subcommand then run train_quality_classifier.py."""
+        options = [
+            {"label": "demo",     "detail": "Quick demo of the heuristic scorer (no deps)"},
+            {"label": "annotate", "detail": "Score code samples with an LLM (needs ANTHROPIC_API_KEY)"},
+            {"label": "train",    "detail": "Fine-tune a small classifier on scored labels"},
+            {"label": "evaluate", "detail": "Evaluate a trained classifier"},
+        ]
+        choice = cli.choose("Select command:", options, allow_cancel=True)
+        if choice is None:
+            return
+        subcommands = ["demo", "annotate", "train", "evaluate"]
+        self._run_script("train_quality_classifier.py", [subcommands[choice]])
+        self._pause()
+
     def _score_quality_menu(self) -> None:
         """Score code quality sub-menu."""
         _print_section_header("Score Code Quality", "Evaluate and rank collected data")
@@ -802,11 +827,9 @@ class MasterMenu:
             return
 
         if choice == 0:
-            self._run_script("score_repos.py")
+            self._score_repos_menu()
         elif choice == 1:
-            self._run_script("train_quality_classifier.py")
-
-        self._pause()
+            self._train_quality_classifier_menu()
 
     def _software_heritage_info(self) -> None:
         """Show info about Software Heritage data source."""
@@ -1131,13 +1154,14 @@ class MasterMenu:
         self._pause()
 
     def _resume_training_menu(self) -> None:
-        """Auto-detect latest checkpoint and resume."""
-        _print_section_header("Resume Training", "Continue from latest checkpoint")
+        """Select a checkpoint to resume training from."""
+        _print_section_header("Resume Training", "Continue from a checkpoint")
 
-        sizes = ["tiny", "small", "medium", "large"]
+        sizes = ["tiny", "small", "medium", "large", "4080_max"]
         found = []
-        for size in sizes:
+        seen_paths: set[str] = set()
 
+        for size in sizes:
             dirs_to_scan: list[Path] = []
             storage_dir = self._resolve_path(self.storage.checkpoints_dir) / size
             default_dir = self._resolve_path("checkpoints") / size
@@ -1145,24 +1169,50 @@ class MasterMenu:
             if default_dir.resolve() != storage_dir.resolve():
                 dirs_to_scan.append(default_dir)
 
-                for ckpt_dir in dirs_to_scan:
-                    if ckpt_dir.exists():
-                        latest = ckpt_dir / "latest"
-                        if latest.exists():
+            for ckpt_dir in dirs_to_scan:
+                if not ckpt_dir.exists():
+                    continue
+
+                # Add "latest" shortcut if it exists
+                latest = ckpt_dir / "latest"
+                if latest.exists():
+                    resolved = str(latest.resolve())
+                    if resolved not in seen_paths:
+                        seen_paths.add(resolved)
+                        try:
+                            detail = latest.read_text().strip()
+                        except Exception:
+                            detail = str(latest)
+                        found.append({
+                            "label": f"{size}/latest",
+                            "detail": detail,
+                            "size": size,
+                            "path": str(latest),
+                        })
+
+                # Add individual step checkpoints (newest first)
+                step_dirs = sorted(ckpt_dir.glob("step_*"), reverse=True)
+                for step_dir in step_dirs:
+                    resolved = str(step_dir.resolve())
+                    if resolved not in seen_paths:
+                        seen_paths.add(resolved)
+                        # Read step from metadata if available
+                        meta_file = step_dir / "metadata.json"
+                        if meta_file.exists():
                             try:
-                                detail = latest.read_text().strip()
+                                meta = json.loads(meta_file.read_text())
+                                loss = meta.get("loss", "?")
+                                detail = f"step {meta.get('step', '?')}, loss: {loss}"
                             except Exception:
-                                detail = str(latest)
-                            found.append({"label": f"{size}/latest", "detail": detail, "size": size, "path": ckpt_dir})
+                                detail = str(step_dir)
                         else:
-                            step_dirs = sorted(ckpt_dir.glob("step_*"))
-                            if step_dirs:
-                                found.append({
-                                    "label": f"{size}/{step_dirs[-1].name}",
-                                    "detail": str(step_dirs[-1]),
-                                    "size": size,
-                                    "path": ckpt_dir
-                                })
+                            detail = str(step_dir)
+                        found.append({
+                            "label": f"{size}/{step_dir.name}",
+                            "detail": detail,
+                            "size": size,
+                            "path": str(step_dir),
+                        })
 
         if not found:
             cli.error("No checkpoints found. Start a fresh training run first.")
@@ -1177,13 +1227,9 @@ class MasterMenu:
 
         selected = found[choice]
         config = f"configs/{selected['size']}.yaml"
-        ckpt_path = (
-            str(self._resolve_path(selected["path"] / "latest"))
-            if "latest" in selected["label"]
-            else selected["detail"]
+        self._run_script(
+            "train.py", ["--config", config, "--resume", selected["path"]]
         )
-
-        self._run_script("train.py", ["--config", config, "--resume", ckpt_path])
         self._pause()
 
     # ── Background Training ────────────────────────────────────────────
@@ -1883,8 +1929,7 @@ class MasterMenu:
         if ckpt_path is None:
             return
 
-        config = self._config_for_checkpoint(ckpt_path)
-        self._run_script("model_card.py", ["--checkpoint", ckpt_path, "--config", config])
+        self._run_script("model_card.py", ["--checkpoint", ckpt_path])
         self._pause()
 
     def _smoke_test_menu(self) -> None:

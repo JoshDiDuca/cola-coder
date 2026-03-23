@@ -6,6 +6,7 @@ mixed precision, gradient accumulation, and checkpointing.
 Usage:
     python scripts/train.py --config configs/tiny.yaml
     python scripts/train.py --config configs/small.yaml --data ./data/processed/train_data.npy --wandb
+    python scripts/train.py --config configs/small.yaml --resume latest
     python scripts/train.py --config configs/small.yaml --resume ./checkpoints/step_00005000
 """
 
@@ -138,7 +139,7 @@ def main():
         "--resume",
         type=str,
         default=None,
-        help="Path to checkpoint directory to resume training from.",
+        help="Path to checkpoint directory, or 'latest' to auto-detect.",
     )
     parser.add_argument(
         "--auto-resume",
@@ -159,7 +160,11 @@ def main():
     if not config_path.exists():
         cli.fatal(f"Config file not found: {config_path}")
 
-    if args.resume and not Path(args.resume).exists():
+    # Resolve "latest" to an actual checkpoint path
+    if args.resume and args.resume.lower() == "latest":
+        args.auto_resume = True
+        args.resume = None
+    elif args.resume and not Path(args.resume).exists():
         cli.fatal(f"Checkpoint not found: {args.resume}")
 
     # ---- Device check ----

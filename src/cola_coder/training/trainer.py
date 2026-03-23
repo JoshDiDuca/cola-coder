@@ -262,6 +262,7 @@ class Trainer:
             print(f"Batch: {cfg.batch_size} x seq {self.config.model.max_seq_len} "
                   f"= {cfg.batch_size * self.config.model.max_seq_len:,} tok/step")
 
+        step = self.start_step
         for step in tqdm(range(self.start_step, cfg.max_steps), initial=self.start_step,
                          total=cfg.max_steps, desc="Training"):
 
@@ -395,8 +396,12 @@ class Trainer:
                         f"best {self.auto_evaluator.best_score:.1%}"
                     )
 
-            # Save checkpoint
-            if step > 0 and step % self.config.checkpoint.save_every == 0:
+            # Save checkpoint (skip if this is the step we just resumed from)
+            if (
+                step > 0
+                and step % self.config.checkpoint.save_every == 0
+                and step != self.start_step
+            ):
                 loss_history[f"step_{step}"] = round(avg_loss, 4)
                 epochs = (
                     total_tokens_seen / total_data_tokens
@@ -428,33 +433,36 @@ class Trainer:
             if self._step_callback is not None:
                 self._step_callback(step, avg_loss)
 
-        # Final checkpoint
-        loss_history[f"step_{cfg.max_steps}"] = round(avg_loss, 4)
-        epochs = (
-            total_tokens_seen / total_data_tokens
-            if total_data_tokens > 0 else 0.0
-        )
-        save_checkpoint(
-            model=self.model,
-            optimizer=self.optimizer,
-            scheduler=self.scheduler,
-            step=cfg.max_steps,
-            loss=avg_loss,
-            config={"model": vars(self.config.model),
-                    "training": vars(self.config.training)},
-            output_dir=self.config.checkpoint.output_dir,
-            max_checkpoints=self.config.checkpoint.max_checkpoints,
-            manifest_info={
-                "model_config": vars(self.config.model),
-                "training_config": vars(self.config.training),
-                "data_path": data_path,
-                "data_manifest_path": data_manifest_path,
-                "tokens_seen": total_tokens_seen,
-                "epochs_completed": epochs,
-                "loss_history": loss_history,
-                "max_steps": cfg.max_steps,
-            },
-        )
+        # Final checkpoint (skip if no steps actually ran, e.g. resumed at max_steps)
+        if step > self.start_step or self.start_step == 0:
+            loss_history[f"step_{cfg.max_steps}"] = round(avg_loss, 4)
+            epochs = (
+                total_tokens_seen / total_data_tokens
+                if total_data_tokens > 0 else 0.0
+            )
+            save_checkpoint(
+                model=self.model,
+                optimizer=self.optimizer,
+                scheduler=self.scheduler,
+                step=cfg.max_steps,
+                loss=avg_loss,
+                config={"model": vars(self.config.model),
+                        "training": vars(self.config.training)},
+                output_dir=self.config.checkpoint.output_dir,
+                max_checkpoints=self.config.checkpoint.max_checkpoints,
+                manifest_info={
+                    "model_config": vars(self.config.model),
+                    "training_config": vars(self.config.training),
+                    "data_path": data_path,
+                    "data_manifest_path": data_manifest_path,
+                    "tokens_seen": total_tokens_seen,
+                    "epochs_completed": epochs,
+                    "loss_history": loss_history,
+                    "max_steps": cfg.max_steps,
+                },
+            )
+        else:
+            cli.info("Training already complete — no new steps to run.")
 
         self.metrics.finish()
         print("\nTraining complete!")

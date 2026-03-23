@@ -69,8 +69,17 @@ def load_checkpoint_weights(path: str | Path) -> dict[str, torch.Tensor]:
                 "Install with: pip install safetensors"
             ) from exc
 
-    # torch.save format — may be a bare state dict or a checkpoint wrapper
-    raw = torch.load(str(path), map_location="cpu", weights_only=False)
+    # torch.save format — may be a bare state dict or a checkpoint wrapper.
+    # Use weights_only=True to prevent arbitrary code execution from
+    # malicious .pt files (pickle deserialization attack vector).
+    try:
+        raw = torch.load(str(path), map_location="cpu", weights_only=True)
+    except Exception as exc:
+        raise ValueError(
+            f"Could not safely load checkpoint (weights_only=True): {path}. "
+            f"If this is a trusted file, convert it to safetensors format. "
+            f"Original error: {exc}"
+        ) from exc
     if isinstance(raw, dict):
         # Common checkpoint wrapper keys
         for key in ("model_state_dict", "state_dict", "model"):
