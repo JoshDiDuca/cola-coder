@@ -26,6 +26,12 @@
 3. Mark items complete as you go
 4. Update `tasks/lessons.md` after corrections
 
+## Menu Integration
+- When adding a new user-facing feature or script, add it to the master menu
+  (`src/cola_coder/features/master_menu.py`) in the appropriate section
+- Follow existing patterns: label + detail dict, dispatch by choice index
+- If a new config size is added, include it in `_resume_training_menu` sizes list
+
 ## Principles
 - **Simplicity First**: make every change as simple as possible
 - **No Laziness**: find root causes, no temporary fixes, senior developer standards
