@@ -42,6 +42,16 @@ class TrainingMenu:
                  "detail": "scripts/training_dashboard.py — real-time Rich dashboard"},
                 {"label": "Auto-Eval History",
                  "detail": "scripts/training_eval_history.py — view eval snapshots"},
+                {"label": "Instruction Tuning (SFT)",
+                 "detail": "Fine-tune on ChatML instruction data with configurable LR/epochs"},
+                {"label": "MoE Upcycling",
+                 "detail": "scripts/upcycle_to_moe.py — convert dense checkpoint to MoE"},
+                {"label": "Self-Play Training",
+                 "detail": "Iterative generate-test-improve reasoning loop"},
+                {"label": "Extend Context Window",
+                 "detail": "Apply YaRN RoPE scaling for longer context (e.g. 8x)"},
+                {"label": "Full Training Pipeline",
+                 "detail": "scripts/full_pipeline.py — all 10 stages with stage selection"},
             ]
 
             choice = cli.choose("Training operation:", options, allow_cancel=True)
@@ -67,6 +77,16 @@ class TrainingMenu:
             elif choice == 8:
                 self._master._run_script("training_eval_history.py")
                 self._master._pause()
+            elif choice == 9:
+                self._instruction_tuning_menu()
+            elif choice == 10:
+                self._moe_upcycling_menu()
+            elif choice == 11:
+                self._self_play_training_menu()
+            elif choice == 12:
+                self._extend_context_menu()
+            elif choice == 13:
+                self._full_pipeline_menu()
 
     def _train_size_menu(self, resume: bool = False) -> None:
         """Select model size and start training."""
@@ -683,3 +703,340 @@ class TrainingMenu:
             ["--checkpoint-dir", str(ckpt_dir)],
         )
         self._master._pause()
+
+    # ── New training methods ───────────────────────────────────────────────
+
+    def _instruction_tuning_menu(self) -> None:
+        """SFT instruction tuning on ChatML-formatted data."""
+        _print_section_header(
+            "Instruction Tuning (SFT)",
+            "Fine-tune on ChatML instruction data",
+        )
+
+        cli.print(
+            "  Supervised fine-tuning (SFT) on instruction pairs.\n"
+            "  Uses ChatML format: <|im_start|>user / <|im_start|>assistant.\n"
+            "  Recommended: 2-3 epochs, lr=2e-5, batch=8.\n"
+        )
+
+        ckpt_path = self._master._pick_checkpoint("Select base checkpoint to fine-tune:")
+        if ckpt_path is None:
+            return
+
+        config = self._master._config_for_checkpoint(ckpt_path)
+
+        # Instruction data path
+        try:
+            data_path = input(
+                "  Instruction data path (.jsonl) [default: data/instructions.jsonl]: "
+            ).strip() or "data/instructions.jsonl"
+        except (EOFError, KeyboardInterrupt):
+            cli.warn("Cancelled.")
+            return
+
+        # Training hyperparams
+        epoch_options = [
+            {"label": "1 epoch",  "detail": "Fast — risk of under-fitting"},
+            {"label": "2 epochs", "detail": "Recommended — balanced"},
+            {"label": "3 epochs", "detail": "Thorough — watch for over-fitting"},
+        ]
+        epoch_choice = cli.choose("Training epochs:", epoch_options, allow_cancel=True)
+        if epoch_choice is None:
+            return
+        epochs = epoch_choice + 1
+
+        lr_options = [
+            {"label": "1e-5 (conservative)", "detail": "Safest — minimal forgetting"},
+            {"label": "2e-5 (recommended)",  "detail": "Standard SFT LR"},
+            {"label": "5e-5 (aggressive)",   "detail": "Faster convergence, more forgetting"},
+        ]
+        lr_choice = cli.choose("Learning rate:", lr_options, allow_cancel=True)
+        if lr_choice is None:
+            return
+        lr_values = ["1e-5", "2e-5", "5e-5"]
+        lr = lr_values[lr_choice]
+
+        cli.kv_table({
+            "Base checkpoint": ckpt_path,
+            "Config": config,
+            "Data": data_path,
+            "Epochs": str(epochs),
+            "LR": lr,
+        }, title="Instruction Tuning Config")
+
+        if not cli.confirm("Start instruction tuning?"):
+            return
+
+        args = [
+            "--config", config,
+            "--checkpoint", ckpt_path,
+            "--data", data_path,
+            "--epochs", str(epochs),
+            "--lr", lr,
+            "--format", "chatml",
+        ]
+        self._master._run_script("train.py", args)
+        self._master._pause()
+
+    def _moe_upcycling_menu(self) -> None:
+        """Convert a dense checkpoint to a Mixture-of-Experts model."""
+        _print_section_header(
+            "MoE Upcycling",
+            "Convert dense checkpoint to Mixture-of-Experts",
+        )
+
+        cli.print(
+            "  MoE upcycling copies dense FFN weights into N experts,\n"
+            "  then trains the router from scratch. Increases capacity\n"
+            "  with minimal additional compute during inference.\n"
+        )
+
+        ckpt_path = self._master._pick_checkpoint("Select dense checkpoint to upcycle:")
+        if ckpt_path is None:
+            return
+
+        config = self._master._config_for_checkpoint(ckpt_path)
+
+        # Expert count
+        expert_options = [
+            {"label": "4 experts (2 active)",  "detail": "Lightest — minimal VRAM overhead"},
+            {"label": "8 experts (2 active)",  "detail": "Recommended — good capacity/cost"},
+            {"label": "16 experts (4 active)", "detail": "Higher capacity — more VRAM"},
+        ]
+        expert_choice = cli.choose("Number of experts:", expert_options, allow_cancel=True)
+        if expert_choice is None:
+            return
+
+        expert_configs = [(4, 2), (8, 2), (16, 4)]
+        num_experts, num_active = expert_configs[expert_choice]
+
+        # Shared experts
+        shared_options = [
+            {"label": "0 shared experts", "detail": "Pure MoE — all experts gated"},
+            {"label": "1 shared expert",  "detail": "1 always-active dense expert"},
+            {"label": "2 shared experts", "detail": "DeepSeek-style 2 shared + N gated"},
+        ]
+        shared_choice = cli.choose("Shared experts:", shared_options, allow_cancel=True)
+        if shared_choice is None:
+            return
+        num_shared = shared_choice
+
+        cli.kv_table({
+            "Source checkpoint": ckpt_path,
+            "Total experts": str(num_experts),
+            "Active experts": str(num_active),
+            "Shared experts": str(num_shared),
+        }, title="MoE Upcycling Config")
+
+        if not cli.confirm("Start MoE upcycling?"):
+            return
+
+        args = [
+            "--config", config,
+            "--checkpoint", ckpt_path,
+            "--num-experts", str(num_experts),
+            "--num-active", str(num_active),
+            "--num-shared", str(num_shared),
+        ]
+        self._master._run_script("upcycle_to_moe.py", args)
+        self._master._pause()
+
+    def _self_play_training_menu(self) -> None:
+        """Iterative self-play: generate → test → improve reasoning loop."""
+        _print_section_header(
+            "Self-Play Training",
+            "Iterative generate-test-improve loop",
+        )
+
+        cli.print(
+            "  Self-play training iteratively:\n"
+            "    1. Generates candidate solutions\n"
+            "    2. Runs test suites to score them\n"
+            "    3. Fine-tunes on correct solutions\n"
+            "    4. Repeats with harder problems\n"
+        )
+
+        ckpt_path = self._master._pick_checkpoint("Select base checkpoint:")
+        if ckpt_path is None:
+            return
+
+        # Iteration count
+        iter_options = [
+            {"label": "3 iterations",  "detail": "Quick test — ~1-2 hours"},
+            {"label": "5 iterations",  "detail": "Recommended — solid improvement"},
+            {"label": "10 iterations", "detail": "Full self-play — ~4-8 hours"},
+        ]
+        iter_choice = cli.choose("Number of iterations:", iter_options, allow_cancel=True)
+        if iter_choice is None:
+            return
+        iterations = [3, 5, 10][iter_choice]
+
+        # Problem set
+        problem_options = [
+            {"label": "Built-in (62 problems)", "detail": "HumanEval subset — Python focus"},
+            {"label": "Extended (150 problems)", "detail": "HumanEval + TypeScript + math"},
+            {"label": "Custom JSONL",            "detail": "Load problems from file"},
+        ]
+        prob_choice = cli.choose("Problem set:", problem_options, allow_cancel=True)
+        if prob_choice is None:
+            return
+
+        args = [
+            "--base-checkpoint", ckpt_path,
+            "--iterations", str(iterations),
+            "--reward", "combined",
+            "--sft-warmup",
+        ]
+        if prob_choice == 0:
+            args.extend(["--problems", "builtin"])
+        elif prob_choice == 1:
+            args.extend(["--problems", "extended"])
+        elif prob_choice == 2:
+            try:
+                problems_path = input("  Path to problems.jsonl: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                cli.warn("Cancelled.")
+                return
+            if problems_path:
+                args.extend(["--problems-file", problems_path])
+
+        cli.kv_table({
+            "Base checkpoint": ckpt_path,
+            "Iterations": str(iterations),
+            "Reward": "combined",
+        }, title="Self-Play Config")
+
+        if not cli.confirm("Start self-play training?"):
+            return
+
+        self._master._run_script("train_reasoning.py", args)
+        self._master._pause()
+
+    def _extend_context_menu(self) -> None:
+        """Configure YaRN RoPE scaling to extend context window."""
+        _print_section_header(
+            "Extend Context Window",
+            "Apply YaRN RoPE scaling for longer context",
+        )
+
+        cli.print(
+            "  YaRN (Yet Another RoPE extensioN) scales the RoPE frequencies\n"
+            "  to support longer sequences than the model was trained with.\n"
+            "  After config update, fine-tune for 1000-2000 steps on long data.\n"
+        )
+
+        scale_options = [
+            {"label": "2x  (e.g. 2048 → 4096)",   "detail": "factor=2.0 — minimal degradation"},
+            {"label": "4x  (e.g. 2048 → 8192)",   "detail": "factor=4.0 — slight perplexity rise"},
+            {"label": "8x  (e.g. 4096 → 32768)",  "detail": "factor=8.0 — needs fine-tuning data"},
+            {"label": "16x (e.g. 4096 → 65536)",  "detail": "factor=16.0 — significant fine-tuning"},
+        ]
+        scale_choice = cli.choose("Scale factor:", scale_options, allow_cancel=True)
+        if scale_choice is None:
+            return
+
+        factors = [2.0, 4.0, 8.0, 16.0]
+        factor = factors[scale_choice]
+
+        config_options = [
+            {"label": "Tiny   (50M)",    "detail": "configs/tiny.yaml"},
+            {"label": "Small  (125M)",   "detail": "configs/small.yaml"},
+            {"label": "Medium (299M)",   "detail": "configs/medium.yaml"},
+            {"label": "4080 Max (455M)", "detail": "configs/4080_max.yaml"},
+        ]
+        config_choice = cli.choose("Target config:", config_options, allow_cancel=True)
+        if config_choice is None:
+            return
+
+        config_names = ["tiny", "small", "medium", "4080_max"]
+        config_path = f"configs/{config_names[config_choice]}.yaml"
+
+        cli.rule("Context Extension Instructions")
+        cli.print(f"\n  1. Add to [bold]{config_path}[/bold]:\n")
+        cli.print("     [cyan]rope_scaling:[/cyan]")
+        cli.print("       [cyan]type: yarn[/cyan]")
+        cli.print(f"       [cyan]factor: {factor}[/cyan]")
+        cli.print("")
+        cli.print("  2. Fine-tune for 1000-2000 steps on long sequences:")
+        cli.print(
+            f"     .venv/Scripts/python scripts/train.py "
+            f"--config {config_path} --auto-resume"
+        )
+        cli.print("")
+        cli.print("  3. Collect long-context training data (repos, books, multi-file).")
+        cli.print("")
+
+        if cli.confirm("Open config file for editing? (shows path)"):
+            cli.info("Config path", str(self._master.project_root / config_path))
+            cli.dim("Edit the file manually to add rope_scaling settings above.")
+
+        self._master._pause()
+
+    def _full_pipeline_menu(self) -> None:
+        """Launch the full 10-stage training pipeline."""
+        _print_section_header(
+            "Full Training Pipeline",
+            "All 10 stages: collect → prepare → pretrain → SFT → MoE → router → reasoning → eval",
+        )
+
+        cli.print(
+            "  Runs all training stages in sequence with configurable\n"
+            "  stage selection, dry-run mode, and failure recovery.\n"
+        )
+
+        config_options = [
+            {"label": "Tiny   (50M)",    "detail": "configs/tiny.yaml — fastest for testing"},
+            {"label": "Small  (125M)",   "detail": "configs/small.yaml"},
+            {"label": "Medium (299M)",   "detail": "configs/medium.yaml"},
+            {"label": "4080 Max (455M)", "detail": "configs/4080_max.yaml — recommended"},
+        ]
+        config_choice = cli.choose("Model config:", config_options, allow_cancel=True)
+        if config_choice is None:
+            return
+
+        config_names = ["tiny", "small", "medium", "4080_max"]
+        config_path = f"configs/{config_names[config_choice]}.yaml"
+
+        mode_options = [
+            {"label": "Run all stages",
+             "detail": "Full pipeline — stages 1-10"},
+            {"label": "Dry run",
+             "detail": "Show what would run — no changes"},
+            {"label": "Select specific stages",
+             "detail": "Enter comma-separated stage numbers (e.g. 3,6,10)"},
+            {"label": "Start from stage N",
+             "detail": "Resume after a failed stage"},
+            {"label": "Skip optional stages (4, 7)",
+             "detail": "Skip context extension and MoE upcycling"},
+        ]
+        mode_choice = cli.choose("Pipeline mode:", mode_options, allow_cancel=True)
+        if mode_choice is None:
+            return
+
+        args = ["--config", config_path]
+
+        if mode_choice == 0:
+            pass  # All stages, no extra args
+        elif mode_choice == 1:
+            args.append("--dry-run")
+        elif mode_choice == 2:
+            try:
+                stages_raw = input("  Stages (e.g. 1,2,3): ").strip()
+            except (EOFError, KeyboardInterrupt):
+                cli.warn("Cancelled.")
+                return
+            if stages_raw:
+                args.extend(["--stages", stages_raw])
+        elif mode_choice == 3:
+            try:
+                start_str = input("  Start from stage (1-10): ").strip()
+                start_n = int(start_str) if start_str else 1
+            except (ValueError, EOFError, KeyboardInterrupt):
+                start_n = 1
+            args.extend(["--start-from", str(start_n)])
+        elif mode_choice == 4:
+            args.append("--skip-optional")
+
+        if cli.confirm("Launch full pipeline?"):
+            self._master._run_script("full_pipeline.py", args)
+            self._master._pause()

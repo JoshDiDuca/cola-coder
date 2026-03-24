@@ -61,6 +61,11 @@ class MoEFFN(nn.Module):
     Contains multiple SwiGLU expert FFNs and a router. For each token,
     only the top-k experts are activated, keeping compute manageable
     while increasing total model capacity.
+
+    Supports the DeepSeek-MoE shared expert approach: one or more experts
+    always run for every token (handling common cross-domain patterns),
+    while the remaining routed experts specialize. The final output is the
+    sum of the shared expert output and the weighted routed expert output.
     """
 
     def __init__(
@@ -71,22 +76,26 @@ class MoEFFN(nn.Module):
         top_k: int = 2,
         dropout: float = 0.0,
         capacity_factor: float = 1.25,
+        num_shared_experts: int = 1,
     ):
         """
         Args:
             dim: Model dimension (input/output size)
             hidden_dim: Hidden dimension for each expert's SwiGLU FFN
-            num_experts: Total number of expert FFNs
-            top_k: Number of experts activated per token
+            num_experts: Total number of routed expert FFNs
+            top_k: Number of routed experts activated per token
             dropout: Dropout rate
             capacity_factor: Max fraction of tokens each expert handles
                              (1.0 = even split, >1.0 = allow some imbalance)
+            num_shared_experts: Number of always-active shared experts
+                                (DeepSeek-MoE style). 0 = disabled.
         """
         super().__init__()
         self.dim = dim
         self.num_experts = num_experts
         self.top_k = top_k
         self.capacity_factor = capacity_factor
+        self.num_shared_experts = num_shared_experts
 
         # Router decides which experts process each token
         self.router = ExpertRouter(dim, num_experts)
@@ -97,6 +106,16 @@ class MoEFFN(nn.Module):
             _SwiGLUExpert(dim, hidden_dim, dropout)
             for _ in range(num_experts)
         ])
+
+        # Shared experts: always-active, not subject to routing (DeepSeek-MoE)
+        # These handle common cross-domain patterns; routed experts specialize.
+        if num_shared_experts > 0:
+            self.shared_experts = nn.ModuleList([
+                _SwiGLUExpert(dim, hidden_dim, dropout)
+                for _ in range(num_shared_experts)
+            ])
+        else:
+            self.shared_experts = nn.ModuleList()
 
         # Auxiliary loss weight for load balancing
         self.aux_loss_weight = 0.01
@@ -160,6 +179,17 @@ class MoEFFN(nn.Module):
                 weights = expert_weights[token_indices].unsqueeze(-1)
                 output[token_indices] += weights * expert_output
 
+        # Shared experts: always-active for every token (DeepSeek-MoE approach).
+        # Each shared expert runs on the full flattened sequence, then averaged
+        # and added to the routed output. This lets shared experts capture
+        # cross-domain patterns while routed experts specialize.
+        if self.shared_experts:
+            shared_out = torch.zeros_like(x_flat)
+            for shared_expert in self.shared_experts:
+                shared_out = shared_out + shared_expert(x_flat)
+            shared_out = shared_out / max(len(self.shared_experts), 1)
+            output = output + shared_out
+
         return output.view(batch_size, seq_len, dim)
 
     def _load_balancing_loss(
@@ -222,32 +252,41 @@ class MoEConfig:
         top_k: int = 2,
         capacity_factor: float = 1.25,
         aux_loss_weight: float = 0.01,
+        num_shared_experts: int = 1,
         moe_layers: list[int] | None = None,
     ):
         """
         Args:
-            num_experts: Number of expert FFNs per MoE layer
+            num_experts: Number of routed expert FFNs per MoE layer
             top_k: Experts activated per token
             capacity_factor: Capacity multiplier per expert
             aux_loss_weight: Weight for load balancing auxiliary loss
+            num_shared_experts: Number of always-active shared experts (DeepSeek-MoE). 0 = disabled.
             moe_layers: Which transformer layers get MoE (None = all)
         """
         self.num_experts = num_experts
         self.top_k = top_k
         self.capacity_factor = capacity_factor
         self.aux_loss_weight = aux_loss_weight
+        self.num_shared_experts = num_shared_experts
         self.moe_layers = moe_layers
 
     @property
     def total_expert_params_multiplier(self) -> float:
         """How much the FFN parameters are multiplied by MoE.
 
-        With 8 experts, there are 8x the FFN params, but only top_k
-        are active per token.
+        With 8 routed experts + 1 shared expert, there are 9x the FFN params,
+        but only top_k routed + num_shared_experts are active per token.
         """
-        return self.num_experts
+        return self.num_experts + self.num_shared_experts
 
     @property
     def active_params_fraction(self) -> float:
-        """Fraction of expert params active per token."""
-        return self.top_k / self.num_experts
+        """Fraction of expert params active per token.
+
+        Includes shared experts (always active) plus top_k routed experts.
+        """
+        total = self.num_experts + self.num_shared_experts
+        if total == 0:
+            return 0.0
+        return (self.top_k + self.num_shared_experts) / total
