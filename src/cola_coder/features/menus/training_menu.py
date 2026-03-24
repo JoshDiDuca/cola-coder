@@ -559,7 +559,10 @@ class TrainingMenu:
         cli.print("  Generates multiple solutions, tests them, reinforces correct ones.")
         cli.print("")
 
-        args: list[str] = []
+        ckpt_path = self._master._pick_checkpoint("Select base model checkpoint:")
+        if ckpt_path is None:
+            return
+        args: list[str] = ["--base-checkpoint", ckpt_path]
 
         # SFT Warmup
         if cli.confirm("Enable SFT warmup phase? (DeepSeek-R1 approach)", default=True):

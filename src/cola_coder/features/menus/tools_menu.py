@@ -88,15 +88,58 @@ class ToolsMenu:
             elif choice == 5:
                 self._feature_toggles()
             elif choice == 6:
-                self._master._run_script("export_model.py")
-                self._master._pause()
+                self._export_model_menu()
             elif choice == 7:
-                self._master._run_script("average_checkpoints.py")
-                self._master._pause()
+                self._average_checkpoints_menu()
             elif choice == 8:
                 self._pipeline_menu()
             elif choice == 9:
                 self._scan_repository()
+
+    def _export_model_menu(self) -> None:
+        """Export model to GGUF/Ollama/quantized format."""
+        _print_section_header("Export Model", "GGUF / Ollama / quantize")
+
+        ckpt_path = self._master._pick_checkpoint("Select checkpoint to export:")
+        if ckpt_path is None:
+            return
+        config_path = self._master._config_for_checkpoint(ckpt_path)
+        self._master._run_script(
+            "export_model.py", ["--checkpoint", ckpt_path, "--config", config_path]
+        )
+        self._master._pause()
+
+    def _average_checkpoints_menu(self) -> None:
+        """Average multiple checkpoints for improved quality."""
+        _print_section_header("Average Checkpoints", "Uniform / EMA checkpoint merging")
+
+        mode_options = [
+            {"label": "By directory",
+             "detail": "Auto-pick the N most-recent checkpoints in a folder"},
+            {"label": "By explicit list",
+             "detail": "Manually specify checkpoint paths to average"},
+        ]
+        mode = cli.choose("Selection method:", mode_options, allow_cancel=True)
+        if mode is None:
+            return
+
+        if mode == 0:
+            model = self._master._pick_model("Select model:")
+            if model is None:
+                return
+            ckpt_dir = str(Path(self._master.storage.checkpoints_dir) / model)
+            self._master._run_script("average_checkpoints.py", ["--checkpoint-dir", ckpt_dir])
+        else:
+            ckpt_a = self._master._pick_checkpoint("Select checkpoint 1 (oldest first):")
+            if ckpt_a is None:
+                return
+            ckpt_b = self._master._pick_checkpoint("Select checkpoint 2:")
+            if ckpt_b is None:
+                return
+            self._master._run_script(
+                "average_checkpoints.py", ["--checkpoints", ckpt_a, ckpt_b]
+            )
+        self._master._pause()
 
     def _pipeline_menu(self) -> None:
         """Full pipeline orchestrator."""
