@@ -29,9 +29,10 @@ src/cola_coder/
   evaluation/         HumanEval (62 problems), completion benchmark, pass@k, smoke tests
   reasoning/          CoT thinking tokens, GRPO, SFT warmup, reward registry, curriculum
   features/           166 feature modules — all toggled via configs/features.yaml
-  cli.py              Shared CLI styling (rich + questionary arrow-key menus)
-scripts/              45 CLI entry points
-tests/                122 test files (~2600 tests)
+    menus/            Sub-menu modules: data, training, eval, tools (split from master_menu.py)
+  cli.py              Shared CLI styling (rich + questionary arrow-key menus, multi_select, weight_editor)
+scripts/              45 CLI entry points — all use `from cola_coder.cli import cli`, never direct Rich
+tests/                122 test files (~2800 tests)
 docs/                 Educational guides (01-05) + deep-dives/
 ```
 
@@ -77,6 +78,27 @@ If checkpoint tests fail, DO NOT start training.
 - Use ruff. Line length: 100 (pyproject.toml)
 - Use pytest for tests. Type hints used but not strictly enforced
 - Use `from cola_coder.cli import cli` for all CLI output — never raw Rich imports
+- CLI methods: `cli.header()`, `cli.choose()`, `cli.confirm()`, `cli.kv_table()`, `cli.multi_select()`, `cli.weight_editor()`, `cli.info()`, `cli.success()`, `cli.error()`, `cli.warn()`, `cli.dim()`, `cli.done()`, `cli.print()`
+
+## Menu Architecture
+
+Master menu is split into sub-modules for maintainability:
+
+```
+src/cola_coder/features/
+  master_menu.py              # Thin coordinator (~960 lines) — shared helpers, generate, router
+  menus/
+    __init__.py               # Exports: DataMenu, TrainingMenu, EvalMenu, ToolsMenu
+    data_menu.py              # 5 grouped sub-menus: Collect, Modify, Score, Inspect, Prepare
+    training_menu.py          # Train, resume, background, tokenizer, reasoning, VRAM
+    eval_menu.py              # HumanEval, benchmarks, comparisons, quality reports
+    tools_menu.py             # Tests, linting, GPU, features, settings, export
+```
+
+Sub-menus accept `master: MasterMenu` in constructor and call `self._master._run_script()` etc. Feature scanning functions stay in master_menu.py — ToolsMenu imports them from there.
+
+### Data Sources
+All data sources (GitHub, HuggingFace, SWH, Local) emit `pipeline.DataRecord(content=..., metadata={...})`. The `metadata` dict carries source-specific fields (e.g. `"source": "github"`, `"repo_name"`, `"file_path"`). Access via `record.metadata.get("field_name", "")`.
 
 ## Important Notes
 

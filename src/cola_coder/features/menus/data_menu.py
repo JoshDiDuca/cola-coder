@@ -141,6 +141,8 @@ class DataMenu:
             options = [
                 {"label": "Score Code Quality",
                  "detail": "Evaluate and rank collected data"},
+                {"label": "Score HuggingFace Samples",
+                 "detail": "Stream + score samples from any HF dataset"},
                 {"label": "Score Repositories",
                  "detail": "scripts/score_repos.py — rank repos by quality"},
                 {"label": "Train Quality Classifier",
@@ -156,10 +158,12 @@ class DataMenu:
             if choice == 0:
                 self._score_quality_menu()
             elif choice == 1:
-                self._score_repos_menu()
+                self._score_hf_samples()
             elif choice == 2:
-                self._train_quality_classifier_menu()
+                self._score_repos_menu()
             elif choice == 3:
+                self._train_quality_classifier_menu()
+            elif choice == 4:
                 self._advanced_filters_info()
 
     # ── Inspect & View ────────────────────────────────────────────────────
@@ -513,6 +517,195 @@ class DataMenu:
             args += ["--output-name", output_name]
 
         self._master._run_script("prepare_data.py", args)
+        self._master._pause()
+
+    # ── Score HuggingFace Samples (NEW) ──────────────────────────────────
+
+    def _score_hf_samples(self) -> None:
+        """Stream and score samples from a HuggingFace dataset."""
+        _print_section_header(
+            "Score HuggingFace Samples",
+            "Quality-score code samples from any HF dataset",
+        )
+
+        # Step 1 — Dataset
+        presets = [
+            {"label": "bigcode/starcoderdata",
+             "detail": "Default — large multilingual code corpus"},
+            {"label": "bigcode/the-stack-v2-train-smol-ids",
+             "detail": "The Stack v2 (SWH-derived, deduplicated)"},
+            {"label": "Enter custom dataset ID...",
+             "detail": "Any public HF dataset identifier"},
+        ]
+        choice = cli.choose(
+            "Select dataset to score:", presets, allow_cancel=True
+        )
+        if choice is None:
+            return
+
+        if choice == 2:
+            try:
+                dataset_id = input("Dataset ID (e.g. owner/name): ").strip()
+            except (EOFError, KeyboardInterrupt):
+                cli.warn("Cancelled.")
+                return
+            if not dataset_id:
+                cli.warn("No dataset ID entered.")
+                return
+        else:
+            dataset_id = presets[choice]["label"]
+
+        # Step 2 — Scorer
+        scorer_options = [
+            {"label": "Heuristic (fast, no deps)",
+             "detail": "Pattern-based quality scoring — structure, naming, docs"},
+            {"label": "ML Classifier",
+             "detail": "DistilBERT/CodeBERTa — needs trained model"},
+            {"label": "Full CodeScorer",
+             "detail": "12-signal weighted scorer — most detailed breakdown"},
+        ]
+        scorer_choice = cli.choose(
+            "Scoring method:", scorer_options, allow_cancel=True
+        )
+        if scorer_choice is None:
+            return
+
+        # Step 3 — Sample count
+        try:
+            n_str = input("Number of samples to score [default: 20]: ").strip()
+            n_samples = int(n_str) if n_str else 20
+        except (EOFError, KeyboardInterrupt):
+            cli.warn("Cancelled.")
+            return
+        except ValueError:
+            cli.warn("Invalid number — using 20.")
+            n_samples = 20
+
+        n_samples = min(max(n_samples, 1), 500)
+
+        # Step 4 — Score
+        cli.info("Dataset", dataset_id)
+        cli.info("Samples", str(n_samples))
+        cli.info("Scorer", scorer_options[scorer_choice]["label"])
+        cli.print("")
+
+        try:
+            from cola_coder.data.sources.huggingface import HuggingFaceSource
+            source = HuggingFaceSource(
+                dataset=dataset_id, split="train", max_samples=n_samples,
+            )
+        except Exception as e:
+            cli.error(f"Failed to connect to HuggingFace: {e}")
+            cli.dim("Check that HF_TOKEN is set for gated datasets.")
+            self._master._pause()
+            return
+
+        # Initialize scorer
+        def _make_scorer(mode: int):
+            if mode == 0:
+                from cola_coder.data.filters.quality_classifier import (
+                    HeuristicQualityScorer,
+                )
+                s = HeuristicQualityScorer()
+                return lambda code, lang: s.score(code, lang)
+            elif mode == 1:
+                from cola_coder.data.filters.quality_classifier import (
+                    CodeQualityClassifier,
+                )
+                s = CodeQualityClassifier()
+                return lambda code, lang: s.score(code, lang)
+            else:
+                from cola_coder.features.code_scorer import CodeScorer
+                s = CodeScorer()
+                return lambda code, lang: s.score(code, lang).overall
+
+        try:
+            score_fn = _make_scorer(scorer_choice)
+        except Exception as e:
+            cli.error(f"Failed to initialize scorer: {e}")
+            self._master._pause()
+            return
+
+        # Stream and score
+        scores: list[float] = []
+        grades = {"excellent": 0, "good": 0, "average": 0, "poor": 0, "reject": 0}
+
+        for i, record in enumerate(source.stream(), 1):
+            lang = record.metadata.get("language", "")
+            s = score_fn(record.content, lang)
+            scores.append(s)
+
+            # Grade
+            if s >= 0.8:
+                grades["excellent"] += 1
+            elif s >= 0.6:
+                grades["good"] += 1
+            elif s >= 0.4:
+                grades["average"] += 1
+            elif s >= 0.2:
+                grades["poor"] += 1
+            else:
+                grades["reject"] += 1
+
+            # Progress
+            if i % 10 == 0 or i == n_samples:
+                avg = sum(scores) / len(scores)
+                cli.print(
+                    f"  Scored {i}/{n_samples} samples — "
+                    f"avg: {avg:.3f}"
+                )
+
+        if not scores:
+            cli.warn("No samples scored.")
+            self._master._pause()
+            return
+
+        # Summary
+        avg_score = sum(scores) / len(scores)
+        min_score = min(scores)
+        max_score = max(scores)
+
+        cli.print("")
+        cli.kv_table({
+            "Dataset": dataset_id,
+            "Samples scored": str(len(scores)),
+            "Average score": f"{avg_score:.3f}",
+            "Min / Max": f"{min_score:.3f} / {max_score:.3f}",
+            "Excellent (0.8+)": str(grades["excellent"]),
+            "Good (0.6-0.8)": str(grades["good"]),
+            "Average (0.4-0.6)": str(grades["average"]),
+            "Poor (0.2-0.4)": str(grades["poor"]),
+            "Reject (<0.2)": str(grades["reject"]),
+        }, title="Quality Score Summary")
+
+        # Offer next steps
+        cli.print("")
+        next_options = [
+            {"label": "Score more samples",
+             "detail": "Run again with different settings"},
+            {"label": "View sample breakdown",
+             "detail": "Show top/bottom scored samples"},
+            {"label": "Done",
+             "detail": "Return to Score & Filter menu"},
+        ]
+        next_choice = cli.choose(
+            "What next?", next_options, allow_cancel=True
+        )
+        if next_choice == 0:
+            self._score_hf_samples()
+        elif next_choice == 1:
+            # Show top 3 and bottom 3
+            if len(scores) >= 3:
+                cli.print("\n  [bold]Lowest scored samples:[/bold]")
+                sorted_indices = sorted(
+                    range(len(scores)), key=lambda x: scores[x]
+                )
+                for idx in sorted_indices[:3]:
+                    cli.print(
+                        f"    Score: {scores[idx]:.3f}"
+                    )
+            self._master._pause()
+
         self._master._pause()
 
     # ── Existing helper methods (preserved) ───────────────────────────────

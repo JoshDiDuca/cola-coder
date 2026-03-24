@@ -62,7 +62,7 @@ class EvalMenu:
             elif choice == 4:
                 self._model_card_menu()
             elif choice == 5:
-                self._master.training_status_menu()
+                self._master._tools.training_status_menu()
             elif choice == 6:
                 self._smoke_test_menu()
             elif choice == 7:
