@@ -6,6 +6,7 @@ input overrides, and re-run capabilities.
 
 from __future__ import annotations
 
+import subprocess
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -327,6 +328,21 @@ class PipelineMenu:
             cli.error(f"Stage {stage_num} failed ({elapsed:.1f}s)", str(e))
             return False
 
+    def _run_stage_script(self, script: str, args: list[str]) -> None:
+        """Run a pipeline stage script via the project venv.
+
+        Unlike master_menu._run_script, this raises RuntimeError on non-zero
+        exit so that _execute_stage can catch it and mark the stage as failed.
+        """
+        cmd = [str(self._master.venv_python), f"scripts/{script}", *args]
+        cli.dim(f"Running: {' '.join(cmd)}")
+        try:
+            result = subprocess.run(cmd, cwd=str(self._master.project_root))
+        except KeyboardInterrupt:
+            raise RuntimeError(f"{script} interrupted by user")
+        if result.returncode != 0:
+            raise RuntimeError(f"{script} exited with code {result.returncode}")
+
     def _dispatch_stage(
         self, run: PipelineRun, stage_num: int, input_path: str,
     ) -> str:
@@ -383,23 +399,33 @@ class PipelineMenu:
         if choice is None:
             return str(data_dir)
 
+        # Resolve tokenizer from storage config so scripts can find it
+        tok_path = Path(self._master.storage.tokenizer_path)
+        tok_args: list[str] = ["--tokenizer", str(tok_path)] if tok_path.exists() else []
+
         if choice == 0:
-            self._master._run_script("collect_data.py", [
-                "--config", run.config_path, "--sources", "code,text,math",
+            # _run_stage_script raises RuntimeError on non-zero exit
+            self._run_stage_script("collect_data.py", [
+                "--config", run.config_path,
+                "--sources", "code,text,math",
+                *tok_args,
             ])
         elif choice == 1:
-            self._master._run_script("prepare_data.py", [
-                "--config", run.config_path, "--score",
+            self._run_stage_script("prepare_data.py", [
+                "--config", run.config_path,
+                "--score",
+                *tok_args,
             ])
         elif choice == 2:
+            # Interactive menu — user controls collection; verify files exist on return
             self._master._data.menu()
 
-        # Verify data was collected
+        # Verify data files exist after collection
         new_files = list(processed.glob("*.npy")) if processed.exists() else []
-        if not new_files and not existing:
+        if not new_files:
             raise RuntimeError(
-                f"No data files found in {processed}. "
-                "Collect and prepare data first."
+                f"No .npy data files found in {processed} after collection. "
+                "Check the collection output above for errors."
             )
 
         return str(data_dir)
@@ -411,7 +437,7 @@ class PipelineMenu:
         if tokenizer.exists():
             args.extend(["--tokenizer", str(tokenizer)])
         args.append("--score")
-        self._master._run_script("prepare_data.py", args)
+        self._run_stage_script("prepare_data.py", args)
         # Find the output .npy
         data_dir = Path(self._master.storage.data_dir) / "processed"
         npys = sorted(data_dir.glob("*.npy")) if data_dir.exists() else []
@@ -420,7 +446,7 @@ class PipelineMenu:
     def _stage_pretrain(self, run: PipelineRun, config) -> str:
         """Stage 3: Base model pretraining."""
         args = ["--config", run.config_path, "--auto-resume"]
-        self._master._run_script("train.py", args)
+        self._run_stage_script("train.py", args)
         ckpt_dir = Path(config.checkpoint.output_dir)
         latest = ckpt_dir / "latest"
         return str(latest) if latest.exists() else str(ckpt_dir)
@@ -449,7 +475,7 @@ class PipelineMenu:
         if not cli.confirm("Run context extension fine-tune?"):
             return str(latest) if latest.exists() else ""
 
-        self._master._run_script("train.py", [
+        self._run_stage_script("train.py", [
             "--config", run.config_path, "--auto-resume",
         ])
         return str(latest) if latest.exists() else ""
@@ -466,7 +492,7 @@ class PipelineMenu:
             "--count", "5000",
             "--output", output,
         ]
-        self._master._run_script("generate_instructions.py", args)
+        self._run_stage_script("generate_instructions.py", args)
         return output
 
     def _stage_instruction_tune(
@@ -496,7 +522,7 @@ class PipelineMenu:
             "--epochs", "2",
             "--lr", "2e-5",
         ]
-        self._master._run_script("train_sft.py", args)
+        self._run_stage_script("train_sft.py", args)
 
         # train_sft.py saves to checkpoints/{config_stem}_sft/
         cfg_stem = Path(run.config_path).stem
@@ -516,7 +542,7 @@ class PipelineMenu:
             "--checkpoint", checkpoint,
             "--config", run.config_path,
         ]
-        self._master._run_script("upcycle_to_moe.py", args)
+        self._run_stage_script("upcycle_to_moe.py", args)
         moe_dir = Path("checkpoints/moe")
         return str(moe_dir) if moe_dir.exists() else checkpoint
 
@@ -532,7 +558,7 @@ class PipelineMenu:
             cli.dim("  Generating router training data...")
             args = ["--generate-data", "--arch", "mlp", "--save-dir", save_dir]
 
-        self._master._run_script("train_router.py", args)
+        self._run_stage_script("train_router.py", args)
         return save_dir
 
     def _stage_train_reasoning(
@@ -549,7 +575,7 @@ class PipelineMenu:
             "--reward", "combined",
             "--problems", "all",
         ]
-        self._master._run_script("train_reasoning.py", args)
+        self._run_stage_script("train_reasoning.py", args)
         return checkpoint
 
     def _stage_evaluate(
