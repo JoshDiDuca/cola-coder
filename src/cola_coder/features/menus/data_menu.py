@@ -76,6 +76,14 @@ class DataMenu:
                  "detail": "scripts/prepare_docs_data.py — tokenize scraped docs"},
                 {"label": "Prepare Context Training Data",
                  "detail": "scripts/prepare_repo_context_data.py — repo context pairs"},
+                {"label": "Collect Text Data (FineWeb-Edu)",
+                 "detail": "Download high-quality web text for mixed pretraining"},
+                {"label": "Collect Math Data (OpenWebMath)",
+                 "detail": "Download math reasoning data for code+math pretraining"},
+                {"label": "Collect GitHub Issues & PRs",
+                 "detail": "Download GitHub issues, PRs, and diff data for SFT"},
+                {"label": "Download Instruction Datasets",
+                 "detail": "Download public instruction tuning datasets (Alpaca, Orca, etc.)"},
             ]
 
             choice = cli.choose("Select source:", options, allow_cancel=True)
@@ -97,6 +105,14 @@ class DataMenu:
             elif choice == 5:
                 self._master._run_script("prepare_repo_context_data.py")
                 self._master._pause()
+            elif choice == 6:
+                self._collect_text_data_menu()
+            elif choice == 7:
+                self._collect_math_data_menu()
+            elif choice == 8:
+                self._collect_github_artifacts_menu()
+            elif choice == 9:
+                self._download_instruction_datasets_menu()
 
     # ── Modify Data ───────────────────────────────────────────────────────
 
@@ -215,6 +231,10 @@ class DataMenu:
                  "detail": "scripts/prepare_data_interactive.py — guided setup"},
                 {"label": "Enhanced Wizard",
                  "detail": "7-step wizard — full config control with summary"},
+                {"label": "Prepare Mixed Data (code+text+math)",
+                 "detail": "Configure MixedDataset with per-source sampling ratios"},
+                {"label": "Prepare Repo-Level Data",
+                 "detail": "Format repos with file separators for whole-repo context"},
             ]
 
             choice = cli.choose("Select mode:", options, allow_cancel=True)
@@ -227,6 +247,10 @@ class DataMenu:
                 self._master._run_script("prepare_data_interactive.py")
             elif choice == 2:
                 self._prepare_training_wizard()
+            elif choice == 3:
+                self._prepare_mixed_data_menu()
+            elif choice == 4:
+                self._prepare_repo_level_data_menu()
 
     # ── HuggingFace Wizard (NEW) ──────────────────────────────────────────
 
@@ -1159,3 +1183,373 @@ class DataMenu:
 
         except Exception as e:
             cli.warn(f"Could not decode samples: {e}")
+
+    # ── New Phase 1/2 data collection methods ─────────────────────────────
+
+    def _collect_text_data_menu(self) -> None:
+        """Collect high-quality web text data (FineWeb-Edu / C4 / OpenWebText)."""
+        _print_section_header(
+            "Collect Text Data",
+            "Download web text for mixed code+text pretraining",
+        )
+
+        datasets = [
+            {"label": "FineWeb-Edu (HuggingFace/FineWeb-Edu)",
+             "detail": "High-quality educational web text — best for code+text mix"},
+            {"label": "C4 (allenai/c4)",
+             "detail": "Cleaned Common Crawl — large general corpus"},
+            {"label": "OpenWebText2 (EleutherAI/openwebtext2)",
+             "detail": "Reddit-curated web text — high signal-to-noise"},
+            {"label": "Custom HuggingFace dataset...",
+             "detail": "Enter any HF dataset ID"},
+        ]
+
+        choice = cli.choose("Select text dataset:", datasets, allow_cancel=True)
+        if choice is None:
+            return
+
+        dataset_ids = [
+            "HuggingFaceFW/fineweb-edu",
+            "allenai/c4",
+            "EleutherAI/openwebtext2",
+        ]
+
+        if choice == 3:
+            try:
+                dataset_id = input("HuggingFace dataset ID: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                cli.warn("Cancelled.")
+                return
+            if not dataset_id:
+                cli.warn("No dataset ID entered.")
+                return
+        else:
+            dataset_id = dataset_ids[choice]
+
+        try:
+            max_gb_str = input("Max download size in GB [default: 10]: ").strip()
+            max_gb = float(max_gb_str) if max_gb_str else 10.0
+        except (ValueError, EOFError, KeyboardInterrupt):
+            max_gb = 10.0
+
+        cli.info("Dataset", dataset_id)
+        cli.info("Max size", f"{max_gb:.1f} GB")
+
+        if not cli.confirm("Download text data?"):
+            return
+
+        cli.info(
+            "Command",
+            f".venv/Scripts/python scripts/prepare_data.py "
+            f"--config configs/tiny.yaml --stream --hf-dataset {dataset_id}",
+        )
+        cli.dim(
+            "Note: Text data download is handled via the HuggingFace pipeline.\n"
+            "  After download, use 'Prepare Mixed Data' to combine with code."
+        )
+        self._master._pause()
+
+    def _collect_math_data_menu(self) -> None:
+        """Collect math reasoning data (OpenWebMath / MATH / GSM8K)."""
+        _print_section_header(
+            "Collect Math Data",
+            "Download math + reasoning data for code+math pretraining",
+        )
+
+        datasets = [
+            {"label": "OpenWebMath (open-web-math/open-web-math)",
+             "detail": "Web-scraped mathematical content — proofs, textbooks, forums"},
+            {"label": "DeepMind Math (deepmind/math_dataset)",
+             "detail": "Procedurally generated math problems — good for reasoning"},
+            {"label": "GSM8K (gsm8k)",
+             "detail": "Grade school math word problems — chain-of-thought compatible"},
+            {"label": "MATH (hendrycks/competition_math)",
+             "detail": "Competition mathematics — advanced reasoning"},
+        ]
+
+        choice = cli.choose("Select math dataset:", datasets, allow_cancel=True)
+        if choice is None:
+            return
+
+        dataset_ids = [
+            "open-web-math/open-web-math",
+            "deepmind/math_dataset",
+            "gsm8k",
+            "hendrycks/competition_math",
+        ]
+        dataset_id = dataset_ids[choice]
+
+        cli.info("Dataset", dataset_id)
+        cli.info(
+            "Hint",
+            "Math data is typically small — full download is feasible.",
+        )
+
+        if not cli.confirm("Proceed with math data collection?"):
+            return
+
+        cli.info(
+            "Command",
+            f".venv/Scripts/python scripts/prepare_data.py "
+            f"--config configs/tiny.yaml --stream --hf-dataset {dataset_id}",
+        )
+        cli.dim(
+            "After download, use 'Prepare Mixed Data' to mix with code+text."
+        )
+        self._master._pause()
+
+    def _collect_github_artifacts_menu(self) -> None:
+        """Collect GitHub issues, PRs, and diff data for SFT."""
+        _print_section_header(
+            "Collect GitHub Issues & PRs",
+            "Download GitHub artifacts for instruction tuning",
+        )
+
+        cli.print(
+            "  Collects GitHub issues, pull requests, and code diffs —\n"
+            "  ideal for instruction-following and code editing SFT.\n"
+        )
+
+        source_options = [
+            {"label": "GitHub Issues (via API)",
+             "detail": "Download issues + comments as instruction pairs"},
+            {"label": "GitHub PRs with diffs",
+             "detail": "Download PR descriptions + before/after diffs"},
+            {"label": "Both issues and PRs",
+             "detail": "Full GitHub artifact collection"},
+        ]
+
+        choice = cli.choose("Select artifact type:", source_options, allow_cancel=True)
+        if choice is None:
+            return
+
+        try:
+            repos_raw = input(
+                "Repos to target (comma-separated, e.g. vercel/next.js,facebook/react): "
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            cli.warn("Cancelled.")
+            return
+
+        if not repos_raw:
+            cli.warn("No repos specified — will use default curated list.")
+
+        try:
+            max_items_str = input("Max items per repo [default: 500]: ").strip()
+            max_items = int(max_items_str) if max_items_str else 500
+        except (ValueError, EOFError, KeyboardInterrupt):
+            max_items = 500
+
+        artifact_type = ["issues", "prs", "both"][choice]
+        cli.kv_table({
+            "Artifact type": artifact_type,
+            "Repos": repos_raw or "default curated list",
+            "Max items/repo": str(max_items),
+        }, title="GitHub Collection Config")
+
+        if not cli.confirm("Start GitHub artifact collection?"):
+            return
+
+        args = ["--type", artifact_type, "--max-items", str(max_items)]
+        if repos_raw:
+            for repo in [r.strip() for r in repos_raw.split(",") if r.strip()]:
+                args.extend(["--repo", repo])
+
+        self._master._run_script("scrape_github.py", args)
+        self._master._pause()
+
+    def _download_instruction_datasets_menu(self) -> None:
+        """Download public instruction tuning datasets."""
+        _print_section_header(
+            "Download Instruction Datasets",
+            "Public instruction pairs for SFT",
+        )
+
+        datasets = [
+            {"label": "Alpaca (tatsu-lab/alpaca)",
+             "detail": "52K instruction pairs from GPT-3.5 — general purpose"},
+            {"label": "Orca (Open-Orca/OpenOrca)",
+             "detail": "1M ChatGPT/GPT-4 completions — diverse reasoning"},
+            {"label": "CodeAlpaca (sahil2801/CodeAlpaca-20k)",
+             "detail": "20K code instruction pairs — code generation focus"},
+            {"label": "ShareGPT (anon8231489123/ShareGPT_Vicuna_unfiltered)",
+             "detail": "Multi-turn ChatGPT conversations"},
+            {"label": "WizardCoder (WizardLM/WizardCoder_evol_instruct_110k)",
+             "detail": "110K evolved code instructions — complex tasks"},
+        ]
+
+        choice = cli.choose("Select instruction dataset:", datasets, allow_cancel=True)
+        if choice is None:
+            return
+
+        hf_ids = [
+            "tatsu-lab/alpaca",
+            "Open-Orca/OpenOrca",
+            "sahil2801/CodeAlpaca-20k",
+            "anon8231489123/ShareGPT_Vicuna_unfiltered",
+            "WizardLM/WizardCoder_evol_instruct_110k",
+        ]
+        dataset_id = hf_ids[choice]
+
+        cli.info("Dataset", dataset_id)
+        cli.dim(
+            "Instruction datasets are downloaded via HuggingFace and formatted\n"
+            "  into ChatML pairs for SFT. Requires HF_TOKEN for some datasets."
+        )
+
+        if not cli.confirm(f"Download {datasets[choice]['label']}?"):
+            return
+
+        cli.info(
+            "Command",
+            f"Use prepare_data.py or the HF wizard to download {dataset_id}",
+        )
+        # Launch via HF wizard pre-configured
+        self._huggingface_wizard()
+
+    # ── New prepare methods ────────────────────────────────────────────────
+
+    def _prepare_mixed_data_menu(self) -> None:
+        """Configure and launch mixed code+text+math data preparation."""
+        _print_section_header(
+            "Prepare Mixed Data",
+            "Configure MixedDataset with per-source sampling ratios",
+        )
+
+        cli.print(
+            "  MixedDataset combines multiple .npy sources with configurable\n"
+            "  sampling weights. Ratios are applied per-batch during training.\n"
+        )
+
+        # Config selection
+        config_options = [
+            {"label": "Tiny   (50M)",   "detail": "configs/tiny.yaml"},
+            {"label": "Small  (125M)",  "detail": "configs/small.yaml"},
+            {"label": "Medium (299M)",  "detail": "configs/medium.yaml"},
+            {"label": "4080 Max (455M)", "detail": "configs/4080_max.yaml"},
+        ]
+        config_choice = cli.choose("Model config:", config_options, allow_cancel=True)
+        if config_choice is None:
+            return
+
+        config_map = ["tiny", "small", "medium", "4080_max"]
+        config_name = config_map[config_choice]
+        config_path = f"configs/{config_name}.yaml"
+
+        # Ratio presets
+        ratio_options = [
+            {"label": "Code-heavy (70% code / 15% text / 15% math)",
+             "detail": "Best for code generation — recommended starting point"},
+            {"label": "Balanced (50% code / 30% text / 20% math)",
+             "detail": "Good generalisation + code quality"},
+            {"label": "Text-heavy (30% code / 50% text / 20% math)",
+             "detail": "Better language understanding, weaker code"},
+            {"label": "Code only (100% code)",
+             "detail": "Pure code pretraining — no text/math mixing"},
+            {"label": "Custom ratios",
+             "detail": "Enter per-source weights manually"},
+        ]
+        ratio_choice = cli.choose("Mixing ratio preset:", ratio_options, allow_cancel=True)
+        if ratio_choice is None:
+            return
+
+        ratio_presets = [
+            {"code": 0.70, "text": 0.15, "math": 0.15},
+            {"code": 0.50, "text": 0.30, "math": 0.20},
+            {"code": 0.30, "text": 0.50, "math": 0.20},
+            {"code": 1.00, "text": 0.00, "math": 0.00},
+        ]
+
+        if ratio_choice == 4:
+            try:
+                code_w = float(input("  Code weight (0.0-1.0) [default: 0.6]: ").strip() or "0.6")
+                text_w = float(input("  Text weight (0.0-1.0) [default: 0.3]: ").strip() or "0.3")
+                math_w = float(input("  Math weight (0.0-1.0) [default: 0.1]: ").strip() or "0.1")
+            except (ValueError, EOFError, KeyboardInterrupt):
+                cli.warn("Invalid input — using balanced preset.")
+                code_w, text_w, math_w = 0.5, 0.3, 0.2
+            ratios = {"code": code_w, "text": text_w, "math": math_w}
+        else:
+            ratios = ratio_presets[ratio_choice]
+
+        total = sum(ratios.values())
+        cli.kv_table({
+            "Config": config_path,
+            "Code ratio": f"{ratios['code'] / total:.1%}",
+            "Text ratio": f"{ratios['text'] / total:.1%}",
+            "Math ratio": f"{ratios['math'] / total:.1%}",
+        }, title="Mixed Data Configuration")
+
+        if not cli.confirm("Launch mixed data preparation?"):
+            return
+
+        args = [
+            "--config", config_path,
+            "--tokenizer", self._master.storage.tokenizer_path,
+            "--mix-code", str(ratios["code"]),
+            "--mix-text", str(ratios["text"]),
+            "--mix-math", str(ratios["math"]),
+        ]
+        self._master._run_script("prepare_data.py", args)
+        self._master._pause()
+
+    def _prepare_repo_level_data_menu(self) -> None:
+        """Format repos with file separators for whole-repo context training."""
+        _print_section_header(
+            "Prepare Repo-Level Data",
+            "Format repos with file separators for whole-repo context",
+        )
+
+        cli.print(
+            "  Repo-level formatting packs multiple files from the same repo\n"
+            "  into a single context window, separated by file path headers.\n"
+            "  This teaches the model cross-file reasoning and import patterns.\n"
+        )
+
+        # Config selection
+        config_options = [
+            {"label": "Tiny   (50M)",    "detail": "configs/tiny.yaml — seq_len=1024"},
+            {"label": "Small  (125M)",   "detail": "configs/small.yaml — seq_len=2048"},
+            {"label": "Medium (299M)",   "detail": "configs/medium.yaml — seq_len=2048"},
+            {"label": "4080 Max (455M)", "detail": "configs/4080_max.yaml — seq_len=4096"},
+        ]
+        config_choice = cli.choose("Model config:", config_options, allow_cancel=True)
+        if config_choice is None:
+            return
+
+        config_map = ["tiny", "small", "medium", "4080_max"]
+        config_path = f"configs/{config_map[config_choice]}.yaml"
+
+        # Format options
+        format_options = [
+            {"label": "Path header + content",
+             "detail": "# === path/to/file.ts ===\\n<content>"},
+            {"label": "XML-style tags",
+             "detail": "<file path='...'>\\n<content>\\n</file>"},
+            {"label": "Simple separator",
+             "detail": "---\\n# file.ts\\n---\\n<content>"},
+        ]
+        fmt_choice = cli.choose("File separator format:", format_options, allow_cancel=True)
+        if fmt_choice is None:
+            return
+
+        fmt_names = ["path_header", "xml_tags", "simple_sep"]
+        fmt = fmt_names[fmt_choice]
+
+        cli.kv_table({
+            "Config": config_path,
+            "Format": fmt,
+            "Use case": "Cross-file reasoning, imports, project structure",
+        }, title="Repo-Level Data Config")
+
+        if not cli.confirm("Prepare repo-level training data?"):
+            return
+
+        args = [
+            "--config", config_path,
+            "--tokenizer", self._master.storage.tokenizer_path,
+            "--repo-level",
+            "--repo-format", fmt,
+        ]
+        self._master._run_script("prepare_data.py", args)
+        self._master._pause()

@@ -269,6 +269,48 @@ class Transformer(nn.Module):
         """
         self.gradient_checkpointing = True
 
+    def get_hidden_states(
+        self,
+        token_ids: torch.Tensor,
+        layer: int = -1,
+    ) -> torch.Tensor:
+        """Extract hidden states from an intermediate layer.
+
+        Used for embedding-based retrieval and semantic routing.
+        Middle layers capture the best semantic representations.
+
+        Args:
+            token_ids: Input token IDs, shape (batch_size, seq_len).
+            layer: Which layer to extract from. Negative indices count
+                   from the end (e.g., -4 = 4th from last). Default: -1
+                   (last hidden state before output projection).
+
+        Returns:
+            Hidden states tensor, shape (batch_size, seq_len, dim).
+        """
+        n_layers = len(self.blocks)
+
+        # Resolve negative indices
+        if layer < 0:
+            layer = n_layers + layer
+        layer = max(0, min(layer, n_layers - 1))
+
+        # Embedding
+        h = self.tok_emb(token_ids)
+
+        # Run through blocks up to the target layer
+        for i, block in enumerate(self.blocks):
+            h = block(h, rope_freqs=self.rope_freqs, start_pos=0, use_cache=False)
+            if i == layer:
+                break
+
+        return h
+
+    @property
+    def n_layers(self) -> int:
+        """Number of transformer blocks."""
+        return len(self.blocks)
+
     @property
     def num_parameters(self) -> int:
         """Count total trainable parameters."""
