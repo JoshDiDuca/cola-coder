@@ -1,0 +1,35 @@
+# SFT (Supervised Fine-Tuning) configuration
+# Used by scripts/train_sft.py for instruction tuning
+#
+# Usage:
+#   .venv/Scripts/python scripts/train_sft.py \
+#     --data data/sft/instructions.jsonl \
+#     --config configs/tiny.yaml \
+#     --checkpoint checkpoints/tiny/latest
+
+# SFT-specific training hyperparameters
+# These override the base config's training section
+sft:
+  # Learning rate: 10x lower than pre-training (DeepSeek-Coder-V2 approach)
+  learning_rate: 2.0e-5
+
+  # Fewer epochs to avoid overfitting (2-3 is standard)
+  epochs: 3
+
+  # Warmup ratio: 10% of total steps
+  warmup_ratio: 0.1
+
+  # Batch size (per GPU)
+  batch_size: 4
+
+  # Gradient accumulation steps (effective batch = batch_size * grad_accum)
+  gradient_accumulation: 4
+
+  # Weight decay
+  weight_decay: 0.1
+
+  # Gradient clipping
+  max_grad_norm: 1.0
+
+  # No dropout for models >100M params (DeepSeek/Qwen approach)
+  dropout: 0.0

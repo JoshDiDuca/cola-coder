@@ -63,8 +63,7 @@ class TrainingMenu:
             elif choice == 6:
                 self._lr_finder_menu()
             elif choice == 7:
-                self._master._run_script("training_dashboard.py")
-                self._master._pause()
+                self._training_dashboard()
             elif choice == 8:
                 self._master._run_script("training_eval_history.py")
                 self._master._pause()
@@ -626,7 +625,7 @@ class TrainingMenu:
         self._master._pause()
 
     def _lr_finder_menu(self) -> None:
-        """Learning rate finder."""
+        """Learning rate finder with batch size selection."""
         _print_section_header("Learning Rate Finder", "Smith's LR Range Test")
 
         cli.print("  Sweeps learning rate from low to high, plotting loss vs LR.")
@@ -637,12 +636,50 @@ class TrainingMenu:
             {"label": "Tiny   (50M)",   "detail": "configs/tiny.yaml"},
             {"label": "Small  (125M)",  "detail": "configs/small.yaml"},
             {"label": "Medium (350M)",  "detail": "configs/medium.yaml"},
+            {"label": "4080 Max (455M)", "detail": "configs/4080_max.yaml"},
         ]
 
         choice = cli.choose("Select model config:", options, allow_cancel=True)
         if choice is None:
             return
 
-        sizes = ["tiny", "small", "medium"]
-        self._master._run_script("find_lr.py", ["--config", f"configs/{sizes[choice]}.yaml"])
+        sizes = ["tiny", "small", "medium", "4080_max"]
+        args = ["--config", f"configs/{sizes[choice]}.yaml"]
+
+        # Batch size — smaller to avoid OOM during LR sweep
+        cli.dim("  Tip: Use a smaller batch size than training to avoid OOM.")
+        try:
+            bs_str = input("  Batch size [default: 4]: ").strip()
+            bs = int(bs_str) if bs_str else 4
+        except (EOFError, KeyboardInterrupt):
+            cli.warn("Cancelled.")
+            return
+        except ValueError:
+            bs = 4
+        args += ["--batch-size", str(bs)]
+
+        self._master._run_script("find_lr.py", args)
+        self._master._pause()
+
+    def _training_dashboard(self) -> None:
+        """Training dashboard with model selection."""
+        _print_section_header("Training Dashboard", "Real-time training metrics")
+
+        model = self._master._pick_model("Select model to monitor:")
+        if model is None:
+            return
+
+        # Build checkpoint dir path
+        from pathlib import Path
+        ckpt_dir = Path(self._master.storage.checkpoints_dir) / model
+        if not ckpt_dir.exists():
+            cli.error(f"No checkpoint directory found: {ckpt_dir}")
+            cli.dim("Train a model first, then monitor it here.")
+            self._master._pause()
+            return
+
+        self._master._run_script(
+            "training_dashboard.py",
+            ["--checkpoint-dir", str(ckpt_dir)],
+        )
         self._master._pause()
