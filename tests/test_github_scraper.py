@@ -19,8 +19,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 
+from cola_coder.data.pipeline import DataRecord
 from cola_coder.data.sources.github import (
-    DataRecord,
     GitHubClient,
     MetadataCache,
     RepoFilter,
@@ -269,7 +269,7 @@ class TestRepoProcessorExtractFiles:
             records = list(proc.extract_files(tmpdir, repo_name="test/repo"))
 
             assert len(records) == 2
-            languages = {r.language for r in records}
+            languages = {r.metadata.get("language", "") for r in records}
             assert "TypeScript" in languages
             assert "Python" in languages
 
@@ -286,7 +286,7 @@ class TestRepoProcessorExtractFiles:
             records = list(proc.extract_files(tmpdir))
 
             assert len(records) == 1
-            assert records[0].file_path == "app.js"
+            assert records[0].metadata.get("file_path") == "app.js"
 
     def test_skips_secret_files(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -297,7 +297,7 @@ class TestRepoProcessorExtractFiles:
             records = list(proc.extract_files(tmpdir))
 
             assert len(records) == 1
-            assert records[0].file_path == "app.py"
+            assert records[0].metadata.get("file_path") == "app.py"
 
     def test_skips_empty_files(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -309,7 +309,7 @@ class TestRepoProcessorExtractFiles:
             records = list(proc.extract_files(tmpdir))
 
             assert len(records) == 1
-            assert records[0].file_path == "valid.py"
+            assert records[0].metadata.get("file_path") == "valid.py"
 
     def test_respects_language_filter(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -320,7 +320,7 @@ class TestRepoProcessorExtractFiles:
             records = list(proc.extract_files(tmpdir))
 
             assert len(records) == 1
-            assert records[0].language == "TypeScript"
+            assert records[0].metadata.get("language") == "TypeScript"
 
     def test_record_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -340,11 +340,11 @@ class TestRepoProcessorExtractFiles:
 
             assert len(records) == 1
             r = records[0]
-            assert r.repo_name == "owner/repo"
-            assert r.repo_stars == 1000
-            assert r.repo_url == "https://github.com/owner/repo"
-            assert r.license == "MIT"
-            assert r.language == "TypeScript"
+            assert r.metadata.get("repo_name") == "owner/repo"
+            assert r.metadata.get("repo_stars") == 1000
+            assert r.metadata.get("repo_url") == "https://github.com/owner/repo"
+            assert r.metadata.get("license") == "MIT"
+            assert r.metadata.get("language") == "TypeScript"
 
 
 class TestRepoProcessorQualityChecks:
@@ -583,23 +583,27 @@ class TestDataRecord:
     def test_creation(self):
         record = DataRecord(
             content="console.log('hello');",
-            file_path="src/main.ts",
-            language="TypeScript",
-            repo_name="test/repo",
-            repo_stars=100,
+            metadata={
+                "file_path": "src/main.ts",
+                "language": "TypeScript",
+                "repo_name": "test/repo",
+                "repo_stars": 100,
+            },
         )
         assert record.content == "console.log('hello');"
-        assert record.language == "TypeScript"
-        assert record.repo_stars == 100
+        assert record.metadata.get("language") == "TypeScript"
+        assert record.metadata.get("repo_stars") == 100
 
     def test_defaults(self):
         record = DataRecord(
             content="x = 1",
-            file_path="main.py",
-            language="Python",
-            repo_name="",
+            metadata={
+                "file_path": "main.py",
+                "language": "Python",
+                "repo_name": "",
+            },
         )
-        assert record.repo_stars == 0
-        assert record.repo_url == ""
-        assert record.license == ""
-        assert record.file_size == 0
+        assert record.metadata.get("repo_stars", 0) == 0
+        assert record.metadata.get("repo_url", "") == ""
+        assert record.metadata.get("license", "") == ""
+        assert record.metadata.get("file_size", 0) == 0

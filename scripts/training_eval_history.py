@@ -161,86 +161,34 @@ def main() -> None:
         f"in [cyan]{checkpoint_dir}[/cyan]\n"
     )
 
-    # Build the table manually so it works with or without Rich
-    try:
-        from rich.console import Console
-        from rich.table import Table
-        from rich import box as rich_box
+    # Compute trend arrows
+    def _trend_arrow(idx: int) -> str:
+        if idx < 1:
+            return ""
+        diff = snapshots[idx].pass_at_1 - snapshots[idx - 1].pass_at_1
+        if diff > 0.005:
+            return "[green]▲[/green]"
+        elif diff < -0.005:
+            return "[red]▼[/red]"
+        return "[dim]=[/dim]"
 
-        console = Console()
-        table = Table(
-            title="Auto-Eval Snapshots",
-            box=rich_box.ROUNDED,
-            show_header=True,
-            header_style="bold cyan",
-            padding=(0, 1),
+    best_step = max(snapshots, key=lambda s: s.pass_at_1).step if snapshots else 0
+    rows: dict[str, str] = {}
+    for i, snap in enumerate(snapshots):
+        best_tag = "[bold yellow]*[/bold yellow] " if snap.step == best_step else "  "
+        rows[f"step {snap.step:,}"] = (
+            f"pass@1={snap.pass_at_1:.1%}  pass@5={snap.pass_at_5:.1%}"
+            f"  N={snap.num_problems}  gen={snap.avg_generation_time:.2f}s"
+            f"  {snap.timestamp}  {best_tag}{_trend_arrow(i)}"
         )
-        table.add_column("Step", style="bold", justify="right")
-        table.add_column("pass@1", justify="right")
-        table.add_column("pass@5", justify="right")
-        table.add_column("N", justify="right")
-        table.add_column("Gen/prob", justify="right")
-        table.add_column("Timestamp", style="dim")
-        table.add_column("", width=5)  # best marker / regression
+    cli.kv_table(rows, title="Auto-Eval Snapshots")
 
-        # Compute trend per snapshot (sliding window of 3)
-        def _trend_arrow(idx: int) -> str:
-            if idx < 1:
-                return ""
-            prev = snapshots[idx - 1].pass_at_1
-            curr = snapshots[idx].pass_at_1
-            diff = curr - prev
-            if diff > 0.005:
-                return "[green]▲[/green]"
-            elif diff < -0.005:
-                return "[red]▼[/red]"
-            return "[dim]=[/dim]"
-
-        best_step = max(snapshots, key=lambda s: s.pass_at_1).step if snapshots else 0
-
-        for i, snap in enumerate(snapshots):
-            is_best = snap.step == best_step
-            row_style = "bold" if is_best else ""
-            best_tag = "[bold yellow]*[/bold yellow]" if is_best else ""
-            table.add_row(
-                f"{snap.step:,}",
-                f"{snap.pass_at_1:.1%}",
-                f"{snap.pass_at_5:.1%}",
-                str(snap.num_problems),
-                f"{snap.avg_generation_time:.2f}s",
-                snap.timestamp,
-                f"{best_tag}{_trend_arrow(i)}",
-                style=row_style,
-            )
-
-        console.print(table)
-
-        # Summary row
-        best_snap = max(snapshots, key=lambda s: s.pass_at_1)
-        console.print(
-            f"\n  Best:  step [bold]{best_snap.step:,}[/bold]"
-            f"  pass@1 [bold green]{best_snap.pass_at_1:.1%}[/bold green]"
-            f"  pass@5 [green]{best_snap.pass_at_5:.1%}[/green]"
-        )
-
-    except ImportError:
-        # Plain text fallback
-        header = f"  {'Step':>10}  {'pass@1':>8}  {'pass@5':>8}  {'N':>5}  {'Gen/prob':>9}  Timestamp"
-        print("\n" + header)
-        print("  " + "-" * (len(header) - 2))
-        best_step = max(snapshots, key=lambda s: s.pass_at_1).step if snapshots else 0
-        for snap in snapshots:
-            best_tag = " *" if snap.step == best_step else "  "
-            print(
-                f"  {snap.step:>10,d}  {snap.pass_at_1:>7.1%}  {snap.pass_at_5:>7.1%}"
-                f"  {snap.num_problems:>5d}  {snap.avg_generation_time:>8.2f}s"
-                f"  {snap.timestamp}{best_tag}"
-            )
-        best_snap = max(snapshots, key=lambda s: s.pass_at_1)
-        print(
-            f"\n  Best: step {best_snap.step:,}  pass@1 {best_snap.pass_at_1:.1%}"
-            f"  pass@5 {best_snap.pass_at_5:.1%}"
-        )
+    best_snap = max(snapshots, key=lambda s: s.pass_at_1)
+    cli.print(
+        f"\n  Best:  step [bold]{best_snap.step:,}[/bold]"
+        f"  pass@1 [bold green]{best_snap.pass_at_1:.1%}[/bold green]"
+        f"  pass@5 [green]{best_snap.pass_at_5:.1%}[/green]"
+    )
 
     # ---- ASCII chart ----
     if not args.no_chart:

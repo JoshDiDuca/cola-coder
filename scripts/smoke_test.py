@@ -90,62 +90,17 @@ def _print_results(report, output_json: bool) -> None:
         print(json.dumps(data, indent=2))
         return
 
-    # Pretty-print with Rich (or plain fallback)
-    try:
-        from rich.console import Console
-        from rich.table import Table
-        from rich import box
+    # Pretty-print smoke test results
+    rows: dict[str, str] = {}
+    for r in report.results:
+        status = "[bold green]PASS[/bold green]" if r.passed else "[bold red]FAIL[/bold red]"
+        rows[r.name] = f"{status}  {r.message}  ({r.duration_ms:.0f}ms)"
+    cli.kv_table(rows, title="Smoke Test Results")
 
-        # Force UTF-8 on Windows
-        if sys.platform == "win32":
-            if hasattr(sys.stdout, "reconfigure"):
-                try:
-                    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-                except Exception:
-                    pass
-
-        console = Console()
-        table = Table(
-            title="Smoke Test Results",
-            box=box.ROUNDED,
-            show_header=True,
-            header_style="bold cyan",
-            padding=(0, 1),
-        )
-        table.add_column("Status", width=6, justify="center")
-        table.add_column("Test", style="bold white")
-        table.add_column("Message", style="dim")
-        table.add_column("ms", justify="right", style="dim", width=8)
-
-        for r in report.results:
-            status = "[bold green]PASS[/bold green]" if r.passed else "[bold red]FAIL[/bold red]"
-            table.add_row(status, r.name, r.message, f"{r.duration_ms:.0f}")
-
-        console.print()
-        console.print(table)
-        console.print()
-
-        if report.passed:
-            console.print(f"[bold green]PASS[/bold green] {report.summary}")
-        else:
-            console.print(f"[bold red]FAIL[/bold red] {report.summary}")
-        console.print()
-
-    except ImportError:
-        # Plain fallback
-        print()
-        width = 70
-        print("=" * width)
-        print("  Smoke Test Results")
-        print("=" * width)
-        for r in report.results:
-            mark = "PASS" if r.passed else "FAIL"
-            print(f"  [{mark}] {r.name:<40} {r.duration_ms:6.0f}ms")
-            print(f"         {r.message}")
-        print("=" * width)
-        print(f"  {report.summary}")
-        print("=" * width)
-        print()
+    if report.passed:
+        cli.success(report.summary)
+    else:
+        cli.error(report.summary)
 
 
 def main() -> int:

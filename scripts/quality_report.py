@@ -178,71 +178,44 @@ def main() -> int:
         return 1  # unreachable but satisfies type checker
 
     # ── Print summary ─────────────────────────────────────────────────────
-    try:
-        from rich.console import Console
-        from rich.table import Table
-        from rich import box
+    cli.rule("Quality Report Summary")
 
-        console = Console()
+    # Model info
+    from cola_coder.evaluation.quality_report import _human_params
+    params_str = _human_params(report.model_params)
+    cli.info("Parameters", params_str)
+    cli.info("Step", f"{report.training_step:,}")
+    cli.info("Loss", f"{report.training_loss:.4f}")
 
-        console.print()
-        console.rule("[bold cyan]Quality Report Summary[/bold cyan]")
+    # Smoke test results
+    num_p = sum(1 for d in report.smoke_test_details if d.get("passed"))
+    num_t = len(report.smoke_test_details)
+    smoke_label = "PASSED" if report.smoke_test_passed else "FAILED"
+    cli.info("Smoke test", f"{smoke_label} ({num_p}/{num_t})")
 
-        # Model info
-        from cola_coder.evaluation.quality_report import _human_params
-        params_str = _human_params(report.model_params)
-        console.print(f"  Parameters: [bold]{params_str}[/bold]")
-        console.print(f"  Step: [bold]{report.training_step:,}[/bold]")
-        console.print(f"  Loss: [bold]{report.training_loss:.4f}[/bold]")
+    smoke_rows = {}
+    for detail in report.smoke_test_details:
+        result_str = "PASS" if detail.get("passed") else "FAIL"
+        ms_str = f"{detail.get('duration_ms', 0):.0f}ms"
+        smoke_rows[detail.get("name", "?")] = f"{result_str}  {ms_str}"
+    cli.kv_table(smoke_rows, title="Smoke Tests")
 
-        # Smoke test table
-        smoke_status = "[bold green]PASSED[/bold green]" if report.smoke_test_passed else "[bold red]FAILED[/bold red]"
-        num_p = sum(1 for d in report.smoke_test_details if d.get("passed"))
-        num_t = len(report.smoke_test_details)
-        console.print(f"\n  Smoke test: {smoke_status} ({num_p}/{num_t})")
+    # Sample outputs
+    if report.samples:
+        cli.rule("Sample Outputs")
+        for sample in report.samples[:2]:  # Show first 2 to keep output manageable
+            prompt_line = sample["prompt"].split("\n")[0][:50]
+            cli.print(f"\n[bold]Prompt:[/bold] {prompt_line}...")
+            cli.dim(sample["output"][:300])
 
-        table = Table(box=box.SIMPLE, show_header=True, header_style="bold cyan", padding=(0, 1))
-        table.add_column("Test", style="white")
-        table.add_column("Result", width=6, justify="center")
-        table.add_column("ms", justify="right", style="dim", width=8)
-
-        for detail in report.smoke_test_details:
-            result_str = "[green]PASS[/green]" if detail.get("passed") else "[red]FAIL[/red]"
-            table.add_row(
-                detail.get("name", "?"),
-                result_str,
-                f"{detail.get('duration_ms', 0):.0f}",
-            )
-
-        console.print(table)
-
-        # Sample outputs
-        if report.samples:
-            console.rule("[bold cyan]Sample Outputs[/bold cyan]")
-            for sample in report.samples[:2]:  # Show first 2 to keep output manageable
-                prompt_line = sample["prompt"].split("\n")[0][:50]
-                console.print(f"\n[bold]Prompt:[/bold] {prompt_line}...")
-                console.print(f"[dim]{sample['output'][:300]}[/dim]")
-
-        if report.humaneval_pass_at_1 is not None:
-            console.print(f"\n  HumanEval pass@1: [bold]{report.humaneval_pass_at_1 * 100:.1f}%[/bold]")
-
-        console.print()
-
-    except ImportError:
-        # Plain fallback
-        print(f"\nStep: {report.training_step}")
-        print(f"Loss: {report.training_loss:.4f}")
-        smoke_str = "PASSED" if report.smoke_test_passed else "FAILED"
-        num_p = sum(1 for d in report.smoke_test_details if d.get("passed"))
-        print(f"Smoke test: {smoke_str} ({num_p}/{len(report.smoke_test_details)})")
+    if report.humaneval_pass_at_1 is not None:
+        cli.info("HumanEval pass@1", f"{report.humaneval_pass_at_1 * 100:.1f}%")
 
     # ── Save report ───────────────────────────────────────────────────────
     if not args.no_save:
         generator.save_report(report, output_dir=args.output)
-        from pathlib import Path as _P
-        out_path = _P(args.output)
-        ckpt_name = _P(report.checkpoint_path).name
+        out_path = Path(args.output)
+        ckpt_name = Path(report.checkpoint_path).name
         step_str = f"step_{report.training_step:07d}"
         base_name = f"quality_report_{ckpt_name}_{step_str}"
         cli.success(f"Report saved to {out_path / base_name}.md / .json")

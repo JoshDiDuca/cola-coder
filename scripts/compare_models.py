@@ -101,138 +101,61 @@ def _auto_detect_config(checkpoint_path: str) -> str | None:
 
 
 def _print_rich_comparison(result: "ComparisonResult") -> None:  # noqa: F821
-    """Print the comparison using Rich tables."""
-    try:
-        from rich.console import Console
-        from rich.table import Table
-        from rich.panel import Panel
-        from rich import box
+    """Print the comparison using cli helpers."""
+    from cola_coder.evaluation.quality_report import _human_params
 
-        console = Console()
+    cli.rule("Model Comparison")
 
-        console.print()
-        console.rule("[bold cyan]Model Comparison[/bold cyan]")
-
-        # Model summary table
-        model_table = Table(
-            title="Models",
-            box=box.ROUNDED,
-            show_header=True,
-            header_style="bold cyan",
-            padding=(0, 1),
+    # Model summary table
+    model_rows: dict[str, str] = {}
+    for i, (m, metric) in enumerate(zip(result.models, result.metrics)):
+        params_str = m.get("params_human", _human_params(m.get("params", 0)))
+        step = m.get("step", "?")
+        step_str = f"{step:,}" if isinstance(step, int) else str(step)
+        loss = m.get("loss", float("nan"))
+        loss_str = f"{loss:.4f}" if isinstance(loss, float) and loss == loss else "N/A"
+        tps = metric.get("tokens_per_sec", 0)
+        model_rows[f"{i + 1}. {m.get('name', '?')}"] = (
+            f"params={params_str}  step={step_str}  loss={loss_str}  tok/s={tps:.1f}"
         )
-        model_table.add_column("#", width=4, justify="right")
-        model_table.add_column("Checkpoint")
-        model_table.add_column("Params", justify="right")
-        model_table.add_column("Step", justify="right")
-        model_table.add_column("Loss", justify="right")
-        model_table.add_column("Tokens/s", justify="right")
+    cli.kv_table(model_rows, title="Models")
 
-        for i, (m, metric) in enumerate(zip(result.models, result.metrics)):
-            from cola_coder.evaluation.quality_report import _human_params
-            params_str = m.get("params_human", _human_params(m.get("params", 0)))
-            step = m.get("step", "?")
-            step_str = f"{step:,}" if isinstance(step, int) else str(step)
-            loss = m.get("loss", float("nan"))
-            loss_str = f"{loss:.4f}" if isinstance(loss, float) and loss == loss else "N/A"
-            tps = metric.get("tokens_per_sec", 0)
-            tps_str = f"{tps:.1f}"
-            model_table.add_row(
-                str(i + 1),
-                m.get("name", "?"),
-                params_str,
-                step_str,
-                loss_str,
-                tps_str,
-            )
-
-        console.print(model_table)
-        console.print()
-
-        # Per-prompt output panels
-        for p_idx, prompt in enumerate(result.prompts):
-            short_prompt = prompt.split("\n")[0][:60]
-            console.rule(f"[bold]Prompt {p_idx + 1}:[/bold] {short_prompt}")
-            console.print()
-
-            for m_idx, model_info in enumerate(result.models):
-                name = model_info.get("name", f"Model {m_idx + 1}")
-                output = result.outputs[m_idx][p_idx] if m_idx < len(result.outputs) else ""
-
-                # Truncate very long outputs for display
-                display_output = output[:400] + "..." if len(output) > 400 else output
-
-                console.print(Panel(
-                    display_output,
-                    title=f"[bold cyan]{name}[/bold cyan]",
-                    border_style="dim",
-                    expand=True,
-                ))
-            console.print()
-
-        # Performance metrics
-        metrics_table = Table(
-            title="Performance Metrics",
-            box=box.SIMPLE,
-            show_header=True,
-            header_style="bold cyan",
-            padding=(0, 1),
-        )
-        metrics_table.add_column("Model")
-        metrics_table.add_column("Step", justify="right")
-        metrics_table.add_column("Loss", justify="right")
-        metrics_table.add_column("Tokens/s", justify="right")
-        metrics_table.add_column("Avg Len", justify="right")
-
-        # Determine best (fastest, lowest loss)
-        losses = [m.get("loss", float("nan")) for m in result.models]
-        valid_losses = [v for v in losses if v == v]  # filter NaN
-        best_loss = min(valid_losses) if valid_losses else None
-
-        tpss = [m.get("tokens_per_sec", 0.0) for m in result.metrics]
-        best_tps = max(tpss) if tpss else None
-
-        for m_idx, (model_info, metric) in enumerate(zip(result.models, result.metrics)):
+    # Per-prompt outputs
+    for p_idx, prompt in enumerate(result.prompts):
+        short_prompt = prompt.split("\n")[0][:60]
+        cli.rule(f"Prompt {p_idx + 1}: {short_prompt}")
+        for m_idx, model_info in enumerate(result.models):
             name = model_info.get("name", f"Model {m_idx + 1}")
-            step = model_info.get("step", "?")
-            step_str = f"{step:,}" if isinstance(step, int) else str(step)
-            loss = model_info.get("loss", float("nan"))
-            loss_val = loss if isinstance(loss, float) and loss == loss else None
-            if loss_val is not None:
-                loss_str = f"{loss_val:.4f}"
-                if best_loss is not None and abs(loss_val - best_loss) < 1e-8:
-                    loss_str = f"[bold green]{loss_str}[/bold green]"
-            else:
-                loss_str = "N/A"
+            output = result.outputs[m_idx][p_idx] if m_idx < len(result.outputs) else ""
+            display_output = output[:400] + "..." if len(output) > 400 else output
+            cli.print(f"\n[bold cyan]{name}[/bold cyan]")
+            cli.print(display_output)
 
-            tps = metric.get("tokens_per_sec", 0.0)
-            tps_str = f"{tps:.1f}"
-            if best_tps is not None and abs(tps - best_tps) < 1e-3 and tps > 0:
-                tps_str = f"[bold green]{tps_str}[/bold green]"
+    # Performance metrics
+    cli.rule("Performance Metrics")
+    losses = [m.get("loss", float("nan")) for m in result.models]
+    valid_losses = [v for v in losses if v == v]  # filter NaN
+    best_loss = min(valid_losses) if valid_losses else None
+    tpss = [m.get("tokens_per_sec", 0.0) for m in result.metrics]
+    best_tps = max(tpss) if tpss else None
 
-            avg_len = metric.get("avg_output_len", 0.0)
-            metrics_table.add_row(
-                name,
-                step_str,
-                loss_str,
-                tps_str,
-                f"{avg_len:.0f}",
-            )
-
-        console.print(metrics_table)
-
-    except ImportError:
-        # Plain fallback
-        print("\n=== Model Comparison ===")
-        for i, m in enumerate(result.models):
-            print(f"Model {i + 1}: {m.get('name')}  step={m.get('step')}  loss={m.get('loss')}")
-        print()
-        for p_idx, prompt in enumerate(result.prompts):
-            print(f"--- Prompt {p_idx + 1}: {prompt[:50]} ---")
-            for m_idx, m in enumerate(result.models):
-                output = result.outputs[m_idx][p_idx] if m_idx < len(result.outputs) else ""
-                print(f"  [{m.get('name')}]: {output[:200]}")
-            print()
+    perf_rows: dict[str, str] = {}
+    for m_idx, (model_info, metric) in enumerate(zip(result.models, result.metrics)):
+        name = model_info.get("name", f"Model {m_idx + 1}")
+        step = model_info.get("step", "?")
+        step_str = f"{step:,}" if isinstance(step, int) else str(step)
+        loss = model_info.get("loss", float("nan"))
+        loss_val = loss if isinstance(loss, float) and loss == loss else None
+        loss_str = f"{loss_val:.4f}" if loss_val is not None else "N/A"
+        if best_loss is not None and loss_val is not None and abs(loss_val - best_loss) < 1e-8:
+            loss_str = f"[bold green]{loss_str}[/bold green]"
+        tps = metric.get("tokens_per_sec", 0.0)
+        tps_str = f"{tps:.1f}"
+        if best_tps is not None and abs(tps - best_tps) < 1e-3 and tps > 0:
+            tps_str = f"[bold green]{tps_str}[/bold green]"
+        avg_len = metric.get("avg_output_len", 0.0)
+        perf_rows[name] = f"step={step_str}  loss={loss_str}  tok/s={tps_str}  avg_len={avg_len:.0f}"
+    cli.kv_table(perf_rows, title="Metrics")
 
 
 def main() -> int:

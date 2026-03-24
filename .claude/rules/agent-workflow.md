@@ -27,10 +27,16 @@
 4. Update `tasks/lessons.md` after corrections
 
 ## Menu Integration
-- When adding a new user-facing feature or script, add it to the master menu
-  (`src/cola_coder/features/master_menu.py`) in the appropriate section
+- Menus are split into sub-modules under `src/cola_coder/features/menus/`:
+  - `data_menu.py` — data collection, modification, scoring, inspection, preparation
+  - `training_menu.py` — model training, tokenizer, reasoning, VRAM, LR finder
+  - `eval_menu.py` — HumanEval, benchmarks, comparisons, quality reports
+  - `tools_menu.py` — tests, linting, GPU, features, settings, export
+- `master_menu.py` is the thin coordinator with shared helpers only
+- When adding a new feature, add it to the appropriate sub-module menu
 - Follow existing patterns: label + detail dict, dispatch by choice index
-- If a new config size is added, include it in `_resume_training_menu` sizes list
+- Data sources use `cli.choose()`, `cli.confirm()`, `cli.kv_table()` — never raw Rich
+- If a new config size is added, include it in `training_menu._train_size_menu` sizes
 
 ## Principles
 - **Simplicity First**: make every change as simple as possible

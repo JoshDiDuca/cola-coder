@@ -47,6 +47,48 @@ except ImportError:
     _console = None  # type: ignore
 
 
+def _read_key() -> str:
+    """Read a single keypress. Returns arrow names or characters.
+
+    Platform-agnostic: uses msvcrt on Windows, tty/termios on Unix.
+    """
+    if sys.platform == "win32":
+        import msvcrt
+        key = msvcrt.getwch()
+        if key in ("\xe0", "\x00"):  # Arrow/special key prefix
+            key2 = msvcrt.getwch()
+            return {"H": "up", "P": "down", "M": "right", "K": "left"}.get(key2, "")
+        if key == "\r":
+            return "enter"
+        if key == "\x1b":
+            return "escape"
+        if key == " ":
+            return "space"
+        return key
+    else:
+        import tty
+        import termios
+        fd = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ch = sys.stdin.read(1)
+            if ch == "\x1b":
+                ch2 = sys.stdin.read(1)
+                if ch2 == "[":
+                    ch3 = sys.stdin.read(1)
+                    return {
+                        "A": "up", "B": "down", "C": "right", "D": "left",
+                    }.get(ch3, "")
+            if ch in ("\r", "\n"):
+                return "enter"
+            if ch == " ":
+                return "space"
+            return ch
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+
 class CLI:
     """Consistent CLI output for cola-coder scripts."""
 
@@ -387,6 +429,158 @@ class CLI:
         elif raw in ("n", "no"):
             return False
         return default
+
+    def multi_select(
+        self,
+        prompt: str,
+        options: list[dict[str, str]],
+        *,
+        preselected: list[int] | None = None,
+    ) -> list[int]:
+        """Show a multi-select menu and return selected indices.
+
+        Uses questionary checkbox when available, falls back to sequential
+        confirm() calls otherwise.
+
+        Args:
+            prompt: Title shown above the options.
+            options: List of dicts with 'label' and optional 'detail' keys.
+            preselected: Indices to pre-check (default: all selected).
+
+        Returns:
+            Sorted list of selected indices (0-based). Empty if all
+            deselected or cancelled.
+        """
+        if preselected is None:
+            preselected = list(range(len(options)))
+
+        try:
+            import questionary
+            from questionary import Style
+
+            custom_style = Style([
+                ('qmark', 'fg:cyan bold'),
+                ('question', 'bold'),
+                ('pointer', 'fg:cyan bold'),
+                ('highlighted', 'fg:cyan bold'),
+                ('selected', 'fg:green'),
+                ('checked', 'fg:green bold'),
+            ])
+
+            choices = []
+            for i, opt in enumerate(options):
+                label = opt.get("label", "")
+                detail = opt.get("detail", "")
+                display = f"{label}  ({detail})" if detail else label
+                choices.append(
+                    questionary.Choice(
+                        title=display, value=i, checked=i in preselected,
+                    )
+                )
+
+            result = questionary.checkbox(
+                prompt,
+                choices=choices,
+                style=custom_style,
+            ).ask()
+
+            if result is None:
+                return []
+            return sorted(result)
+
+        except ImportError:
+            pass
+
+        # Fallback: sequential confirm
+        self.print(f"\n  [bold]{prompt}[/bold]" if _HAS_RICH else f"\n  {prompt}")
+        selected = []
+        for i, opt in enumerate(options):
+            label = opt.get("label", "")
+            default = i in preselected
+            if self.confirm(f"  Include {label}?", default=default):
+                selected.append(i)
+        return sorted(selected)
+
+    def weight_editor(
+        self,
+        items: list[dict[str, str]],
+        *,
+        title: str = "Set weights for each dataset",
+    ) -> list[float]:
+        """Interactive weight editor with left/right arrow adjustment.
+
+        Args:
+            items: List of dicts with 'label' key (and optional 'detail').
+            title: Header text shown above the editor.
+
+        Returns:
+            List of normalized weights summing to 1.0.
+        """
+        import os
+
+        n = len(items)
+        weights = [1.0 / n] * n
+        cursor = 0
+        increment = 0.05
+
+        def _clear():
+            if _HAS_RICH:
+                _console.clear()
+            else:
+                os.system("cls" if sys.platform == "win32" else "clear")
+
+        while True:
+            _clear()
+            self.header("Cola-Coder", "Weight Editor")
+            self.print()
+            self.print(f"  [bold]{title}[/bold]" if _HAS_RICH else f"  {title}")
+            self.dim(
+                "  Use up/down to navigate, left/right to adjust, Enter to confirm"
+            )
+            self.print()
+
+            for i, item in enumerate(items):
+                is_cursor = i == cursor
+                w = weights[i]
+                bar_len = int(w * 30)
+                bar = "\u2588" * bar_len + "\u2591" * (30 - bar_len)
+                label = item.get("label", f"Item {i + 1}")
+
+                if _HAS_RICH:
+                    prefix = "  [bold green]>[/bold green] " if is_cursor else "    "
+                    if is_cursor:
+                        self.print(
+                            f"{prefix}[bold white on blue] {label:<30} "
+                            f"[/bold white on blue]  [{w:.2f}] {bar}"
+                        )
+                    else:
+                        self.print(
+                            f"{prefix}[white]{label:<30}[/white]"
+                            f"  [{w:.2f}] [dim]{bar}[/dim]"
+                        )
+                else:
+                    prefix = "  > " if is_cursor else "    "
+                    print(f"{prefix}{label:<30}  [{w:.2f}] {bar}")
+
+            self.print()
+            total = sum(weights)
+            self.dim(f"  Total: {total:.2f} (will be normalized to 1.0)")
+
+            key = _read_key()
+            if key == "up":
+                cursor = (cursor - 1) % n
+            elif key == "down":
+                cursor = (cursor + 1) % n
+            elif key == "right":
+                weights[cursor] = min(1.0, weights[cursor] + increment)
+            elif key == "left":
+                weights[cursor] = max(0.05, weights[cursor] - increment)
+            elif key == "enter":
+                total = sum(weights)
+                return [w / total for w in weights]
+            elif key in ("escape", "\x03"):
+                self.warn("Cancelled.")
+                sys.exit(0)
 
     def file_table(
         self,

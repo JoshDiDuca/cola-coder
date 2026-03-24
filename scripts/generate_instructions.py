@@ -16,37 +16,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
 import time
 from pathlib import Path
 
+from cola_coder.cli import cli
 from cola_coder.model.config import get_storage_config
-
-# ---------------------------------------------------------------------------
-# Rich console (optional — falls back to plain text)
-# ---------------------------------------------------------------------------
-
-try:
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich import box
-    _HAS_RICH = True
-except ImportError:
-    _HAS_RICH = False
-
-if _HAS_RICH:
-    console = Console()
-else:
-    class _FallbackConsole:
-        """Minimal console when rich is not installed."""
-        def print(self, text: str = "", **kwargs) -> None:  # noqa: A003
-            # Strip rich markup (crude but functional)
-            import re
-            clean = re.sub(r"\[/?[^\]]*\]", "", str(text))
-            print(clean)
-        def clear(self) -> None:
-            pass
-    console = _FallbackConsole()  # type: ignore[assignment]
 
 
 # ---------------------------------------------------------------------------
@@ -55,12 +29,12 @@ else:
 
 def _ask_choice(prompt: str, options: list[str], default: int = 1) -> int:
     """Ask the user to pick from numbered options. Returns 1-based index."""
-    console.print()
-    console.print(f"  [bold]{prompt}[/bold]")
+    cli.print()
+    cli.print(f"  [bold]{prompt}[/bold]")
     for i, opt in enumerate(options, 1):
         marker = " [yellow](default)[/yellow]" if i == default else ""
-        console.print(f"    [cyan][{i}][/cyan] {opt}{marker}")
-    console.print()
+        cli.print(f"    [cyan][{i}][/cyan] {opt}{marker}")
+    cli.print()
 
     while True:
         try:
@@ -72,7 +46,7 @@ def _ask_choice(prompt: str, options: list[str], default: int = 1) -> int:
                 return choice
         except (ValueError, EOFError):
             pass
-        console.print(f"  [red]Please enter a number 1-{len(options)}[/red]")
+        cli.print(f"  [red]Please enter a number 1-{len(options)}[/red]")
 
 
 def _ask_input(prompt: str, default: str = "") -> str:
@@ -92,7 +66,7 @@ def _ask_int(prompt: str, default: int = 1000) -> int:
         try:
             return int(raw)
         except ValueError:
-            console.print("  [red]Please enter a valid number.[/red]")
+            cli.print("  [red]Please enter a valid number.[/red]")
 
 
 # ---------------------------------------------------------------------------
@@ -100,20 +74,7 @@ def _ask_int(prompt: str, default: int = 1000) -> int:
 # ---------------------------------------------------------------------------
 
 def _print_banner() -> None:
-    if _HAS_RICH:
-        console.print()
-        console.print(Panel(
-            "[bold cyan]SelfCodeAlign — Instruction Data Generator[/bold cyan]\n"
-            "[dim]Generate instruction-tuning data from raw code[/dim]",
-            box=box.ROUNDED,
-            width=60,
-        ))
-    else:
-        console.print()
-        console.print("=" * 50)
-        console.print("  SelfCodeAlign -- Instruction Data Generator")
-        console.print("  Generate instruction-tuning data from raw code")
-        console.print("=" * 50)
+    cli.header("SelfCodeAlign", "Instruction Data Generator")
 
 
 # ---------------------------------------------------------------------------
@@ -126,8 +87,8 @@ def run_interactive() -> None:
     _print_banner()
 
     # --- Step 1: Source ---
-    console.print()
-    console.print("  [bold]Step 1/3 - Source Code[/bold]")
+    cli.print()
+    cli.print("  [bold]Step 1/3 - Source Code[/bold]")
     source_choice = _ask_choice(
         "Where should raw code come from?",
         [
@@ -153,8 +114,8 @@ def run_interactive() -> None:
         source_type = None  # Will use inline demo
 
     # --- Step 2: Generation Mode ---
-    console.print()
-    console.print("  [bold]Step 2/3 - Generation Mode[/bold]")
+    cli.print()
+    cli.print("  [bold]Step 2/3 - Generation Mode[/bold]")
     mode_choice = _ask_choice(
         "How should instructions be generated?",
         [
@@ -167,8 +128,8 @@ def run_interactive() -> None:
     mode = ["template", "llm", "self"][mode_choice - 1]
 
     # --- Step 3: Output ---
-    console.print()
-    console.print("  [bold]Step 3/3 - Output[/bold]")
+    cli.print()
+    cli.print("  [bold]Step 3/3 - Output[/bold]")
     count = _ask_int("How many examples?", 1000)
     language = _ask_input("Language", "typescript")
     min_quality = float(_ask_input("Minimum quality score (0.0-1.0)", "0.5"))
@@ -205,13 +166,13 @@ def _run_pipeline(
         SelfAlignPipeline,
     )
 
-    console.print()
-    console.print("[bold]Generating instruction data...[/bold]")
-    console.print(f"  Mode: {mode}")
-    console.print(f"  Target: {count} examples")
-    console.print(f"  Language: {language}")
-    console.print(f"  Min quality: {min_quality}")
-    console.print()
+    cli.print()
+    cli.print("[bold]Generating instruction data...[/bold]")
+    cli.print(f"  Mode: {mode}")
+    cli.print(f"  Target: {count} examples")
+    cli.print(f"  Language: {language}")
+    cli.print(f"  Min quality: {min_quality}")
+    cli.print()
 
     # Build source
     inner_source = None
@@ -229,8 +190,7 @@ def _run_pipeline(
             from cola_coder.data.sources.huggingface import HuggingFaceSource
             inner_source = HuggingFaceSource(dataset=source_dataset)
         except ImportError:
-            console.print("[red]HuggingFace source requires datasets package.[/red]")
-            sys.exit(1)
+            cli.fatal("HuggingFace source requires datasets package.")
 
     pipeline = SelfAlignPipeline(
         source=inner_source,
@@ -249,32 +209,32 @@ def _run_pipeline(
 
     elapsed = time.time() - start
 
-    console.print()
-    console.print(f"[green]Generated {len(examples)} examples in {elapsed:.1f}s[/green]")
+    cli.print()
+    cli.success(f"Generated {len(examples)} examples in {elapsed:.1f}s")
 
     if not examples:
-        console.print("[yellow]No examples generated. Check your source path and settings.[/yellow]")
+        cli.warn("No examples generated. Check your source path and settings.")
         return
 
     # Show quality distribution
     scores = [ex.quality_score for ex in examples]
     avg_score = sum(scores) / len(scores) if scores else 0
-    console.print(f"  Average quality: {avg_score:.2f}")
-    console.print(f"  Quality range: {min(scores):.2f} - {max(scores):.2f}")
+    cli.info("Average quality", f"{avg_score:.2f}")
+    cli.info("Quality range", f"{min(scores):.2f} - {max(scores):.2f}")
 
     # Show a sample
-    console.print()
-    console.print("[bold]Sample example:[/bold]")
+    cli.print()
+    cli.print("[bold]Sample example:[/bold]")
     sample = examples[0]
-    console.print(f"  [cyan]Instruction:[/cyan] {sample.instruction[:120]}...")
-    console.print(f"  [cyan]Output:[/cyan] {sample.output[:120]}...")
-    console.print(f"  [cyan]Quality:[/cyan] {sample.quality_score:.2f}")
+    cli.print(f"  [cyan]Instruction:[/cyan] {sample.instruction[:120]}...")
+    cli.print(f"  [cyan]Output:[/cyan] {sample.output[:120]}...")
+    cli.print(f"  [cyan]Quality:[/cyan] {sample.quality_score:.2f}")
 
     # Save
     pipeline.save_jsonl(examples, output_path)
-    console.print()
-    console.print(f"[bold green]Saved to {output_path}[/bold green]")
-    console.print(f"  {len(examples)} examples, {Path(output_path).stat().st_size / 1024:.1f} KB")
+    cli.print()
+    cli.success(f"Saved to {output_path}")
+    cli.info("Size", f"{len(examples)} examples, {Path(output_path).stat().st_size / 1024:.1f} KB")
 
 
 def _generate_demo_examples(

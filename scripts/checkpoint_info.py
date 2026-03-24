@@ -135,54 +135,23 @@ def _list_checkpoints(base_dir: Path) -> None:
         return
 
     cli.print(f"\n[bold cyan]Checkpoints in {base_dir}:[/bold cyan]")
-    try:
-        from rich.table import Table
-        from rich import box
-        from rich.console import Console
-
-        console = Console()
-        table = Table(box=box.ROUNDED, header_style="bold cyan")
-        table.add_column("Checkpoint", style="yellow")
-        table.add_column("Step", justify="right")
-        table.add_column("Loss", justify="right")
-        table.add_column("Size")
-
-        for d in step_dirs:
-            meta_path = d / "metadata.json"
-            step_str = loss_str = size_str = "?"
-            if meta_path.exists():
-                try:
-                    meta = json.loads(meta_path.read_text())
-                    step_str = f"{meta.get('step', '?'):,}" if isinstance(meta.get("step"), int) else "?"
-                    loss_val = meta.get("loss")
-                    loss_str = f"{loss_val:.4f}" if isinstance(loss_val, float) else "?"
-                except Exception:
-                    pass
-            total = sum(f.stat().st_size for f in d.iterdir() if f.is_file())
-            size_str = _format_size(total)
-            table.add_row(d.name, step_str, loss_str, size_str)
-
-        console.print(table)
-        cli.info("Total checkpoints", str(len(step_dirs)))
-
-    except ImportError:
-        # Fallback plain text
-        print(f"{'Checkpoint':<30} {'Step':>10} {'Loss':>10} {'Size':>12}")
-        print("-" * 65)
-        for d in step_dirs:
-            meta_path = d / "metadata.json"
-            step_str = loss_str = size_str = "?"
-            if meta_path.exists():
-                try:
-                    meta = json.loads(meta_path.read_text())
-                    step_str = str(meta.get("step", "?"))
-                    loss_val = meta.get("loss")
-                    loss_str = f"{loss_val:.4f}" if isinstance(loss_val, float) else "?"
-                except Exception:
-                    pass
-            total = sum(f.stat().st_size for f in d.iterdir() if f.is_file())
-            size_str = _format_size(total)
-            print(f"{d.name:<30} {step_str:>10} {loss_str:>10} {size_str:>12}")
+    rows: dict[str, str] = {}
+    for d in step_dirs:
+        meta_path = d / "metadata.json"
+        step_str = loss_str = size_str = "?"
+        if meta_path.exists():
+            try:
+                meta = json.loads(meta_path.read_text())
+                step_str = f"{meta.get('step', '?'):,}" if isinstance(meta.get("step"), int) else "?"
+                loss_val = meta.get("loss")
+                loss_str = f"{loss_val:.4f}" if isinstance(loss_val, float) else "?"
+            except Exception:
+                pass
+        total = sum(f.stat().st_size for f in d.iterdir() if f.is_file())
+        size_str = _format_size(total)
+        rows[d.name] = f"step={step_str}  loss={loss_str}  size={size_str}"
+    cli.kv_table(rows, title="Checkpoints")
+    cli.info("Total checkpoints", str(len(step_dirs)))
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────

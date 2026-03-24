@@ -16,213 +16,8 @@ import os
 import sys
 from pathlib import Path
 
+from cola_coder.cli import cli
 from cola_coder.model.config import get_storage_config
-
-# ---------------------------------------------------------------------------
-# Menu UI helpers using rich
-# ---------------------------------------------------------------------------
-
-try:
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.table import Table
-    from rich.text import Text
-    from rich import box
-except ImportError:
-    print("Error: 'rich' is required. Install with: pip install rich")
-    sys.exit(1)
-
-try:
-    from cola_coder.cli import cli as _cli
-except ImportError:
-    _cli = None
-
-console = Console()
-
-# ANSI escape for reading raw keypresses on Windows
-if sys.platform == "win32":
-    import msvcrt
-
-    def _read_key() -> str:
-        """Read a single keypress on Windows. Returns arrow names or characters."""
-        key = msvcrt.getwch()
-        if key == "\xe0" or key == "\x00":  # Arrow/special key prefix
-            key2 = msvcrt.getwch()
-            return {
-                "H": "up",
-                "P": "down",
-                "M": "right",
-                "K": "left",
-            }.get(key2, "")
-        if key == "\r":
-            return "enter"
-        if key == "\x1b":
-            return "escape"
-        if key == " ":
-            return "space"
-        return key
-else:
-    import tty
-    import termios
-
-    def _read_key() -> str:
-        """Read a single keypress on Unix."""
-        fd = sys.stdin.fileno()
-        old = termios.tcgetattr(fd)
-        try:
-            tty.setraw(fd)
-            ch = sys.stdin.read(1)
-            if ch == "\x1b":
-                ch2 = sys.stdin.read(1)
-                if ch2 == "[":
-                    ch3 = sys.stdin.read(1)
-                    return {"A": "up", "B": "down", "C": "right", "D": "left"}.get(ch3, "")
-            if ch == "\r" or ch == "\n":
-                return "enter"
-            if ch == " ":
-                return "space"
-            return ch
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old)
-
-
-def select_menu(
-    title: str,
-    options: list[dict],
-    step: str = "",
-) -> int:
-    """Show an interactive arrow-key menu and return the selected index.
-
-    Each option is a dict with:
-        - label: str (displayed name)
-        - description: str (right-side detail)
-        - recommended: bool (optional, shows a tag)
-    """
-    selected = 0
-    # Find first recommended option as default
-    for i, opt in enumerate(options):
-        if opt.get("recommended"):
-            selected = i
-            break
-
-    while True:
-        # Clear and redraw
-        console.clear()
-        _draw_header()
-
-        console.print()
-        console.print(f"  [bold cyan]{step}[/bold cyan]" if step else "")
-        console.print(f"  [bold]{title}[/bold]")
-        console.print("  [dim]Use [bold]arrow keys[/bold] to navigate, "
-                      "[bold]Enter[/bold] to select[/dim]")
-        console.print()
-
-        for i, opt in enumerate(options):
-            is_selected = i == selected
-            prefix = "  [bold green]>[/bold green] " if is_selected else "    "
-            label = opt["label"]
-            desc = opt.get("description", "")
-            rec = "  [yellow](recommended)[/yellow]" if opt.get("recommended") else ""
-
-            if is_selected:
-                console.print(
-                    f"{prefix}[bold white on blue] {label} [/bold white on blue]"
-                    f"  [dim]{desc}[/dim]{rec}"
-                )
-            else:
-                console.print(
-                    f"{prefix}[white]{label}[/white]"
-                    f"  [dim]{desc}[/dim]{rec}"
-                )
-
-        key = _read_key()
-        if key == "up":
-            selected = (selected - 1) % len(options)
-        elif key == "down":
-            selected = (selected + 1) % len(options)
-        elif key == "enter":
-            return selected
-        elif key == "escape" or key == "\x03":  # Ctrl+C
-            console.print("\n[red]Cancelled.[/red]")
-            sys.exit(0)
-
-
-def multi_select_menu(
-    title: str,
-    options: list[dict],
-    step: str = "",
-    preselected: set[int] | None = None,
-) -> list[int]:
-    """Show a multi-select menu. Space toggles, Enter confirms.
-
-    Returns list of selected indices.
-    """
-    cursor = 0
-    checked = set(preselected or set())
-
-    while True:
-        console.clear()
-        _draw_header()
-
-        console.print()
-        console.print(f"  [bold cyan]{step}[/bold cyan]" if step else "")
-        console.print(f"  [bold]{title}[/bold]")
-        console.print("  [dim]Use [bold]arrow keys[/bold] to navigate, "
-                      "[bold]Space[/bold] to toggle, "
-                      "[bold]Enter[/bold] to confirm[/dim]")
-        console.print()
-
-        for i, opt in enumerate(options):
-            is_cursor = i == cursor
-            is_checked = i in checked
-            check = "[bold green]\u2713[/bold green]" if is_checked else "[dim]\u2717[/dim]"
-            prefix = "  [bold green]>[/bold green] " if is_cursor else "    "
-            label = opt["label"]
-            desc = opt.get("description", "")
-
-            if is_cursor:
-                console.print(
-                    f"{prefix}{check}  [bold white on blue] {label} [/bold white on blue]"
-                    f"  [dim]{desc}[/dim]"
-                )
-            else:
-                console.print(f"{prefix}{check}  [white]{label}[/white]  [dim]{desc}[/dim]")
-
-        console.print()
-        count = len(checked)
-        console.print(f"  [dim]{count} selected — press Enter to confirm[/dim]")
-
-        key = _read_key()
-        if key == "up":
-            cursor = (cursor - 1) % len(options)
-        elif key == "down":
-            cursor = (cursor + 1) % len(options)
-        elif key == "space":
-            if cursor in checked:
-                checked.discard(cursor)
-            else:
-                checked.add(cursor)
-        elif key == "enter":
-            if not checked:
-                # At least one must be selected
-                continue
-            return sorted(checked)
-        elif key == "escape" or key == "\x03":
-            console.print("\n[red]Cancelled.[/red]")
-            sys.exit(0)
-
-
-def _draw_header():
-    """Draw the app header (same style as all other scripts)."""
-    if _cli:
-        _cli.header("Cola-Coder", "Data Preparation (Interactive)")
-    else:
-        header = Text()
-        header.append("Cola-Coder", style="bold cyan")
-        header.append("  Data Preparation", style="bold white")
-        console.print(Panel(
-            header, box=box.DOUBLE, style="cyan", padding=(0, 2),
-        ))
 
 
 # ---------------------------------------------------------------------------
@@ -232,23 +27,23 @@ def _draw_header():
 SIZE_OPTIONS = [
     {
         "label": "Light",
-        "description": "10M tokens \u2022 ~10 sec \u2022 pipeline testing",
+        "detail": "10M tokens \u2022 ~10 sec \u2022 pipeline testing",
         "max_tokens": 10_000_000,
     },
     {
         "label": "Medium",
-        "description": "500M tokens \u2022 ~5 min \u2022 good for tiny model (50M params)",
+        "detail": "500M tokens \u2022 ~5 min \u2022 good for tiny model (50M params)",
         "max_tokens": 500_000_000,
         "recommended": True,
     },
     {
         "label": "Large",
-        "description": "2B tokens \u2022 ~15 min \u2022 Chinchilla-optimal for small model (125M)",
+        "detail": "2B tokens \u2022 ~15 min \u2022 Chinchilla-optimal for small model (125M)",
         "max_tokens": 2_000_000_000,
     },
     {
         "label": "Full",
-        "description": "No limit \u2022 ~2-3 hours \u2022 process entire dataset",
+        "detail": "No limit \u2022 ~2-3 hours \u2022 process entire dataset",
         "max_tokens": None,
     },
 ]
@@ -256,18 +51,18 @@ SIZE_OPTIONS = [
 FILTER_OPTIONS = [
     {
         "label": "Off",
-        "description": "No filtering \u2022 raw data as-is",
+        "detail": "No filtering \u2022 raw data as-is",
         "mode": None,
     },
     {
         "label": "Conservative",
-        "description": "Reject clearly bad code only \u2022 ~48% rejection",
+        "detail": "Reject clearly bad code only \u2022 ~48% rejection",
         "mode": "conservative",
         "recommended": True,
     },
     {
         "label": "Strict",
-        "description": "Keep only high-quality code \u2022 ~65% rejection",
+        "detail": "Keep only high-quality code \u2022 ~65% rejection",
         "mode": "strict",
     },
 ]
@@ -284,28 +79,28 @@ LANGUAGE_OPTIONS = [
 LANGUAGE_PRESETS = [
     {
         "label": "TypeScript + JavaScript",
-        "description": "Focused TS/JS model",
+        "detail": "Focused TS/JS model",
         "languages": ["typescript", "javascript"],
         "recommended": True,
     },
     {
         "label": "Python only",
-        "description": "Python-focused model",
+        "detail": "Python-focused model",
         "languages": ["python"],
     },
     {
         "label": "Python + TypeScript + JavaScript",
-        "description": "Three most popular languages",
+        "detail": "Three most popular languages",
         "languages": ["python", "typescript", "javascript"],
     },
     {
         "label": "All 6 languages",
-        "description": "Python, TS, JS, Java, Go, Rust",
+        "detail": "Python, TS, JS, Java, Go, Rust",
         "languages": ["python", "typescript", "javascript", "java", "go", "rust"],
     },
     {
         "label": "Custom...",
-        "description": "Pick individual languages",
+        "detail": "Pick individual languages",
         "languages": None,  # Triggers multi-select
     },
 ]
@@ -327,18 +122,18 @@ def _tsc_available() -> bool:
 TSC_SCORING_OPTIONS = [
     {
         "label": "Off",
-        "description": "Don't use tsc scoring",
+        "detail": "Don't use tsc scoring",
         "mode": None,
     },
     {
         "label": "Score",
-        "description": "Score TS files with tsc, add quality_score to metadata",
+        "detail": "Score TS files with tsc, add quality_score to metadata",
         "mode": "score",
         "recommended": True,
     },
     {
         "label": "Filter",
-        "description": "Reject TS files that don't type-check (strict quality gate)",
+        "detail": "Reject TS files that don't type-check (strict quality gate)",
         "mode": "filter",
     },
 ]
@@ -346,28 +141,28 @@ TSC_SCORING_OPTIONS = [
 MIXING_STRATEGY_OPTIONS = [
     {
         "label": "Equal",
-        "description": "Equal weights across all sources",
+        "detail": "Equal weights across all sources",
         "preset": "equal",
     },
     {
         "label": "TS-focused",
-        "description": "50% TypeScript, 25% JS, 15% Python, 10% other",
+        "detail": "50% TypeScript, 25% JS, 15% Python, 10% other",
         "preset": "typescript_focused",
         "recommended": True,
     },
     {
         "label": "Balanced",
-        "description": "Distributed across all languages",
+        "detail": "Distributed across all languages",
         "preset": "balanced_code",
     },
     {
         "label": "Quality-tier",
-        "description": "Weight by data quality (verified > tested > raw)",
+        "detail": "Weight by data quality (verified > tested > raw)",
         "preset": "quality_tiers",
     },
     {
         "label": "Custom...",
-        "description": "Set weights manually per language",
+        "detail": "Set weights manually per language",
         "preset": None,
     },
 ]
@@ -382,17 +177,16 @@ def _get_custom_mixing_weights(languages: list[str], step: str) -> dict[str, flo
 
     Falls back to equal weights if input is invalid.
     """
-    console.clear()
-    _draw_header()
-    console.print()
-    console.print(f"  [bold cyan]{step}[/bold cyan]")
-    console.print("  [bold]Set custom mixing weights[/bold]")
-    console.print("  [dim]Enter a weight for each language (weights will be normalized).[/dim]")
-    console.print()
+    cli.header("Cola-Coder", "Interactive Data Prep")
+    cli.print()
+    cli.print(f"  [bold cyan]{step}[/bold cyan]")
+    cli.print("  [bold]Set custom mixing weights[/bold]")
+    cli.print("  [dim]Enter a weight for each language (weights will be normalized).[/dim]")
+    cli.print()
 
     weights: dict[str, float] = {}
     for lang in languages:
-        console.print(f"  Weight for [cyan]{lang}[/cyan]: ", end="")
+        cli.print(f"  Weight for [cyan]{lang}[/cyan]: ", end="")
         try:
             raw = input().strip()
             weights[lang] = float(raw) if raw else 1.0
@@ -410,36 +204,42 @@ def run_menu() -> dict:
     total_steps = 5 if has_tsc else 4
 
     # Step 1: Data size
-    size_idx = select_menu(
-        title="How much data do you want to prepare?",
-        options=SIZE_OPTIONS,
-        step=f"Step 1/{total_steps} \u2022 Data Size",
+    cli.header("Cola-Coder", "Interactive Data Prep")
+    size_idx = cli.choose(
+        f"Step 1/{total_steps} \u2022 Data Size — How much data do you want to prepare?",
+        SIZE_OPTIONS,
     )
+    if size_idx is None:
+        cli.print("\n[red]Cancelled.[/red]")
+        sys.exit(0)
     size = SIZE_OPTIONS[size_idx]
 
     # Step 2: Quality filter
-    filter_idx = select_menu(
-        title="What quality filter do you want to use?",
-        options=FILTER_OPTIONS,
-        step=f"Step 2/{total_steps} \u2022 Quality Filter",
+    filter_idx = cli.choose(
+        f"Step 2/{total_steps} \u2022 Quality Filter — What quality filter do you want to use?",
+        FILTER_OPTIONS,
     )
+    if filter_idx is None:
+        cli.print("\n[red]Cancelled.[/red]")
+        sys.exit(0)
     filter_opt = FILTER_OPTIONS[filter_idx]
 
     # Step 3: Languages
-    lang_idx = select_menu(
-        title="Which languages should be included?",
-        options=LANGUAGE_PRESETS,
-        step=f"Step 3/{total_steps} \u2022 Languages",
+    lang_idx = cli.choose(
+        f"Step 3/{total_steps} \u2022 Languages — Which languages should be included?",
+        LANGUAGE_PRESETS,
     )
+    if lang_idx is None:
+        cli.print("\n[red]Cancelled.[/red]")
+        sys.exit(0)
     lang_preset = LANGUAGE_PRESETS[lang_idx]
 
     if lang_preset["languages"] is None:
         # Custom: show multi-select
-        selected_indices = multi_select_menu(
-            title="Select languages to include:",
-            options=LANGUAGE_OPTIONS,
-            step=f"Step 3/{total_steps} \u2022 Languages (custom)",
-            preselected={0, 1},  # TS + JS preselected
+        selected_indices = cli.multi_select(
+            f"Step 3/{total_steps} \u2022 Languages (custom) — Select languages to include:",
+            LANGUAGE_OPTIONS,
+            preselected=[0, 1],  # TS + JS preselected
         )
         languages = [LANGUAGE_OPTIONS[i]["value"] for i in selected_indices]
     else:
@@ -447,11 +247,13 @@ def run_menu() -> dict:
 
     # Step 4: Data Mixing Strategy
     mixing_step = f"Step 4/{total_steps} \u2022 Advanced: Data Mixing Strategy"
-    mixing_idx = select_menu(
-        title="How should data from different sources be weighted?",
-        options=MIXING_STRATEGY_OPTIONS,
-        step=mixing_step,
+    mixing_idx = cli.choose(
+        f"{mixing_step} — How should data from different sources be weighted?",
+        MIXING_STRATEGY_OPTIONS,
     )
+    if mixing_idx is None:
+        cli.print("\n[red]Cancelled.[/red]")
+        sys.exit(0)
     mixing_opt = MIXING_STRATEGY_OPTIONS[mixing_idx]
 
     mixing_preset = mixing_opt["preset"]
@@ -465,11 +267,14 @@ def run_menu() -> dict:
     # Step 5 (Advanced): Type-check scoring (only if tsc available and TS selected)
     tsc_mode = None
     if has_tsc and "typescript" in languages:
-        tsc_idx = select_menu(
-            title="Type-Check Quality Scoring (uses tsc --strict)",
-            options=TSC_SCORING_OPTIONS,
-            step=f"Step 5/{total_steps} \u2022 Advanced: Type-Check Scoring",
+        tsc_idx = cli.choose(
+            f"Step 5/{total_steps} \u2022 Advanced: Type-Check Scoring"
+            " — Type-Check Quality Scoring (uses tsc --strict)",
+            TSC_SCORING_OPTIONS,
         )
+        if tsc_idx is None:
+            cli.print("\n[red]Cancelled.[/red]")
+            sys.exit(0)
         tsc_mode = TSC_SCORING_OPTIONS[tsc_idx]["mode"]
 
     workers = max(1, min(os.cpu_count() or 4, 16))
@@ -490,19 +295,8 @@ def run_menu() -> dict:
 
 def show_summary(settings: dict) -> bool:
     """Show a summary and ask for confirmation. Returns True to proceed."""
-    console.clear()
-    _draw_header()
-    console.print()
-
-    table = Table(
-        show_header=False,
-        box=box.SIMPLE_HEAVY,
-        padding=(0, 2),
-        title="[bold]Summary[/bold]",
-        title_style="bold white",
-    )
-    table.add_column("Setting", style="cyan", width=14)
-    table.add_column("Value", style="white")
+    cli.header("Cola-Coder", "Interactive Data Prep")
+    cli.print()
 
     # Size
     max_tok = settings["max_tokens"]
@@ -510,13 +304,6 @@ def show_summary(settings: dict) -> bool:
         tok_str = f"{max_tok:,} tokens"
     else:
         tok_str = "No limit (full dataset)"
-    table.add_row("Data Size", f"{settings['size_label']}  ({tok_str})")
-
-    # Filter
-    table.add_row("Filter", settings["filter_label"])
-
-    # Languages
-    table.add_row("Languages", ", ".join(settings["languages"]))
 
     # Mixing strategy
     mixing_label = settings.get("mixing_label", "Equal")
@@ -528,41 +315,37 @@ def show_summary(settings: dict) -> bool:
                 f"{lang}: {w / total:.0%}"
                 for lang, w in sorted(mixing_weights.items(), key=lambda x: -x[1])
             ]
-            table.add_row("Mixing", f"{mixing_label}  ({', '.join(weight_parts)})")
+            mixing_str = f"{mixing_label}  ({', '.join(weight_parts)})"
         else:
-            table.add_row("Mixing", mixing_label)
+            mixing_str = mixing_label
     else:
-        table.add_row("Mixing", mixing_label)
+        mixing_str = mixing_label
 
-    # Type-check scoring
+    summary: dict[str, str] = {
+        "Data Size": f"{settings['size_label']}  ({tok_str})",
+        "Filter": settings["filter_label"],
+        "Languages": ", ".join(settings["languages"]),
+        "Mixing": mixing_str,
+        "Workers": str(settings["workers"]),
+    }
+
     tsc_mode = settings.get("tsc_scoring")
     if tsc_mode:
-        tsc_label = "Score files" if tsc_mode == "score" else "Filter (reject bad)"
-        table.add_row("TSC Scoring", tsc_label)
+        summary["TSC Scoring"] = "Score files" if tsc_mode == "score" else "Filter (reject bad)"
 
-    # Workers
-    table.add_row("Workers", str(settings["workers"]))
+    cli.kv_table(summary, title="Summary")
+    cli.print()
+    cli.print("  [dim]Tip: You can Ctrl+C during processing to save partial data.[/dim]")
+    cli.print()
 
-    console.print(table)
-    console.print()
-    console.print("  [bold green]Press Enter to start[/bold green]"
-                  "  [dim]or[/dim]  [bold red]Escape to cancel[/bold red]")
-    console.print()
-    console.print("  [dim]Tip: You can Ctrl+C during processing to save partial data.[/dim]")
-
-    while True:
-        key = _read_key()
-        if key == "enter":
-            return True
-        if key == "escape" or key == "\x03":
-            return False
+    return cli.confirm("Start data preparation?", default=True)
 
 
 def run_pipeline(settings: dict, tokenizer_path: str, output_dir: str, batch_size: int):
     """Run the data preparation pipeline with the selected settings."""
-    console.print()
-    console.print("[bold cyan]Starting data preparation...[/bold cyan]")
-    console.print()
+    cli.print()
+    cli.print("[bold cyan]Starting data preparation...[/bold cyan]")
+    cli.print()
 
     # Import pipeline modules
     from cola_coder.tokenizer.tokenizer_utils import CodeTokenizer
@@ -574,12 +357,12 @@ def run_pipeline(settings: dict, tokenizer_path: str, output_dir: str, batch_siz
     )
 
     # Load tokenizer
-    console.print(f"[dim]Loading tokenizer from {tokenizer_path}...[/dim]")
+    cli.print(f"[dim]Loading tokenizer from {tokenizer_path}...[/dim]")
     tokenizer = CodeTokenizer(tokenizer_path)
-    console.print(f"  Vocabulary size: {tokenizer.vocab_size:,}")
+    cli.print(f"  Vocabulary size: {tokenizer.vocab_size:,}")
 
     # Stream data
-    console.print(f"[dim]Loading data for: {', '.join(settings['languages'])}...[/dim]")
+    cli.print(f"[dim]Loading data for: {', '.join(settings['languages'])}...[/dim]")
     data_stream = stream_code_data(
         dataset_name="bigcode/starcoderdata",
         languages=settings["languages"],
@@ -591,11 +374,11 @@ def run_pipeline(settings: dict, tokenizer_path: str, output_dir: str, batch_siz
     workers = settings["workers"]
 
     if filter_mode is None:
-        console.print("[yellow]Quality filtering: OFF[/yellow]")
+        cli.print("[yellow]Quality filtering: OFF[/yellow]")
     else:
         mode = FilterMode(filter_mode)
         stats = FilterStats()
-        console.print(
+        cli.print(
             f"[green]Quality filtering: {filter_mode.upper()}[/green]"
             f"  [dim]({workers} workers)[/dim]"
         )
@@ -610,7 +393,7 @@ def run_pipeline(settings: dict, tokenizer_path: str, output_dir: str, batch_siz
                 languages=languages,
             )
 
-    console.print()
+    cli.print()
 
     # Tokenize and chunk
     output_file = tokenize_and_chunk(
@@ -622,16 +405,13 @@ def run_pipeline(settings: dict, tokenizer_path: str, output_dir: str, batch_siz
         batch_size=batch_size,
     )
 
-    console.print()
-    console.print(Panel(
-        f"[bold green]Done![/bold green]\n\n"
-        f"Output: [cyan]{Path(output_file).resolve()}[/cyan]\n\n"
-        f"Next step:\n"
-        f"  [dim]python scripts/train.py --config configs/tiny.yaml[/dim]",
-        title="[bold]Data Preparation Complete[/bold]",
-        box=box.ROUNDED,
-        padding=(1, 2),
-    ))
+    cli.done(
+        "Data Preparation Complete",
+        extras={
+            "Output": str(Path(output_file).resolve()),
+            "Next step": "python scripts/train.py --config configs/tiny.yaml",
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -661,8 +441,8 @@ def main():
 
     # Validate tokenizer exists
     if not Path(args.tokenizer).exists():
-        console.print(f"[red]Error: Tokenizer not found: {args.tokenizer}[/red]")
-        console.print("[dim]Train one first: python scripts/train_tokenizer.py[/dim]")
+        cli.print(f"[red]Error: Tokenizer not found: {args.tokenizer}[/red]")
+        cli.print("[dim]Train one first: python scripts/train_tokenizer.py[/dim]")
         sys.exit(1)
 
     try:
@@ -670,9 +450,9 @@ def main():
         if show_summary(settings):
             run_pipeline(settings, args.tokenizer, args.output_dir, args.batch_size)
         else:
-            console.print("\n[red]Cancelled.[/red]")
+            cli.print("\n[red]Cancelled.[/red]")
     except KeyboardInterrupt:
-        console.print("\n[red]Cancelled.[/red]")
+        cli.print("\n[red]Cancelled.[/red]")
         sys.exit(0)
 
 

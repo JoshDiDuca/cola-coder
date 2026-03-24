@@ -30,6 +30,7 @@ from pathlib import Path
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT / "src"))
 
+from cola_coder.cli import cli  # noqa: E402
 from cola_coder.pipeline.orchestrator import PipelineOrchestrator, PipelineStage  # noqa: E402
 
 
@@ -49,8 +50,7 @@ def _parse_stages(stages_str: str) -> list[PipelineStage]:
     for name in parts:
         if name not in _STAGE_BY_NAME:
             valid = ", ".join(s.value for s in PipelineStage)
-            print(f"[error] Unknown stage: {name!r}. Valid stages: {valid}", file=sys.stderr)
-            sys.exit(1)
+            cli.fatal(f"Unknown stage: {name!r}. Valid stages: {valid}")
         result.append(_STAGE_BY_NAME[name])
     return result
 
@@ -59,8 +59,7 @@ def _stages_from_skip_to(skip_to: str) -> list[PipelineStage]:
     """Return all stages starting from (and including) skip_to."""
     if skip_to not in _STAGE_BY_NAME:
         valid = ", ".join(s.value for s in PipelineStage)
-        print(f"[error] Unknown stage: {skip_to!r}. Valid stages: {valid}", file=sys.stderr)
-        sys.exit(1)
+        cli.fatal(f"Unknown stage: {skip_to!r}. Valid stages: {valid}")
 
     target = _STAGE_BY_NAME[skip_to]
     idx = _ALL_STAGES_ORDERED.index(target)
@@ -68,42 +67,21 @@ def _stages_from_skip_to(skip_to: str) -> list[PipelineStage]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Rich display helpers
+# Display helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _print_header(config_path: str, stages: list[PipelineStage], dry_run: bool) -> None:
-    """Print a Rich panel showing the pipeline plan, with plain fallback."""
-    try:
-        from rich.console import Console
-        from rich.panel import Panel
-
-        console = Console()
-        mode = "[yellow]DRY RUN[/yellow]" if dry_run else "[green]LIVE[/green]"
-        stage_list = "  →  ".join(s.value for s in stages)
-        content = (
-            f"Config:  {config_path}\n"
-            f"Stages:  {stage_list}\n"
-            f"Mode:    {mode}"
-        )
-        console.print(Panel(content, title="[bold cyan]Cola-Coder Pipeline[/bold cyan]", expand=False))
-    except ImportError:
-        print("=" * 60)
-        print("  Cola-Coder Pipeline")
-        print(f"  Config: {config_path}")
-        print(f"  Stages: {' → '.join(s.value for s in stages)}")
-        if dry_run:
-            print("  Mode: DRY RUN")
-        print("=" * 60)
+    """Print a header showing the pipeline plan."""
+    mode = "DRY RUN" if dry_run else "LIVE"
+    stage_list = "  →  ".join(s.value for s in stages)
+    cli.header("Cola-Coder Pipeline", f"Config: {config_path}")
+    cli.info("Stages", stage_list)
+    cli.info("Mode", mode)
 
 
 def _print_stage_start(stage: PipelineStage) -> None:
     """Print a progress indicator for the current stage."""
-    try:
-        from rich.console import Console
-        console = Console()
-        console.print(f"\n[bold cyan]▶ Running stage:[/bold cyan] [bold white]{stage.value}[/bold white]")
-    except ImportError:
-        print(f"\n>> Running stage: {stage.value}")
+    cli.print(f"\n[bold cyan]▶ Running stage:[/bold cyan] [bold white]{stage.value}[/bold white]")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -183,12 +161,12 @@ def main() -> int:
     # Validate config path
     config_path = Path(args.config)
     if not config_path.exists():
-        print(f"[error] Config file not found: {config_path}", file=sys.stderr)
+        cli.error(f"Config file not found: {config_path}")
         return 1
 
     # Resolve stages
     if args.stages and args.skip_to:
-        print("[error] Cannot use --stages and --skip-to together.", file=sys.stderr)
+        cli.error("Cannot use --stages and --skip-to together.")
         return 1
 
     if args.stages:
@@ -215,7 +193,7 @@ def main() -> int:
     results = orchestrator.run()
 
     # Print final report
-    print(orchestrator.format_report())
+    cli.print(orchestrator.format_report())
 
     # Exit with non-zero code if any stage failed
     any_failed = any(not r.success and not r.skipped for r in results)
