@@ -193,9 +193,20 @@ def _stage_train_reasoning(config: Config, args: argparse.Namespace) -> None:
     import subprocess
 
     venv = Path(".venv/Scripts/python")
+
+    # Resolve the latest checkpoint produced by Stage 3 (pretrain)
+    ckpt_dir = Path(config.checkpoint.output_dir)
+    latest = ckpt_dir / "latest"
+    if not latest.exists():
+        raise FileNotFoundError(
+            f"No checkpoint found at {latest}. "
+            "Run Stage 3 (pretrain) before Stage 9 (train-reasoning)."
+        )
+
     cmd = [
         str(venv), "scripts/train_reasoning.py",
         "--config", "configs/reasoning.yaml",
+        "--base-checkpoint", str(latest),
     ]
     subprocess.run(cmd, check=True)
 

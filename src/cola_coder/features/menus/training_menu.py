@@ -75,8 +75,7 @@ class TrainingMenu:
             elif choice == 7:
                 self._training_dashboard()
             elif choice == 8:
-                self._master._run_script("training_eval_history.py")
-                self._master._pause()
+                self._eval_history_menu()
             elif choice == 9:
                 self._instruction_tuning_menu()
             elif choice == 10:
@@ -700,6 +699,28 @@ class TrainingMenu:
 
         self._master._run_script(
             "training_dashboard.py",
+            ["--checkpoint-dir", str(ckpt_dir)],
+        )
+        self._master._pause()
+
+    def _eval_history_menu(self) -> None:
+        """Auto-eval history with model selection."""
+        _print_section_header("Auto-Eval History", "View eval snapshots from training runs")
+
+        model = self._master._pick_model("Select model to view history for:")
+        if model is None:
+            return
+
+        from pathlib import Path
+        ckpt_dir = Path(self._master.storage.checkpoints_dir) / model
+        if not ckpt_dir.exists():
+            cli.error(f"No checkpoint directory found: {ckpt_dir}")
+            cli.dim("Train a model first, then view its eval history here.")
+            self._master._pause()
+            return
+
+        self._master._run_script(
+            "training_eval_history.py",
             ["--checkpoint-dir", str(ckpt_dir)],
         )
         self._master._pause()

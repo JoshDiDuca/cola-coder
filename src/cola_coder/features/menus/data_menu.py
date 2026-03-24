@@ -649,20 +649,24 @@ class DataMenu:
 
         # Step 3 — Sample count
         try:
-            n_str = input("Number of samples to score [default: 20]: ").strip()
-            n_samples = int(n_str) if n_str else 20
+            n_str = input("Number of samples to score [default: all, or enter a number]: ").strip()
+            if n_str == "" or n_str.lower() == "all":
+                n_samples = None
+            else:
+                n_samples = int(n_str)
         except (EOFError, KeyboardInterrupt):
             cli.warn("Cancelled.")
             return
         except ValueError:
-            cli.warn("Invalid number — using 20.")
-            n_samples = 20
+            cli.warn("Invalid number — scoring all samples.")
+            n_samples = None
 
-        n_samples = min(max(n_samples, 1), 500)
+        if n_samples is not None:
+            n_samples = max(n_samples, 1)
 
         # Step 4 — Score
         cli.info("Dataset", dataset_id)
-        cli.info("Samples", str(n_samples))
+        cli.info("Samples", "all" if n_samples is None else str(n_samples))
         cli.info("Scorer", scorer_options[scorer_choice]["label"])
         cli.print("")
 
