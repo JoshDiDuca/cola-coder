@@ -904,7 +904,10 @@ class ToolsMenu:
         try:
             from cola_coder.tools.registry import ToolRegistry
             registry = ToolRegistry()
-            current_states = {t["name"]: registry.is_enabled(t["name"]) for t in tool_definitions}
+            current_states = {
+                t["name"]: any(et.name == t["name"] for et in registry.list_enabled())
+                for t in tool_definitions
+            }
         except ImportError:
             current_states = {t["name"]: False for t in tool_definitions}
 
@@ -935,7 +938,7 @@ class ToolsMenu:
                     from cola_coder.tools.registry import ToolRegistry
                     reg = ToolRegistry()
                     for t in tool_definitions:
-                        reg.set_enabled(t["name"], True)
+                        reg.enable(t["name"])
                     cli.success("All agent tools enabled.")
                 except ImportError:
                     cli.warn("cola_coder.tools not available — update configs/features.yaml manually.")
@@ -946,7 +949,7 @@ class ToolsMenu:
                     from cola_coder.tools.registry import ToolRegistry
                     reg = ToolRegistry()
                     for t in tool_definitions:
-                        reg.set_enabled(t["name"], False)
+                        reg.disable(t["name"])
                     cli.success("All agent tools disabled.")
                 except ImportError:
                     cli.warn("cola_coder.tools not available — update configs/features.yaml manually.")
@@ -967,7 +970,10 @@ class ToolsMenu:
             try:
                 from cola_coder.tools.registry import ToolRegistry
                 reg = ToolRegistry()
-                reg.set_enabled(tool["name"], new_state)
+                if new_state:
+                    reg.enable(tool["name"])
+                else:
+                    reg.disable(tool["name"])
                 if new_state:
                     cli.success(f"{tool['label']} enabled.")
                 else:
