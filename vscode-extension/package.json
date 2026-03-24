@@ -1,0 +1,242 @@
+{
+  "name": "cola-coder",
+  "displayName": "Cola-Coder",
+  "description": "AI code generation powered by your own trained transformer model",
+  "version": "0.1.0",
+  "publisher": "cola-coder",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.104.0"
+  },
+  "categories": [
+    "AI",
+    "Machine Learning",
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "icon": "media/icon.png",
+  "contributes": {
+    "chatParticipants": [
+      {
+        "id": "cola-coder.chat",
+        "name": "cola-coder",
+        "fullName": "Cola-Coder",
+        "description": "Ask Cola-Coder about your code",
+        "isSticky": true,
+        "commands": [
+          {
+            "name": "explain",
+            "description": "Explain selected code"
+          },
+          {
+            "name": "fix",
+            "description": "Fix a bug in selected code"
+          },
+          {
+            "name": "generate",
+            "description": "Generate code from description"
+          },
+          {
+            "name": "refactor",
+            "description": "Refactor selected code"
+          }
+        ],
+        "disambiguation": [
+          {
+            "category": "code-generation",
+            "description": "User wants to generate, complete, or write code",
+            "examples": [
+              "write a function that",
+              "generate a component",
+              "create a class"
+            ]
+          },
+          {
+            "category": "code-explanation",
+            "description": "User wants code explained",
+            "examples": [
+              "what does this do",
+              "explain this function",
+              "how does this work"
+            ]
+          }
+        ]
+      }
+    ],
+    "languageModelChatProviders": [
+      {
+        "vendor": "cola-coder",
+        "displayName": "Cola-Coder Models",
+        "managementCommand": "cola-coder.configureModel"
+      }
+    ],
+    "commands": [
+      {
+        "command": "cola-coder.toggleInline",
+        "title": "Cola-Coder: Toggle Inline Completions"
+      },
+      {
+        "command": "cola-coder.restartServer",
+        "title": "Cola-Coder: Restart Server"
+      },
+      {
+        "command": "cola-coder.showLogs",
+        "title": "Cola-Coder: Show Server Logs"
+      },
+      {
+        "command": "cola-coder.configureModel",
+        "title": "Cola-Coder: Configure Model"
+      },
+      {
+        "command": "cola-coder.explainSelection",
+        "title": "Cola-Coder: Explain Selection"
+      },
+      {
+        "command": "cola-coder.fixSelection",
+        "title": "Cola-Coder: Fix Selection"
+      },
+      {
+        "command": "cola-coder.refactorSelection",
+        "title": "Cola-Coder: Refactor Selection"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "cola-coder.explainSelection",
+          "when": "editorHasSelection",
+          "group": "cola-coder"
+        },
+        {
+          "command": "cola-coder.fixSelection",
+          "when": "editorHasSelection",
+          "group": "cola-coder"
+        },
+        {
+          "command": "cola-coder.refactorSelection",
+          "when": "editorHasSelection",
+          "group": "cola-coder"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Cola-Coder",
+      "properties": {
+        "cola-coder.mode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "external"
+          ],
+          "default": "auto",
+          "description": "Server mode: 'auto' manages the server lifecycle, 'external' connects to a running server"
+        },
+        "cola-coder.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "Server URL (used in 'external' mode or as fallback)"
+        },
+        "cola-coder.pythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to Python interpreter (auto mode). E.g., .venv/Scripts/python"
+        },
+        "cola-coder.projectRoot": {
+          "type": "string",
+          "default": "",
+          "description": "Path to cola-coder project root (auto mode). Auto-detected if extension is in the project."
+        },
+        "cola-coder.checkpoint": {
+          "type": "string",
+          "default": "",
+          "description": "Checkpoint path (auto mode). E.g., checkpoints/4080_max/latest"
+        },
+        "cola-coder.configFile": {
+          "type": "string",
+          "default": "",
+          "description": "Model config YAML path (auto mode). E.g., configs/4080_max.yaml"
+        },
+        "cola-coder.inline.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable inline ghost-text completions"
+        },
+        "cola-coder.inline.debounceMs": {
+          "type": "number",
+          "default": 300,
+          "description": "Debounce delay in ms before triggering inline completion"
+        },
+        "cola-coder.inline.maxTokens": {
+          "type": "number",
+          "default": 128,
+          "description": "Max tokens for inline completions"
+        },
+        "cola-coder.inline.temperature": {
+          "type": "number",
+          "default": 0.2,
+          "description": "Temperature for inline completions (lower = more deterministic)"
+        },
+        "cola-coder.inline.languages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "typescript",
+            "javascript",
+            "typescriptreact",
+            "javascriptreact",
+            "python"
+          ],
+          "description": "Language IDs to enable inline completions for"
+        },
+        "cola-coder.chat.temperature": {
+          "type": "number",
+          "default": 0.8,
+          "description": "Temperature for chat responses"
+        },
+        "cola-coder.chat.maxTokens": {
+          "type": "number",
+          "default": 1024,
+          "description": "Max tokens for chat responses"
+        },
+        "cola-coder.chat.showThinking": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show model reasoning in collapsible blocks"
+        },
+        "cola-coder.context.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include repository context in prompts"
+        },
+        "cola-coder.context.maxTokens": {
+          "type": "number",
+          "default": 2048,
+          "description": "Max tokens for repository context"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --platform=node --target=node18 --external:vscode --format=cjs --sourcemap",
+    "watch": "npm run build -- --watch",
+    "lint": "eslint src/",
+    "test": "vitest run",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.0",
+    "@types/vscode": "^1.104.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "@vscode/vsce": "^3.2.0",
+    "esbuild": "^0.25.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
