@@ -34,6 +34,14 @@ _FEATURE_CATEGORIES: dict[str, list[str]] = {
         "realtime_data_stats", "training_speed_dashboard", "dead_neuron_detection",
         "validation_split",
     ],
+    "Training Diagnostics": [
+        "activation_monitor", "batch_size_finder", "grad_accum_calculator",
+        "grad_accum_monitor", "gradient_flow", "gradient_noise",
+        "hyperparam_logger", "loss_component_analyzer", "loss_landscape",
+        "lr_range_test", "plateau_detector", "progress_estimator",
+        "stability_monitor", "training_anomaly_detector", "training_efficiency",
+        "training_log_parser", "training_summary",
+    ],
     "Generation": [
         "streaming_generation", "beam_search", "batch_inference",
         "generation_constraints", "multi_turn_chat", "prompt_templates",
@@ -48,9 +56,14 @@ _FEATURE_CATEGORIES: dict[str, list[str]] = {
     ],
     "Infrastructure": [
         "config_validator", "vram_estimator", "gpu_status_panel",
-        "checkpoint_comparison", "checkpoint_leaderboard", "experiment_tracker",
-        "data_versioning", "dataset_inspector", "model_card_generator",
-        "onnx_export", "quantization", "knowledge_distillation", "lora_qlora",
+        "experiment_tracker", "data_versioning", "dataset_inspector",
+        "model_card_generator", "onnx_export", "quantization",
+        "knowledge_distillation", "lora_qlora",
+    ],
+    "Checkpoint Tools": [
+        "checkpoint_comparison", "checkpoint_leaderboard",
+        "checkpoint_converter", "checkpoint_health",
+        "checkpoint_merger", "checkpoint_scheduler",
     ],
     "Routing & Specialists": [
         "router_model", "router_evaluation", "router_data_generator",
@@ -63,6 +76,35 @@ _FEATURE_CATEGORIES: dict[str, list[str]] = {
         "multi_file_context", "byte_level_fallback", "test_code_pair_extractor",
         "synthetic_bug_injection", "contrastive_code_learning",
         "constitutional_coding",
+    ],
+    "Code Quality": [
+        "code_dedup_checker", "code_entropy", "code_normalizer",
+        "code_pattern_miner", "code_scorer", "code_similarity",
+        "code_smell_detector", "code_style_analyzer", "comment_quality",
+        "complexity_heatmap", "docstring_scorer", "formatting_standardizer",
+        "readability_scorer", "syntax_error_classifier",
+        "type_annotation_scorer", "variable_name_quality",
+    ],
+    "Model Analysis": [
+        "architecture_visualizer", "attention_analyzer", "attention_patterns",
+        "confidence_calibrator", "embedding_analyzer", "inference_profiler",
+        "memory_profiler", "model_comparison_dashboard", "model_fingerprint",
+        "model_size_estimator", "param_counter", "pruning_analyzer",
+        "weight_init_analyzer", "adaptive_computation",
+        "position_interpolation", "sparse_attention", "perplexity_analyzer",
+    ],
+    "Tokenizer": [
+        "tokenizer_coverage", "tokenizer_debugger", "multilang_tokenizer_eval",
+        "token_frequency", "token_stats_tracker", "token_merging",
+        "vocab_efficiency",
+    ],
+    "Data Quality": [
+        "data_augmentation", "data_balancer", "data_leakage_detector",
+        "data_quality_report", "cv_splitter", "repetition_detector",
+    ],
+    "Experiment Tracking": [
+        "benchmark_store", "cost_estimator", "experiment_comparator",
+        "distillation_helper", "background_scheduler", "background_trainer",
     ],
     "UI & Dashboard": [
         "master_menu", "quick_actions", "pipeline_status_dashboard",
@@ -478,6 +520,8 @@ class MasterMenu:
                  "detail": "Download, filter, score, prepare training data"},
                 {"label": "Training",
                  "detail": "Train models (tiny -> large), resume, tokenizer, reasoning"},
+                {"label": "Instruction Tuning",
+                 "detail": "SFT data generation, instruction fine-tuning, GRPO"},
                 {"label": "Generate & Interact",
                  "detail": "Code generation, interactive chat, serve API"},
                 {"label": "Evaluate & Benchmark",
@@ -502,6 +546,7 @@ class MasterMenu:
                 self.quick_start_menu,
                 self._data.menu,
                 self._training.menu,
+                self.instruction_tuning_menu,
                 self.generate_menu,
                 self._eval.menu,
                 self.router_menu,
@@ -600,6 +645,142 @@ class MasterMenu:
             self._run_script("train.py", ["--config", "configs/tiny.yaml"])
 
         self._pause()
+
+    # ── 3b. Instruction Tuning ──────────────────────────────────────────
+
+    def instruction_tuning_menu(self) -> None:
+        """Instruction tuning pipeline: data generation, SFT, GRPO."""
+        while True:
+            _print_section_header(
+                "Instruction Tuning",
+                "Transform base model into instruction-following assistant",
+            )
+
+            options = [
+                {"label": "Generate SFT Data",
+                 "detail": "Extract instruction/response pairs from code"},
+                {"label": "Train SFT (Instruction Tune)",
+                 "detail": "Supervised fine-tuning with ChatML format"},
+                {"label": "Train GRPO (Reinforcement Learning)",
+                 "detail": "Group RL with execution-based rewards"},
+                {"label": "Full Pipeline (Data → SFT → GRPO)",
+                 "detail": "Run all stages in sequence"},
+            ]
+
+            choice = cli.choose(
+                "Instruction Tuning", options, allow_cancel=True
+            )
+            if choice is None:
+                break
+
+            if choice == 0:
+                self._generate_sft_data()
+            elif choice == 1:
+                self._train_sft()
+            elif choice == 2:
+                self._run_script("train_reasoning.py", [
+                    "--config", "configs/tiny.yaml",
+                    "--reward", "combined",
+                    "--problems", "all",
+                ])
+            elif choice == 3:
+                self._instruction_pipeline()
+
+            self._pause()
+
+    def _generate_sft_data(self) -> None:
+        """Interactive SFT data generation."""
+        cli.step(1, 3, "Configure data source")
+        source = cli.choose("Source code directory:", [
+            {"label": "Training data directory",
+             "detail": f"{self.storage.data_dir}"},
+            {"label": "Custom path",
+             "detail": "Specify a directory of .py/.ts/.js files"},
+        ])
+        if source is None:
+            return
+
+        if source == 0:
+            source_path = str(self._resolve_path(self.storage.data_dir))
+        else:
+            source_path = input("Enter source path: ").strip()
+            if not source_path:
+                return
+
+        cli.step(2, 3, "Configure output")
+        output_path = "data/sft/instructions.jsonl"
+        cli.info("Output", output_path)
+
+        cli.step(3, 3, "Generating...")
+        self._run_script("generate_sft_data.py", [
+            "--source", source_path,
+            "--output", output_path,
+            "--num-samples", "1000",
+        ])
+
+    def _train_sft(self) -> None:
+        """Interactive SFT training setup."""
+        # Find available configs
+        configs_dir = self.project_root / "configs"
+        configs = sorted(configs_dir.glob("*.yaml"))
+        config_names = [c.stem for c in configs
+                        if c.stem not in ("features", "storage", "reasoning", "sft")]
+
+        config_choice = cli.choose("Model config:", [
+            {"label": name, "detail": str(c)}
+            for name, c in zip(config_names, configs)
+            if name in config_names
+        ], allow_cancel=True)
+        if config_choice is None:
+            return
+
+        config_path = f"configs/{config_names[config_choice]}.yaml"
+
+        # Find checkpoint
+        checkpoint_dir = self._resolve_path("checkpoints") / config_names[config_choice]
+        if (checkpoint_dir / "latest").exists():
+            checkpoint = str(checkpoint_dir / "latest")
+        else:
+            checkpoint = input("Enter checkpoint path: ").strip()
+            if not checkpoint:
+                return
+
+        # Data path
+        data_path = "data/sft/instructions.jsonl"
+        if not (self.project_root / data_path).exists():
+            cli.warn(f"SFT data not found at {data_path}")
+            cli.info("Run", "'Generate SFT Data' first")
+            return
+
+        self._run_script("train_sft.py", [
+            "--data", data_path,
+            "--config", config_path,
+            "--checkpoint", checkpoint,
+        ])
+
+    def _instruction_pipeline(self) -> None:
+        """Run the full instruction tuning pipeline."""
+        cli.header("Cola-Coder", "Full Instruction Tuning Pipeline")
+        cli.info("Stage 1/3", "Generating SFT data...")
+        self._generate_sft_data()
+
+        data_path = self.project_root / "data" / "sft" / "instructions.jsonl"
+        if not data_path.exists():
+            cli.error("SFT data generation failed. Stopping pipeline.")
+            return
+
+        cli.info("Stage 2/3", "Training SFT...")
+        self._train_sft()
+
+        cli.info("Stage 3/3", "GRPO training...")
+        cli.info("Note", "GRPO uses the SFT checkpoint as starting point")
+        self._run_script("train_reasoning.py", [
+            "--config", "configs/tiny.yaml",
+            "--reward", "combined",
+            "--problems", "all",
+        ])
+
+        cli.done("Instruction tuning pipeline complete!")
 
     # ── 4. Generate & Interact ────────────────────────────────────────────
 

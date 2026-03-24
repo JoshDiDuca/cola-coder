@@ -244,12 +244,32 @@ def _fim_id() -> str:
     return f"fim-{uuid.uuid4().hex[:12]}"
 
 
-def _messages_to_prompt(messages: list[ChatMessage]) -> str:
+def _messages_to_prompt(
+    messages: list[ChatMessage],
+    use_chat_template: bool = False,
+) -> str:
     """Concatenate chat messages into a single prompt string.
 
-    System messages go first, then user/assistant messages alternate.
-    Each message is separated by a newline for clarity.
+    When use_chat_template is True, formats messages in ChatML format
+    (used by instruction-tuned models). Otherwise, plain concatenation.
     """
+    if use_chat_template:
+        try:
+            from cola_coder.tokenizer.chat_template import format_chat
+            msg_dicts = [{"role": m.role, "content": m.content} for m in messages]
+            # Append an empty assistant turn to prompt the model to respond
+            msg_dicts.append({"role": "assistant", "content": ""})
+            prompt = format_chat(msg_dicts)
+            # Remove the trailing <|im_end|> so the model generates the response
+            if prompt.endswith("<|im_end|>\n"):
+                prompt = prompt[: -len("<|im_end|>\n")]
+            elif prompt.endswith("<|im_end|>"):
+                prompt = prompt[: -len("<|im_end|>")]
+            return prompt
+        except ImportError:
+            pass
+
+    # Fallback: plain concatenation (base model mode)
     parts: list[str] = []
     for msg in messages:
         if msg.role == "system":
@@ -284,6 +304,7 @@ def create_app(
     model_name: str = "cola-coder",
     enable_thinking: bool = False,
     enable_cors: bool = False,
+    enable_instruct: bool = False,
 ) -> FastAPI:
     """Create the FastAPI application with a loaded model.
 
@@ -421,7 +442,7 @@ def create_app(
 
         Supports both streaming and non-streaming responses.
         """
-        prompt = _messages_to_prompt(request.messages)
+        prompt = _messages_to_prompt(request.messages, enable_instruct)
         prompt_token_count = len(
             base_gen.tokenizer.encode(prompt, add_bos=False)
         )

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from cola_coder.cli import cli
+from cola_coder.cli import cli, HF_LANG_MAP
 from cola_coder.features.master_menu import _print_section_header
 
 if TYPE_CHECKING:
@@ -265,6 +265,19 @@ class DataMenu:
 
         cli.info("Dataset", dataset_id)
 
+        # Step — Language filter
+        languages = cli.pick_languages("Filter by language:")
+        if languages is None:
+            return
+
+        # Map to HF directory names for download
+        hf_langs = set()
+        for slug in languages:
+            for hf_dir, framework_slugs in HF_LANG_MAP.items():
+                if slug in framework_slugs:
+                    hf_langs.add(hf_dir)
+        hf_lang_list = sorted(hf_langs) if hf_langs else None
+
         # Step 2 — Split selection
         splits = [
             {"label": "train", "detail": "Training split (most data)"},
@@ -282,6 +295,7 @@ class DataMenu:
                 from cola_coder.data.sources.huggingface import HuggingFaceSource
                 source = HuggingFaceSource(
                     dataset=dataset_id, split=split, max_samples=3,
+                    languages=hf_lang_list,
                 )
                 cli.print("")
                 for i, record in enumerate(source.stream(), 1):
@@ -310,12 +324,42 @@ class DataMenu:
             return
 
         if action == 0:
-            cli.warn("Not yet implemented — use prepare_data.py --stream for now.")
-            cli.dim(
-                f"  .venv/Scripts/python scripts/prepare_data.py "
-                f"--stream --config configs/tiny.yaml "
-                f"--tokenizer {self._master.storage.tokenizer_path}"
-            )
+            # Download raw samples
+            try:
+                max_dl_str = input("Max samples to download [default: 1000]: ").strip()
+                max_dl = int(max_dl_str) if max_dl_str else 1000
+            except (EOFError, KeyboardInterrupt):
+                cli.warn("Cancelled.")
+                self._master._pause()
+                return
+            except ValueError:
+                max_dl = 1000
+
+            safe_name = dataset_id.replace("/", "_")
+            out_dir = self._master._resolve_path(f"data/raw/{safe_name}")
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            cli.info("Output", str(out_dir))
+            cli.info("Max samples", str(max_dl))
+
+            try:
+                from cola_coder.data.sources.huggingface import HuggingFaceSource
+                source = HuggingFaceSource(
+                    dataset=dataset_id, split=split, max_samples=max_dl,
+                    languages=hf_lang_list,
+                )
+                count = 0
+                for record in source.stream():
+                    count += 1
+                    file_path = out_dir / f"{count:06d}.txt"
+                    file_path.write_text(record.content, encoding="utf-8")
+                    if count % 100 == 0:
+                        cli.print(f"  Downloaded {count}/{max_dl} samples...")
+
+                cli.success(f"Downloaded {count} samples to {out_dir}")
+            except Exception as e:
+                cli.error(f"Download failed: {e}")
+                cli.dim("Check that HF_TOKEN is set for gated datasets.")
             self._master._pause()
         elif action == 1:
             self._prepare_training_wizard()
@@ -325,6 +369,7 @@ class DataMenu:
                 from cola_coder.data.sources.huggingface import HuggingFaceSource
                 source = HuggingFaceSource(
                     dataset=dataset_id, split=split, max_samples=20,
+                    languages=hf_lang_list,
                 )
                 for i, record in enumerate(source.stream(), 1):
                     cli.rule(f"Sample {i}")
@@ -381,16 +426,10 @@ class DataMenu:
         languages: list[str] = []
         if config_choice == 4:
             cli.step(2, 7, "Language selection")
-            all_langs = [
-                "TypeScript", "JavaScript", "Python", "Go",
-                "Java", "Rust", "C++", "C",
-            ]
-            for lang in all_langs:
-                if cli.confirm(f"Include {lang}?", default=lang in ("TypeScript", "JavaScript")):
-                    languages.append(lang.lower().replace("++", "pp"))
-            if not languages:
-                cli.warn("No languages selected — defaulting to TypeScript.")
-                languages = ["typescript"]
+            selected = cli.pick_languages("Select languages for training:")
+            if selected is None:
+                return
+            languages = selected
         else:
             cli.step(2, 7, "Language selection — auto from config")
             cli.dim("Languages are defined in the selected config file.")
@@ -555,6 +594,20 @@ class DataMenu:
         else:
             dataset_id = presets[choice]["label"]
 
+        # Step — Language selection
+        languages = cli.pick_languages("Filter by language:")
+        if languages is None:
+            return
+
+        # Map framework-language slugs to HF download directories
+        hf_langs = set()
+        for slug in languages:
+            for hf_dir, framework_slugs in HF_LANG_MAP.items():
+                if slug in framework_slugs:
+                    hf_langs.add(hf_dir)
+        hf_lang_list = sorted(hf_langs) if hf_langs else None
+        cli.info("Languages", ", ".join(languages))
+
         # Step 2 — Scorer
         scorer_options = [
             {"label": "Heuristic (fast, no deps)",
@@ -593,6 +646,7 @@ class DataMenu:
             from cola_coder.data.sources.huggingface import HuggingFaceSource
             source = HuggingFaceSource(
                 dataset=dataset_id, split="train", max_samples=n_samples,
+                languages=hf_lang_list,
             )
         except Exception as e:
             cli.error(f"Failed to connect to HuggingFace: {e}")

@@ -82,6 +82,11 @@ def main():
         action="store_true",
         help="Enable CORS (allow all origins). Needed for VS Code extension.",
     )
+    parser.add_argument(
+        "--instruct",
+        action="store_true",
+        help="Enable instruction mode (ChatML formatting for /v1/chat/completions).",
+    )
     args = parser.parse_args()
 
     cli.header("Cola-Coder", "Inference Server")
@@ -137,6 +142,16 @@ def main():
             think_open_id, think_close_id = add_thinking_tokens(tokenizer, model)
             cli.info("Thinking tokens", f"<think>={think_open_id} </think>={think_close_id}")
 
+        # ---- Optional: add chat template tokens (for instruct mode) ----
+        if args.instruct:
+            from cola_coder.tokenizer.chat_template import add_chat_tokens, has_chat_tokens
+
+            if not has_chat_tokens(tokenizer):
+                im_start_id, im_end_id = add_chat_tokens(tokenizer, model)
+                cli.info("Chat tokens", f"<|im_start|>={im_start_id} <|im_end|>={im_end_id}")
+            else:
+                cli.info("Chat tokens", "already present")
+
         # ---- Create generator ----
         generator = CodeGenerator(model=model, tokenizer=tokenizer, device=device)
 
@@ -163,6 +178,7 @@ def main():
         model_name=model_name,
         enable_thinking=args.enable_thinking,
         enable_cors=args.cors,
+        enable_instruct=args.instruct,
     )
 
     cli.success(f"Starting server at http://{args.host}:{args.port}")

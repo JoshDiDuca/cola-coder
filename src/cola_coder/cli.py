@@ -17,6 +17,7 @@ Usage in scripts:
 
 from __future__ import annotations
 
+import re
 import sys
 
 try:
@@ -45,6 +46,92 @@ try:
 except ImportError:
     _HAS_RICH = False
     _console = None  # type: ignore
+
+# ── Language constants ─────────────────────────────────────────────────────────
+
+SUPPORTED_LANGUAGES = [
+    {"label": "TypeScript",       "detail": "Core TS — .ts files, Node.js, libraries",    "slug": "typescript"},
+    {"label": "TypeScript React", "detail": "React/Next.js — .tsx files with JSX + hooks", "slug": "typescript-react"},
+    {"label": "JavaScript",       "detail": "ES6+ — .js/.mjs/.cjs, browser + Node.js",    "slug": "javascript"},
+    {"label": "JavaScript React", "detail": "React — .jsx files with JSX components",      "slug": "javascript-react"},
+    {"label": "Python",           "detail": "General purpose + ML/data science",            "slug": "python"},
+    {"label": "Go",               "detail": "Systems, cloud, CLI tools",                    "slug": "go"},
+    {"label": "Java",             "detail": "Enterprise, Android, Spring",                  "slug": "java"},
+    {"label": "Rust",             "detail": "Systems programming, safety-first",            "slug": "rust"},
+    {"label": "C++",              "detail": "Performance-critical, games, systems",         "slug": "cpp"},
+    {"label": "C",                "detail": "Low-level systems, embedded",                  "slug": "c"},
+]
+
+EXTENSION_TO_LANG: dict[str, str] = {
+    ".ts": "typescript", ".tsx": "typescript-react",
+    ".js": "javascript", ".jsx": "javascript-react",
+    ".mjs": "javascript", ".cjs": "javascript",
+    ".py": "python", ".pyw": "python",
+    ".go": "go",
+    ".java": "java",
+    ".rs": "rust",
+    ".cpp": "cpp", ".cc": "cpp", ".cxx": "cpp", ".hpp": "cpp",
+    ".c": "c", ".h": "c",
+}
+
+LANG_TO_EXTENSIONS: dict[str, list[str]] = {
+    "typescript": [".ts"],
+    "typescript-react": [".tsx"],
+    "javascript": [".js", ".mjs", ".cjs"],
+    "javascript-react": [".jsx"],
+    "python": [".py", ".pyw"],
+    "go": [".go"],
+    "java": [".java"],
+    "rust": [".rs"],
+    "cpp": [".cpp", ".cc", ".cxx", ".hpp"],
+    "c": [".c", ".h"],
+}
+
+# HF datasets group tsx under "typescript" dir — we post-filter
+HF_LANG_MAP: dict[str, list[str]] = {
+    "typescript": ["typescript", "typescript-react"],
+    "javascript": ["javascript", "javascript-react"],
+    "python": ["python"],
+    "go": ["go"],
+    "java": ["java"],
+    "rust": ["rust"],
+    "cpp": ["cpp"],
+    "c": ["c"],
+}
+
+# ── Framework detection ────────────────────────────────────────────────────────
+
+_REACT_IMPORT_RE = re.compile(
+    r"""(?:from\s+['"]react['"]|import\s+React|from\s+['"]next/|"""
+    r"""require\s*\(\s*['"]react['"])""",
+    re.MULTILINE,
+)
+
+
+def detect_framework_language(content: str, file_path: str = "") -> str:
+    """Detect framework-language from extension + content.
+
+    .tsx -> typescript-react, .jsx -> javascript-react.
+    .ts/.js with React imports -> upgrade to -react variant.
+    """
+    ext = ""
+    if file_path:
+        from pathlib import Path
+
+        ext = Path(file_path).suffix.lower()
+
+    # Extension-based detection
+    base_lang = EXTENSION_TO_LANG.get(ext, "")
+    if base_lang:
+        # tsx/jsx already map to -react variants
+        if base_lang in ("typescript-react", "javascript-react"):
+            return base_lang
+        # For .ts/.js, check content for React imports
+        if base_lang in ("typescript", "javascript") and _REACT_IMPORT_RE.search(content):
+            return f"{base_lang}-react"
+        return base_lang
+
+    return ""
 
 
 def _read_key() -> str:
@@ -581,6 +668,64 @@ class CLI:
             elif key in ("escape", "\x03"):
                 self.warn("Cancelled.")
                 sys.exit(0)
+
+    def pick_languages(
+        self,
+        prompt: str = "Select languages:",
+        presets: bool = True,
+    ) -> list[str] | None:
+        """Interactive language/framework selection with presets.
+
+        Returns list of language slugs or None on cancel.
+        Uses choose() for presets and multi_select() for custom selection.
+        """
+        if presets:
+            preset_options = [
+                {"label": "TypeScript (all)",
+                 "detail": "typescript + typescript-react"},
+                {"label": "TypeScript React only",
+                 "detail": ".tsx files with React/Next.js"},
+                {"label": "TypeScript + JavaScript",
+                 "detail": "Full JS/TS ecosystem incl. React variants"},
+                {"label": "Python only",
+                 "detail": "Single language — python"},
+                {"label": "All languages",
+                 "detail": "All 10 supported languages/frameworks"},
+                {"label": "Custom selection...",
+                 "detail": "Pick individual languages/frameworks"},
+            ]
+            choice = self.choose(prompt, preset_options, allow_cancel=True)
+            if choice is None:
+                return None
+
+            preset_map = {
+                0: ["typescript", "typescript-react"],
+                1: ["typescript-react"],
+                2: ["typescript", "typescript-react", "javascript", "javascript-react"],
+                3: ["python"],
+                4: [lang["slug"] for lang in SUPPORTED_LANGUAGES],
+            }
+
+            if choice in preset_map:
+                return preset_map[choice]
+            # choice == 5 -> fall through to custom selection
+
+        # Custom selection via multi_select
+        lang_options = [
+            {"label": lang["label"], "detail": lang["detail"]}
+            for lang in SUPPORTED_LANGUAGES
+        ]
+        # Pre-select TypeScript + TypeScript React (indices 0, 1)
+        selected = self.multi_select(
+            "Select languages/frameworks:",
+            lang_options,
+            preselected=[0, 1],
+        )
+
+        if not selected:
+            return None
+
+        return [SUPPORTED_LANGUAGES[i]["slug"] for i in selected]
 
     def file_table(
         self,

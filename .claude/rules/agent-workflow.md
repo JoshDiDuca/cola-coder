@@ -37,6 +37,9 @@
 - Follow existing patterns: label + detail dict, dispatch by choice index
 - Data sources use `cli.choose()`, `cli.confirm()`, `cli.kv_table()` — never raw Rich
 - If a new config size is added, include it in `training_menu._train_size_menu` sizes
+- Every new script must be wired into the appropriate sub-menu before marking the task complete
+- Language-aware features must use `cli.pick_languages()` — never hardcode language lists
+- New feature modules must be assigned to a `_FEATURE_CATEGORIES` group, not left in "Other"
 
 ## Principles
 - **Simplicity First**: make every change as simple as possible

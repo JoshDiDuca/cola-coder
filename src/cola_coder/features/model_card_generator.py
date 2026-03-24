@@ -56,6 +56,7 @@ class _Metric:
 class _Example:
     prompt: str
     output: str
+    language: str = "python"
 
 
 class ModelCardGenerator:
@@ -84,9 +85,17 @@ class ModelCardGenerator:
         """Record a known limitation of the model."""
         self._limitations.append(text)
 
-    def add_example(self, prompt: str, output: str) -> None:
-        """Add a usage example (prompt -> output pair)."""
-        self._examples.append(_Example(prompt=prompt, output=output))
+    def add_example(self, prompt: str, output: str, language: str = "python") -> None:
+        """Add a usage example (prompt -> output pair).
+
+        Args:
+            prompt: The input code prefix shown to the model.
+            output: The generated (or fallback) completion.
+            language: Label shown in the code-fence header (e.g. ``"TypeScript"``,
+                ``"Python"``).  Also used as the markdown code-fence tag
+                (lowercased, spaces collapsed to a single word).
+        """
+        self._examples.append(_Example(prompt=prompt, output=output, language=language))
 
     # ------------------------------------------------------------------
     # Generation
@@ -251,15 +260,30 @@ class ModelCardGenerator:
     def _render_examples(self) -> str:
         parts = ["## Usage Examples", ""]
         for i, ex in enumerate(self._examples, start=1):
-            parts.append(f"### Example {i}")
+            # Derive a markdown code-fence tag from the language label.
+            # "TypeScript React" -> "tsx", "TypeScript" -> "typescript", etc.
+            label = ex.language
+            fence_tag = label.lower().replace(" react", "x").replace(" ", "")
+            if "react" in label.lower():
+                fence_tag = fence_tag.replace("react", "")
+            # Normalise common aliases
+            _tag_map = {
+                "typescriptx": "tsx",
+                "javascriptx": "jsx",
+                "typescript react": "tsx",
+                "javascript react": "jsx",
+            }
+            fence_tag = _tag_map.get(label.lower(), fence_tag)
+
+            parts.append(f"### Example {i} — {label}")
             parts.append("")
             parts.append("**Prompt:**")
             parts.append("")
-            parts.append(f"```python\n{ex.prompt}\n```")
+            parts.append(f"```{fence_tag}\n{ex.prompt}\n```")
             parts.append("")
             parts.append("**Output:**")
             parts.append("")
-            parts.append(f"```python\n{ex.output}\n```")
+            parts.append(f"```{fence_tag}\n{ex.output}\n```")
             parts.append("")
         return "\n".join(parts)
 

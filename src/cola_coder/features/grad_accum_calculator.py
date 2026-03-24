@@ -11,6 +11,8 @@ sums gradients over N micro steps before updating weights — same math, less me
 
 from __future__ import annotations
 
+from cola_coder.cli import cli
+
 FEATURE_ENABLED = True
 
 
@@ -82,69 +84,36 @@ class GradAccumCalculator:
         if candidates is None:
             candidates = self._generate_candidates()
 
-        try:
-            from rich.table import Table
-            from rich import box
-            from rich.console import Console
-
-            console = Console()
-            table = Table(
-                title=(
-                    f"Gradient Accumulation Options  "
-                    f"(micro_batch={self.micro_batch}, num_gpus={self.num_gpus})"
-                ),
-                box=box.ROUNDED,
-                show_header=True,
-                header_style="bold cyan",
-            )
-            table.add_column("grad_accum", justify="right", style="yellow")
-            table.add_column("effective_batch", justify="right", style="green")
-            table.add_column("matches target?", justify="center")
-
-            rec = self.recommended_grad_accum()
-            for ga in sorted(set(candidates)):
-                if ga <= 0:
-                    continue
-                eff = self.micro_batch * ga * self.num_gpus
-                is_target = eff == self.target_effective_batch
-                is_rec = ga == rec
-                match_str = "[bold green]YES[/bold green]" if is_target else "-"
-                if is_rec and not is_target:
-                    match_str = "[yellow]closest[/yellow]"
-                row_style = "bold" if is_rec else ""
-                table.add_row(str(ga), f"{eff:,}", match_str, style=row_style)
-
-            console.print(table)
-            console.print(
-                f"[bold]Recommendation:[/bold] "
-                f"gradient_accumulation_steps = [yellow]{rec}[/yellow]  "
-                f"→ effective_batch = [green]{self.actual_effective_batch():,}[/green]"
-            )
-            if not self.is_exact():
-                console.print(
-                    f"[yellow]Note:[/yellow] target={self.target_effective_batch:,} is not exactly achievable. "
-                    f"Actual will be {self.actual_effective_batch():,}."
-                )
-
-        except ImportError:
-            # Fallback to plain text
-            header = (
-                f"grad_accum | effective_batch | matches_target?\n"
-                f"{'':─<45}"
-            )
-            print(header)
-            rec = self.recommended_grad_accum()
-            for ga in sorted(set(candidates)):
-                if ga <= 0:
-                    continue
-                eff = self.micro_batch * ga * self.num_gpus
-                is_target = eff == self.target_effective_batch
-                is_rec = ga == rec
-                flag = "YES" if is_target else ("closest" if is_rec else "-")
-                print(f"{ga:>10} | {eff:>15,} | {flag}")
-            print(
-                f"\nRecommendation: gradient_accumulation_steps={rec} "
-                f"-> effective_batch={self.actual_effective_batch():,}"
+        rec = self.recommended_grad_accum()
+        cli.header(
+            f"Gradient Accumulation Options  "
+            f"(micro_batch={self.micro_batch}, num_gpus={self.num_gpus})"
+        )
+        rows: dict[str, str] = {}
+        for ga in sorted(set(candidates)):
+            if ga <= 0:
+                continue
+            eff = self.micro_batch * ga * self.num_gpus
+            is_target = eff == self.target_effective_batch
+            is_rec = ga == rec
+            if is_target:
+                match_str = "YES"
+            elif is_rec:
+                match_str = "closest"
+            else:
+                match_str = "-"
+            label = f"grad_accum={ga}" + (" *" if is_rec else "")
+            rows[label] = f"{eff:>12,}   {match_str}"
+        cli.kv_table(rows, title="grad_accum → effective_batch  [matches target?]")
+        cli.info(
+            "Recommendation",
+            f"gradient_accumulation_steps = {rec}  "
+            f"-> effective_batch = {self.actual_effective_batch():,}",
+        )
+        if not self.is_exact():
+            cli.warn(
+                f"target={self.target_effective_batch:,} is not exactly achievable. "
+                f"Actual will be {self.actual_effective_batch():,}."
             )
 
     # ── Private helpers ───────────────────────────────────────────────────────

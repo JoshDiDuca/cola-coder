@@ -586,10 +586,10 @@ class TrainingMenu:
 
         # Problem set
         if cli.confirm("Use expanded problem set? (60+ problems)", default=True):
-            args.append("--problems")
-            args.append("builtin")
             if cli.confirm("Enable curriculum learning? (easy→hard)", default=False):
-                args.append("--curriculum")
+                args.extend(["--problems", "curriculum"])
+            else:
+                args.extend(["--problems", "all"])
 
         if cli.confirm("Start reasoning training?"):
             self._master._run_script("train_reasoning.py", args)

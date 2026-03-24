@@ -38,6 +38,35 @@ from cola_coder.model.config import get_storage_config
 
 
 # ---------------------------------------------------------------------------
+# Language-specific prompts used to generate usage examples
+# ---------------------------------------------------------------------------
+
+LANGUAGE_PROMPTS: dict[str, list[tuple[str, str]]] = {
+    "typescript": [
+        ("TypeScript", "function fibonacci(n: number): number {\n"),
+        ("TypeScript", "const fetchUser = async (id: string): Promise<User> => {\n"),
+        ("TypeScript", "interface Config {\n"),
+    ],
+    "typescript-react": [
+        ("TypeScript React", "import React from 'react';\n\nconst Button: React.FC<{ label: string }> = ("),
+        ("TypeScript React", "export default function HomePage() {\n  const [data, setData] = useState"),
+    ],
+    "javascript": [
+        ("JavaScript", "function debounce(fn, delay) {\n"),
+        ("JavaScript", "class EventEmitter {\n"),
+    ],
+    "javascript-react": [
+        ("JavaScript React", "import React, { useState } from 'react';\n\nexport default function App("),
+    ],
+    "python": [
+        ("Python", "def fibonacci(n: int) -> int:\n"),
+        ("Python", "class LinkedList:\n"),
+        ("Python", "async def fetch_data(url: str) -> dict:\n"),
+    ],
+}
+
+
+# ---------------------------------------------------------------------------
 # Helpers (same pattern as run.py / benchmark.py)
 # ---------------------------------------------------------------------------
 
@@ -120,6 +149,7 @@ def _build_fallback_card(
     manifest: dict,
     project_root: Path,
     benchmarks_path: Path | None = None,
+    languages_arg: str = "typescript,python",
 ) -> str:
     """Build a model card as a markdown string without using ModelCardGenerator.
 
@@ -165,10 +195,21 @@ def _build_fallback_card(
     vram_gb = hw.get("vram_gb", "?")
     hardware_str = f"{gpu_name} ({vram_gb} GB VRAM)" if gpu_name != "unknown" else "unknown"
 
-    # Data source
+    # Data source — training languages come from manifest; display languages
+    # come from the --languages flag (used for examples/overview).
     dataset_src = manifest.get("source", {}).get("dataset", "bigcode/starcoderdata")
-    languages = manifest.get("source", {}).get("languages", ["Python", "TypeScript", "JavaScript"])
-    lang_str = ", ".join(languages) if languages else "Python, TypeScript, JavaScript"
+    training_languages = manifest.get("source", {}).get(
+        "languages", ["Python", "TypeScript", "JavaScript"]
+    )
+    training_lang_str = ", ".join(training_languages) if training_languages else "Python, TypeScript, JavaScript"
+    # Derive display-friendly names from the --languages flag
+    _req_langs_fb = [
+        lang.strip() for lang in (languages_arg or "typescript,python").split(",") if lang.strip()
+    ]
+    _display_langs_fb = [
+        LANGUAGE_PROMPTS.get(lang, [(lang.title(), "")])[0][0] for lang in _req_langs_fb
+    ] if _req_langs_fb else training_languages
+    lang_str = ", ".join(_display_langs_fb)
 
     # Training hyperparams
     lr = training_cfg.get("learning_rate", "?")
@@ -181,6 +222,16 @@ def _build_fallback_card(
     )
     precision = training_cfg.get("precision", "bf16")
 
+    # Formatted tokens / loss for the description
+    tokens_str_fb = (
+        f"{tokens_seen / 1e9:.2f}B"
+        if isinstance(tokens_seen, int) and tokens_seen >= 1e9
+        else f"{tokens_seen / 1e6:.0f}M"
+        if isinstance(tokens_seen, int)
+        else "unknown"
+    )
+    loss_str_fb = f"{loss:.4f}" if isinstance(loss, float) else "unknown"
+
     now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
     card = f"""\
@@ -192,10 +243,18 @@ def _build_fallback_card(
 
 ## Overview
 
-{model_name} is a decoder-only transformer trained from scratch on open-source
-code.  It was built as part of the [Cola-Coder](https://github.com/cola-coder)
-learning project — a from-scratch code generation transformer that mirrors the
-LLaMA / Mistral architecture.
+**{model_name}** is a {params_str}-parameter decoder-only transformer trained
+from scratch on open-source code ({tokens_str_fb} tokens, {step:,} steps,
+final loss {loss_str_fb}).
+
+The architecture mirrors LLaMA 3 / Mistral: rotary positional embeddings (RoPE),
+grouped-query attention (GQA, {n_heads}Q / {n_kv_heads}KV heads), SwiGLU
+feed-forward networks, and pre-norm RMSNorm throughout.  It was built as part of
+the [Cola-Coder](https://github.com/cola-coder) project — a from-scratch code
+generation transformer targeting {lang_str}.
+
+The model is a **base language model** (code completion style).  Feed it a code
+prefix and it continues the code.  It is not instruction-tuned.
 
 ## Model Information
 
@@ -226,11 +285,11 @@ LLaMA / Mistral architecture.
 | Field | Value |
 |-------|-------|
 | Dataset | {dataset_src} |
-| Languages | {lang_str} |
+| Training languages | {training_lang_str} |
 | Training steps | {step:,} |
 | Best step | {best_step:,} |
 | Best loss | {best_loss} |
-| Tokens seen | {tokens_seen:,} |
+| Tokens seen | {tokens_str_fb} |
 | Epochs completed | {epochs_completed} |
 | Learning rate | {lr} |
 | Batch size | {batch_size} |
@@ -270,19 +329,18 @@ python scripts/benchmark.py --checkpoint {checkpoint_dir}
 
 ## Limitations
 
-- **Small model, narrow data** — Cola-Coder {size_name.capitalize()} has {params_str} parameters and
-  was trained on a limited token budget.  It will struggle with complex
-  multi-file reasoning, long-range dependencies, and tasks that require
-  broad world knowledge.
+- **Small model, limited budget** — {model_name} ({params_str} parameters,
+  {tokens_str_fb} tokens seen) will struggle with complex multi-file reasoning,
+  long-range dependencies, and tasks that require broad world knowledge.
 
-- **No instruction tuning** — The model is a base language model trained on
-  raw code files.  It is not fine-tuned on instruction-following data, so
-  it will not reliably respond to natural-language requests like "write me a
-  function that …".  Feed it code prefixes, not English prompts.
+- **No instruction tuning** — This is a base language model trained on raw code
+  files.  It is not fine-tuned on instruction-following data, so it will not
+  reliably respond to natural-language requests.  Feed it code prefixes, not
+  English prompts.
 
-- **TypeScript / Python bias** — The training data skews toward Python,
-  TypeScript, and JavaScript.  Performance on other languages (Go, Rust,
-  Java, etc.) will be lower.
+- **Training language bias** — The training data is weighted toward
+  {training_lang_str}.  Performance on other languages (Go, Rust, Java, etc.)
+  will be lower.
 
 - **Not production-ready** — This model is a learning artefact.  It has not
   been evaluated for safety, bias, or correctness on real-world tasks.  Do
@@ -457,6 +515,16 @@ def main() -> None:
         default=None,
         help="Path to eval_results.json from run_eval_suite.py (adds benchmark section).",
     )
+    parser.add_argument(
+        "--languages",
+        type=str,
+        default="typescript,python",
+        help=(
+            "Comma-separated languages for example generation "
+            "(e.g. typescript,typescript-react,python). "
+            "Supported: typescript, typescript-react, javascript, javascript-react, python."
+        ),
+    )
     args = parser.parse_args()
 
     cli.header("Cola-Coder", "Model Card Generator")
@@ -556,17 +624,54 @@ def main() -> None:
 
             n_params = _count_params(raw_cfg)
 
+            # Resolve target languages: --languages flag takes priority, then
+            # manifest source languages, then a sensible default.
+            _req_langs = [
+                lang.strip() for lang in (args.languages or "").split(",") if lang.strip()
+            ]
+            _manifest_langs = manifest.get("source", {}).get(
+                "languages", ["Python", "TypeScript", "JavaScript"]
+            )
+            _display_langs = (
+                [LANGUAGE_PROMPTS.get(lang, [(lang.title(), "")])[0][0] for lang in _req_langs]
+                if _req_langs
+                else _manifest_langs
+            )
+
+            # Build a concise but informative architecture description that
+            # includes the key design choices and training statistics.
+            _model_cfg_for_desc = raw_cfg.get("model", raw_cfg)
+            _d_model = _model_cfg_for_desc.get("d_model", "?")
+            _n_layers = _model_cfg_for_desc.get("n_layers", "?")
+            _n_heads = _model_cfg_for_desc.get("n_heads", "?")
+            _n_kv = _model_cfg_for_desc.get("n_kv_heads", _n_heads)
+            _seq_len = _model_cfg_for_desc.get("max_seq_len", "?")
+            _prog_for_desc = manifest.get("progress", {})
+            _tokens_seen = _prog_for_desc.get("tokens_seen") or metadata.get("tokens_seen")
+            _tokens_str = (
+                f"{_tokens_seen / 1e9:.2f}B" if isinstance(_tokens_seen, int) and _tokens_seen >= 1e9
+                else f"{_tokens_seen / 1e6:.0f}M" if isinstance(_tokens_seen, int)
+                else "unknown"
+            )
+            _loss_str = (
+                f"{metadata['loss']:.4f}" if isinstance(metadata.get("loss"), float) else "unknown"
+            )
+            _arch_desc = (
+                f"Decoder-only transformer trained from scratch on open-source code. "
+                f"Architecture mirrors LLaMA 3 / Mistral: RoPE positional encoding, "
+                f"grouped-query attention (GQA, {_n_heads}Q / {_n_kv}KV heads), "
+                f"SwiGLU feed-forward, and pre-norm RMSNorm. "
+                f"{_n_layers} layers, d_model={_d_model}, {_seq_len}-token context window. "
+                f"Trained for {ckpt_step:,} steps ({_tokens_str} tokens seen); "
+                f"final training loss {_loss_str}."
+            )
+
             model_info = ModelInfo(
                 name=f"Cola-Coder {size_name.capitalize()}",
                 version=size_name,
-                architecture=(
-                    "Decoder-only transformer (RoPE, GQA, SwiGLU, RMSNorm) — "
-                    "same family as LLaMA 3 / Mistral"
-                ),
+                architecture=_arch_desc,
                 parameters=n_params,
-                languages=manifest.get("source", {}).get(
-                    "languages", ["Python", "TypeScript", "JavaScript"]
-                ),
+                languages=_display_langs,
                 license="Apache 2.0",
             )
 
@@ -603,15 +708,56 @@ def main() -> None:
                 if best_loss:
                     generator_obj.add_metric("Best training loss", round(best_loss, 4))
 
-            # Add a usage example using run.py
-            generator_obj.add_example(
-                prompt="def fibonacci(n):\n",
-                output=(
-                    "    if n <= 1:\n"
-                    "        return n\n"
-                    "    return fibonacci(n - 1) + fibonacci(n - 2)"
-                ),
-            )
+            # Try to load the model for live example generation
+            live_generator = None
+            if args.checkpoint is not None:
+                try:
+                    from cola_coder.inference.generator import CodeGenerator
+                    from cola_coder.model.config import ModelConfig
+                    from cola_coder.model.transformer import Transformer
+                    from cola_coder.tokenizer.tokenizer_utils import CodeTokenizer
+
+                    _tok_path = project_root / "tokenizer.json"
+                    _cfg_dict = metadata.get("config", {})
+                    _model_cfg_dict = _cfg_dict.get("model", _cfg_dict)
+                    if _tok_path.exists() and _model_cfg_dict:
+                        import torch
+
+                        _device = "cuda" if torch.cuda.is_available() else "cpu"
+                        _tok = CodeTokenizer(str(_tok_path))
+                        _model_cfg = ModelConfig(**_model_cfg_dict)
+                        _model = Transformer(_model_cfg)
+                        _model.load_checkpoint(checkpoint_dir)
+                        _model = _model.to(_device)
+                        live_generator = CodeGenerator(_model, _tok, device=_device)
+                        cli.dim("Model loaded — generating live examples.")
+                except Exception as _gen_exc:
+                    cli.dim(f"Live generation unavailable ({_gen_exc}) — using fallback text.")
+
+            # Generate examples for each requested language (max 2 per language)
+            _fallback_output = "# [Generation requires model loaded with --checkpoint]"
+            _langs = [
+                lang.strip()
+                for lang in (args.languages or "typescript,python").split(",")
+                if lang.strip()
+            ]
+            for _lang in _langs:
+                _prompts = LANGUAGE_PROMPTS.get(_lang, [])
+                for _lang_label, _prompt in _prompts[:2]:
+                    if live_generator is not None:
+                        try:
+                            _output = live_generator.generate(
+                                _prompt, max_new_tokens=128, temperature=0.3
+                            )
+                        except Exception:
+                            _output = _fallback_output
+                    else:
+                        _output = _fallback_output
+                    generator_obj.add_example(
+                        prompt=_prompt,
+                        output=_output,
+                        language=_lang_label,
+                    )
 
             # Add limitations
             generator_obj.add_limitation(
@@ -662,6 +808,7 @@ def main() -> None:
             manifest=manifest,
             project_root=project_root,
             benchmarks_path=benchmarks_path,
+            languages_arg=args.languages,
         )
 
     # ── Write output ──────────────────────────────────────────────────────

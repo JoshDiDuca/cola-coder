@@ -34,7 +34,47 @@ src/cola_coder/
 scripts/              45 CLI entry points — all use `from cola_coder.cli import cli`, never direct Rich
 tests/                122 test files (~2800 tests)
 docs/                 Educational guides (01-05) + deep-dives/
+vscode-extension/     TypeScript VS Code extension (see below)
 ```
+
+## VS Code Extension
+
+### Layout
+```
+vscode-extension/
+  src/client/           HTTP + SSE client to FastAPI server (ColaCoderClient)
+  src/providers/        InlineCompletion, ChatParticipant, CodeAction, LanguageModel
+  src/server/           ServerManager (process lifecycle) + HealthMonitor
+  src/ui/               StatusBar + ThinkingRenderer (collapsible <think> blocks)
+  src/utils/            config, logger, debounce
+  src/context/          ContextAssembler, FimFormatter
+  src/extension.ts      Activation, provider registration, commands
+  package.json          Extension manifest (chatParticipants, commands, settings)
+```
+
+### Key Commands
+```bash
+cd vscode-extension
+npm run build                          # esbuild bundle (~47KB)
+npx tsc --noEmit                       # type-check (must pass before packaging)
+npx vsce package --no-dependencies     # create .vsix
+code --install-extension cola-coder-0.1.0.vsix --force  # install locally
+```
+
+### Extension ↔ Server Contract
+- Extension talks to FastAPI server via HTTP (default: `http://localhost:8000`)
+- Server must be started with `--cors` flag for the extension to connect
+- Endpoints: `/v1/chat/completions` (SSE streaming), `/v1/fim`, `/v1/context`, `/v1/models`, `/health`
+- FIM endpoint → inline completions (ghost text)
+- Chat endpoint → chat participant + language model provider
+- Default mode is `external` (user starts server manually)
+
+### Important
+- Always `npm run build` after TypeScript changes — extension runs from `dist/extension.js`
+- Always `npx tsc --noEmit` before packaging to catch type errors
+- Extension registers ALL providers on activation even when server is disconnected
+- Chat participant has `baseModelMode` setting: `true` = raw code completion (base model), `false` = structured prompts (instruction-tuned model)
+- Inline completions require server connection — check output channel for "server not connected" logs
 
 ## Training Pipeline
 
@@ -78,7 +118,10 @@ If checkpoint tests fail, DO NOT start training.
 - Use ruff. Line length: 100 (pyproject.toml)
 - Use pytest for tests. Type hints used but not strictly enforced
 - Use `from cola_coder.cli import cli` for all CLI output — never raw Rich imports
-- CLI methods: `cli.header()`, `cli.choose()`, `cli.confirm()`, `cli.kv_table()`, `cli.multi_select()`, `cli.weight_editor()`, `cli.info()`, `cli.success()`, `cli.error()`, `cli.warn()`, `cli.dim()`, `cli.done()`, `cli.print()`
+- CLI methods: `cli.header()`, `cli.choose()`, `cli.confirm()`, `cli.kv_table()`, `cli.multi_select()`, `cli.weight_editor()`, `cli.pick_languages()`, `cli.info()`, `cli.success()`, `cli.error()`, `cli.warn()`, `cli.dim()`, `cli.done()`, `cli.print()`
+- Every new user-facing feature or script MUST have a menu entry. No orphan scripts.
+- Use `cli.pick_languages()` for any language selection — never inline language loops.
+- New feature modules must be in a `_FEATURE_CATEGORIES` group, not left in "Other".
 
 ## Menu Architecture
 

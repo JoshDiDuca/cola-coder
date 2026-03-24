@@ -60,6 +60,12 @@ class ToolsMenu:
                  "detail": "scripts/run_pipeline.py — tokenize→train→eval→export"},
                 {"label": "Scan Repository",
                  "detail": "Scan a source repo and display structure/stats"},
+                {"label": "Environment Check",
+                 "detail": "Verify Python, PyTorch, CUDA, GPU, disk, HF_TOKEN"},
+                {"label": "Tokenizer Health",
+                 "detail": "Vocab size, special tokens, roundtrip, avg token length"},
+                {"label": "Project Health",
+                 "detail": "Overall project health score"},
             ]
 
             choice = cli.choose("Select tool:", options, allow_cancel=True)
@@ -95,6 +101,15 @@ class ToolsMenu:
                 self._pipeline_menu()
             elif choice == 9:
                 self._scan_repository()
+            elif choice == 10:
+                self._master._run_script("env_check.py")
+                self._master._pause()
+            elif choice == 11:
+                self._master._run_script("tokenizer_health.py")
+                self._master._pause()
+            elif choice == 12:
+                self._master._run_script("project_health.py")
+                self._master._pause()
 
     def _export_model_menu(self) -> None:
         """Export model to GGUF/Ollama/quantized format."""
