@@ -771,8 +771,14 @@ class DataMenu:
         if not repo_path:
             cli.warn("No path entered — cancelled.")
             return
-        args = [repo_path]
-        if Path(repo_path).is_dir():
+        path = Path(repo_path)
+        # Scraped data directories store repos under _clones/
+        clones_dir = path / "_clones"
+        if clones_dir.is_dir():
+            cli.info("Detected scraped data directory — scoring repos in _clones/")
+            path = clones_dir
+        args = [str(path)]
+        if path.is_dir():
             args.append("--all")
         self._master._run_script("score_repos.py", args)
         self._master._pause()
@@ -792,10 +798,58 @@ class DataMenu:
         choice = cli.choose("Select command:", options, allow_cancel=True)
         if choice is None:
             return
-        subcommands = ["demo", "annotate", "train", "evaluate"]
-        self._master._run_script(
-            "train_quality_classifier.py", [subcommands[choice]]
-        )
+
+        if choice == 0:
+            # demo — no required args
+            self._master._run_script("train_quality_classifier.py", ["demo"])
+        elif choice == 1:
+            # annotate — requires --data
+            try:
+                data_path = input("Path to .npy token data file: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                cli.warn("Cancelled.")
+                return
+            if not data_path:
+                cli.warn("No path entered — cancelled.")
+                return
+            self._master._run_script(
+                "train_quality_classifier.py", ["annotate", "--data", data_path]
+            )
+        elif choice == 2:
+            # train — requires --labels
+            try:
+                labels_path = input("Path to quality_labels.jsonl: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                cli.warn("Cancelled.")
+                return
+            if not labels_path:
+                cli.warn("No path entered — cancelled.")
+                return
+            self._master._run_script(
+                "train_quality_classifier.py", ["train", "--labels", labels_path]
+            )
+        elif choice == 3:
+            # evaluate — requires --model and --labels
+            try:
+                model_path = input("Path to trained classifier model: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                cli.warn("Cancelled.")
+                return
+            if not model_path:
+                cli.warn("No path entered — cancelled.")
+                return
+            try:
+                labels_path = input("Path to quality_labels.jsonl: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                cli.warn("Cancelled.")
+                return
+            if not labels_path:
+                cli.warn("No path entered — cancelled.")
+                return
+            self._master._run_script(
+                "train_quality_classifier.py",
+                ["evaluate", "--model", model_path, "--labels", labels_path],
+            )
         self._master._pause()
 
     def _score_quality_menu(self) -> None:
