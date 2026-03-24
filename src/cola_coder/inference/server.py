@@ -1,24 +1,51 @@
-"""FastAPI inference server.
+"""FastAPI inference server with OpenAI-compatible API.
 
-A simple HTTP API that serves your trained model for code generation.
-You can send POST requests with a prompt and get generated code back.
+A HTTP API that serves your trained model for code generation.
+Provides both the original cola-coder endpoints and OpenAI-compatible
+/v1/chat/completions, /v1/completions, /v1/models endpoints, plus
+cola-coder-specific /v1/fim and /v1/context endpoints.
 
-For a TS dev: this is like an Express server, but using FastAPI (Python's
-equivalent). FastAPI auto-generates OpenAPI/Swagger docs at /docs.
+For a TS dev: this is like an Express server with both a custom API and
+an OpenAI-compatible adapter layer. FastAPI auto-generates OpenAPI/Swagger
+docs at /docs.
 
 Usage:
     python scripts/serve.py --checkpoint ./checkpoints/small/latest
-    # Then: curl -X POST http://localhost:8000/generate -d '{"prompt": "def hello"}'
+    # Then: curl -X POST http://localhost:8000/generate \\
+    #   -d '{"prompt": "def hello"}'
+    # Or:  curl -X POST http://localhost:8000/v1/chat/completions \\
+    #   -d '{"model":"cola-coder","messages":[{"role":"user","content":"def hello"}]}'
 """
 
+from __future__ import annotations
 
-from fastapi import FastAPI
-from pydantic import BaseModel
+import asyncio
+import json
+import logging
+import re
+import time
+import uuid
+from typing import Literal
+
+from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel, Field
+from starlette.responses import StreamingResponse
+
+logger = logging.getLogger(__name__)
+
+# ── Server start time (for uptime tracking) ──────────────────────────────────
+
+_SERVER_START_TIME: float = time.time()
 
 
-# Request/response schemas (like TypeScript interfaces)
+# ══════════════════════════════════════════════════════════════════════════════
+# Original cola-coder models (backward compat)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
 class GenerateRequest(BaseModel):
     """Request body for the /generate endpoint."""
+
     prompt: str
     max_new_tokens: int = 256
     temperature: float = 0.8
@@ -30,6 +57,7 @@ class GenerateRequest(BaseModel):
 
 class GenerateResponse(BaseModel):
     """Response body from the /generate endpoint."""
+
     generated_text: str
     num_tokens: int
     prompt: str
@@ -37,47 +65,293 @@ class GenerateResponse(BaseModel):
 
 class ModelInfo(BaseModel):
     """Response body for the /info endpoint."""
+
     model_params: int
     vocab_size: int
     max_seq_len: int
     device: str
 
 
-def create_app(generator) -> FastAPI:
+# ══════════════════════════════════════════════════════════════════════════════
+# OpenAI-compatible models
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class ChatMessage(BaseModel):
+    """A single message in a chat conversation."""
+
+    role: Literal["system", "user", "assistant"]
+    content: str
+
+
+class UsageStats(BaseModel):
+    """Token usage statistics."""
+
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
+# ── Chat completions ─────────────────────────────────────────────────────────
+
+
+class ChatCompletionRequest(BaseModel):
+    """Request body for /v1/chat/completions (OpenAI format)."""
+
+    model: str = "cola-coder"
+    messages: list[ChatMessage]
+    stream: bool = False
+    temperature: float = 0.8
+    max_tokens: int = 256
+    top_p: float = 0.9
+    top_k: int = 50
+    repetition_penalty: float = 1.1
+    stop: list[str] | None = None
+
+
+class ChatChoice(BaseModel):
+    """A single choice in a chat completion response."""
+
+    index: int
+    message: ChatMessage
+    finish_reason: str | None = "stop"
+
+
+class ChatCompletionResponse(BaseModel):
+    """Response body for /v1/chat/completions (OpenAI format)."""
+
+    id: str
+    object: str = "chat.completion"
+    created: int
+    model: str
+    choices: list[ChatChoice]
+    usage: UsageStats
+
+
+# ── Text completions ─────────────────────────────────────────────────────────
+
+
+class CompletionRequest(BaseModel):
+    """Request body for /v1/completions (OpenAI format)."""
+
+    model: str = "cola-coder"
+    prompt: str
+    max_tokens: int = 256
+    temperature: float = 0.8
+    top_p: float = 0.9
+    top_k: int = 50
+    repetition_penalty: float = 1.1
+    stop: list[str] | None = None
+    stream: bool = False
+
+
+class CompletionChoice(BaseModel):
+    """A single choice in a text completion response."""
+
+    index: int
+    text: str
+    finish_reason: str | None = "stop"
+
+
+class CompletionResponse(BaseModel):
+    """Response body for /v1/completions (OpenAI format)."""
+
+    id: str
+    object: str = "text_completion"
+    created: int
+    model: str
+    choices: list[CompletionChoice]
+    usage: UsageStats
+
+
+# ── Fill-in-the-middle ───────────────────────────────────────────────────────
+
+
+class FimRequest(BaseModel):
+    """Request body for /v1/fim (cola-coder specific)."""
+
+    prefix: str
+    suffix: str
+    max_tokens: int = 128
+    temperature: float = 0.2
+    top_p: float = 0.9
+    top_k: int = 50
+    language: str | None = None
+    file_path: str | None = None
+
+
+class FimResponse(BaseModel):
+    """Response body for /v1/fim."""
+
+    id: str
+    infill: str
+    finish_reason: str = "stop"
+    usage: UsageStats
+
+
+# ── Repo context ─────────────────────────────────────────────────────────────
+
+
+class ContextRequest(BaseModel):
+    """Request body for /v1/context (cola-coder specific)."""
+
+    file_path: str
+    max_tokens: int = 2048
+
+
+class ContextResponse(BaseModel):
+    """Response body for /v1/context."""
+
+    context: str
+    files_referenced: list[str]
+    project_name: str | None = None
+    frameworks: dict[str, str] = Field(default_factory=dict)
+
+
+# ── Health ───────────────────────────────────────────────────────────────────
+
+
+class HealthResponse(BaseModel):
+    """Detailed health check response."""
+
+    status: str = "ok"
+    model: str | None = None
+    params: int | None = None
+    device: str | None = None
+    gpu_name: str | None = None
+    vram_used_gb: float | None = None
+    vram_total_gb: float | None = None
+    uptime_seconds: float | None = None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Helpers
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def _chat_id() -> str:
+    """Generate a unique chat completion ID."""
+    return f"chatcmpl-{uuid.uuid4().hex[:12]}"
+
+
+def _completion_id() -> str:
+    """Generate a unique completion ID."""
+    return f"cmpl-{uuid.uuid4().hex[:12]}"
+
+
+def _fim_id() -> str:
+    """Generate a unique FIM completion ID."""
+    return f"fim-{uuid.uuid4().hex[:12]}"
+
+
+def _messages_to_prompt(messages: list[ChatMessage]) -> str:
+    """Concatenate chat messages into a single prompt string.
+
+    System messages go first, then user/assistant messages alternate.
+    Each message is separated by a newline for clarity.
+    """
+    parts: list[str] = []
+    for msg in messages:
+        if msg.role == "system":
+            parts.insert(0, msg.content)
+        elif msg.role == "user":
+            parts.append(msg.content)
+        elif msg.role == "assistant":
+            parts.append(msg.content)
+    return "\n".join(parts)
+
+
+def _get_base_generator(generator):
+    """Unwrap a ContextAwareGenerator to get the underlying CodeGenerator."""
+    if hasattr(generator, "generator"):
+        return generator.generator
+    return generator
+
+
+def _parse_referenced_files(context_str: str) -> list[str]:
+    """Extract file paths from <|file|>path\\n...<|/file|> blocks."""
+    return re.findall(r"<\|file\|>([^\n]+)\n", context_str)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# App factory
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def create_app(
+    generator,
+    config=None,
+    model_name: str = "cola-coder",
+    enable_thinking: bool = False,
+    enable_cors: bool = False,
+) -> FastAPI:
     """Create the FastAPI application with a loaded model.
 
     Args:
-        generator: A CodeGenerator instance with a loaded model.
+        generator: A CodeGenerator or ContextAwareGenerator instance.
+        config: Optional model Config object for metadata.
+        model_name: Name to report in OpenAI-format responses.
+        enable_thinking: Whether thinking tokens are enabled.
+        enable_cors: If True, add CORSMiddleware allowing all origins.
 
     Returns:
         FastAPI app ready to serve.
     """
+    global _SERVER_START_TIME
+    _SERVER_START_TIME = time.time()
+
     app = FastAPI(
         title="Cola-Coder API",
-        description="Code generation API powered by your custom transformer model",
-        version="0.1.0",
+        description=(
+            "Code generation API powered by a custom transformer model. "
+            "Provides OpenAI-compatible endpoints alongside native ones."
+        ),
+        version="0.2.0",
     )
+
+    # ── CORS ──────────────────────────────────────────────────────────────
+    if enable_cors:
+        from fastapi.middleware.cors import CORSMiddleware
+
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+    # Serialize generation requests — single GPU can only run one at a time
+    _gen_lock = asyncio.Lock()
+
+    # Get the base CodeGenerator for direct calls
+    base_gen = _get_base_generator(generator)
+
+    # ══════════════════════════════════════════════════════════════════════
+    # Original endpoints (backward compat)
+    # ══════════════════════════════════════════════════════════════════════
 
     @app.post("/generate", response_model=GenerateResponse)
     async def generate(request: GenerateRequest) -> GenerateResponse:
-        """Generate code from a prompt.
+        """Generate code from a prompt (original cola-coder endpoint)."""
+        async with _gen_lock:
+            result = await asyncio.to_thread(
+                base_gen.generate,
+                prompt=request.prompt,
+                max_new_tokens=request.max_new_tokens,
+                temperature=request.temperature,
+                top_k=request.top_k,
+                top_p=request.top_p,
+                repetition_penalty=request.repetition_penalty,
+                stop_tokens=request.stop_tokens,
+            )
 
-        Send a prompt and receive generated code. The model will continue
-        writing code from where your prompt ends.
-        """
-        result = generator.generate(
-            prompt=request.prompt,
-            max_new_tokens=request.max_new_tokens,
-            temperature=request.temperature,
-            top_k=request.top_k,
-            top_p=request.top_p,
-            repetition_penalty=request.repetition_penalty,
-            stop_tokens=request.stop_tokens,
+        prompt_tokens = len(
+            base_gen.tokenizer.encode(request.prompt, add_bos=False)
         )
-
-        # Count generated tokens (approximate)
-        prompt_tokens = len(generator.tokenizer.encode(request.prompt, add_bos=False))
-        total_tokens = len(generator.tokenizer.encode(result, add_bos=False))
+        total_tokens = len(
+            base_gen.tokenizer.encode(result, add_bos=False)
+        )
         new_tokens = total_tokens - prompt_tokens
 
         return GenerateResponse(
@@ -89,17 +363,474 @@ def create_app(generator) -> FastAPI:
     @app.get("/info", response_model=ModelInfo)
     async def info() -> ModelInfo:
         """Get information about the loaded model."""
-        model = generator.model
+        model = base_gen.model
         return ModelInfo(
             model_params=model.num_parameters,
             vocab_size=model.config.vocab_size,
             max_seq_len=model.config.max_seq_len,
-            device=str(generator.device),
+            device=str(base_gen.device),
         )
 
-    @app.get("/health")
-    async def health():
-        """Health check endpoint."""
-        return {"status": "ok"}
+    @app.get("/health", response_model=HealthResponse)
+    async def health() -> HealthResponse:
+        """Health check with optional GPU stats."""
+        model = base_gen.model
+        device_str = str(base_gen.device)
+        uptime = time.time() - _SERVER_START_TIME
+
+        gpu_name = None
+        vram_used_gb = None
+        vram_total_gb = None
+
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                gpu_name = torch.cuda.get_device_name(0)
+                vram_used_gb = round(
+                    torch.cuda.memory_allocated(0) / (1024**3), 2
+                )
+                vram_total_gb = round(
+                    torch.cuda.get_device_properties(0).total_mem
+                    / (1024**3),
+                    2,
+                )
+        except Exception:
+            pass
+
+        return HealthResponse(
+            status="ok",
+            model=model_name,
+            params=model.num_parameters,
+            device=device_str,
+            gpu_name=gpu_name,
+            vram_used_gb=vram_used_gb,
+            vram_total_gb=vram_total_gb,
+            uptime_seconds=round(uptime, 1),
+        )
+
+    # ══════════════════════════════════════════════════════════════════════
+    # OpenAI-compatible: /v1/chat/completions
+    # ══════════════════════════════════════════════════════════════════════
+
+    @app.post("/v1/chat/completions")
+    async def chat_completions(
+        request: ChatCompletionRequest, raw_request: Request
+    ):
+        """Chat completion endpoint (OpenAI-compatible).
+
+        Supports both streaming and non-streaming responses.
+        """
+        prompt = _messages_to_prompt(request.messages)
+        prompt_token_count = len(
+            base_gen.tokenizer.encode(prompt, add_bos=False)
+        )
+
+        if request.stream:
+            return StreamingResponse(
+                _stream_chat(
+                    prompt=prompt,
+                    request=request,
+                    prompt_token_count=prompt_token_count,
+                    raw_request=raw_request,
+                ),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "X-Accel-Buffering": "no",
+                },
+            )
+
+        # Non-streaming
+        async with _gen_lock:
+            result = await asyncio.to_thread(
+                base_gen.generate,
+                prompt=prompt,
+                max_new_tokens=request.max_tokens,
+                temperature=request.temperature,
+                top_k=request.top_k,
+                top_p=request.top_p,
+                repetition_penalty=request.repetition_penalty,
+                stop_tokens=request.stop,
+            )
+
+        # Strip the prompt from the output to get only the completion
+        completion_text = result[len(prompt):] if result.startswith(
+            prompt
+        ) else result
+        completion_tokens = len(
+            base_gen.tokenizer.encode(completion_text, add_bos=False)
+        )
+
+        return ChatCompletionResponse(
+            id=_chat_id(),
+            created=int(time.time()),
+            model=model_name,
+            choices=[
+                ChatChoice(
+                    index=0,
+                    message=ChatMessage(
+                        role="assistant", content=completion_text
+                    ),
+                    finish_reason="stop",
+                )
+            ],
+            usage=UsageStats(
+                prompt_tokens=prompt_token_count,
+                completion_tokens=completion_tokens,
+                total_tokens=prompt_token_count + completion_tokens,
+            ),
+        )
+
+    async def _stream_chat(
+        prompt: str,
+        request: ChatCompletionRequest,
+        prompt_token_count: int,
+        raw_request: Request,
+    ):
+        """SSE generator for streaming chat completions."""
+        chat_id = _chat_id()
+        completion_tokens = 0
+
+        async with _gen_lock:
+            stream_iter = base_gen.generate_stream(
+                prompt=prompt,
+                max_new_tokens=request.max_tokens,
+                temperature=request.temperature,
+                top_k=request.top_k,
+                top_p=request.top_p,
+                repetition_penalty=request.repetition_penalty,
+                stop_tokens=request.stop,
+            )
+
+            # The sync generator runs on the main thread via the lock;
+            # yield chunks through to_thread one token at a time.
+            prompt_text = prompt
+            first_chunk = True
+
+            for chunk in stream_iter:
+                # Check for client disconnect
+                if await raw_request.is_disconnected():
+                    break
+
+                # Skip the prompt echo on the first chunk
+                if first_chunk and chunk.startswith(prompt_text):
+                    chunk = chunk[len(prompt_text):]
+                    first_chunk = False
+                    if not chunk:
+                        continue
+                else:
+                    first_chunk = False
+
+                completion_tokens += 1
+                data = {
+                    "id": chat_id,
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": model_name,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": chunk},
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+                yield f"data: {json.dumps(data)}\n\n"
+
+        # Final chunk with finish_reason
+        final_data = {
+            "id": chat_id,
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": model_name,
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+        yield f"data: {json.dumps(final_data)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    # ══════════════════════════════════════════════════════════════════════
+    # OpenAI-compatible: /v1/completions
+    # ══════════════════════════════════════════════════════════════════════
+
+    @app.post("/v1/completions")
+    async def completions(
+        request: CompletionRequest, raw_request: Request
+    ):
+        """Text completion endpoint (OpenAI-compatible).
+
+        Supports both streaming and non-streaming responses.
+        """
+        prompt_token_count = len(
+            base_gen.tokenizer.encode(request.prompt, add_bos=False)
+        )
+
+        if request.stream:
+            return StreamingResponse(
+                _stream_completion(
+                    prompt=request.prompt,
+                    request=request,
+                    prompt_token_count=prompt_token_count,
+                    raw_request=raw_request,
+                ),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "X-Accel-Buffering": "no",
+                },
+            )
+
+        # Non-streaming
+        async with _gen_lock:
+            result = await asyncio.to_thread(
+                base_gen.generate,
+                prompt=request.prompt,
+                max_new_tokens=request.max_tokens,
+                temperature=request.temperature,
+                top_k=request.top_k,
+                top_p=request.top_p,
+                repetition_penalty=request.repetition_penalty,
+                stop_tokens=request.stop,
+            )
+
+        # Strip prompt — return only new tokens
+        completion_text = result[len(request.prompt):] if result.startswith(
+            request.prompt
+        ) else result
+        completion_tokens = len(
+            base_gen.tokenizer.encode(completion_text, add_bos=False)
+        )
+
+        return CompletionResponse(
+            id=_completion_id(),
+            created=int(time.time()),
+            model=model_name,
+            choices=[
+                CompletionChoice(
+                    index=0,
+                    text=completion_text,
+                    finish_reason="stop",
+                )
+            ],
+            usage=UsageStats(
+                prompt_tokens=prompt_token_count,
+                completion_tokens=completion_tokens,
+                total_tokens=prompt_token_count + completion_tokens,
+            ),
+        )
+
+    async def _stream_completion(
+        prompt: str,
+        request: CompletionRequest,
+        prompt_token_count: int,
+        raw_request: Request,
+    ):
+        """SSE generator for streaming text completions."""
+        cmpl_id = _completion_id()
+        completion_tokens = 0
+
+        async with _gen_lock:
+            stream_iter = base_gen.generate_stream(
+                prompt=prompt,
+                max_new_tokens=request.max_tokens,
+                temperature=request.temperature,
+                top_k=request.top_k,
+                top_p=request.top_p,
+                repetition_penalty=request.repetition_penalty,
+                stop_tokens=request.stop,
+            )
+
+            prompt_text = prompt
+            first_chunk = True
+
+            for chunk in stream_iter:
+                if await raw_request.is_disconnected():
+                    break
+
+                # Skip prompt echo
+                if first_chunk and chunk.startswith(prompt_text):
+                    chunk = chunk[len(prompt_text):]
+                    first_chunk = False
+                    if not chunk:
+                        continue
+                else:
+                    first_chunk = False
+
+                completion_tokens += 1
+                data = {
+                    "id": cmpl_id,
+                    "object": "text_completion",
+                    "created": int(time.time()),
+                    "model": model_name,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "text": chunk,
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+                yield f"data: {json.dumps(data)}\n\n"
+
+        final_data = {
+            "id": cmpl_id,
+            "object": "text_completion",
+            "created": int(time.time()),
+            "model": model_name,
+            "choices": [
+                {
+                    "index": 0,
+                    "text": "",
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+        yield f"data: {json.dumps(final_data)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    # ══════════════════════════════════════════════════════════════════════
+    # Cola-coder specific: /v1/fim (Fill-in-the-Middle)
+    # ══════════════════════════════════════════════════════════════════════
+
+    @app.post("/v1/fim", response_model=FimResponse)
+    async def fim(request: FimRequest):
+        """Fill-in-the-middle completion (cola-coder specific).
+
+        Uses the FIM token format to generate code that fits between
+        a prefix and suffix.
+        """
+        tokenizer = base_gen.tokenizer
+
+        # Build FIM-encoded prompt
+        fim_ids = tokenizer.encode_fim(request.prefix, request.suffix)
+        fim_prompt = tokenizer.decode(fim_ids)
+
+        # Optionally prepend repo context if available
+        if request.file_path and hasattr(generator, "scanner"):
+            try:
+                context = generator.scanner.get_context_for_file(
+                    request.file_path, max_tokens=512
+                )
+                fim_prompt = context + fim_prompt
+            except Exception:
+                logger.debug(
+                    "Could not get repo context for FIM: %s",
+                    request.file_path,
+                )
+
+        # Add FIM stop tokens
+        stop_tokens = ["<|fim_suffix|>", "<|eos|>"]
+
+        prompt_token_count = len(
+            tokenizer.encode(fim_prompt, add_bos=False)
+        )
+
+        async with _gen_lock:
+            result = await asyncio.to_thread(
+                base_gen.generate,
+                prompt=fim_prompt,
+                max_new_tokens=request.max_tokens,
+                temperature=request.temperature,
+                top_k=request.top_k,
+                top_p=request.top_p,
+                stop_tokens=stop_tokens,
+            )
+
+        # Extract only the infilled text (after <|fim_middle|>)
+        infill = result[len(fim_prompt):] if result.startswith(
+            fim_prompt
+        ) else result
+        infill_tokens = len(
+            tokenizer.encode(infill, add_bos=False)
+        ) if infill else 0
+
+        return FimResponse(
+            id=_fim_id(),
+            infill=infill,
+            finish_reason="stop",
+            usage=UsageStats(
+                prompt_tokens=prompt_token_count,
+                completion_tokens=infill_tokens,
+                total_tokens=prompt_token_count + infill_tokens,
+            ),
+        )
+
+    # ══════════════════════════════════════════════════════════════════════
+    # Cola-coder specific: /v1/context (Repo context)
+    # ══════════════════════════════════════════════════════════════════════
+
+    @app.post("/v1/context", response_model=ContextResponse)
+    async def context(request: ContextRequest):
+        """Get repository context for a file (cola-coder specific).
+
+        Only available when the server is running with a
+        ContextAwareGenerator (i.e., with a repo root configured).
+        """
+        if not hasattr(generator, "scanner"):
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "Context not available. Server must be started "
+                    "with a ContextAwareGenerator (--repo-root flag)."
+                ),
+            )
+
+        try:
+            context_str = generator.scanner.get_context_for_file(
+                request.file_path, max_tokens=request.max_tokens
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to get context: {exc}",
+            )
+
+        files_referenced = _parse_referenced_files(context_str)
+
+        # Extract project info from the ContextAwareGenerator
+        project_name = None
+        frameworks: dict[str, str] = {}
+        if hasattr(generator, "context") and generator.context is not None:
+            ctx = generator.context
+            project_name = ctx.package_info.get("name", ctx.root.name)
+            frameworks = dict(ctx.framework_versions)
+
+        return ContextResponse(
+            context=context_str,
+            files_referenced=files_referenced,
+            project_name=project_name,
+            frameworks=frameworks,
+        )
+
+    # ══════════════════════════════════════════════════════════════════════
+    # OpenAI-compatible: /v1/models
+    # ══════════════════════════════════════════════════════════════════════
+
+    @app.get("/v1/models")
+    async def list_models():
+        """List available models (OpenAI-compatible)."""
+        model = base_gen.model
+        model_info = {
+            "id": model_name,
+            "object": "model",
+            "created": int(_SERVER_START_TIME),
+            "owned_by": "cola-coder",
+        }
+
+        # Add extra metadata if config is available
+        if config is not None:
+            model_info["metadata"] = {
+                "params": model.num_parameters,
+                "vocab_size": model.config.vocab_size,
+                "max_seq_len": model.config.max_seq_len,
+            }
+
+        return {"object": "list", "data": [model_info]}
 
     return app
