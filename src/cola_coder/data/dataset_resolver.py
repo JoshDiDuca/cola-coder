@@ -5,6 +5,7 @@ paths for the tokenizer and dataset directory.
 """
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -45,14 +46,17 @@ class DatasetResolver:
         if isinstance(code_source, dict) and code_source.get("enabled", False):
             languages: list[str] = code_source.get("languages", [])
             if isinstance(languages, list):
-                parts.extend(sorted(str(lang) for lang in languages))
+                parts.extend(
+                    re.sub(r"[^\w-]", "_", str(lang))
+                    for lang in sorted(str(lang) for lang in languages)
+                )
 
         # Enabled non-code sources — in definition order
         for name, config in sources.items():
             if name == "code":
                 continue
             if isinstance(config, dict) and config.get("enabled", False):
-                parts.append(name)
+                parts.append(re.sub(r"[^\w-]", "_", str(name)))
 
         if not parts:
             return "default"
@@ -112,7 +116,7 @@ class DatasetResolver:
             json.dump(meta, f, indent=2)
 
     @staticmethod
-    def get_tokenizer_meta(tokenizer_path: Path) -> dict:
+    def get_tokenizer_meta(tokenizer_path: Path) -> dict[str, object]:
         """Read tokenizer_meta.json. Returns {} if missing or parse error."""
         meta_path = tokenizer_path.parent / "tokenizer_meta.json"
         try:
