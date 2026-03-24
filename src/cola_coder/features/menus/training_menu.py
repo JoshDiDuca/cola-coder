@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from cola_coder.cli import cli
@@ -10,51 +11,107 @@ from cola_coder.features.master_menu import _print_section_header
 
 if TYPE_CHECKING:
     from cola_coder.features.master_menu import MasterMenu
+    from cola_coder.features.menus.pipeline_menu import PipelineMenu
 
 
 class TrainingMenu:
-    """Training menu — train models, resume, background training, utilities."""
+    """Training menu — grouped by pipeline stage for end-to-end model development."""
 
     def __init__(self, master: MasterMenu) -> None:
         self._master = master
+        self._pipeline: PipelineMenu | None = None
+
+    def _get_pipeline_menu(self):
+        """Lazy-import pipeline menu to avoid circular imports."""
+        if self._pipeline is None:
+            from cola_coder.features.menus.pipeline_menu import PipelineMenu
+            self._pipeline = PipelineMenu(self._master)
+        return self._pipeline
 
     def menu(self) -> None:
-        """Show the training menu."""
+        """Show the training menu — grouped by pipeline stage."""
         while True:
-            _print_section_header("Training", "Train models, tokenizer, and reasoning")
+            _print_section_header(
+                "Training",
+                "End-to-end model development: data → pretrain → post-train → align → eval",
+            )
+
+            options = [
+                {"label": "Pipeline Manager",
+                 "detail": "Named runs with resume, stage override, and state tracking"},
+                {"label": "Foundation (Tokenizer & Data)",
+                 "detail": "Stage 1-2: Train tokenizer, prepare/mix training data"},
+                {"label": "Pre-Training",
+                 "detail": "Stage 3: Train base model from scratch or resume"},
+                {"label": "Post-Training",
+                 "detail": "Stage 4-7: Context extension, SFT, MoE upcycling"},
+                {"label": "Alignment & Reasoning",
+                 "detail": "Stage 8-9: Semantic routing, GRPO, self-play"},
+                {"label": "Monitoring & Tools",
+                 "detail": "Dashboard, eval history, VRAM, LR finder"},
+            ]
+
+            choice = cli.choose("Training area:", options, allow_cancel=True)
+            if choice is None:
+                return
+
+            if choice == 0:
+                self._get_pipeline_menu().menu()
+            elif choice == 1:
+                self._foundation_menu()
+            elif choice == 2:
+                self._pretraining_menu()
+            elif choice == 3:
+                self._post_training_menu()
+            elif choice == 4:
+                self._alignment_menu()
+            elif choice == 5:
+                self._monitoring_menu()
+
+    # ── Grouped sub-menus ─────────────────────────────────────────────────
+
+    def _foundation_menu(self) -> None:
+        """Foundation: tokenizer and data preparation."""
+        while True:
+            _print_section_header(
+                "Foundation (Stage 1-2)",
+                "Tokenizer training and data preparation",
+            )
+
+            options = [
+                {"label": "Train Tokenizer",
+                 "detail": "BPE tokenizer from scratch (vocab 32K-64K)"},
+                {"label": "Prepare Data",
+                 "detail": "Open the Data Pipeline menu (collect, filter, score, mix)"},
+            ]
+
+            choice = cli.choose("Foundation:", options, allow_cancel=True)
+            if choice is None:
+                return
+
+            if choice == 0:
+                self._train_tokenizer()
+            elif choice == 1:
+                self._master._data.menu()
+
+    def _pretraining_menu(self) -> None:
+        """Pre-training: base model training."""
+        while True:
+            _print_section_header(
+                "Pre-Training (Stage 3)",
+                "Train or resume base model pretraining",
+            )
 
             options = [
                 {"label": "Train Model (select size)",
-                 "detail": "tiny (50M) / small (125M) / medium (350M) / large (1B+)"},
+                 "detail": "tiny (50M) / small (125M) / medium (350M) / 4080_max (455M)"},
                 {"label": "Resume Training",
                  "detail": "Auto-detect latest checkpoint and continue"},
                 {"label": "Background Training",
                  "detail": "Automated overnight/idle training with GPU throttling"},
-                {"label": "Train Tokenizer",
-                 "detail": "scripts/train_tokenizer.py — BPE tokenizer from scratch"},
-                {"label": "Train Reasoning (GRPO)",
-                 "detail": "scripts/train_reasoning.py — GRPO with thinking tokens"},
-                {"label": "VRAM Estimation",
-                 "detail": "scripts/vram_estimate.py — estimate VRAM before training"},
-                {"label": "Learning Rate Finder",
-                 "detail": "scripts/find_lr.py — find optimal LR via range test"},
-                {"label": "Training Dashboard (TUI)",
-                 "detail": "scripts/training_dashboard.py — real-time Rich dashboard"},
-                {"label": "Auto-Eval History",
-                 "detail": "scripts/training_eval_history.py — view eval snapshots"},
-                {"label": "Instruction Tuning (SFT)",
-                 "detail": "Fine-tune on ChatML instruction data with configurable LR/epochs"},
-                {"label": "MoE Upcycling",
-                 "detail": "scripts/upcycle_to_moe.py — convert dense checkpoint to MoE"},
-                {"label": "Self-Play Training",
-                 "detail": "Iterative generate-test-improve reasoning loop"},
-                {"label": "Extend Context Window",
-                 "detail": "Apply YaRN RoPE scaling for longer context (e.g. 8x)"},
-                {"label": "Full Training Pipeline",
-                 "detail": "scripts/full_pipeline.py — all 10 stages with stage selection"},
             ]
 
-            choice = cli.choose("Training operation:", options, allow_cancel=True)
+            choice = cli.choose("Pre-Training:", options, allow_cancel=True)
             if choice is None:
                 return
 
@@ -64,28 +121,215 @@ class TrainingMenu:
                 self._resume_training_menu()
             elif choice == 2:
                 self._background_training_menu()
-            elif choice == 3:
-                self._train_tokenizer()
-            elif choice == 4:
-                self._train_reasoning()
-            elif choice == 5:
-                self._vram_estimate_menu()
-            elif choice == 6:
-                self._lr_finder_menu()
-            elif choice == 7:
-                self._training_dashboard()
-            elif choice == 8:
-                self._eval_history_menu()
-            elif choice == 9:
-                self._instruction_tuning_menu()
-            elif choice == 10:
-                self._moe_upcycling_menu()
-            elif choice == 11:
-                self._self_play_training_menu()
-            elif choice == 12:
+
+    def _post_training_menu(self) -> None:
+        """Post-training: context extension, instruction tuning, MoE."""
+        while True:
+            _print_section_header(
+                "Post-Training (Stage 4-7)",
+                "Enhance the base model with specialized training",
+            )
+
+            options = [
+                {"label": "Extend Context Window",
+                 "detail": "Stage 4: YaRN RoPE scaling for longer context (e.g. 4x-8x)"},
+                {"label": "Generate Instruction Data",
+                 "detail": "Stage 5: Create SFT pairs from code (SelfCodeAlign)"},
+                {"label": "Instruction Tuning (SFT)",
+                 "detail": "Stage 6: Fine-tune on ChatML instruction data"},
+                {"label": "MoE Upcycling",
+                 "detail": "Stage 7: Convert dense checkpoint to Mixture of Experts"},
+            ]
+
+            choice = cli.choose("Post-Training:", options, allow_cancel=True)
+            if choice is None:
+                return
+
+            if choice == 0:
                 self._extend_context_menu()
-            elif choice == 13:
-                self._full_pipeline_menu()
+            elif choice == 1:
+                self._generate_instructions_menu()
+            elif choice == 2:
+                self._instruction_tuning_menu()
+            elif choice == 3:
+                self._moe_upcycling_menu()
+
+    def _alignment_menu(self) -> None:
+        """Alignment: routing, reasoning, self-play."""
+        while True:
+            _print_section_header(
+                "Alignment & Reasoning (Stage 8-9)",
+                "Domain routing, GRPO reasoning, self-play improvement",
+            )
+
+            options = [
+                {"label": "Train Semantic Router",
+                 "detail": "Stage 8: MLP/Transformer domain classifier (<5M params)"},
+                {"label": "Train Reasoning (GRPO)",
+                 "detail": "Stage 9: Group RL with <think> tokens and test-based rewards"},
+                {"label": "Self-Play Training",
+                 "detail": "Iterative generate-test-improve reasoning loop"},
+            ]
+
+            choice = cli.choose("Alignment:", options, allow_cancel=True)
+            if choice is None:
+                return
+
+            if choice == 0:
+                self._train_router_menu()
+            elif choice == 1:
+                self._train_reasoning()
+            elif choice == 2:
+                self._self_play_training_menu()
+
+    def _monitoring_menu(self) -> None:
+        """Monitoring and utility tools."""
+        while True:
+            _print_section_header(
+                "Monitoring & Tools",
+                "Training dashboards, estimation, and analysis",
+            )
+
+            options = [
+                {"label": "VRAM Estimation",
+                 "detail": "Estimate GPU memory before training"},
+                {"label": "Learning Rate Finder",
+                 "detail": "Smith's LR range test to find optimal learning rate"},
+                {"label": "Training Dashboard (TUI)",
+                 "detail": "Real-time Rich dashboard with loss/LR curves"},
+                {"label": "Auto-Eval History",
+                 "detail": "View evaluation snapshots from training runs"},
+            ]
+
+            choice = cli.choose("Monitoring:", options, allow_cancel=True)
+            if choice is None:
+                return
+
+            if choice == 0:
+                self._vram_estimate_menu()
+            elif choice == 1:
+                self._lr_finder_menu()
+            elif choice == 2:
+                self._training_dashboard()
+            elif choice == 3:
+                self._eval_history_menu()
+
+    # ── New menu entries ──────────────────────────────────────────────────
+
+    def _generate_instructions_menu(self) -> None:
+        """Generate instruction-tuning data from code."""
+        _print_section_header(
+            "Generate Instruction Data (Stage 5)",
+            "Create SFT pairs from raw code using SelfCodeAlign",
+        )
+
+        cli.print(
+            "  Extracts functions/classes from code, generates instruction-response\n"
+            "  pairs in ChatML format. Three modes:\n"
+            "    [cyan]template[/cyan]  — regex-based extraction (fast, no LLM needed)\n"
+            "    [cyan]llm[/cyan]       — use an external LLM for higher quality\n"
+            "    [cyan]self[/cyan]      — bootstrap from the model's own generations\n"
+        )
+
+        source_options = [
+            {"label": "HuggingFace dataset",
+             "detail": "Generate from HF code dataset (recommended)"},
+            {"label": "Local code directory",
+             "detail": "Generate from local .py/.ts/.js files"},
+            {"label": "Demo mode",
+             "detail": "Quick test with built-in sample code"},
+        ]
+        source_choice = cli.choose("Source:", source_options, allow_cancel=True)
+        if source_choice is None:
+            return
+
+        sources = ["huggingface", "local", "demo"]
+        args: list[str] = ["--non-interactive", "--source", sources[source_choice]]
+
+        if source_choice == 1:
+            try:
+                path = input("  Path to code directory: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                cli.warn("Cancelled.")
+                return
+            if not path:
+                return
+            args.extend(["--paths", path])
+
+        mode_options = [
+            {"label": "Template (fast, no LLM)",
+             "detail": "Regex-based function/class extraction"},
+            {"label": "LLM-assisted (higher quality)",
+             "detail": "Uses an external LLM to generate instructions"},
+            {"label": "Self-instruct (bootstrap)",
+             "detail": "Model generates its own instruction pairs"},
+        ]
+        mode_choice = cli.choose("Generation mode:", mode_options, allow_cancel=True)
+        if mode_choice is None:
+            return
+        modes = ["template", "llm", "self"]
+        args.extend(["--mode", modes[mode_choice]])
+
+        try:
+            count_str = input("  Number of pairs to generate [default: 1000]: ").strip()
+            count = int(count_str) if count_str else 1000
+        except (ValueError, EOFError, KeyboardInterrupt):
+            count = 1000
+        args.extend(["--count", str(count)])
+
+        output_path = "data/sft/instructions.jsonl"
+        args.extend(["--output", output_path])
+
+        cli.kv_table({
+            "Source": sources[source_choice],
+            "Mode": modes[mode_choice],
+            "Count": str(count),
+            "Output": output_path,
+        }, title="Instruction Generation Config")
+
+        if cli.confirm("Start generating instruction data?"):
+            self._master._run_script("generate_instructions.py", args)
+            self._master._pause()
+
+    def _train_router_menu(self) -> None:
+        """Train semantic router model."""
+        _print_section_header(
+            "Train Semantic Router (Stage 8)",
+            "Lightweight domain classifier (<5M params)",
+        )
+
+        cli.print(
+            "  Routes code to domain-specialist models at inference time.\n"
+            "  Trained on code snippets labeled by domain (React, Next.js, etc.).\n"
+        )
+
+        arch_options = [
+            {"label": "MLP Router (fast, ~100us inference)",
+             "detail": "Bag-of-embeddings → MLP → softmax"},
+            {"label": "Transformer Router (better quality, ~1ms)",
+             "detail": "Embedding → 2 transformer layers → classification"},
+        ]
+
+        choice = cli.choose("Router architecture:", arch_options, allow_cancel=True)
+        if choice is None:
+            return
+
+        arch = "mlp" if choice == 0 else "transformer"
+        args = ["--arch", arch]
+
+        # Check if training data already exists
+        data_path = Path("data/router_training_data.jsonl")
+        if data_path.exists():
+            if cli.confirm("Router training data exists. Regenerate?", default=False):
+                args.append("--generate-data")
+            else:
+                args.extend(["--data", str(data_path)])
+        else:
+            args.append("--generate-data")
+
+        if cli.confirm("Start router training?"):
+            self._master._run_script("train_router.py", args)
+            self._master._pause()
 
     def _train_size_menu(self, resume: bool = False) -> None:
         """Select model size and start training."""
