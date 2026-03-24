@@ -107,16 +107,7 @@ export class StatusBar implements vscode.Disposable {
   }
 
   private async showMenu(): Promise<void> {
-    const items: vscode.QuickPickItem[] = [];
-
-    if (this.state === 'disconnected' || this.state === 'error') {
-      items.push({
-        label: '$(debug-restart) Restart Server',
-        description: 'Restart the Cola-Coder server',
-      });
-    }
-
-    items.push(
+    const items: vscode.QuickPickItem[] = [
       {
         label: '$(symbol-boolean) Toggle Inline Completions',
         description: vscode.workspace
@@ -137,7 +128,7 @@ export class StatusBar implements vscode.Disposable {
         label: '$(gear) Open Settings',
         description: 'Configure Cola-Coder',
       },
-    );
+    ];
 
     const choice = await vscode.window.showQuickPick(items, {
       placeHolder: 'Cola-Coder Actions',

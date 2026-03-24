@@ -214,8 +214,8 @@ export class ColaCoderClient {
    * Fill-in-the-middle completion. Provide the text before (`prefix`) and
    * after (`suffix`) the cursor; the model generates the missing middle.
    */
-  async fim(request: FimRequest): Promise<FimResponse> {
-    return this.post<FimResponse>('/v1/fim', request);
+  async fim(request: FimRequest, signal?: AbortSignal): Promise<FimResponse> {
+    return this.post<FimResponse>('/v1/fim', request, signal);
   }
 
   /**

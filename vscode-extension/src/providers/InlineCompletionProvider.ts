@@ -21,6 +21,7 @@ import { logger } from '../utils/logger';
 export class InlineCompletionProvider implements vscode.InlineCompletionItemProvider {
   private enabled = true;
   private registration: vscode.Disposable | undefined;
+  private lastDisconnectLog = 0;
 
   constructor(private readonly client: ColaCoderClient) {}
 
@@ -72,6 +73,12 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
     }
 
     if (!this.client.isConnected()) {
+      // Throttle: log once every 30s so the user knows why nothing appears
+      const now = Date.now();
+      if (now - this.lastDisconnectLog > 30_000) {
+        this.lastDisconnectLog = now;
+        logger.info('Inline completion skipped: server not connected');
+      }
       return undefined;
     }
 
@@ -97,7 +104,7 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
         temperature: config.inlineTemperature,
         language: fimContext.language,
         file_path: fimContext.filePath,
-      });
+      }, controller.signal);
 
       // Check again after the await — the token may have fired while we
       // were waiting for the network response.

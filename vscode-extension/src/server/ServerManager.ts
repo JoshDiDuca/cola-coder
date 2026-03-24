@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess, spawn, execFileSync } from 'child_process';
 import * as net from 'net';
+import * as path from 'path';
+import * as fs from 'fs';
 import { ColaCoderClient } from '../client/ColaCoderClient';
 import { HealthMonitor } from './HealthMonitor';
 import { getConfig } from '../utils/config';
@@ -23,8 +25,15 @@ export class ServerManager implements vscode.Disposable {
     const config = getConfig();
     if (config.mode !== 'auto') return;
 
-    // Validate required settings
-    if (!config.pythonPath) throw new Error('cola-coder.pythonPath not set');
+    // Resolve Python path: explicit config > auto-detect
+    const pythonPath = config.pythonPath || await this._resolvePythonPath();
+    if (!pythonPath) {
+      throw new Error(
+        'Could not find Python. Set cola-coder.pythonPath in settings, '
+        + 'or ensure python is on your PATH.',
+      );
+    }
+
     if (!config.checkpoint) throw new Error('cola-coder.checkpoint not set');
     if (!config.configFile) throw new Error('cola-coder.configFile not set');
 
@@ -51,11 +60,11 @@ export class ServerManager implements vscode.Disposable {
     }
     args.push('--enable-thinking');
 
-    logger.info(`Starting server: ${config.pythonPath} ${args.join(' ')}`);
+    logger.info(`Starting server: ${pythonPath} ${args.join(' ')}`);
     this.healthMonitor.setState('starting');
 
     // Spawn the process
-    this.process = spawn(config.pythonPath, args, {
+    this.process = spawn(pythonPath, args, {
       cwd: projectRoot,
       env: { ...process.env, PYTHONUNBUFFERED: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -162,17 +171,102 @@ export class ServerManager implements vscode.Disposable {
     });
   }
 
+  /**
+   * Auto-detect a working Python interpreter. Checks in order:
+   * 1. .venv in the project root (Windows + Unix paths)
+   * 2. ms-python.python extension's selected interpreter
+   * 3. `python3` on PATH
+   * 4. `python` on PATH (verified to be Python 3)
+   */
+  private async _resolvePythonPath(): Promise<string | undefined> {
+    const projectRoot = this._detectProjectRoot();
+
+    // 1. Check for .venv in project root
+    if (projectRoot) {
+      const venvCandidates = [
+        path.join(projectRoot, '.venv', 'Scripts', 'python.exe'), // Windows
+        path.join(projectRoot, '.venv', 'bin', 'python'),          // Unix
+      ];
+      for (const candidate of venvCandidates) {
+        if (fs.existsSync(candidate)) {
+          logger.info(`Auto-detected Python from venv: ${candidate}`);
+          return candidate;
+        }
+      }
+    }
+
+    // 2. Check the workspace folder for a .venv too
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (workspaceRoot && workspaceRoot !== projectRoot) {
+      const venvCandidates = [
+        path.join(workspaceRoot, '.venv', 'Scripts', 'python.exe'),
+        path.join(workspaceRoot, '.venv', 'bin', 'python'),
+      ];
+      for (const candidate of venvCandidates) {
+        if (fs.existsSync(candidate)) {
+          logger.info(`Auto-detected Python from workspace venv: ${candidate}`);
+          return candidate;
+        }
+      }
+    }
+
+    // 3. Ask the ms-python extension for its selected interpreter
+    try {
+      const pythonExt = vscode.extensions.getExtension('ms-python.python');
+      if (pythonExt) {
+        if (!pythonExt.isActive) {
+          await pythonExt.activate();
+        }
+        const pythonApi = pythonExt.exports;
+        // The Python extension exports getActiveEnvironmentPath() on newer versions
+        const envPath = pythonApi?.environments?.getActiveEnvironmentPath?.();
+        if (envPath?.path && fs.existsSync(envPath.path)) {
+          logger.info(`Auto-detected Python from ms-python extension: ${envPath.path}`);
+          return envPath.path;
+        }
+      }
+    } catch {
+      // ms-python extension not available or API changed — skip
+    }
+
+    // 4. Try python3 / python on PATH
+    for (const cmd of ['python3', 'python']) {
+      try {
+        const result = execFileSync(cmd, ['--version'], {
+          timeout: 5000,
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        if (result.includes('Python 3')) {
+          logger.info(`Auto-detected Python from PATH: ${cmd}`);
+          return cmd;
+        }
+      } catch {
+        // Not found or not Python 3 — try next
+      }
+    }
+
+    logger.error('Could not auto-detect Python interpreter');
+    return undefined;
+  }
+
   private _detectProjectRoot(): string | undefined {
     // Check if extension is inside the cola-coder project
     const extPath = vscode.extensions.getExtension('cola-coder.cola-coder')?.extensionPath;
     if (extPath) {
       // If extension is in vscode-extension/ subdir, parent is project root
-      const parent = require('path').dirname(extPath);
-      const fs = require('fs');
-      if (fs.existsSync(require('path').join(parent, 'scripts', 'serve.py'))) {
+      const parent = path.dirname(extPath);
+      if (fs.existsSync(path.join(parent, 'scripts', 'serve.py'))) {
         return parent;
       }
     }
+
+    // Also check workspace root
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (workspaceRoot && fs.existsSync(path.join(workspaceRoot, 'scripts', 'serve.py'))) {
+      return workspaceRoot;
+    }
+
     return undefined;
   }
 

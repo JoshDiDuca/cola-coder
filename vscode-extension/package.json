@@ -5,6 +5,10 @@
   "version": "0.1.0",
   "publisher": "cola-coder",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JoshDiDuca/cola-coder"
+  },
   "engines": {
     "vscode": "^1.104.0"
   },
@@ -47,20 +51,30 @@
         "disambiguation": [
           {
             "category": "code-generation",
-            "description": "User wants to generate, complete, or write code",
+            "description": "User wants to generate, complete, or write code using their local model",
             "examples": [
               "write a function that",
               "generate a component",
-              "create a class"
+              "create a class",
+              "implement",
+              "add a method",
+              "complete this code",
+              "write code for",
+              "scaffold a"
             ]
           },
           {
-            "category": "code-explanation",
-            "description": "User wants code explained",
+            "category": "code-help",
+            "description": "User wants help understanding, fixing, or improving code",
             "examples": [
+              "explain this",
               "what does this do",
-              "explain this function",
-              "how does this work"
+              "fix this bug",
+              "refactor",
+              "improve this code",
+              "why is this broken",
+              "how does this work",
+              "what's wrong with"
             ]
           }
         ]
@@ -131,8 +145,8 @@
             "auto",
             "external"
           ],
-          "default": "auto",
-          "description": "Server mode: 'auto' manages the server lifecycle, 'external' connects to a running server"
+          "default": "external",
+          "description": "Server mode: 'external' connects to a running server, 'auto' manages the server lifecycle"
         },
         "cola-coder.serverUrl": {
           "type": "string",
@@ -207,6 +221,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show model reasoning in collapsible blocks"
+        },
+        "cola-coder.chat.baseModelMode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable base model mode (no system prompts, raw code completion). Disable after instruction-tuning your model."
         },
         "cola-coder.context.enabled": {
           "type": "boolean",

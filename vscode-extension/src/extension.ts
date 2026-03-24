@@ -1,9 +1,10 @@
 /**
  * Cola-Coder VS Code Extension — entry point.
  *
- * Activates on startup, connects to (or starts) the FastAPI server,
- * and registers all AI features: inline completions, chat participant,
- * code actions, and language model provider.
+ * Key principle: register ALL providers immediately so the extension
+ * is always visible in VS Code (chat, code actions, status bar).
+ * Server connection happens in the background — features gracefully
+ * show "server not connected" messages when it's unavailable.
  */
 
 import * as vscode from 'vscode';
@@ -22,10 +23,7 @@ let client: ColaCoderClient;
 let serverManager: ServerManager;
 let healthMonitor: HealthMonitor;
 let statusBar: StatusBar;
-let inlineProvider: InlineCompletionProvider;
-let chatParticipant: ChatParticipant;
-let codeActionProvider: CodeActionProvider;
-let languageModelProvider: LanguageModelProvider;
+let inlineProvider: InlineCompletionProvider | undefined;
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -34,71 +32,54 @@ export async function activate(
 
   const config = getConfig();
 
-  // ── Core infrastructure ─────────────────────────────────────────────
+  // ── Core infrastructure (these never throw) ─────────────────────────
   client = new ColaCoderClient(config.serverUrl);
   healthMonitor = new HealthMonitor(client);
   statusBar = new StatusBar();
   serverManager = new ServerManager(client, healthMonitor);
 
-  // Wire health monitor state changes to status bar
-  healthMonitor.onStateChange(state => {
-    statusBar.setState(state);
-  });
-  healthMonitor.onHealthUpdate(health => {
-    statusBar.updateFromHealth(health);
-  });
+  // Wire health monitor → status bar
+  healthMonitor.onStateChange(state => statusBar.setState(state));
+  healthMonitor.onHealthUpdate(health => statusBar.updateFromHealth(health));
 
-  // ── Start or connect to server ──────────────────────────────────────
-  if (config.mode === 'auto') {
-    try {
-      statusBar.setState('starting');
-      await serverManager.start();
-    } catch (err) {
-      logger.error(`Failed to start server: ${err}`);
-      statusBar.setState('error');
-      vscode.window.showErrorMessage(
-        `Cola-Coder: Failed to start server. ${err}`,
-        'Open Settings',
-      ).then(choice => {
-        if (choice === 'Open Settings') {
-          vscode.commands.executeCommand(
-            'workbench.action.openSettings',
-            'cola-coder',
-          );
-        }
-      });
-    }
-  } else {
-    // External mode — just try to connect
-    try {
-      await client.healthCheck();
-      statusBar.setState('ready');
-    } catch {
-      statusBar.setState('disconnected');
-      logger.warn(
-        `Cannot reach server at ${config.serverUrl}. `
-        + 'Start the server or check cola-coder.serverUrl setting.',
-      );
-    }
-  }
+  // ── Register ALL providers FIRST — before any server work ───────────
+  // This ensures @cola-coder, code actions, etc. are always visible
+  // even if the server isn't running yet.
 
-  // Start health polling
-  healthMonitor.start();
-
-  // ── Register providers ──────────────────────────────────────────────
+  // Inline completions
   if (config.inlineEnabled) {
-    inlineProvider = InlineCompletionProvider.register(client);
-    context.subscriptions.push(inlineProvider);
+    try {
+      inlineProvider = InlineCompletionProvider.register(client);
+      context.subscriptions.push(inlineProvider);
+    } catch (err) {
+      logger.error(`Failed to register inline completions: ${err}`);
+    }
   }
 
-  chatParticipant = ChatParticipant.register(client);
-  context.subscriptions.push(chatParticipant);
+  // Chat participant (@cola-coder)
+  try {
+    const chatParticipant = ChatParticipant.register(client);
+    context.subscriptions.push(chatParticipant);
+    logger.info('Chat participant @cola-coder registered');
+  } catch (err) {
+    logger.error(`Failed to register chat participant: ${err}`);
+  }
 
-  codeActionProvider = CodeActionProvider.register();
-  context.subscriptions.push(codeActionProvider);
+  // Code actions (lightbulb menu)
+  try {
+    const codeActionProvider = CodeActionProvider.register();
+    context.subscriptions.push(codeActionProvider);
+  } catch (err) {
+    logger.error(`Failed to register code actions: ${err}`);
+  }
 
-  languageModelProvider = LanguageModelProvider.register(client);
-  context.subscriptions.push(languageModelProvider);
+  // Language model provider (VS Code model picker)
+  try {
+    const languageModelProvider = LanguageModelProvider.register(client);
+    context.subscriptions.push(languageModelProvider);
+  } catch (err) {
+    logger.error(`Failed to register language model provider: ${err}`);
+  }
 
   // ── Register commands ───────────────────────────────────────────────
   context.subscriptions.push(
@@ -106,11 +87,9 @@ export async function activate(
       const cfg = vscode.workspace.getConfiguration('cola-coder');
       const current = cfg.get<boolean>('inline.enabled', true);
       cfg.update('inline.enabled', !current, vscode.ConfigurationTarget.Global);
-
       if (inlineProvider) {
         inlineProvider.setEnabled(!current);
       }
-
       vscode.window.showInformationMessage(
         `Cola-Coder inline completions: ${!current ? 'ON' : 'OFF'}`,
       );
@@ -166,7 +145,62 @@ export async function activate(
     { dispose: () => logger.dispose() },
   );
 
+  logger.info('Cola-Coder providers registered. Connecting to server...');
+
+  // ── NOW try to connect to server (in background, never crashes) ─────
+  connectToServer(config).catch(err => {
+    logger.error(`Server connection failed: ${err}`);
+  });
+
   logger.info('Cola-Coder extension activated.');
+}
+
+/**
+ * Connect to (or start) the server. Runs in the background after
+ * all providers are registered, so failures here never prevent
+ * the extension from being visible in VS Code.
+ */
+async function connectToServer(
+  config: ReturnType<typeof getConfig>,
+): Promise<void> {
+  if (config.mode === 'auto') {
+    try {
+      statusBar.setState('starting');
+      await serverManager.start();
+    } catch (err) {
+      logger.error(`Failed to start server: ${err}`);
+      statusBar.setState('disconnected');
+      vscode.window.showWarningMessage(
+        `Cola-Coder: Server not started. ${err}`,
+        'Open Settings',
+        'Show Logs',
+      ).then(choice => {
+        if (choice === 'Open Settings') {
+          vscode.commands.executeCommand(
+            'workbench.action.openSettings',
+            'cola-coder',
+          );
+        } else if (choice === 'Show Logs') {
+          logger.show();
+        }
+      });
+    }
+  } else {
+    // External mode — try to connect
+    try {
+      await client.healthCheck();
+      statusBar.setState('ready');
+    } catch {
+      statusBar.setState('disconnected');
+      logger.warn(
+        `Cannot reach server at ${config.serverUrl}. `
+        + 'Start the server or check cola-coder.serverUrl setting.',
+      );
+    }
+  }
+
+  // Start health polling regardless — will auto-detect when server comes up
+  healthMonitor.start();
 }
 
 export function deactivate(): void {

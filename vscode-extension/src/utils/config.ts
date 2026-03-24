@@ -27,6 +27,7 @@ export interface ColaCoderConfig {
   chatTemperature: number;
   chatMaxTokens: number;
   showThinking: boolean;
+  baseModelMode: boolean;
 
   // Context
   contextEnabled: boolean;
@@ -37,7 +38,7 @@ export function getConfig(): ColaCoderConfig {
   const cfg = vscode.workspace.getConfiguration('cola-coder');
 
   return {
-    mode: cfg.get<'auto' | 'external'>('mode', 'auto'),
+    mode: cfg.get<'auto' | 'external'>('mode', 'external'),
     serverUrl: cfg.get<string>('serverUrl', 'http://localhost:8000'),
     pythonPath: cfg.get<string>('pythonPath', ''),
     projectRoot: cfg.get<string>('projectRoot', ''),
@@ -55,6 +56,7 @@ export function getConfig(): ColaCoderConfig {
     chatTemperature: cfg.get<number>('chat.temperature', 0.8),
     chatMaxTokens: cfg.get<number>('chat.maxTokens', 1024),
     showThinking: cfg.get<boolean>('chat.showThinking', true),
+    baseModelMode: cfg.get<boolean>('chat.baseModelMode', true),
 
     contextEnabled: cfg.get<boolean>('context.enabled', true),
     contextMaxTokens: cfg.get<number>('context.maxTokens', 2048),

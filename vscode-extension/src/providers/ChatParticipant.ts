@@ -34,6 +34,8 @@ interface ChatParticipantResult extends vscode.ChatResult {
 
 // ── System prompts by command ──────────────────────────────────────────────────
 
+// System prompts — only used if the model has been instruction-tuned.
+// For base code models these are skipped (see isBaseModel flag below).
 const SYSTEM_PROMPTS: Record<string, string> = {
   explain:
     'You are a code assistant. Explain the given code clearly and concisely. Show your reasoning in <think> tags.',
@@ -46,6 +48,10 @@ const SYSTEM_PROMPTS: Record<string, string> = {
   '':
     'You are Cola-Coder, a code generation AI trained from scratch. Help the user with their code.',
 };
+
+// Base code models (no instruction tuning) work best when given raw code
+// to continue. We skip system prompts and send the prompt directly.
+// Controlled by config.baseModelMode (cola-coder.chat.baseModelMode setting).
 
 // ── Follow-up suggestions by command ──────────────────────────────────────────
 
@@ -112,19 +118,35 @@ export class ChatParticipant implements vscode.Disposable {
     // ── Assemble messages ──────────────────────────────────────────────────
 
     const messages: ChatMessage[] = [];
-
-    // System prompt (our server supports role: "system"; include it first)
-    const systemText = SYSTEM_PROMPTS[command] ?? SYSTEM_PROMPTS[''];
-    messages.push({ role: 'system', content: systemText });
-
-    // History from previous turns in this chat session
-    const historyMessages = buildHistoryMessages(context.history);
-    messages.push(...historyMessages);
-
-    // Current user turn: editor context + the user's prompt
     const editorCtx = getEditorContext();
-    const userContent = buildUserMessage(request.prompt, editorCtx);
-    messages.push({ role: 'user', content: userContent });
+
+    // For /generate with a base model: treat the prompt as raw code to
+    // complete. We echo the prefix back so the user sees the full output.
+    const isRawCompletion = config.baseModelMode && command === 'generate';
+
+    if (config.baseModelMode) {
+      // Base model: send raw code, no system prompt (it's just noise)
+      if (isRawCompletion) {
+        // /generate: the user's prompt IS the code prefix to complete
+        messages.push({ role: 'user', content: request.prompt });
+      } else if (command === 'explain' || command === 'fix' || command === 'refactor') {
+        // For explain/fix/refactor, send the selected code as a completion prompt
+        const code = editorCtx.selectedCode || request.prompt;
+        messages.push({ role: 'user', content: code });
+      } else {
+        // Default: send whatever the user typed + selected code
+        const userContent = buildUserMessage(request.prompt, editorCtx);
+        messages.push({ role: 'user', content: userContent });
+      }
+    } else {
+      // Instruction-tuned model: use system prompts and structured messages
+      const systemText = SYSTEM_PROMPTS[command] ?? SYSTEM_PROMPTS[''];
+      messages.push({ role: 'system', content: systemText });
+      const historyMessages = buildHistoryMessages(context.history);
+      messages.push(...historyMessages);
+      const userContent = buildUserMessage(request.prompt, editorCtx);
+      messages.push({ role: 'user', content: userContent });
+    }
 
     // ── Guard: server must be reachable ────────────────────────────────────
 
@@ -140,6 +162,12 @@ export class ChatParticipant implements vscode.Disposable {
 
     const controller = new AbortController();
     token.onCancellationRequested(() => controller.abort());
+
+    // For /generate: echo the user's code prefix in a code block first
+    if (isRawCompletion) {
+      const lang = editorCtx.language || 'typescript';
+      stream.markdown('```' + lang + '\n' + request.prompt);
+    }
 
     let thinkingEmitted = false;
     let thinkingState = createInitialState();
@@ -186,6 +214,10 @@ export class ChatParticipant implements vscode.Disposable {
         && !thinkingEmitted
       ) {
         stream.markdown(formatThinkingBlock(thinkingState.thinkingBuffer));
+      }
+      // Close the code block for /generate
+      if (isRawCompletion) {
+        stream.markdown('\n```');
       }
     } catch (err) {
       if (!token.isCancellationRequested) {
