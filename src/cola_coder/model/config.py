@@ -13,6 +13,36 @@ import yaml
 
 
 @dataclass
+class MoEConfig:
+    """Mixture of Experts configuration.
+
+    Controls whether transformer FFN layers are replaced with MoE FFN layers.
+    When enabled, each layer gets num_experts routed experts plus num_shared_experts
+    always-active experts (DeepSeek-MoE style).
+
+    TS analogy: think of this like a feature-flag object — enabled=False means
+    the dense FFN path is taken; enabled=True routes tokens through specialists.
+    """
+
+    enabled: bool = False
+    num_experts: int = 8
+    num_shared_experts: int = 1  # DeepSeek-MoE: always-active expert(s)
+    top_k: int = 2
+    capacity_factor: float = 1.25
+    aux_loss_weight: float = 0.01
+    moe_layers: str = "all"  # "all", "alternate", or comma-separated layer indices
+
+
+@dataclass
+class RoPEScalingConfig:
+    """RoPE context extension configuration."""
+
+    type: str = "none"               # "none", "linear", "ntk", "yarn"
+    factor: float = 1.0              # Scaling factor (e.g., 8.0 for 4K→32K)
+    original_max_seq_len: int = 4096  # Original training seq len
+
+
+@dataclass
 class ModelConfig:
     """Defines the transformer architecture shape.
 
@@ -29,6 +59,8 @@ class ModelConfig:
     max_seq_len: int = 1024  # Maximum sequence length in tokens
     dropout: float = 0.1  # Randomly zero out this fraction during training (prevents overfitting)
     rope_theta: float = 10000.0  # RoPE base frequency (controls position encoding wavelength)
+    rope_scaling: RoPEScalingConfig = field(default_factory=RoPEScalingConfig)  # YaRN / NTK scaling
+    moe: MoEConfig = field(default_factory=MoEConfig)  # MoE config (disabled by default)
 
     @property
     def head_dim(self) -> int:
@@ -205,7 +237,17 @@ class Config:
         with open(path) as f:
             raw = yaml.safe_load(f)
 
-        model_cfg = ModelConfig(**raw.get("model", {}))
+        # Extract and remove nested sub-config blocks before passing to ModelConfig
+        # so we don't hit an unexpected keyword argument error.
+        model_raw = dict(raw.get("model", {}))
+        moe_raw = model_raw.pop("moe", {})
+        rope_scaling_raw = model_raw.pop("rope_scaling", {})
+        model_cfg = ModelConfig(**model_raw)
+        if moe_raw:
+            model_cfg.moe = MoEConfig(**moe_raw)
+        if rope_scaling_raw:
+            model_cfg.rope_scaling = RoPEScalingConfig(**rope_scaling_raw)
+
         training_cfg = TrainingConfig(**raw.get("training", {}))
         data_cfg = DataConfig(**raw.get("data", {}))
         checkpoint_cfg = CheckpointConfig(**raw.get("checkpoint", {}))

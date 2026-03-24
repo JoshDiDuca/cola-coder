@@ -130,3 +130,34 @@ class CodeTokenizer:
         for token in tokens:
             self.tokenizer.add_special_tokens([AddedToken(token, special=True)])
         return self.vocab_size
+
+    def encode_chatml(
+        self,
+        messages: list[dict[str, str]],
+        add_generation_prompt: bool = True,
+    ) -> list[int]:
+        """Encode ChatML messages into token IDs.
+
+        Formats the messages list into a ChatML string (see
+        ``special_tokens.format_chatml``) and tokenizes the result.  A BOS
+        token is prepended and no EOS token is appended so the model can
+        continue generating.
+
+        Args:
+            messages: List of {"role": str, "content": str} dicts.
+            add_generation_prompt: If True (default), a trailing
+                ``<|im_start|>assistant\\n`` is appended so the model
+                generates the assistant reply.  Pass False when the last
+                message is already an assistant turn (e.g. for training
+                labels that include the full assistant response).
+
+        Returns:
+            List of token IDs suitable for passing directly to the model.
+        """
+        from cola_coder.tokenizer.special_tokens import format_chatml
+
+        formatted = format_chatml(messages)
+        if not add_generation_prompt and formatted.endswith("<|im_start|>assistant\n"):
+            # Remove the trailing generation prompt
+            formatted = formatted.rsplit("<|im_start|>assistant\n", 1)[0]
+        return self.encode(formatted, add_bos=True, add_eos=False)

@@ -240,3 +240,157 @@ class DomainRouter:
     def route_batch(self, code_samples: list[str], tokenizer=None) -> list[tuple[str, float]]:
         """Route multiple code samples."""
         return [self.route(code, tokenizer) for code in code_samples]
+
+
+class SemanticRouter(nn.Module):
+    """Embedding-based router using the base model's own representations.
+
+    Instead of a tiny separate model, this uses the base transformer's
+    hidden states as embeddings, then classifies domain with a small head.
+
+    Advantages over MLPRouter/TransformerRouter:
+    - Deep semantic understanding (shares base model's learned representations)
+    - Zero additional VRAM (base model is already loaded)
+    - Only ~200K trainable params (classifier head only)
+
+    The base model is FROZEN during router training — only the classifier
+    head is trained. This takes ~10 minutes on CPU.
+    """
+
+    def __init__(
+        self,
+        base_model,
+        tokenizer,
+        num_domains: int = 7,
+        hidden_dim: int = 256,
+        dropout: float = 0.1,
+        extract_layer: int = -4,
+        domains: list[str] | None = None,
+    ):
+        super().__init__()
+        self.base_model = base_model
+        self.tokenizer = tokenizer
+        self.extract_layer = extract_layer
+        self.domains = domains or DEFAULT_DOMAINS
+        self.num_domains = num_domains
+
+        # Get model dimension from base model config
+        model_dim = base_model.config.dim
+
+        # Small classifier head (only trainable part)
+        self.classifier = nn.Sequential(
+            nn.Linear(model_dim, hidden_dim),
+            nn.SiLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, num_domains),
+        )
+
+        # Freeze base model
+        for param in self.base_model.parameters():
+            param.requires_grad = False
+
+    def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
+        """Forward pass: token IDs -> domain logits.
+
+        Args:
+            token_ids: (batch, seq_len) input token IDs
+
+        Returns:
+            (batch, num_domains) domain logits
+        """
+        with torch.no_grad():
+            hidden = self.base_model.get_hidden_states(token_ids, layer=self.extract_layer)
+
+        # Mean pooling over sequence
+        pooled = hidden.mean(dim=1)  # (batch, dim)
+
+        # Classify
+        logits = self.classifier(pooled)  # (batch, num_domains)
+        return logits
+
+    def route(
+        self,
+        text: str,
+        max_tokens: int = 256,
+        device: str | None = None,
+    ) -> tuple[str, float]:
+        """Route a text prompt to a domain.
+
+        Args:
+            text: Input text/code
+            max_tokens: Max tokens to process (truncation)
+            device: Device override
+
+        Returns:
+            (domain_name, confidence) tuple
+        """
+        tokens = self.tokenizer.encode(text, add_bos=True)[:max_tokens]
+
+        if device is None:
+            device = next(self.classifier.parameters()).device
+
+        input_ids = torch.tensor([tokens], device=device)
+
+        with torch.no_grad():
+            logits = self.forward(input_ids)
+            probs = F.softmax(logits, dim=-1)
+
+        domain_idx = probs[0].argmax().item()
+        confidence = probs[0, domain_idx].item()
+
+        domain_name = self.domains[domain_idx] if domain_idx < len(self.domains) else "general"
+        return domain_name, confidence
+
+    def route_with_context(
+        self,
+        prompt: str,
+        memory_context: str = "",
+        repo_context: str = "",
+        max_tokens: int = 512,
+    ) -> tuple[str, float]:
+        """Route using full context — prompt + memory + repo structure.
+
+        The router sees project context, which helps it make better
+        decisions for ambiguous prompts.
+
+        Args:
+            prompt: User's prompt
+            memory_context: Project memory string
+            repo_context: Repository context string
+            max_tokens: Max tokens
+
+        Returns:
+            (domain_name, confidence) tuple
+        """
+        full_input = ""
+        if memory_context:
+            full_input += memory_context[:500] + "\n"
+        if repo_context:
+            full_input += repo_context[:500] + "\n"
+        full_input += prompt
+
+        return self.route(full_input, max_tokens=max_tokens)
+
+    def route_batch(
+        self,
+        texts: list[str],
+        max_tokens: int = 256,
+    ) -> list[tuple[str, float]]:
+        """Route multiple texts at once.
+
+        Args:
+            texts: List of input texts
+            max_tokens: Max tokens per text
+
+        Returns:
+            List of (domain_name, confidence) tuples
+        """
+        results = []
+        for text in texts:
+            results.append(self.route(text, max_tokens))
+        return results
+
+    @property
+    def trainable_parameters(self) -> int:
+        """Count only the trainable classifier parameters."""
+        return sum(p.numel() for p in self.classifier.parameters())

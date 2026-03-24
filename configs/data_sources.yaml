@@ -1,0 +1,48 @@
+# Data source configuration for mixed pretraining.
+# Qwen2.5-Coder validated ratio: 70% code, 20% text, 10% math.
+#
+# These weights are fed into MixedDataset with temperature-based smoothing
+# (see mix_temperature below). At temperature=0.3, the code/text/math ratio
+# is preserved closely; raising temperature toward 1.0 makes sampling more
+# uniform across sources.
+
+sources:
+  code:
+    dataset: "bigcode/the-stack-v2-dedup"
+    weight: 0.7
+    enabled: true
+    languages:
+      - typescript
+      - javascript
+      - python
+
+  text:
+    dataset: "HuggingFaceFW/fineweb-edu"
+    weight: 0.2
+    enabled: true
+    min_length: 100
+    max_length: 50000
+
+  math:
+    dataset: "open-web-math/open-web-math"
+    weight: 0.1
+    enabled: true
+    min_length: 50
+    max_length: 30000
+
+# Sampling temperature for MixedDataset.
+# Lower = sharper (more faithful to raw weights).
+# Higher = more uniform across sources.
+# 0.3 is Qwen's default; do not raise above 1.0 during pretraining.
+mix_temperature: 0.3
+
+# GitHub data (optional, primarily for SFT instruction pairs).
+github:
+  enabled: false
+  min_stars: 50
+  languages:
+    - TypeScript
+    - JavaScript
+  collect_issues: true
+  collect_prs: true
+  collect_commits: true

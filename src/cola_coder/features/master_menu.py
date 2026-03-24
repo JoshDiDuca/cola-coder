@@ -486,6 +486,10 @@ class MasterMenu:
                  "detail": "Domain router, MoE, specialist training & management"},
                 {"label": "Tools & Utilities",
                  "detail": "Lint, test, GPU status, dataset inspection, export"},
+                {"label": "Project Memory",
+                 "detail": "Long-term memory store — init, view, compact, stats"},
+                {"label": "Retrieval & Search",
+                 "detail": "RAG configuration, vector index, semantic search"},
                 {"label": "Settings",
                  "detail": "Feature toggles, storage paths"},
                 {"label": "Training Status",
@@ -506,11 +510,200 @@ class MasterMenu:
                 self._eval.menu,
                 self.router_menu,
                 self._tools.menu,
+                self._tools._project_memory_menu,
+                self._retrieval_search_menu,
                 self._tools.settings_menu,
                 self._tools.training_status_menu,
             ]
 
             handlers[choice]()
+
+    # ── Retrieval & Search ────────────────────────────────────────────────
+
+    def _retrieval_search_menu(self) -> None:
+        """Retrieval & Search sub-menu — RAG config, vector index, semantic search."""
+        while True:
+            _print_section_header(
+                "Retrieval & Search",
+                "RAG configuration, vector index, and semantic code search",
+            )
+
+            options = [
+                {"label": "Index Repository",
+                 "detail": "Build vector index for semantic code retrieval"},
+                {"label": "Semantic Search",
+                 "detail": "Search indexed codebase by natural language query"},
+                {"label": "RAG Configuration",
+                 "detail": "Configure retrieval-augmented generation settings"},
+                {"label": "Vector Store Stats",
+                 "detail": "Show index size, document count, embedding model"},
+            ]
+
+            choice = cli.choose("Retrieval operation:", options, allow_cancel=True)
+            if choice is None:
+                return
+
+            if choice == 0:
+                self._tools._index_repository_menu()
+            elif choice == 1:
+                self._semantic_search_menu()
+            elif choice == 2:
+                self._rag_config_menu()
+            elif choice == 3:
+                self._vector_store_stats()
+
+    def _semantic_search_menu(self) -> None:
+        """Search the indexed codebase by natural language query."""
+        _print_section_header(
+            "Semantic Search",
+            "Natural language search over indexed codebase",
+        )
+
+        try:
+            query = input("Search query: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            cli.warn("Cancelled.")
+            return
+
+        if not query:
+            cli.warn("No query entered.")
+            return
+
+        try:
+            top_k_str = input("Number of results [default: 5]: ").strip()
+            top_k = int(top_k_str) if top_k_str else 5
+        except (ValueError, EOFError, KeyboardInterrupt):
+            top_k = 5
+
+        cli.info("Query", query)
+        cli.info("Top K", str(top_k))
+
+        try:
+            from cola_coder.retrieval.rag import RAGRetriever
+            index_dir = str(self.project_root / "data" / "vector_index")
+            retriever = RAGRetriever(index_dir=index_dir)
+            results = retriever.search(query=query, top_k=top_k)
+
+            if not results:
+                cli.warn("No results found. Run 'Index Repository' first.")
+            else:
+                for i, result in enumerate(results, 1):
+                    cli.rule(f"Result {i} (score: {result.get('score', 0):.3f})")
+                    cli.info("File", result.get("file_path", "?"))
+                    content = result.get("content", "")
+                    cli.print(f"  {content[:400]}{'...' if len(content) > 400 else ''}")
+                    cli.print("")
+        except ImportError:
+            cli.warn("cola_coder.retrieval not available.")
+            cli.dim("Implement src/cola_coder/retrieval/rag.py to enable search.")
+        except Exception as e:
+            cli.error(f"Search failed: {e}")
+
+        self._pause()
+
+    def _rag_config_menu(self) -> None:
+        """Configure retrieval-augmented generation settings."""
+        _print_section_header(
+            "RAG Configuration",
+            "Configure retrieval-augmented generation",
+        )
+
+        rag_options = [
+            {"label": "Top-K = 3",  "detail": "Retrieve 3 snippets per query — low context overhead"},
+            {"label": "Top-K = 5",  "detail": "Retrieve 5 snippets — recommended"},
+            {"label": "Top-K = 10", "detail": "Retrieve 10 snippets — high context, slower"},
+        ]
+        rag_choice = cli.choose("Top-K retrieval count:", rag_options, allow_cancel=True)
+        if rag_choice is None:
+            return
+
+        top_k = [3, 5, 10][rag_choice]
+
+        embed_options = [
+            {"label": "sentence-transformers/all-MiniLM-L6-v2",
+             "detail": "Fast, small — 384-dim, good for code"},
+            {"label": "microsoft/codebert-base",
+             "detail": "Code-specific — better for code retrieval"},
+            {"label": "BAAI/bge-small-en-v1.5",
+             "detail": "High quality general embeddings"},
+        ]
+        embed_choice = cli.choose("Embedding model:", embed_options, allow_cancel=True)
+        if embed_choice is None:
+            return
+
+        embed_models = [
+            "sentence-transformers/all-MiniLM-L6-v2",
+            "microsoft/codebert-base",
+            "BAAI/bge-small-en-v1.5",
+        ]
+        embed_model = embed_models[embed_choice]
+
+        cli.kv_table({
+            "Top-K": str(top_k),
+            "Embedding model": embed_model,
+        }, title="RAG Configuration")
+
+        if cli.confirm("Save RAG configuration?"):
+            # Write to configs/rag.yaml
+            rag_config_path = self.project_root / "configs" / "rag.yaml"
+            try:
+                import yaml
+                config_data = {
+                    "retrieval": {
+                        "top_k": top_k,
+                        "embedding_model": embed_model,
+                        "index_dir": "data/vector_index",
+                    }
+                }
+                with open(rag_config_path, "w", encoding="utf-8") as fh:
+                    yaml.dump(config_data, fh, default_flow_style=False)
+                cli.success(f"RAG config saved to {rag_config_path}")
+            except ImportError:
+                cli.warn("PyYAML not available — config not saved.")
+            except Exception as e:
+                cli.error(f"Failed to save config: {e}")
+
+        self._pause()
+
+    def _vector_store_stats(self) -> None:
+        """Show vector store statistics."""
+        _print_section_header("Vector Store Stats", "Index size, documents, embedding model")
+
+        index_dir = self.project_root / "data" / "vector_index"
+
+        if not index_dir.exists():
+            cli.warn("No vector index found.")
+            cli.dim("Run 'Index Repository' to build one.")
+            self._pause()
+            return
+
+        try:
+            from cola_coder.retrieval.vector_store import VectorStore
+            store = VectorStore(str(index_dir))
+            stats = store.stats()
+            cli.kv_table({
+                "Documents":        str(stats.get("document_count", "?")),
+                "Embedding dim":    str(stats.get("embedding_dim", "?")),
+                "Embedding model":  stats.get("embedding_model", "?"),
+                "Index size":       stats.get("size_mb", "?"),
+                "Last updated":     stats.get("last_updated", "?"),
+            }, title="Vector Store Statistics")
+        except ImportError:
+            # Fallback: just show directory info
+            size_mb = sum(
+                f.stat().st_size for f in index_dir.rglob("*") if f.is_file()
+            ) / 1e6
+            files = list(index_dir.iterdir())
+            cli.kv_table({
+                "Index directory": str(index_dir),
+                "Files":           str(len(files)),
+                "Total size":      f"{size_mb:.2f} MB",
+            }, title="Vector Store (filesystem view)")
+            cli.dim("Install cola_coder.retrieval for detailed stats.")
+        except Exception as e:
+            cli.error(f"Failed to read stats: {e}")
+
+        self._pause()
 
     # ── 1. Quick Start Pipeline ───────────────────────────────────────────
 

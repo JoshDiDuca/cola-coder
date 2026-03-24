@@ -60,6 +60,12 @@ class ToolsMenu:
                  "detail": "scripts/run_pipeline.py — tokenize→train→eval→export"},
                 {"label": "Scan Repository",
                  "detail": "Scan a source repo and display structure/stats"},
+                {"label": "Project Memory",
+                 "detail": "Init, view, edit, compact, and inspect project memory store"},
+                {"label": "Index Repository",
+                 "detail": "Build vector index for RAG-based code retrieval"},
+                {"label": "Configure Agent Tools",
+                 "detail": "Enable/disable code execution, web search, and other agent tools"},
             ]
 
             choice = cli.choose("Select tool:", options, allow_cancel=True)
@@ -95,6 +101,12 @@ class ToolsMenu:
                 self._pipeline_menu()
             elif choice == 9:
                 self._scan_repository()
+            elif choice == 10:
+                self._project_memory_menu()
+            elif choice == 11:
+                self._index_repository_menu()
+            elif choice == 12:
+                self._configure_agent_tools_menu()
 
     def _export_model_menu(self) -> None:
         """Export model to GGUF/Ollama/quantized format."""
@@ -515,3 +527,437 @@ class ToolsMenu:
                     "(This is optional — core functionality is unaffected.)"
                 )
             # Loop back immediately so user sees updated state
+
+    # ── New tool methods ───────────────────────────────────────────────────
+
+    def _project_memory_menu(self) -> None:
+        """Project memory store — init, view, edit, compact, stats."""
+        while True:
+            _print_section_header(
+                "Project Memory",
+                "Long-term memory store for codebase context",
+            )
+
+            options = [
+                {"label": "Initialize Memory Store",
+                 "detail": "Create or reset the project memory database"},
+                {"label": "View Memory",
+                 "detail": "Browse stored memories by type and recency"},
+                {"label": "Edit Memory Entry",
+                 "detail": "Update or delete a specific memory entry"},
+                {"label": "Compact Memory",
+                 "detail": "Summarize and deduplicate old memories to save space"},
+                {"label": "Memory Stats",
+                 "detail": "Show entry count, size, oldest/newest entries"},
+            ]
+
+            choice = cli.choose("Memory operation:", options, allow_cancel=True)
+            if choice is None:
+                return
+
+            if choice == 0:
+                self._memory_init()
+            elif choice == 1:
+                self._memory_view()
+            elif choice == 2:
+                self._memory_edit()
+            elif choice == 3:
+                self._memory_compact()
+            elif choice == 4:
+                self._memory_stats()
+
+    def _memory_init(self) -> None:
+        """Initialize or reset the project memory store."""
+        _print_section_header("Initialize Memory Store", "Create project memory database")
+
+        memory_path = self._master.project_root / "data" / "memory" / "project.db"
+        if memory_path.exists():
+            if not cli.confirm(
+                f"Memory store already exists at {memory_path}. Reset it?", default=False
+            ):
+                return
+
+        try:
+            from cola_coder.memory.manager import MemoryManager
+            manager = MemoryManager(str(memory_path.parent))
+            manager.initialize()
+            cli.success(f"Memory store initialized at {memory_path}")
+        except ImportError:
+            cli.warn("cola_coder.memory not available — creating directory structure.")
+            memory_path.parent.mkdir(parents=True, exist_ok=True)
+            cli.info("Memory dir", str(memory_path.parent))
+            cli.dim("Install memory dependencies or implement cola_coder.memory module.")
+        except Exception as e:
+            cli.error(f"Failed to initialize memory: {e}")
+
+        self._master._pause()
+
+    def _memory_view(self) -> None:
+        """Browse stored memory entries."""
+        _print_section_header("View Memory", "Browse stored project memories")
+
+        try:
+            from cola_coder.memory.manager import MemoryManager
+            memory_path = self._master.project_root / "data" / "memory"
+            manager = MemoryManager(str(memory_path))
+            entries = manager.list_recent(limit=20)
+
+            if not entries:
+                cli.dim("No memory entries found. Run 'Initialize Memory Store' first.")
+                self._master._pause()
+                return
+
+            cli.info("Entries", str(len(entries)))
+            for i, entry in enumerate(entries[:10], 1):
+                cli.rule(f"Entry {i}")
+                cli.info("Type",    entry.get("type", "unknown"))
+                cli.info("Created", entry.get("created_at", "?"))
+                content = str(entry.get("content", ""))
+                cli.print(f"  {content[:200]}{'...' if len(content) > 200 else ''}")
+                cli.print("")
+        except ImportError:
+            cli.warn("cola_coder.memory not available.")
+            cli.dim("Implement src/cola_coder/memory/manager.py to enable this feature.")
+        except Exception as e:
+            cli.error(f"Failed to read memory: {e}")
+
+        self._master._pause()
+
+    def _memory_edit(self) -> None:
+        """Edit or delete a memory entry."""
+        _print_section_header("Edit Memory Entry", "Update or delete a stored memory")
+
+        try:
+            entry_id_str = input("Memory entry ID to edit (or 'list' to show IDs): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            cli.warn("Cancelled.")
+            return
+
+        if entry_id_str.lower() == "list":
+            self._memory_view()
+            return
+
+        if not entry_id_str:
+            cli.warn("No entry ID provided.")
+            self._master._pause()
+            return
+
+        edit_options = [
+            {"label": "Delete entry",   "detail": "Permanently remove this memory"},
+            {"label": "Edit content",   "detail": "Update the stored text"},
+            {"label": "Change type",    "detail": "Re-categorise the memory"},
+        ]
+        edit_choice = cli.choose("Edit action:", edit_options, allow_cancel=True)
+        if edit_choice is None:
+            return
+
+        try:
+            from cola_coder.memory.updater import MemoryUpdater
+            memory_path = self._master.project_root / "data" / "memory"
+            updater = MemoryUpdater(str(memory_path))
+
+            if edit_choice == 0:
+                if cli.confirm(f"Delete entry '{entry_id_str}'?", default=False):
+                    updater.delete(entry_id_str)
+                    cli.success("Entry deleted.")
+            elif edit_choice == 1:
+                try:
+                    new_content = input("New content: ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    cli.warn("Cancelled.")
+                    return
+                updater.update_content(entry_id_str, new_content)
+                cli.success("Content updated.")
+            elif edit_choice == 2:
+                try:
+                    new_type = input("New type (fact/code/decision/note): ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    cli.warn("Cancelled.")
+                    return
+                updater.update_type(entry_id_str, new_type)
+                cli.success("Type updated.")
+        except ImportError:
+            cli.warn("cola_coder.memory not available.")
+        except Exception as e:
+            cli.error(f"Failed to edit memory: {e}")
+
+        self._master._pause()
+
+    def _memory_compact(self) -> None:
+        """Compact and deduplicate memory entries."""
+        _print_section_header("Compact Memory", "Summarise and deduplicate old memories")
+
+        cli.print(
+            "  Compaction:\n"
+            "    1. Groups similar memories by embedding similarity\n"
+            "    2. Summarises clusters into single entries\n"
+            "    3. Archives raw entries older than threshold\n"
+        )
+
+        threshold_options = [
+            {"label": "7 days",  "detail": "Compact entries older than one week"},
+            {"label": "30 days", "detail": "Compact entries older than one month"},
+            {"label": "All",     "detail": "Compact all non-pinned entries"},
+        ]
+        threshold_choice = cli.choose("Compaction threshold:", threshold_options, allow_cancel=True)
+        if threshold_choice is None:
+            return
+
+        thresholds = [7, 30, None]
+        threshold_days = thresholds[threshold_choice]
+
+        if not cli.confirm("Run memory compaction?"):
+            return
+
+        try:
+            from cola_coder.memory.manager import MemoryManager
+            memory_path = self._master.project_root / "data" / "memory"
+            manager = MemoryManager(str(memory_path))
+            result = manager.compact(older_than_days=threshold_days)
+            cli.success(f"Compacted: {result.get('merged', 0)} entries merged, "
+                        f"{result.get('archived', 0)} archived.")
+        except ImportError:
+            cli.warn("cola_coder.memory not available.")
+        except Exception as e:
+            cli.error(f"Compaction failed: {e}")
+
+        self._master._pause()
+
+    def _memory_stats(self) -> None:
+        """Show memory store statistics."""
+        _print_section_header("Memory Stats", "Project memory database statistics")
+
+        try:
+            from cola_coder.memory.manager import MemoryManager
+            memory_path = self._master.project_root / "data" / "memory"
+            manager = MemoryManager(str(memory_path))
+            stats = manager.stats()
+            cli.kv_table({
+                "Total entries":   str(stats.get("total", 0)),
+                "Pinned":          str(stats.get("pinned", 0)),
+                "Oldest entry":    stats.get("oldest", "N/A"),
+                "Newest entry":    stats.get("newest", "N/A"),
+                "Database size":   stats.get("size_mb", "N/A"),
+                "Unique types":    ", ".join(stats.get("types", [])) or "none",
+            }, title="Memory Statistics")
+        except ImportError:
+            cli.warn("cola_coder.memory not available.")
+            memory_path = self._master.project_root / "data" / "memory"
+            if memory_path.exists():
+                size_mb = sum(
+                    f.stat().st_size for f in memory_path.rglob("*") if f.is_file()
+                ) / 1e6
+                cli.info("Memory dir", str(memory_path))
+                cli.info("Dir size", f"{size_mb:.2f} MB")
+            else:
+                cli.dim("Memory store not initialised.")
+        except Exception as e:
+            cli.error(f"Failed to read stats: {e}")
+
+        self._master._pause()
+
+    def _index_repository_menu(self) -> None:
+        """Build a vector index for RAG-based code retrieval."""
+        _print_section_header(
+            "Index Repository",
+            "Build vector index for RAG-based code retrieval",
+        )
+
+        cli.print(
+            "  Indexes a codebase into a vector store for semantic search.\n"
+            "  Enables retrieval-augmented generation (RAG) during inference.\n"
+        )
+
+        try:
+            repo_path = input(
+                "Repository path to index [default: current project]: "
+            ).strip() or str(self._master.project_root)
+        except (EOFError, KeyboardInterrupt):
+            cli.warn("Cancelled.")
+            return
+
+        index_options = [
+            {"label": "Full repository",
+             "detail": "Index all source files"},
+            {"label": "Source only (src/)",
+             "detail": "Index only src/ directory — faster"},
+            {"label": "Custom glob pattern",
+             "detail": "Enter a glob pattern to match files"},
+        ]
+        index_choice = cli.choose("Index scope:", index_options, allow_cancel=True)
+        if index_choice is None:
+            return
+
+        chunk_options = [
+            {"label": "Function-level",
+             "detail": "Split at function/class boundaries (AST-aware)"},
+            {"label": "Fixed 512 tokens",
+             "detail": "Sliding window — simpler, works for all languages"},
+            {"label": "File-level",
+             "detail": "One vector per file — coarse but fast"},
+        ]
+        chunk_choice = cli.choose("Chunking strategy:", chunk_options, allow_cancel=True)
+        if chunk_choice is None:
+            return
+
+        chunk_names = ["function", "fixed_512", "file"]
+        chunk_strategy = chunk_names[chunk_choice]
+
+        cli.kv_table({
+            "Repository": repo_path,
+            "Chunking": chunk_strategy,
+        }, title="Indexing Config")
+
+        if not cli.confirm("Build vector index?"):
+            return
+
+        try:
+            from cola_coder.retrieval.indexer import RepositoryIndexer
+            indexer = RepositoryIndexer(
+                repo_path=repo_path,
+                chunk_strategy=chunk_strategy,
+                index_dir=str(self._master.project_root / "data" / "vector_index"),
+            )
+            indexer.build()
+            cli.success("Vector index built successfully.")
+            cli.info("Index location", str(self._master.project_root / "data" / "vector_index"))
+        except ImportError:
+            cli.warn("cola_coder.retrieval not available.")
+            cli.dim("Implement src/cola_coder/retrieval/indexer.py to enable indexing.")
+            cli.dim(
+                f"Would index: {repo_path}\n"
+                f"  Strategy: {chunk_strategy}\n"
+                f"  Output: data/vector_index/"
+            )
+        except Exception as e:
+            cli.error(f"Indexing failed: {e}")
+
+        self._master._pause()
+
+    def _configure_agent_tools_menu(self) -> None:
+        """Enable/disable agent tools (code execution, web search, etc.)."""
+        _print_section_header(
+            "Configure Agent Tools",
+            "Enable or disable tools available to the agent",
+        )
+
+        cli.print(
+            "  Agent tools extend the model's capabilities during inference.\n"
+            "  Each tool can be enabled/disabled independently.\n"
+        )
+
+        tool_definitions = [
+            {
+                "name": "python_exec",
+                "label": "Python Execution",
+                "detail": "Execute Python code snippets and return output",
+                "risk": "MEDIUM — sandboxed, but can access filesystem",
+            },
+            {
+                "name": "typescript_exec",
+                "label": "TypeScript Execution",
+                "detail": "Run TypeScript via ts-node — requires Node.js",
+                "risk": "MEDIUM — requires ts-node/Node.js",
+            },
+            {
+                "name": "web_search",
+                "label": "Web Search",
+                "detail": "Search the web for documentation and examples",
+                "risk": "LOW — read-only, external requests",
+            },
+            {
+                "name": "file_read",
+                "label": "File Read",
+                "detail": "Read files from the project directory",
+                "risk": "LOW — read-only filesystem access",
+            },
+            {
+                "name": "file_write",
+                "label": "File Write",
+                "detail": "Write/modify files in the project directory",
+                "risk": "HIGH — can modify source files",
+            },
+            {
+                "name": "shell_exec",
+                "label": "Shell Execution",
+                "detail": "Run shell commands (git, npm, pip, etc.)",
+                "risk": "HIGH — full shell access",
+            },
+        ]
+
+        # Show current states
+        try:
+            from cola_coder.tools.registry import ToolRegistry
+            registry = ToolRegistry()
+            current_states = {t["name"]: registry.is_enabled(t["name"]) for t in tool_definitions}
+        except ImportError:
+            current_states = {t["name"]: False for t in tool_definitions}
+
+        cli.print("")
+        for tool in tool_definitions:
+            state = "[green]ON [/green]" if current_states.get(tool["name"]) else "[red]OFF[/red]"
+            cli.print(
+                f"  {state}  {tool['label']:<22s}  "
+                f"[dim]{tool['risk']}[/dim]"
+            )
+        cli.print("")
+
+        tool_options = [
+            {"label": t["label"], "detail": f"{t['detail']}  |  Risk: {t['risk']}"}
+            for t in tool_definitions
+        ]
+        tool_options.append({"label": "Enable All",  "detail": "Turn on all agent tools"})
+        tool_options.append({"label": "Disable All", "detail": "Turn off all agent tools"})
+
+        tool_choice = cli.choose("Select tool to toggle:", tool_options, allow_cancel=True)
+        if tool_choice is None:
+            return
+
+        if tool_choice == len(tool_definitions):
+            # Enable all
+            if cli.confirm("Enable ALL agent tools? (includes high-risk tools)", default=False):
+                try:
+                    from cola_coder.tools.registry import ToolRegistry
+                    reg = ToolRegistry()
+                    for t in tool_definitions:
+                        reg.set_enabled(t["name"], True)
+                    cli.success("All agent tools enabled.")
+                except ImportError:
+                    cli.warn("cola_coder.tools not available — update configs/features.yaml manually.")
+        elif tool_choice == len(tool_definitions) + 1:
+            # Disable all
+            if cli.confirm("Disable ALL agent tools?", default=True):
+                try:
+                    from cola_coder.tools.registry import ToolRegistry
+                    reg = ToolRegistry()
+                    for t in tool_definitions:
+                        reg.set_enabled(t["name"], False)
+                    cli.success("All agent tools disabled.")
+                except ImportError:
+                    cli.warn("cola_coder.tools not available — update configs/features.yaml manually.")
+        else:
+            tool = tool_definitions[tool_choice]
+            current = current_states.get(tool["name"], False)
+            new_state = not current
+            action = "Enable" if new_state else "Disable"
+
+            if tool.get("risk", "").startswith("HIGH") and new_state:
+                if not cli.confirm(
+                    f"[bold red]WARNING[/bold red]: {tool['label']} has HIGH risk. Enable?",
+                    default=False,
+                ):
+                    self._master._pause()
+                    return
+
+            try:
+                from cola_coder.tools.registry import ToolRegistry
+                reg = ToolRegistry()
+                reg.set_enabled(tool["name"], new_state)
+                if new_state:
+                    cli.success(f"{tool['label']} enabled.")
+                else:
+                    cli.warn(f"{tool['label']} disabled.")
+            except ImportError:
+                cli.warn(f"cola_coder.tools not available — {action} '{tool['name']}' manually.")
+
+        self._master._pause()

@@ -45,6 +45,10 @@ class EvalMenu:
                  "detail": "scripts/quality_report.py — auto-generate markdown report"},
                 {"label": "Compare Models",
                  "detail": "scripts/compare_models.py — side-by-side model comparison"},
+                {"label": "Safety Evaluation",
+                 "detail": "Run safety metrics: harmful output rate, refusal accuracy"},
+                {"label": "Routing Accuracy",
+                 "detail": "Test semantic router classification accuracy across domains"},
             ]
 
             choice = cli.choose("Select evaluation:", options, allow_cancel=True)
@@ -73,6 +77,10 @@ class EvalMenu:
                 self._quality_report_menu()
             elif choice == 10:
                 self._compare_models_menu()
+            elif choice == 11:
+                self._safety_eval_menu()
+            elif choice == 12:
+                self._routing_accuracy_menu()
 
     def _humaneval_menu(self) -> None:
         """HumanEval evaluation with checkpoint selection."""
@@ -213,4 +221,121 @@ class EvalMenu:
         self._master._run_script(
             "compare_models.py", ["--checkpoints", ckpt_a, ckpt_b],
         )
+        self._master._pause()
+
+    def _safety_eval_menu(self) -> None:
+        """Run safety evaluation metrics on a checkpoint."""
+        _print_section_header(
+            "Safety Evaluation",
+            "Measure harmful output rate, refusal accuracy, and boundary adherence",
+        )
+
+        cli.print(
+            "  Safety evaluation tests the model against:\n"
+            "    • Harmful content generation (should refuse)\n"
+            "    • Prompt injection attempts\n"
+            "    • PII leakage in generated code\n"
+            "    • License-incompatible code reproduction\n"
+        )
+
+        ckpt_path = self._master._pick_checkpoint("Select checkpoint to evaluate:")
+        if ckpt_path is None:
+            return
+
+        config = self._master._config_for_checkpoint(ckpt_path)
+
+        suite_options = [
+            {"label": "Basic safety suite",
+             "detail": "50 prompts — fast, covers main categories (~5 min)"},
+            {"label": "Extended safety suite",
+             "detail": "200 prompts — comprehensive coverage (~20 min)"},
+            {"label": "PII-focused",
+             "detail": "Test for personal information leakage in code"},
+            {"label": "License compliance",
+             "detail": "Check for verbatim reproduction of copyleft code"},
+        ]
+        suite_choice = cli.choose("Safety suite:", suite_options, allow_cancel=True)
+        if suite_choice is None:
+            return
+
+        suite_names = ["basic", "extended", "pii", "license"]
+        suite = suite_names[suite_choice]
+
+        cli.kv_table({
+            "Checkpoint": ckpt_path,
+            "Suite": suite,
+        }, title="Safety Evaluation Config")
+
+        if not cli.confirm("Run safety evaluation?"):
+            return
+
+        # safety_eval.py is the Phase evaluation script
+        args = [
+            "--checkpoint", ckpt_path,
+            "--config", config,
+            "--suite", suite,
+        ]
+        self._master._run_script("safety_eval.py", args)
+        self._master._pause()
+
+    def _routing_accuracy_menu(self) -> None:
+        """Test semantic router classification accuracy."""
+        _print_section_header(
+            "Routing Accuracy",
+            "Test semantic router classification across domains",
+        )
+
+        cli.print(
+            "  Evaluates the semantic router on a held-out domain classification\n"
+            "  test set. Measures per-domain accuracy, confusion matrix, and\n"
+            "  confidence calibration.\n"
+        )
+
+        # Router checkpoint
+        router_options = [
+            {"label": "Latest router checkpoint",
+             "detail": "checkpoints/router/latest"},
+            {"label": "Select specific checkpoint",
+             "detail": "Browse available router checkpoints"},
+        ]
+        router_choice = cli.choose("Router checkpoint:", router_options, allow_cancel=True)
+        if router_choice is None:
+            return
+
+        if router_choice == 0:
+            router_path = "checkpoints/router/latest"
+        else:
+            router_path = self._master._pick_checkpoint("Select router checkpoint:") or ""
+            if not router_path:
+                return
+
+        # Domain filter
+        domain_options = [
+            {"label": "All domains",
+             "detail": "React, Next.js, GraphQL, Prisma, Zod, Testing, General TS"},
+            {"label": "TypeScript-focused",
+             "detail": "React, Next.js, TypeScript general"},
+            {"label": "Backend-focused",
+             "detail": "GraphQL, Prisma, API design"},
+        ]
+        domain_choice = cli.choose("Domain scope:", domain_options, allow_cancel=True)
+        if domain_choice is None:
+            return
+
+        domain_sets = ["all", "typescript", "backend"]
+        domain_set = domain_sets[domain_choice]
+
+        cli.kv_table({
+            "Router": router_path,
+            "Domains": domain_set,
+        }, title="Routing Accuracy Config")
+
+        if not cli.confirm("Run routing accuracy test?"):
+            return
+
+        args = [
+            "--router-checkpoint", router_path,
+            "--domains", domain_set,
+        ]
+        self._master._run_script("evaluate_router.py", args)
         self._master._pause()

@@ -114,3 +114,181 @@ def apply_rope(
     k_out = torch.view_as_real(k_rotated).reshape(k.shape)
 
     return q_out.type_as(q), k_out.type_as(k)
+
+
+# ---------------------------------------------------------------------------
+# YaRN / NTK-aware RoPE scaling for context extension
+# ---------------------------------------------------------------------------
+
+
+def precompute_rope_freqs_yarn(
+    dim: int,
+    max_seq_len: int,
+    theta: float = 10000.0,
+    factor: float = 8.0,
+    original_max_seq_len: int = 4096,
+    beta_fast: int = 32,
+    beta_slow: int = 1,
+    device: str = "cpu",
+) -> torch.Tensor:
+    """YaRN: Yet another RoPE extensioN (Peng et al., 2023).
+
+    Extends context window by scaling RoPE frequencies non-uniformly.
+    Low frequencies (long-range dependencies) are scaled more than
+    high frequencies (local patterns).
+
+    Research: YaRN achieves 128K context with <5% additional compute.
+    Used by Qwen2.5-Coder for context extension.
+
+    Args:
+        dim: Head dimension (must be even)
+        max_seq_len: Target sequence length (after extension)
+        theta: RoPE base frequency
+        factor: Scaling factor (e.g., 8.0 for 4K→32K)
+        original_max_seq_len: Original training sequence length
+        beta_fast: Fast (high frequency) partition boundary
+        beta_slow: Slow (low frequency) partition boundary
+        device: Compute device
+
+    Returns:
+        Complex tensor of shape (max_seq_len, dim // 2)
+    """
+    # Compute frequency bands
+    freqs = 1.0 / (theta ** (torch.arange(0, dim, 2, device=device).float() / dim))
+
+    # Wavelength thresholds for partitioning
+    # Low frequencies (long wavelengths) → scale more
+    # High frequencies (short wavelengths) → scale less
+    low_freq_wavelen = original_max_seq_len / beta_slow
+    high_freq_wavelen = original_max_seq_len / beta_fast
+
+    scaled_freqs = []
+    for freq in freqs:
+        wavelen = 2 * 3.14159265 / freq.item()
+
+        if wavelen < high_freq_wavelen:
+            # High frequency: don't scale (local patterns)
+            scaled_freqs.append(freq)
+        elif wavelen > low_freq_wavelen:
+            # Low frequency: full scale (long-range)
+            scaled_freqs.append(freq / factor)
+        else:
+            # Interpolation region: smooth transition
+            smooth = (low_freq_wavelen / wavelen - 1) / (beta_fast / beta_slow - 1)
+            smooth = max(0, min(1, smooth))
+            scaled_freq = (1 - smooth) * freq / factor + smooth * freq
+            scaled_freqs.append(scaled_freq)
+
+    freqs = torch.stack(scaled_freqs)
+
+    # Compute positions and angles
+    positions = torch.arange(max_seq_len, device=device).float()
+    angles = torch.outer(positions, freqs)
+
+    # Convert to complex exponentials
+    return torch.polar(torch.ones_like(angles), angles)
+
+
+def precompute_rope_freqs_ntk(
+    dim: int,
+    max_seq_len: int,
+    theta: float = 10000.0,
+    factor: float = 8.0,
+    device: str = "cpu",
+) -> torch.Tensor:
+    """NTK-aware RoPE scaling (simpler alternative to YaRN).
+
+    Scales the base theta by the factor, which uniformly extends
+    all frequency bands. Simpler but less effective than YaRN.
+
+    Args:
+        dim: Head dimension
+        max_seq_len: Target sequence length
+        theta: Original RoPE base frequency
+        factor: Scaling factor
+        device: Compute device
+
+    Returns:
+        Complex tensor of shape (max_seq_len, dim // 2)
+    """
+    # Scale theta by factor
+    scaled_theta = theta * factor
+
+    # Standard RoPE with scaled theta
+    freqs = 1.0 / (scaled_theta ** (torch.arange(0, dim, 2, device=device).float() / dim))
+    positions = torch.arange(max_seq_len, device=device).float()
+    angles = torch.outer(positions, freqs)
+
+    return torch.polar(torch.ones_like(angles), angles)
+
+
+def precompute_rope_freqs_linear(
+    dim: int,
+    max_seq_len: int,
+    theta: float = 10000.0,
+    factor: float = 8.0,
+    device: str = "cpu",
+) -> torch.Tensor:
+    """Linear RoPE scaling (simplest, least effective).
+
+    Simply divides all position indices by the factor.
+    Equivalent to pretending the extended context is shorter.
+
+    Args:
+        dim: Head dimension
+        max_seq_len: Target sequence length
+        theta: RoPE base frequency
+        factor: Scaling factor
+        device: Compute device
+
+    Returns:
+        Complex tensor of shape (max_seq_len, dim // 2)
+    """
+    freqs = 1.0 / (theta ** (torch.arange(0, dim, 2, device=device).float() / dim))
+    positions = torch.arange(max_seq_len, device=device).float() / factor
+    angles = torch.outer(positions, freqs)
+
+    return torch.polar(torch.ones_like(angles), angles)
+
+
+def get_rope_freqs(
+    dim: int,
+    max_seq_len: int,
+    theta: float = 10000.0,
+    scaling_type: str = "none",
+    scaling_factor: float = 1.0,
+    original_max_seq_len: int = 4096,
+    device: str = "cpu",
+) -> torch.Tensor:
+    """Get RoPE frequencies with optional scaling.
+
+    Unified interface for all RoPE scaling methods.
+
+    Args:
+        dim: Head dimension
+        max_seq_len: Target sequence length
+        theta: Base frequency
+        scaling_type: "none", "linear", "ntk", "yarn"
+        scaling_factor: Extension factor
+        original_max_seq_len: Original training length
+        device: Compute device
+
+    Returns:
+        Complex tensor of shape (max_seq_len, dim // 2)
+    """
+    if scaling_type == "yarn":
+        return precompute_rope_freqs_yarn(
+            dim,
+            max_seq_len,
+            theta,
+            scaling_factor,
+            original_max_seq_len,
+            device=device,
+        )
+    elif scaling_type == "ntk":
+        return precompute_rope_freqs_ntk(dim, max_seq_len, theta, scaling_factor, device=device)
+    elif scaling_type == "linear":
+        return precompute_rope_freqs_linear(dim, max_seq_len, theta, scaling_factor, device=device)
+    else:
+        # No scaling — use original function
+        return precompute_rope_freqs(dim, max_seq_len, theta, device)
