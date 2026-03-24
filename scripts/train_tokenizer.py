@@ -74,7 +74,7 @@ def main() -> None:
     parser.add_argument(
         "--output",
         type=str,
-        default=storage.tokenizer_path,
+        default=None,
         help="Output path for the trained tokenizer (default: tokenizer.json).",
     )
     parser.add_argument(
@@ -104,12 +104,14 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # When --config is given and --output was not explicitly provided, resolve
-    # the output path from DatasetResolver instead of the global tokenizer_path.
-    if args.config is not None and args.output == storage.tokenizer_path:
-        from cola_coder.data.dataset_resolver import DatasetResolver
+    # Resolve output path: DatasetResolver (when --config given) or legacy storage path
+    if args.output is None:
+        if args.config is not None:
+            from cola_coder.data.dataset_resolver import DatasetResolver
 
-        args.output = str(DatasetResolver.get_tokenizer_path(args.data_sources))
+            args.output = str(DatasetResolver.get_tokenizer_path(args.data_sources))
+        else:
+            args.output = storage.tokenizer_path
 
     languages = [lang.strip() for lang in args.languages.split(",")]
 
@@ -148,6 +150,7 @@ def main() -> None:
 
         sources_used: list[str] = []
         iterators: list[Iterator[str]] = []
+        total_samples_used = 0
 
         for source_name, cfg in sources_cfg.items():
             if not isinstance(cfg, dict) or not cfg.get("enabled", False):
@@ -158,6 +161,7 @@ def main() -> None:
             if proportional <= 0:
                 continue
 
+            total_samples_used += proportional
             sources_used.append(source_name)
 
             if source_name == "code":
@@ -235,7 +239,7 @@ def main() -> None:
             tokenizer_path=Path(args.output),
             vocab_size=tokenizer.get_vocab_size(),
             sources=sources_used,
-            num_samples=args.num_samples,
+            num_samples=total_samples_used,
         )
 
     # ------------------------------------------------------------------
