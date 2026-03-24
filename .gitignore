@@ -159,6 +159,8 @@ activemq-data/
 *.sage.py
 
 TODO.md
+.claude/settings.local.json
+.claude/worktrees/
 .pipeline_state_tiny.json
 .pipeline_state_small.json
 
