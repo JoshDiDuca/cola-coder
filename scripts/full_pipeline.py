@@ -100,12 +100,16 @@ def run_stage(stage_num: int, config: Config, args: argparse.Namespace) -> bool:
 
 
 def _stage_collect_data(config: Config, args: argparse.Namespace) -> None:
-    """Stage 1: Collect all data sources."""
-    cli.step(1, 3, "This stage requires manual data collection")
-    cli.info("Code", f"Use: .venv/Scripts/python scripts/prepare_data.py --config {args.config}")
-    cli.info("Text", "Use menu: Data → Collect Text Data")
-    cli.info("GitHub", "Use menu: Data → Collect GitHub Issues & PRs")
-    cli.dim("Run these manually or use the interactive menu (scripts/menu.py)")
+    """Stage 1: Collect and prepare code data."""
+    import subprocess
+
+    venv = Path(".venv/Scripts/python")
+    cmd = [str(venv), "scripts/prepare_data.py", "--config", args.config]
+    if args.tokenizer:
+        cmd.extend(["--tokenizer", args.tokenizer])
+    cmd.append("--score")
+    cli.info("Collecting", f"Code data via prepare_data.py (config: {args.config})")
+    subprocess.run(cmd, check=True)
 
 
 def _stage_prepare_data(config: Config, args: argparse.Namespace) -> None:
@@ -132,10 +136,24 @@ def _stage_pretrain(config: Config, args: argparse.Namespace) -> None:
 
 def _stage_extend_context(config: Config, args: argparse.Namespace) -> None:
     """Stage 4: Extend context window via RoPE scaling."""
-    cli.info("Context extension", "Requires manual configuration")
-    cli.dim("1. Update config with rope_scaling: {type: yarn, factor: 8.0}")
-    cli.dim("2. Fine-tune on long-context data for 1000-2000 steps")
-    cli.dim("3. This stage is optional — skip if not needed")
+    rope_type = getattr(config.model.rope_scaling, "type", "none")
+    rope_factor = getattr(config.model.rope_scaling, "factor", 1.0)
+
+    if rope_type == "none" or rope_factor <= 1.0:
+        cli.dim("RoPE scaling not configured — skipping context extension.")
+        return
+
+    import subprocess
+
+    venv = Path(".venv/Scripts/python")
+    seq_len = getattr(config.model, "max_seq_len", 2048)
+    cli.info("RoPE scaling", f"type={rope_type}, factor={rope_factor}")
+    cli.info("Context", f"{seq_len} → {int(seq_len * rope_factor)} tokens")
+
+    cmd = [str(venv), "scripts/train.py", "--config", args.config]
+    if args.auto_resume:
+        cmd.append("--auto-resume")
+    subprocess.run(cmd, check=True)
 
 
 def _stage_generate_instructions(config: Config, args: argparse.Namespace) -> None:
@@ -148,10 +166,30 @@ def _stage_generate_instructions(config: Config, args: argparse.Namespace) -> No
 
 
 def _stage_instruction_tune(config: Config, args: argparse.Namespace) -> None:
-    """Stage 6: Run instruction tuning (SFT)."""
-    cli.info("Instruction tuning", "Run via menu: Training → Instruction Tuning")
-    cli.dim("Requires instruction data from Stage 5")
-    cli.dim("Use: SFTTrainer with ChatML format, 2-3 epochs, lr=2e-5")
+    """Stage 6: Run instruction tuning (SFT) via train_sft.py."""
+    import subprocess
+
+    venv = Path(".venv/Scripts/python")
+    ckpt_dir = Path(config.checkpoint.output_dir)
+    latest = ckpt_dir / "latest"
+
+    instruction_data = Path("data/sft/instructions.jsonl")
+    if not instruction_data.exists():
+        raise FileNotFoundError(
+            f"Instruction data not found at {instruction_data}. "
+            "Run Stage 5 (generate-instructions) first."
+        )
+
+    cmd = [
+        str(venv), "scripts/train_sft.py",
+        "--data", str(instruction_data),
+        "--config", args.config,
+        "--checkpoint", str(latest),
+        "--epochs", "2",
+        "--lr", "2e-5",
+    ]
+    cli.info("SFT", f"Fine-tuning on {instruction_data}")
+    subprocess.run(cmd, check=True)
 
 
 def _stage_upcycle_moe(config: Config, args: argparse.Namespace) -> None:
@@ -183,9 +221,20 @@ def _stage_upcycle_moe(config: Config, args: argparse.Namespace) -> None:
 
 def _stage_train_router(config: Config, args: argparse.Namespace) -> None:
     """Stage 8: Train semantic router."""
-    cli.info("Router training", "Run via menu: Training → Train Semantic Router")
-    cli.dim("Requires: base pretrained model + router training data")
-    cli.dim("Use: scripts/train_router.py --generate-data then --train")
+    import subprocess
+
+    venv = Path(".venv/Scripts/python")
+    data_path = Path("data/router_training_data.jsonl")
+
+    cmd = [str(venv), "scripts/train_router.py"]
+    if data_path.exists():
+        cli.info("Router data", f"Using existing {data_path}")
+        cmd.extend(["--data", str(data_path)])
+    else:
+        cli.dim("  Generating router training data...")
+        cmd.append("--generate-data")
+    cmd.extend(["--arch", "mlp"])
+    subprocess.run(cmd, check=True)
 
 
 def _stage_train_reasoning(config: Config, args: argparse.Namespace) -> None:
@@ -212,20 +261,30 @@ def _stage_train_reasoning(config: Config, args: argparse.Namespace) -> None:
 
 
 def _stage_evaluate(config: Config, args: argparse.Namespace) -> None:
-    """Stage 10: Run full evaluation."""
+    """Stage 10: Run full evaluation (smoke + HumanEval + quality report)."""
     import subprocess
 
     venv = Path(".venv/Scripts/python")
+    config_stem = Path(args.config).stem
+    ckpt = f"checkpoints/{config_stem}/latest"
 
     cli.step(1, 3, "Running smoke test")
-    subprocess.run([str(venv), "scripts/smoke_test.py"], check=False)
+    subprocess.run([
+        str(venv), "scripts/smoke_test.py",
+        "--checkpoint", ckpt, "--config", args.config,
+    ], check=False)
 
     cli.step(2, 3, "Running HumanEval")
-    cmd = [str(venv), "scripts/evaluate.py", "--config", args.config]
-    subprocess.run(cmd, check=False)
+    subprocess.run([
+        str(venv), "scripts/evaluate.py",
+        "--checkpoint", ckpt, "--config", args.config,
+    ], check=False)
 
-    cli.step(3, 3, "Running safety evaluation")
-    cli.dim("Safety eval: use menu → Evaluate → Safety Evaluation")
+    cli.step(3, 3, "Generating quality report")
+    subprocess.run([
+        str(venv), "scripts/quality_report.py",
+        "--checkpoint", ckpt, "--config", args.config, "--eval",
+    ], check=False)
 
 
 def main() -> None:

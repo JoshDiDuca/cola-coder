@@ -1033,14 +1033,13 @@ class TrainingMenu:
             return
 
         args = [
+            "--data", data_path,
             "--config", config,
             "--checkpoint", ckpt_path,
-            "--data", data_path,
             "--epochs", str(epochs),
             "--lr", lr,
-            "--format", "chatml",
         ]
-        self._master._run_script("train.py", args)
+        self._master._run_script("train_sft.py", args)
         self._master._pause()
 
     def _moe_upcycling_menu(self) -> None:

@@ -361,11 +361,48 @@ class PipelineMenu:
     # ── Individual stage handlers ─────────────────────────────────────
 
     def _stage_collect(self, run: PipelineRun, config) -> str:
-        """Stage 1: Data collection — delegates to the data menu."""
-        cli.info("Action", "Opening Data Pipeline menu for data collection")
-        cli.dim("  Collect code, text, and math data, then return here.")
-        self._master._data.menu()
-        return str(Path(self._master.storage.data_dir))
+        """Stage 1: Data collection — auto or interactive."""
+        data_dir = Path(self._master.storage.data_dir)
+        processed = data_dir / "processed"
+        existing = list(processed.glob("*.npy")) if processed.exists() else []
+
+        if existing:
+            cli.info("Existing data", f"{len(existing)} .npy file(s) in {processed}")
+            if not cli.confirm("Re-collect data? (No = use existing)", default=False):
+                return str(data_dir)
+
+        collect_options = [
+            {"label": "Auto-collect (code + text + math)",
+             "detail": "Uses collect_data.py with data_sources.yaml ratios (70/20/10)"},
+            {"label": "Code only (standard)",
+             "detail": "Uses prepare_data.py with config languages"},
+            {"label": "Interactive (Data Pipeline menu)",
+             "detail": "Full control — pick sources, languages, filters manually"},
+        ]
+        choice = cli.choose("Collection mode:", collect_options, allow_cancel=True)
+        if choice is None:
+            return str(data_dir)
+
+        if choice == 0:
+            self._master._run_script("collect_data.py", [
+                "--config", run.config_path, "--sources", "code,text,math",
+            ])
+        elif choice == 1:
+            self._master._run_script("prepare_data.py", [
+                "--config", run.config_path, "--score",
+            ])
+        elif choice == 2:
+            self._master._data.menu()
+
+        # Verify data was collected
+        new_files = list(processed.glob("*.npy")) if processed.exists() else []
+        if not new_files and not existing:
+            raise RuntimeError(
+                f"No data files found in {processed}. "
+                "Collect and prepare data first."
+            )
+
+        return str(data_dir)
 
     def _stage_prepare(self, run: PipelineRun, config) -> str:
         """Stage 2: Prepare and tokenize data."""
@@ -390,13 +427,31 @@ class PipelineMenu:
 
     def _stage_extend_context(self, run: PipelineRun, config) -> str:
         """Stage 4: Context window extension via RoPE scaling."""
-        cli.info("Action", "Context extension requires config adjustment")
-        cli.dim("  1. Update config: rope_scaling: {type: yarn, factor: 4.0}")
-        cli.dim("  2. Fine-tune on long-context data for ~1000 steps")
-        cli.dim("  3. This stage is optional — skip if not needed")
-        self._master._pause()
         ckpt_dir = Path(config.checkpoint.output_dir)
         latest = ckpt_dir / "latest"
+
+        # Check if rope_scaling is configured
+        rope_type = getattr(config.model.rope_scaling, "type", "none")
+        rope_factor = getattr(config.model.rope_scaling, "factor", 1.0)
+
+        if rope_type == "none" or rope_factor <= 1.0:
+            cli.warn("RoPE scaling not configured in this config.")
+            cli.dim("  To enable: add rope_scaling: {type: yarn, factor: 4.0} to config.")
+            cli.dim("  Skipping context extension.")
+            return str(latest) if latest.exists() else ""
+
+        seq_len = getattr(config.model, "max_seq_len", 2048)
+        cli.info("RoPE scaling", f"type={rope_type}, factor={rope_factor}")
+        cli.info("Context", f"{seq_len} → {int(seq_len * rope_factor)} tokens")
+        cli.dim("  Fine-tune with --auto-resume for context adaptation.")
+        cli.dim("  Stop manually after ~1000-2000 steps.")
+
+        if not cli.confirm("Run context extension fine-tune?"):
+            return str(latest) if latest.exists() else ""
+
+        self._master._run_script("train.py", [
+            "--config", run.config_path, "--auto-resume",
+        ])
         return str(latest) if latest.exists() else ""
 
     def _stage_generate_instructions(
@@ -417,7 +472,7 @@ class PipelineMenu:
     def _stage_instruction_tune(
         self, run: PipelineRun, config, input_path: str,
     ) -> str:
-        """Stage 6: SFT instruction tuning."""
+        """Stage 6: SFT instruction tuning via train_sft.py."""
         ckpt_dir = Path(config.checkpoint.output_dir)
         latest = ckpt_dir / "latest"
         checkpoint = input_path if input_path else str(latest)
@@ -428,16 +483,26 @@ class PipelineMenu:
         if st5 and st5.artifact:
             instruction_data = st5.artifact
 
+        if not Path(instruction_data).exists():
+            raise FileNotFoundError(
+                f"Instruction data not found at {instruction_data}. "
+                "Run Stage 5 (generate-instructions) first."
+            )
+
         args = [
+            "--data", instruction_data,
             "--config", run.config_path,
             "--checkpoint", checkpoint,
-            "--data", instruction_data,
-            "--format", "chatml",
             "--epochs", "2",
             "--lr", "2e-5",
         ]
-        self._master._run_script("train.py", args)
-        return str(latest) if latest.exists() else checkpoint
+        self._master._run_script("train_sft.py", args)
+
+        # train_sft.py saves to checkpoints/{config_stem}_sft/
+        cfg_stem = Path(run.config_path).stem
+        sft_dir = Path(f"checkpoints/{cfg_stem}_sft")
+        sft_latest = sft_dir / "latest"
+        return str(sft_latest) if sft_latest.exists() else str(sft_dir)
 
     def _stage_upcycle_moe(
         self, run: PipelineRun, config, input_path: str,
@@ -457,9 +522,18 @@ class PipelineMenu:
 
     def _stage_train_router(self, run: PipelineRun, config) -> str:
         """Stage 8: Train semantic router."""
-        args = ["--generate-data", "--arch", "mlp"]
+        save_dir = f"checkpoints/router/{run.name}"
+        data_path = Path("data/router_training_data.jsonl")
+
+        if data_path.exists():
+            cli.info("Router data", f"Using existing {data_path}")
+            args = ["--data", str(data_path), "--arch", "mlp", "--save-dir", save_dir]
+        else:
+            cli.dim("  Generating router training data...")
+            args = ["--generate-data", "--arch", "mlp", "--save-dir", save_dir]
+
         self._master._run_script("train_router.py", args)
-        return "data/router_model"
+        return save_dir
 
     def _stage_train_reasoning(
         self, run: PipelineRun, config, input_path: str,
@@ -481,23 +555,31 @@ class PipelineMenu:
     def _stage_evaluate(
         self, run: PipelineRun, config, input_path: str,
     ) -> str:
-        """Stage 10: Full evaluation suite."""
+        """Stage 10: Full evaluation suite (smoke + HumanEval + quality report)."""
         ckpt_dir = Path(config.checkpoint.output_dir)
         latest = ckpt_dir / "latest"
         checkpoint = input_path if input_path else str(latest)
 
-        # Smoke test
-        cli.dim("  Running smoke test...")
+        # 1. Smoke test
+        cli.step(1, 3, "Running smoke test")
         self._master._run_script("smoke_test.py", [
             "--checkpoint", checkpoint,
             "--config", run.config_path,
         ])
 
-        # HumanEval
-        cli.dim("  Running HumanEval evaluation...")
+        # 2. HumanEval pass@k
+        cli.step(2, 3, "Running HumanEval evaluation")
         self._master._run_script("evaluate.py", [
             "--checkpoint", checkpoint,
             "--config", run.config_path,
+        ])
+
+        # 3. Quality report
+        cli.step(3, 3, "Generating quality report")
+        self._master._run_script("quality_report.py", [
+            "--checkpoint", checkpoint,
+            "--config", run.config_path,
+            "--eval",
         ])
 
         return checkpoint
