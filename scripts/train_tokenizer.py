@@ -148,9 +148,16 @@ def main() -> None:
             if isinstance(cfg, dict) and cfg.get("enabled", False)
         )
 
+        # Count total enabled sources upfront
+        total_sources = sum(
+            1 for cfg in sources_cfg.values()
+            if isinstance(cfg, dict) and cfg.get("enabled", False)
+        )
+
         sources_used: list[str] = []
         iterators: list[Iterator[str]] = []
         total_samples_used = 0
+        step_num = 1
 
         for source_name, cfg in sources_cfg.items():
             if not isinstance(cfg, dict) or not cfg.get("enabled", False):
@@ -166,8 +173,8 @@ def main() -> None:
 
             if source_name == "code":
                 cli.step(
-                    len(sources_used),
-                    None,
+                    step_num,
+                    total_sources,
                     f"Collecting {proportional} code samples (weight={weight})",
                 )
                 source_languages: list[str] = cfg.get("languages", languages)
@@ -199,13 +206,15 @@ def main() -> None:
 
                 text_field = "text"
                 cli.step(
-                    len(sources_used),
-                    None,
+                    step_num,
+                    total_sources,
                     f"Streaming {proportional} samples from {dataset_name} (weight={weight})",
                 )
                 iterators.append(
                     _stream_hf_text_sample(dataset_name, text_field, proportional)
                 )
+
+            step_num += 1
 
         if not iterators:
             cli.fatal(
@@ -223,7 +232,7 @@ def main() -> None:
 
         combined: Iterator[str] = _combined_iterator(iterators)
 
-        cli.step(len(sources_used) + 1, None, f"Training BPE tokenizer with vocab size {args.vocab_size}")
+        cli.step(step_num, total_sources + 1, f"Training BPE tokenizer with vocab size {args.vocab_size}")
 
         try:
             tokenizer = train_from_iterator(
