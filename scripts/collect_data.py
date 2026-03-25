@@ -109,7 +109,7 @@ def main() -> None:
     requested = set(args.sources.split(",")) if args.sources else None
 
     # ── Load tokenizer ────────────────────────────────────────────────
-    tok_path = args.tokenizer or str(DatasetResolver.get_tokenizer_path(ds_path))
+    tok_path = args.tokenizer or str(DatasetResolver.get_tokenizer_path(ds_path, config_path=args.config))
     if not Path(tok_path).exists():
         cli.error("Tokenizer not found", tok_path)
         cli.dim(f"  Run: .venv/Scripts/python scripts/train_tokenizer.py --config {args.config}")
@@ -117,7 +117,7 @@ def main() -> None:
 
     tokenizer = CodeTokenizer(tok_path)
     seq_len = config.model.max_seq_len
-    output_dir = args.output_dir or str(DatasetResolver.get_dataset_dir(ds_path))
+    output_dir = args.output_dir or str(DatasetResolver.get_dataset_dir(ds_path, config_path=args.config))
 
     cli.header("Multi-Source Data Collection", f"Config: {args.config}")
 
@@ -127,7 +127,10 @@ def main() -> None:
     code_cfg = sources_config.get("code", {})
     if code_cfg.get("enabled", True) and (requested is None or "code" in requested):
         dataset = code_cfg.get("dataset", "bigcode/starcoderdata")
-        languages = code_cfg.get("languages", ["python", "typescript", "javascript"])
+        # Model config data.languages takes precedence over data_sources.yaml
+        from cola_coder.data.dataset_resolver import _read_config_languages
+        _cfg_langs = _read_config_languages(args.config)
+        languages = _cfg_langs if _cfg_langs is not None else code_cfg.get("languages", ["python", "typescript", "javascript"])
         weight = code_cfg.get("weight", 0.7)
 
         cli.step(1, 3, f"Collecting code from {dataset}")
