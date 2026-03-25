@@ -109,7 +109,7 @@ def main() -> None:
         if args.config is not None:
             from cola_coder.data.dataset_resolver import DatasetResolver
 
-            args.output = str(DatasetResolver.get_tokenizer_path(args.data_sources))
+            args.output = str(DatasetResolver.get_tokenizer_path(args.data_sources, config_path=args.config))
         else:
             args.output = storage.tokenizer_path
 
@@ -138,6 +138,17 @@ def main() -> None:
                 ds_config: dict = yaml.safe_load(f) or {}
         except (FileNotFoundError, OSError, yaml.YAMLError) as exc:
             cli.fatal(f"Could not load data sources config: {exc}")
+
+        # Load model config languages — override data_sources.yaml code languages
+        config_languages: list[str] | None = None
+        try:
+            with open(args.config) as f:
+                model_cfg: dict = yaml.safe_load(f) or {}
+            cl = model_cfg.get("data", {}).get("languages")
+            if isinstance(cl, list) and cl:
+                config_languages = [str(lang) for lang in cl]
+        except Exception:
+            pass
 
         sources_cfg: dict = ds_config.get("sources", {})
 
@@ -177,9 +188,11 @@ def main() -> None:
                     total_sources,
                     f"Collecting {proportional} code samples (weight={weight})",
                 )
-                source_languages: list[str] = cfg.get("languages", languages)
-                if isinstance(source_languages, list):
-                    source_languages = [str(lang) for lang in source_languages]
+                # Model config languages take precedence over data_sources.yaml
+                if config_languages is not None:
+                    source_languages: list[str] = config_languages
+                elif isinstance(cfg.get("languages"), list):
+                    source_languages = [str(lang) for lang in cfg["languages"]]
                 else:
                     source_languages = languages
 

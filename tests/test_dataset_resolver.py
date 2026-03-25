@@ -147,6 +147,45 @@ class TestGetDatasetName:
         name = DatasetResolver.get_dataset_name(cfg_path)
         assert name == "math-text"
 
+    def test_config_path_overrides_code_languages(self, tmp_path: Path) -> None:
+        """Model config data.languages overrides data_sources.yaml languages."""
+        cfg = _write_sources(
+            tmp_path,
+            {
+                "code": {
+                    "enabled": True,
+                    "languages": ["python", "javascript", "typescript"],
+                },
+                "text": {"enabled": True},
+            },
+        )
+        model_cfg = tmp_path / "model.yaml"
+        model_cfg.write_text(
+            "data:\n  languages:\n    - typescript\n", encoding="utf-8"
+        )
+        name = DatasetResolver.get_dataset_name(cfg, config_path=model_cfg)
+        assert name == "typescript-text"
+
+    def test_config_path_missing_languages_falls_back(self, tmp_path: Path) -> None:
+        """Model config without data.languages falls back to data_sources.yaml."""
+        cfg = _write_sources(
+            tmp_path,
+            {"code": {"enabled": True, "languages": ["go"]}},
+        )
+        model_cfg = tmp_path / "model.yaml"
+        model_cfg.write_text("model:\n  layers: 12\n", encoding="utf-8")
+        name = DatasetResolver.get_dataset_name(cfg, config_path=model_cfg)
+        assert name == "go"
+
+    def test_config_path_nonexistent_falls_back(self, tmp_path: Path) -> None:
+        """Non-existent model config falls back to data_sources.yaml languages."""
+        cfg = _write_sources(
+            tmp_path,
+            {"code": {"enabled": True, "languages": ["rust"]}},
+        )
+        name = DatasetResolver.get_dataset_name(cfg, config_path=tmp_path / "missing.yaml")
+        assert name == "rust"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # get_dataset_dir

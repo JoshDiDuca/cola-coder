@@ -384,14 +384,15 @@ class PipelineMenu:
         from cola_coder.data.dataset_resolver import DatasetResolver
 
         ds_path = _DATA_SOURCES_PATH
-        dataset_name = DatasetResolver.get_dataset_name(ds_path)
-        dataset_dir = DatasetResolver.get_dataset_dir(ds_path)
+        cfg_path = run.config_path
+        dataset_name = DatasetResolver.get_dataset_name(ds_path, config_path=cfg_path)
+        dataset_dir = DatasetResolver.get_dataset_dir(ds_path, config_path=cfg_path)
 
         # ── Tokenizer check (BEFORE data collection) ──────────────────────
         cli.info("Dataset", dataset_name)
-        tok_path = DatasetResolver.get_tokenizer_path(ds_path)
+        tok_path = DatasetResolver.get_tokenizer_path(ds_path, config_path=cfg_path)
 
-        if not DatasetResolver.tokenizer_exists(ds_path):
+        if not DatasetResolver.tokenizer_exists(ds_path, config_path=cfg_path):
             if cli.confirm(f"No tokenizer found for dataset '{dataset_name}'. Train one now?"):
                 self._train_tokenizer_for_run(run)
             else:
@@ -462,7 +463,7 @@ class PipelineMenu:
         """Stage 2: Prepare and tokenize data."""
         args = ["--config", run.config_path]
         from cola_coder.data.dataset_resolver import DatasetResolver
-        tokenizer = DatasetResolver.get_tokenizer_path(_DATA_SOURCES_PATH)
+        tokenizer = DatasetResolver.get_tokenizer_path(_DATA_SOURCES_PATH, config_path=run.config_path)
         if tokenizer.exists():
             args.extend(["--tokenizer", str(tokenizer)])
         args.append("--score")
