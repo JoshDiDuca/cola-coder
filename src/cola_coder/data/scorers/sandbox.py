@@ -7,10 +7,27 @@ mode for maximum security.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
+from typing import Any
+
+
+def _kill_process_tree(name: str) -> None:
+    """Kill a process and its children on Windows."""
+    if sys.platform != "win32":
+        return
+    try:
+        # Use taskkill /T to kill the process tree
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/IM", name],
+            capture_output=True, timeout=5,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
 
 
 class SandboxedRunner:
@@ -28,11 +45,42 @@ class SandboxedRunner:
         self.memory_mb = memory_mb
         self.docker_image = docker_image
 
+    @classmethod
+    def from_config(
+        cls,
+        config: "SecurityConfig",
+        audit_logger: "ScoringAuditLogger | None" = None,
+    ) -> SandboxedRunner:
+        """Construct from SecurityConfig with optional audit logger."""
+        from cola_coder.data.scorers.security import SecurityMode
+
+        instance = cls(
+            use_docker=(config.mode == SecurityMode.DOCKER),
+            timeout=config.timeout,
+            memory_mb=config.memory_mb,
+            docker_image=config.docker_image,
+        )
+        instance._config = config
+        instance._audit_logger = audit_logger
+        return instance
+
+    def verify_or_fail(self) -> None:
+        """Raises SecurityError if Docker is required but unavailable."""
+        if hasattr(self, '_config') and self._config.require_docker and not self._docker_available():
+            from cola_coder.data.scorers.security import SecurityError
+
+            raise SecurityError(
+                "Docker is required (security.require_docker=true) but not available. "
+                "Install/start Docker Desktop or set require_docker=false."
+            )
+
     def run(
         self,
         cmd: list[str],
         cwd: str | Path,
         capture_output: bool = True,
+        label: str = "",
+        file_hash: str = "",
     ) -> subprocess.CompletedProcess[str]:
         """Run a command in the sandbox.
 
@@ -40,10 +88,39 @@ class SandboxedRunner:
             cmd: Command and arguments (e.g. ["tsc", "--noEmit", "file.ts"]).
             cwd: Working directory (should be a temp dir with only the files to process).
             capture_output: Capture stdout/stderr.
+            label: Scorer name for audit logging.
+            file_hash: File content hash for audit logging.
 
         Returns:
             CompletedProcess with stdout/stderr.
         """
+        import time
+
+        start = time.perf_counter()
+        result = self._do_run(cmd, cwd, capture_output)
+        duration_ms = (time.perf_counter() - start) * 1000
+
+        if hasattr(self, '_audit_logger') and self._audit_logger:
+            from cola_coder.data.scorers.audit import AuditEntry
+
+            self._audit_logger.log(AuditEntry(
+                scorer=label,
+                file_hash=file_hash,
+                security_mode=self._config.mode.value if hasattr(self, '_config') else "native",
+                command=cmd[:5],  # Truncate long command lists
+                exit_code=result.returncode,
+                duration_ms=round(duration_ms, 1),
+            ))
+
+        return result
+
+    def _do_run(
+        self,
+        cmd: list[str],
+        cwd: str | Path,
+        capture_output: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        """Internal run dispatcher."""
         cwd = str(Path(cwd).resolve())
         if self.use_docker:
             return self._run_docker(cmd, cwd, capture_output)
@@ -57,16 +134,21 @@ class SandboxedRunner:
     ) -> subprocess.CompletedProcess[str]:
         """Run with timeout and isolated working directory."""
         try:
-            return subprocess.run(
-                cmd,
-                cwd=cwd,
-                capture_output=capture_output,
-                text=True,
-                timeout=self.timeout,
-                # No shell=True — prevents injection
-                # Isolated cwd — no access to parent dirs
-            )
+            kwargs: dict[str, Any] = {
+                "cwd": cwd,
+                "capture_output": capture_output,
+                "text": True,
+                "timeout": self.timeout,
+                # No shell=True -- prevents injection
+                # Isolated cwd -- no access to parent dirs
+            }
+            if sys.platform == "win32":
+                kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+
+            return subprocess.run(cmd, **kwargs)
         except subprocess.TimeoutExpired:
+            if sys.platform == "win32":
+                _kill_process_tree(cmd[0] if cmd else "")
             return subprocess.CompletedProcess(
                 args=cmd, returncode=-1,
                 stdout="", stderr=f"Timeout after {self.timeout}s",
@@ -84,6 +166,11 @@ class SandboxedRunner:
         capture_output: bool,
     ) -> subprocess.CompletedProcess[str]:
         """Run inside a Docker container with no network and memory limits."""
+        # Get docker config if available
+        docker_cfg = None
+        if hasattr(self, '_config'):
+            docker_cfg = self._config.docker
+
         docker_cmd = [
             "docker", "run",
             "--rm",                              # Auto-remove container
@@ -91,19 +178,28 @@ class SandboxedRunner:
             f"--memory={self.memory_mb}m",       # Memory limit
             "--read-only",                       # Read-only root filesystem
             "--tmpfs", "/tmp:rw,size=64m",       # Small writable tmp
+            "--pids-limit", str(docker_cfg.pids_limit if docker_cfg else 64),  # Prevent fork bombs
+            "--cap-drop", "ALL",                 # Drop all capabilities
+            "--security-opt", "no-new-privileges",  # Prevent privilege escalation
+            "--user", "65534:65534",             # Run as nobody
             "-v", f"{cwd}:/work:ro",             # Mount code read-only
             "-w", "/work",                       # Working directory
             self.docker_image,
             *cmd,
         ]
         try:
-            return subprocess.run(
-                docker_cmd,
-                capture_output=capture_output,
-                text=True,
-                timeout=self.timeout + 10,  # Extra time for Docker overhead
-            )
+            kwargs: dict[str, Any] = {
+                "capture_output": capture_output,
+                "text": True,
+                "timeout": self.timeout + 10,  # Extra time for Docker overhead
+            }
+            if sys.platform == "win32":
+                kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+
+            return subprocess.run(docker_cmd, **kwargs)
         except subprocess.TimeoutExpired:
+            if sys.platform == "win32":
+                _kill_process_tree("docker")
             return subprocess.CompletedProcess(
                 args=cmd, returncode=-1,
                 stdout="", stderr=f"Docker timeout after {self.timeout + 10}s",
@@ -125,3 +221,20 @@ class SandboxedRunner:
             return result.returncode == 0
         except (FileNotFoundError, subprocess.TimeoutExpired):
             return False
+
+    @staticmethod
+    def cleanup_stale_temps(prefix: str = "cola_") -> int:
+        """Remove stale temp directories from crashed scoring runs."""
+        import glob
+
+        tmpdir = tempfile.gettempdir()
+        stale = glob.glob(os.path.join(tmpdir, f"{prefix}*"))
+        cleaned = 0
+        for path in stale:
+            try:
+                if os.path.isdir(path):
+                    shutil.rmtree(path)
+                    cleaned += 1
+            except OSError:
+                pass
+        return cleaned
