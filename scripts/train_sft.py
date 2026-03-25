@@ -157,7 +157,15 @@ def main() -> None:
         # Try storage config
         from cola_coder.model.config import get_storage_config
         storage = get_storage_config()
-        tokenizer_path = storage.tokenizer_path
+        try:
+            from cola_coder.data.dataset_resolver import DatasetResolver
+            tokenizer_path = (
+                str(DatasetResolver.get_tokenizer_path())
+                if DatasetResolver.tokenizer_exists()
+                else storage.tokenizer_path
+            )
+        except Exception:
+            tokenizer_path = storage.tokenizer_path
     if not Path(tokenizer_path).exists():
         cli.fatal(
             f"Tokenizer not found: {tokenizer_path}",

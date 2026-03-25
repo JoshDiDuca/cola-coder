@@ -152,8 +152,15 @@ class InferenceBenchmarker:
         # Load tokenizer
         tok_path = self.tokenizer_path
         if not tok_path:
-            storage = get_storage_config()
-            tok_path = storage.tokenizer_path
+            try:
+                from cola_coder.data.dataset_resolver import DatasetResolver
+                tok_path = (
+                    str(DatasetResolver.get_tokenizer_path())
+                    if DatasetResolver.tokenizer_exists()
+                    else get_storage_config().tokenizer_path
+                )
+            except Exception:
+                tok_path = get_storage_config().tokenizer_path
         from tokenizers import Tokenizer  # type: ignore[import-untyped]
         self._tokenizer = Tokenizer.from_file(tok_path)
 
