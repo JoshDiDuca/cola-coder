@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from cola_coder.cli import cli
 from cola_coder.data.combine import DatasetCombiner, DatasetInput
+from cola_coder.data.dataset_resolver import DatasetResolver
 from cola_coder.data.download import stream_code_data
 from cola_coder.data.preprocess import tokenize_and_chunk
 from cola_coder.model.config import Config
@@ -86,8 +87,8 @@ def main() -> None:
         help="Max samples per source (for testing)",
     )
     parser.add_argument(
-        "--output-dir", default="data/processed",
-        help="Output directory for .npy files",
+        "--output-dir", default=None,
+        help="Output directory for .npy files (default: auto-resolved from DatasetResolver)",
     )
     parser.add_argument("--tokenizer", default=None, help="Tokenizer path override")
     parser.add_argument("--no-combine", action="store_true", help="Skip combining step")
@@ -108,16 +109,15 @@ def main() -> None:
     requested = set(args.sources.split(",")) if args.sources else None
 
     # ── Load tokenizer ────────────────────────────────────────────────
-    tok_path = args.tokenizer or "tokenizer.json"
+    tok_path = args.tokenizer or str(DatasetResolver.get_tokenizer_path(ds_path))
     if not Path(tok_path).exists():
         cli.error("Tokenizer not found", tok_path)
-        cli.dim("  Run: .venv/Scripts/python scripts/train_tokenizer.py")
+        cli.dim(f"  Run: .venv/Scripts/python scripts/train_tokenizer.py --config {args.config}")
         sys.exit(1)
 
     tokenizer = CodeTokenizer(tok_path)
     seq_len = config.model.max_seq_len
-    output_dir = args.output_dir
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    output_dir = args.output_dir or str(DatasetResolver.get_dataset_dir(ds_path))
 
     cli.header("Multi-Source Data Collection", f"Config: {args.config}")
 

@@ -512,7 +512,15 @@ def main() -> None:
     if args.tokenizer is not None:
         tokenizer_path = str(Path(args.tokenizer).resolve())
     else:
-        tokenizer_path = storage.tokenizer_path
+        try:
+            from cola_coder.data.dataset_resolver import DatasetResolver
+            tokenizer_path = (
+                str(DatasetResolver.get_tokenizer_path())
+                if DatasetResolver.tokenizer_exists()
+                else storage.tokenizer_path
+            )
+        except Exception:
+            tokenizer_path = storage.tokenizer_path
 
     if not Path(tokenizer_path).exists():
         cli.fatal(

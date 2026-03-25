@@ -160,7 +160,9 @@ class StorageConfig:
 
     data_dir: str = "./data"                    # Raw + processed data
     checkpoints_dir: str = "./checkpoints"      # Model checkpoints
-    tokenizer_path: str = "./tokenizer.json"    # Trained tokenizer
+    tokenizer_path: str = "./tokenizer.json"
+    # DEPRECATED: use DatasetResolver.get_tokenizer_path() for new code.
+    # Kept as a fallback for scripts without --config.
     cache_dir: str = "./cache"                  # General cache
     hf_cache_dir: str = ""                      # HuggingFace download cache (empty = HF default)
 

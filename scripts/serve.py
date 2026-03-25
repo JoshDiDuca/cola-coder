@@ -44,8 +44,8 @@ def main():
     parser.add_argument(
         "--tokenizer",
         type=str,
-        default=storage.tokenizer_path,
-        help=f"Path to tokenizer.json (default: {storage.tokenizer_path}).",
+        default=None,
+        help="Path to tokenizer.json (auto-resolved from data sources config if omitted).",
     )
     parser.add_argument(
         "--host",
@@ -88,6 +88,17 @@ def main():
         help="Enable instruction mode (ChatML formatting for /v1/chat/completions).",
     )
     args = parser.parse_args()
+
+    if args.tokenizer is None:
+        try:
+            from cola_coder.data.dataset_resolver import DatasetResolver
+            args.tokenizer = (
+                str(DatasetResolver.get_tokenizer_path())
+                if DatasetResolver.tokenizer_exists()
+                else storage.tokenizer_path
+            )
+        except Exception:
+            args.tokenizer = storage.tokenizer_path
 
     cli.header("Cola-Coder", "Inference Server")
 

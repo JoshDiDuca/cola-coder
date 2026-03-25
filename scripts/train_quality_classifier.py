@@ -456,7 +456,7 @@ def main() -> None:
     # Annotate command
     ann = sub.add_parser("annotate", help="Score samples with LLM")
     ann.add_argument("--data", required=True, help="Path to .npy token data")
-    ann.add_argument("--tokenizer", default=storage.tokenizer_path, help="Path to tokenizer.json")
+    ann.add_argument("--tokenizer", default=None, help="Path to tokenizer.json (auto-resolved from data sources config if omitted).")
     ann.add_argument("--num-samples", type=int, default=10000, help="Number of samples")
     ann.add_argument("--seq-len", type=int, default=2048, help="Tokens per sample")
     ann.add_argument("--output", default=str(Path(storage.data_dir) / "quality_labels.jsonl"),
@@ -481,6 +481,17 @@ def main() -> None:
     evl.add_argument("--labels", required=True, help="Path to quality_labels.jsonl")
 
     args = parser.parse_args()
+
+    if args.command == "annotate" and args.tokenizer is None:
+        try:
+            from cola_coder.data.dataset_resolver import DatasetResolver
+            args.tokenizer = (
+                str(DatasetResolver.get_tokenizer_path())
+                if DatasetResolver.tokenizer_exists()
+                else storage.tokenizer_path
+            )
+        except Exception:
+            args.tokenizer = storage.tokenizer_path
 
     if args.command == "demo":
         cmd_demo(args)

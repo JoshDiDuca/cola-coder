@@ -152,9 +152,12 @@ class ModelComparator:
             if c.exists():
                 return str(c)
         try:
-            from cola_coder.model.config import get_storage_config
-            storage = get_storage_config()
-            p = Path(storage.tokenizer_path)
+            try:
+                from cola_coder.data.dataset_resolver import DatasetResolver
+                p = DatasetResolver.get_tokenizer_path()
+            except Exception:
+                from cola_coder.model.config import get_storage_config
+                p = Path(get_storage_config().tokenizer_path)
             if p.exists():
                 return str(p)
         except Exception:

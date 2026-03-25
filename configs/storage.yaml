@@ -16,6 +16,8 @@
 storage:
   data_dir: "E:/cola-coder-data/data"
   checkpoints_dir: "E:/cola-coder-data/checkpoints"
+  # DEPRECATED: tokenizer is now stored in data/<dataset-name>/tokenizer.json
+  # Only used as a fallback for scripts that don't have --config.
   tokenizer_path: "E:/cola-coder-data/tokenizer.json"
   cache_dir: "E:/cola-coder-data/cache"
   hf_cache_dir: "E:/cola-coder-data/hf_cache"

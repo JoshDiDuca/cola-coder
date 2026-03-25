@@ -273,10 +273,21 @@ def main() -> None:
     )
     parser.add_argument("--save-dir", type=str, default="checkpoints/router")
     parser.add_argument(
-        "--tokenizer", type=str, default=storage.tokenizer_path,
-        help="Path to tokenizer.json",
+        "--tokenizer", type=str, default=None,
+        help="Path to tokenizer.json (auto-resolved from data sources config if omitted).",
     )
     args = parser.parse_args()
+
+    if args.tokenizer is None:
+        try:
+            from cola_coder.data.dataset_resolver import DatasetResolver
+            args.tokenizer = (
+                str(DatasetResolver.get_tokenizer_path())
+                if DatasetResolver.tokenizer_exists()
+                else storage.tokenizer_path
+            )
+        except Exception:
+            args.tokenizer = storage.tokenizer_path
 
     cli.header("Cola-Coder", "Router Training")
 

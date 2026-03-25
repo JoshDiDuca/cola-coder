@@ -561,7 +561,11 @@ class DataMenu:
         args: list[str] = []
         if config_path:
             args += ["--config", config_path]
-        args += ["--tokenizer", self._master.storage.tokenizer_path]
+        try:
+            from cola_coder.data.dataset_resolver import DatasetResolver
+            args += ["--tokenizer", str(DatasetResolver.get_tokenizer_path())]
+        except Exception:
+            args += ["--tokenizer", self._master.storage.tokenizer_path]
         if languages:
             args += ["--languages"] + languages
         if filter_mode == "none":
@@ -815,9 +819,14 @@ class DataMenu:
         if choice is None:
             return
 
+        try:
+            from cola_coder.data.dataset_resolver import DatasetResolver
+            _tok = str(DatasetResolver.get_tokenizer_path())
+        except Exception:
+            _tok = self._master.storage.tokenizer_path
         base_args = [
             "--config", "configs/tiny.yaml",
-            "--tokenizer", self._master.storage.tokenizer_path,
+            "--tokenizer", _tok,
         ]
 
         if choice == 0:
@@ -1216,9 +1225,11 @@ class DataMenu:
 
         try:
             from cola_coder.tokenizer.tokenizer_utils import CodeTokenizer
-            tokenizer_path = self._master._resolve_path(
-                self._master.storage.tokenizer_path
-            )
+            try:
+                from cola_coder.data.dataset_resolver import DatasetResolver
+                tokenizer_path = DatasetResolver.get_tokenizer_path()
+            except Exception:
+                tokenizer_path = self._master._resolve_path(self._master.storage.tokenizer_path)
             if not tokenizer_path.exists():
                 cli.warn(
                     f"{tokenizer_path} not found — can't decode samples."
@@ -1541,9 +1552,14 @@ class DataMenu:
         if not cli.confirm("Launch mixed data preparation?"):
             return
 
+        try:
+            from cola_coder.data.dataset_resolver import DatasetResolver
+            _tok = str(DatasetResolver.get_tokenizer_path())
+        except Exception:
+            _tok = self._master.storage.tokenizer_path
         args = [
             "--config", config_path,
-            "--tokenizer", self._master.storage.tokenizer_path,
+            "--tokenizer", _tok,
             "--mix-code", str(ratios["code"]),
             "--mix-text", str(ratios["text"]),
             "--mix-math", str(ratios["math"]),
@@ -1603,9 +1619,14 @@ class DataMenu:
         if not cli.confirm("Prepare repo-level training data?"):
             return
 
+        try:
+            from cola_coder.data.dataset_resolver import DatasetResolver
+            _tok = str(DatasetResolver.get_tokenizer_path())
+        except Exception:
+            _tok = self._master.storage.tokenizer_path
         args = [
             "--config", config_path,
-            "--tokenizer", self._master.storage.tokenizer_path,
+            "--tokenizer", _tok,
             "--repo-level",
             "--repo-format", fmt,
         ]

@@ -307,7 +307,11 @@ class MasterMenu:
         """Detect current pipeline state: what's been completed."""
         status = {}
 
-        tokenizer_path = self._resolve_path(self.storage.tokenizer_path)
+        try:
+            from cola_coder.data.dataset_resolver import DatasetResolver
+            tokenizer_path = DatasetResolver.get_tokenizer_path()
+        except Exception:
+            tokenizer_path = self._resolve_path(self.storage.tokenizer_path)
         status["tokenizer"] = "ready" if tokenizer_path.exists() else "missing"
 
         data_dir = self._resolve_path(self.storage.data_dir) / "processed"
@@ -805,9 +809,10 @@ class MasterMenu:
 
             if not stages[1][2]:
                 cli.info("Stage 2/3", "Preparing training data...")
+                from cola_coder.data.dataset_resolver import DatasetResolver
                 self._run_script("prepare_data.py", [
                     "--config", "configs/tiny.yaml",
-                    "--tokenizer", self.storage.tokenizer_path,
+                    "--tokenizer", str(DatasetResolver.get_tokenizer_path()),
                 ])
             else:
                 cli.success("Training data already prepared — skipping.")
@@ -830,9 +835,10 @@ class MasterMenu:
         elif choice == 1:
             self._run_script("train_tokenizer.py")
         elif choice == 2:
+            from cola_coder.data.dataset_resolver import DatasetResolver
             self._run_script("prepare_data.py", [
                 "--config", "configs/tiny.yaml",
-                "--tokenizer", self.storage.tokenizer_path,
+                "--tokenizer", str(DatasetResolver.get_tokenizer_path()),
             ])
         elif choice == 3:
             self._run_script("train.py", ["--config", "configs/tiny.yaml"])
@@ -1137,9 +1143,10 @@ class MasterMenu:
             return
 
         if choice == 0:
+            from cola_coder.data.dataset_resolver import DatasetResolver
             self._run_script("generate_router_data.py", [
                 "--source", "data/processed/train_data.npy",
-                "--tokenizer", self.storage.tokenizer_path,
+                "--tokenizer", str(DatasetResolver.get_tokenizer_path()),
             ])
         elif choice == 1:
             cli.info("Tip", "Enter the path to a directory containing .ts/.tsx/.js files")

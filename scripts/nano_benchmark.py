@@ -27,7 +27,16 @@ def main():
 
     storage = get_storage_config()
     model, config = load_model_for_inference(str(ckpt_path))
-    tokenizer = CodeTokenizer(storage.tokenizer_path)
+    try:
+        from cola_coder.data.dataset_resolver import DatasetResolver
+        _tok_path = (
+            str(DatasetResolver.get_tokenizer_path())
+            if DatasetResolver.tokenizer_exists()
+            else storage.tokenizer_path
+        )
+    except Exception:
+        _tok_path = storage.tokenizer_path
+    tokenizer = CodeTokenizer(_tok_path)
 
     import torch
     device = "cuda" if torch.cuda.is_available() else "cpu"
