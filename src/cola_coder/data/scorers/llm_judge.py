@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from cola_coder.data.scorers.credential_scanner import CredentialScanner
 from cola_coder.data.scorers.protocol import ScorerResult
 
 _JUDGE_PROMPT = """Rate this {language} code on a scale of 0-5 for training data quality.
@@ -169,8 +170,10 @@ class LlmJudge:
         api_key: str | None = None,
         base_url: str = "http://localhost:11434",
         timeout: int = 30,
+        credential_scanner: CredentialScanner | None = None,
     ) -> None:
         self.provider = provider
+        self._scanner = credential_scanner
         if provider == "ollama":
             self._backend = OllamaBackend(model, base_url, timeout)
         elif provider == "claude":
@@ -180,6 +183,16 @@ class LlmJudge:
 
     def score(self, code: str, metadata: dict[str, object] | None = None) -> ScorerResult:
         """Score a single code sample (expensive — use annotate_batch for bulk)."""
+        # Scan for credentials before sending to external API
+        if self._scanner is not None:
+            processed = self._scanner.process(code)
+            if processed is None:
+                return ScorerResult(
+                    score=0.5, scorer_name=self.name,
+                    details={"skipped": True, "reason": "credential_detected"},
+                )
+            code = processed  # Use potentially redacted code
+
         language = "TypeScript"
         if metadata and "language" in metadata:
             language = str(metadata["language"])
@@ -237,8 +250,16 @@ class LlmJudge:
                     skipped += 1
                     continue
 
+                # Scan for credentials before sending to external API
+                scan_code = code
+                if self._scanner is not None:
+                    processed = self._scanner.process(code)
+                    if processed is None:
+                        continue  # Skip samples with credentials
+                    scan_code = processed
+
                 lang = languages[i] if languages and i < len(languages) else "TypeScript"
-                score_int, reason = self._backend.score_code(code, lang)
+                score_int, reason = self._backend.score_code(scan_code, lang)
 
                 if score_int < 0:
                     continue  # Skip failed annotations

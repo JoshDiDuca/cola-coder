@@ -7,8 +7,11 @@ from typing import Any
 
 import yaml
 
+from cola_coder.data.scorers.audit import ScoringAuditLogger
+from cola_coder.data.scorers.credential_scanner import CredentialScanner
 from cola_coder.data.scorers.protocol import CompositeScorer, ScorerProtocol
 from cola_coder.data.scorers.sandbox import SandboxedRunner
+from cola_coder.data.scorers.security import SecurityConfig
 
 
 def load_scoring_config(
@@ -42,15 +45,25 @@ def build_composite_scorer(
     cfg = load_scoring_config(config_path)
     scoring_cfg = cfg.get("scoring", {})
     scorers_cfg = scoring_cfg.get("scorers", {})
-    sandbox_cfg = scoring_cfg.get("sandbox", {})
     tier_weights = scoring_cfg.get("tier_weights")
 
-    # Build sandbox runner for tool-based scorers
-    runner = SandboxedRunner(
-        use_docker=sandbox_cfg.get("use_docker", False),
-        timeout=sandbox_cfg.get("timeout", 10),
-        memory_mb=sandbox_cfg.get("memory_mb", 512),
-    )
+    # Build security config
+    security_cfg = SecurityConfig.from_dict(scoring_cfg)
+
+    # Build audit logger
+    audit_logger = ScoringAuditLogger(security_cfg.audit_log_path)
+
+    # Build sandbox runner with security config
+    runner = SandboxedRunner.from_config(security_cfg, audit_logger=audit_logger)
+
+    # Verify Docker if required
+    runner.verify_or_fail()
+
+    # Clean stale temp dirs
+    SandboxedRunner.cleanup_stale_temps()
+
+    # Build credential scanner
+    scanner = CredentialScanner(mode=security_cfg.credential_scan_mode)
 
     scorers: list[tuple[ScorerProtocol, float]] = []
 
@@ -66,7 +79,7 @@ def build_composite_scorer(
         if weight <= 0:
             continue
 
-        scorer = _instantiate_scorer(name, scfg, runner)
+        scorer = _instantiate_scorer(name, scfg, runner, scanner)
         if scorer is not None and scorer.is_available():
             scorers.append((scorer, weight))
 
@@ -77,6 +90,7 @@ def _instantiate_scorer(
     name: str,
     cfg: dict[str, Any],
     runner: SandboxedRunner,
+    scanner: CredentialScanner | None = None,
 ) -> ScorerProtocol | None:
     """Instantiate a scorer by name. Returns None if import fails."""
     try:
@@ -105,6 +119,16 @@ def _instantiate_scorer(
             from cola_coder.data.scorers.classifier import ClassifierScorer
             model_dir = cfg.get("model_dir", "models/quality_classifier")
             return ClassifierScorer(model_dir=model_dir)
+        elif name == "llm_judge":
+            from cola_coder.data.scorers.llm_judge import LlmJudge
+            return LlmJudge(
+                provider=cfg.get("provider", "ollama"),
+                model=cfg.get("model", "codellama"),
+                api_key=cfg.get("api_key"),
+                base_url=cfg.get("base_url", "http://localhost:11434"),
+                timeout=cfg.get("timeout", 30),
+                credential_scanner=scanner,
+            )
     except (ImportError, Exception):
         pass
     return None
@@ -115,19 +139,19 @@ def list_available_scorers(
 ) -> list[dict[str, object]]:
     """List all configured scorers with their availability status."""
     cfg = load_scoring_config(config_path)
-    scorers_cfg = cfg.get("scoring", {}).get("scorers", {})
-    sandbox_cfg = cfg.get("scoring", {}).get("sandbox", {})
+    scoring_cfg = cfg.get("scoring", {})
+    scorers_cfg = scoring_cfg.get("scorers", {})
 
-    runner = SandboxedRunner(
-        use_docker=sandbox_cfg.get("use_docker", False),
-        timeout=sandbox_cfg.get("timeout", 10),
-    )
+    # Build security config for runner construction
+    security_cfg = SecurityConfig.from_dict(scoring_cfg)
+    runner = SandboxedRunner.from_config(security_cfg)
+    scanner = CredentialScanner(mode=security_cfg.credential_scan_mode)
 
     results: list[dict[str, object]] = []
     for name, scfg in scorers_cfg.items():
         if not isinstance(scfg, dict):
             continue
-        scorer = _instantiate_scorer(name, scfg, runner)
+        scorer = _instantiate_scorer(name, scfg, runner, scanner)
         results.append({
             "name": name,
             "enabled": scfg.get("enabled", False),
