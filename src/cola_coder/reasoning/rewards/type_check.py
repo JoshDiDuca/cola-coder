@@ -10,23 +10,24 @@ Requirements:
 If tsc is not available, the reward function degrades gracefully.
 
 Error severity classification:
-- Syntax errors (TS1XXX): Code doesn't even parse — worst score
-- Type errors (TS2XXX): Type system violations — graduated penalty
-- Semantic errors (TS7XXX): Implicit any, unused vars — minor penalty
+- Syntax errors (TS1XXX): Code doesn't even parse -- worst score
+- Type errors (TS2XXX): Type system violations -- graduated penalty
+- Semantic errors (TS7XXX): Implicit any, unused vars -- minor penalty
 
 For a TS dev: think of this like running your CI type-check step, but
 as a reward signal for RL. The model learns to write code that passes
 tsc --strict, just like you learn to write code that passes CI.
+
+All tsc execution is delegated to TscRunner, which runs through
+SandboxedRunner with a hardened tsconfig.json.
 """
 
-import hashlib
 import logging
-import os
 import re
 import shutil
 import subprocess
-import tempfile
-from collections import OrderedDict
+
+from .tsc_runner import TscRunner, TscError
 
 logger = logging.getLogger(__name__)
 
@@ -50,10 +51,34 @@ _ERROR_LINE_RE = re.compile(
 )
 
 
+def _tsc_error_to_dict(error: TscError) -> dict:
+    """Convert a TscError dataclass to the dict format expected by TypeCheckReward.
+
+    TscError.code is a string like "TS2322"; the dict format uses int 2322.
+    """
+    # Extract numeric code from "TS2322" -> 2322
+    code_str = error.code
+    if code_str.startswith("TS"):
+        code_str = code_str[2:]
+    try:
+        code_int = int(code_str)
+    except ValueError:
+        code_int = 0
+
+    return {
+        "file": error.file,
+        "line": error.line,
+        "col": error.col,
+        "code": code_int,
+        "message": error.message,
+    }
+
+
 class TypeCheckReward:
     """Use TypeScript compiler as GRPO reward function.
 
-    Scores generated TypeScript code by running tsc --noEmit --strict.
+    Scores generated TypeScript code by running tsc --noEmit --strict
+    through TscRunner (SandboxedRunner with hardened tsconfig).
 
     Score mapping:
         1.0  = no errors (perfect type check)
@@ -83,8 +108,13 @@ class TypeCheckReward:
         self.strict = strict
         self.timeout = timeout
         self._tsc_path = self._find_tsc()
-        self._cache: OrderedDict[str, list[dict]] = OrderedDict()
         self._cache_size = cache_size
+        # TscRunner handles caching internally (MD5-based LRU)
+        self._tsc_runner = TscRunner(
+            strict=strict,
+            timeout=timeout,
+            cache_size=cache_size,
+        )
 
     @staticmethod
     def is_available() -> bool:
@@ -171,102 +201,20 @@ class TypeCheckReward:
         }
 
     def _run_tsc(self, code: str) -> list[dict] | None:
-        """Write code to temp file, run tsc --noEmit --strict, parse output.
+        """Run tsc through TscRunner (sandboxed with hardened tsconfig).
 
         Returns:
-            List of error dicts, or None if tsc crashed/timed out.
+            List of error dicts, or None if tsc is not available.
         """
         if self._tsc_path is None:
-            logger.warning("tsc not available — returning None")
+            logger.warning("tsc not available -- returning None")
             return None
 
-        # Check cache
-        code_hash = hashlib.md5(code.encode()).hexdigest()
-        if code_hash in self._cache:
-            self._cache.move_to_end(code_hash)
-            return self._cache[code_hash]
+        # Delegate to TscRunner (handles caching, temp files, sandboxed execution)
+        tsc_errors = self._tsc_runner.check(code)
 
-        tmp_path = None
-        try:
-            # Write to temp file (don't auto-delete so tsc can read it)
-            fd, tmp_path = tempfile.mkstemp(suffix=".ts", prefix="cola_check_")
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(code)
-
-            # Build tsc command
-            cmd = [self._tsc_path, "--noEmit", "--pretty", "false"]
-            if self.strict:
-                cmd.append("--strict")
-            # Target modern ES to avoid downlevel errors
-            cmd.extend(["--target", "ES2022"])
-            cmd.extend(["--module", "ESNext"])
-            cmd.extend(["--moduleResolution", "bundler"])
-            # Skip lib check to avoid errors from .d.ts files
-            cmd.append("--skipLibCheck")
-            cmd.append(tmp_path)
-
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=self.timeout,
-                cwd=tempfile.gettempdir(),
-            )
-
-            errors = self._parse_errors(result.stdout + result.stderr)
-
-            # Cache the result
-            self._cache[code_hash] = errors
-            if len(self._cache) > self._cache_size:
-                self._cache.popitem(last=False)
-
-            return errors
-
-        except subprocess.TimeoutExpired:
-            logger.warning("tsc timed out after %d seconds", self.timeout)
-            return None
-        except (FileNotFoundError, OSError) as e:
-            logger.error("Failed to run tsc: %s", e)
-            return None
-        finally:
-            if tmp_path and os.path.exists(tmp_path):
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
-
-    def _parse_errors(self, output: str) -> list[dict]:
-        """Parse tsc output into structured error list.
-
-        tsc output format (with --pretty false):
-            file.ts(line,col): error TS2322: Type 'X' is not assignable to type 'Y'
-        """
-        errors = []
-        for line in output.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            match = _ERROR_LINE_RE.match(line)
-            if match:
-                errors.append({
-                    "file": match.group(1),
-                    "line": int(match.group(2)),
-                    "col": int(match.group(3)),
-                    "code": int(match.group(4)),
-                    "message": match.group(5),
-                })
-            elif "error TS" in line:
-                # Catch errors without file location
-                code_match = _ERROR_CODE_RE.search(line)
-                if code_match:
-                    errors.append({
-                        "file": "",
-                        "line": 0,
-                        "col": 0,
-                        "code": int(code_match.group(1)),
-                        "message": line,
-                    })
-        return errors
+        # Convert TscError dataclasses to dict format for backward compatibility
+        return [_tsc_error_to_dict(e) for e in tsc_errors]
 
     @staticmethod
     def _find_tsc() -> str | None:
