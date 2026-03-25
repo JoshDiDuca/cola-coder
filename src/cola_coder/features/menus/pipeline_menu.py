@@ -408,13 +408,12 @@ class PipelineMenu:
             if cli.confirm(f"Tokenizer found (trained {trained_at}). Retrain? (No = use existing)", default=False):
                 self._train_tokenizer_for_run(run)
 
-        # ── Data existence check ──────────────────────────────────────────
-        existing = list(dataset_dir.glob("*.npy")) if dataset_dir.exists() else []
+        # ── Dataset selection: use auto-resolved or pick existing ─────────
+        selected_dir = self._select_dataset_dir(dataset_dir, dataset_name)
+        if selected_dir is not None:
+            return str(selected_dir)
 
-        if existing:
-            cli.info("Existing data", f"{len(existing)} .npy file(s) in {dataset_dir}")
-            if not cli.confirm("Re-collect data? (No = use existing)", default=False):
-                return str(dataset_dir)
+        # Fall through: no existing data selected → collect new data
 
         collect_options = [
             {"label": "Auto-collect (code + text + math)",
@@ -454,6 +453,84 @@ class PipelineMenu:
             )
 
         return str(dataset_dir)
+
+    @staticmethod
+    def _select_dataset_dir(
+        auto_dir: Path,
+        auto_name: str,
+    ) -> Path | None:
+        """Let the user pick the auto-resolved dataset or an existing one.
+
+        Scans the parent of *auto_dir* for sibling directories that contain
+        ``.npy`` files and presents them as options.
+
+        Returns:
+            A Path if the user picked an existing dataset (skip collection).
+            None if the user wants to collect new data.
+        """
+        base_dir = auto_dir.parent
+        if not base_dir.exists():
+            return None
+
+        # Scan for sibling dataset dirs with .npy files
+        siblings: list[tuple[str, Path, int]] = []
+        for d in sorted(base_dir.iterdir()):
+            if not d.is_dir():
+                continue
+            npy_files = list(d.glob("*.npy"))
+            if npy_files:
+                siblings.append((d.name, d, len(npy_files)))
+
+        # Auto-resolved dir may also have data
+        auto_npy = list(auto_dir.glob("*.npy")) if auto_dir.exists() else []
+
+        if not siblings and not auto_npy:
+            # Nothing exists anywhere — go straight to collection
+            return None
+
+        # Build options list
+        options: list[dict[str, str]] = []
+
+        if auto_npy:
+            options.append({
+                "label": f"{auto_name} (auto-resolved)",
+                "detail": f"{len(auto_npy)} .npy file(s) — matches current config",
+            })
+
+        for name, path, count in siblings:
+            if path == auto_dir:
+                continue  # Already listed as auto-resolved
+            options.append({
+                "label": name,
+                "detail": f"{count} .npy file(s)",
+            })
+
+        options.append({
+            "label": "Collect new data",
+            "detail": "Download and process fresh data for the current config",
+        })
+
+        choice = cli.choose("Select dataset:", options, allow_cancel=True)
+        if choice is None:
+            # Cancelled — use auto-resolved without re-collecting
+            return auto_dir if auto_npy else None
+
+        # Last option = collect new
+        if choice == len(options) - 1:
+            return None
+
+        # Auto-resolved is first when it has data
+        if auto_npy and choice == 0:
+            return auto_dir
+
+        # Otherwise map to sibling
+        offset = 1 if auto_npy else 0
+        _, selected_path, _ = siblings[choice - offset]
+        # Skip siblings that are the auto_dir (already handled)
+        filtered = [(n, p, c) for n, p, c in siblings if p != auto_dir]
+        if choice - offset < len(filtered):
+            _, selected_path, _ = filtered[choice - offset]
+        return selected_path
 
     def _train_tokenizer_for_run(self, run: PipelineRun) -> None:
         """Train tokenizer for the current dataset configuration."""
