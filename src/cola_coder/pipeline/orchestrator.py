@@ -204,7 +204,16 @@ class PipelineOrchestrator:
             str(self._scripts_dir / "train_tokenizer.py"),
             "--config", self.config_path,
         ]
-        return self._run_stage(PipelineStage.TOKENIZER, cmd, timeout=3600)
+        result = self._run_stage(PipelineStage.TOKENIZER, cmd, timeout=3600)
+        if result.success:
+            try:
+                from cola_coder.data.dataset_resolver import DatasetResolver
+                tok_path = str(DatasetResolver.get_tokenizer_path())
+            except Exception:
+                tok_path = "tokenizer.json"
+            result.artifacts["tokenizer_path"] = tok_path
+            self._artifacts["tokenizer_path"] = tok_path
+        return result
 
     def _run_data_prep(self) -> StageResult:
         """Prepare data if train_data.npy doesn't exist."""

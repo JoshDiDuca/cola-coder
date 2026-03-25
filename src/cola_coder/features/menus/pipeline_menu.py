@@ -24,6 +24,9 @@ from cola_coder.pipeline.run_manager import (
 if TYPE_CHECKING:
     from cola_coder.features.master_menu import MasterMenu
 
+# Default data sources config path — single source of truth for all stage handlers
+_DATA_SOURCES_PATH = "configs/data_sources.yaml"
+
 # Status icons for display
 _ICON = {
     "completed": "[green]✓[/green]",
@@ -380,7 +383,7 @@ class PipelineMenu:
         """Stage 1: Data collection — auto or interactive."""
         from cola_coder.data.dataset_resolver import DatasetResolver
 
-        ds_path = "configs/data_sources.yaml"
+        ds_path = _DATA_SOURCES_PATH
         dataset_name = DatasetResolver.get_dataset_name(ds_path)
         dataset_dir = DatasetResolver.get_dataset_dir(ds_path)
 
@@ -457,13 +460,13 @@ class PipelineMenu:
         """Stage 2: Prepare and tokenize data."""
         args = ["--config", run.config_path]
         from cola_coder.data.dataset_resolver import DatasetResolver
-        tokenizer = DatasetResolver.get_tokenizer_path("configs/data_sources.yaml")
+        tokenizer = DatasetResolver.get_tokenizer_path(_DATA_SOURCES_PATH)
         if tokenizer.exists():
             args.extend(["--tokenizer", str(tokenizer)])
         args.append("--score")
         self._run_stage_script("prepare_data.py", args)
-        # Find the output .npy
-        data_dir = Path(self._master.storage.data_dir) / "processed"
+        # Find the output .npy in the per-dataset directory
+        data_dir = DatasetResolver.get_dataset_dir(_DATA_SOURCES_PATH)
         npys = sorted(data_dir.glob("*.npy")) if data_dir.exists() else []
         return str(npys[-1]) if npys else str(data_dir)
 
