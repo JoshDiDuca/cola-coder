@@ -433,15 +433,21 @@ class TestResumeFromFailedStage:
     ):
         """Artifacts are persisted in the state file so resume can find them."""
         orchestrator.stages = [PipelineStage.TOKENIZER]
-        orchestrator._artifacts["tokenizer_path"] = "tokenizer.json"
+        expected_tok = str(tmp_path / "tok" / "tokenizer.json")
 
-        with patch("subprocess.run", return_value=_make_completed_proc(0)):
-            orchestrator.run()
+        # _run_tokenizer now overwrites _artifacts["tokenizer_path"] via
+        # DatasetResolver after success; mock it to a known value.
+        with patch(
+            "cola_coder.data.dataset_resolver.DatasetResolver.get_tokenizer_path",
+            return_value=Path(expected_tok),
+        ):
+            with patch("subprocess.run", return_value=_make_completed_proc(0)):
+                orchestrator.run()
 
         with open(orchestrator._state_file, encoding="utf-8") as f:
             state = json.load(f)
 
-        assert state["artifacts"]["tokenizer_path"] == "tokenizer.json"
+        assert state["artifacts"]["tokenizer_path"] == expected_tok
 
     def test_artifacts_loaded_on_init(
         self, config_path: str, tmp_path: Path
