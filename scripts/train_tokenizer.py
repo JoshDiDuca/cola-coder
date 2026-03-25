@@ -100,8 +100,9 @@ def main() -> None:
         type=int,
         default=100_000,
         dest="tok_samples",
-        help="Max samples per HF text/math source during tokenizer training (default: 100000). "
-             "Set 0 for unlimited (streams entire dataset — may take hours).",
+        help="Max samples per source during tokenizer training (default: 100000). "
+             "Code reads from local cache; text/math streams from HuggingFace. "
+             "Set 0 for unlimited code (may OOM on large caches).",
     )
     parser.add_argument(
         "--data-sources",
@@ -181,14 +182,14 @@ def main() -> None:
                 cli.step(
                     step_num,
                     total_sources,
-                    f"Streaming ALL cached {'+'.join(source_languages)} files (no sample cap)",
+                    f"Streaming {str(tok_cap) if tok_cap else 'ALL'} cached {'+'.join(source_languages)} files",
                 )
                 from cola_coder.data.download import stream_code_data
                 iterators.append(
                     stream_code_data(
                         cfg.get("dataset", "bigcode/starcoderdata"),
                         languages=source_languages,
-                        max_samples=None,  # ALL cached parquet files
+                        max_samples=tok_cap,
                     )
                 )
 
