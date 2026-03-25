@@ -26,7 +26,56 @@ from cola_coder.data.dataset_resolver import DatasetResolver
 from cola_coder.data.download import stream_code_data
 from cola_coder.data.preprocess import tokenize_and_chunk
 from cola_coder.model.config import Config
+from cola_coder.security.scanner import CompositeMalwareScanner
 from cola_coder.tokenizer.tokenizer_utils import CodeTokenizer
+
+
+# ── Malware scanning ─────────────────────────────────────────────────────
+
+def _scan_downloaded_data(
+    raw_dir: Path,
+    config: dict,
+    step_num: int,
+    total_steps: int,
+) -> bool:
+    """Scan downloaded data for malware. Returns True if clean or user continues."""
+    scanner = CompositeMalwareScanner.from_config(config.get("malware_scan", {}))
+    if not scanner.available_scanners:
+        return True  # No scanners available, continue
+
+    cli.step(step_num, total_steps, f"Scanning {raw_dir.name} for malware...")
+    cli.dim(f"  Active scanners: {', '.join(scanner.available_scanners)}")
+
+    result = scanner.scan_directory(raw_dir)
+
+    if result.is_clean:
+        cli.success(f"  Clean: {result.files_scanned} files scanned ({result.scan_duration_ms:.0f}ms)")
+        return True
+
+    # Threats found
+    cli.warn(f"  {len(result.threats)} threat(s) found in {result.files_scanned} files")
+    for t in result.threats:
+        cli.error(f"    [{t.severity.upper()}] {t.name}: {t.file_path}")
+        if t.details:
+            cli.dim(f"      {t.details}")
+
+    on_threat = config.get("malware_scan", {}).get("on_threat", "warn")
+    if on_threat == "abort":
+        cli.error("  Aborting (on_threat=abort)")
+        return False
+    elif on_threat == "quarantine":
+        # Move threatening files to quarantine dir
+        quarantine_dir = raw_dir.parent / "quarantine"
+        quarantine_dir.mkdir(exist_ok=True)
+        for t in result.threats:
+            src = Path(t.file_path)
+            if src.exists():
+                dst = quarantine_dir / src.name
+                src.rename(dst)
+                cli.dim(f"    Quarantined: {src.name}")
+        return True
+    else:  # warn
+        return cli.confirm("  Continue despite threats?")
 
 
 # ── Generic HF text streaming ────────────────────────────────────────────
@@ -187,6 +236,23 @@ def main() -> None:
         )
         collected.append(DatasetInput(path=output_path, weight=weight, name="math"))
         cli.success(f"Math data saved: {output_path}")
+
+    # ── Malware scan ─────────────────────────────────────────────────
+    if collected:
+        # Load scoring config for malware_scan settings
+        scoring_path = Path("configs/scoring.yaml")
+        scan_config: dict = {}
+        if scoring_path.exists():
+            with open(scoring_path, encoding="utf-8") as f:
+                scoring_cfg = yaml.safe_load(f) or {}
+            scan_config = scoring_cfg.get("scoring", {}).get("security", {})
+
+        scan_ok = _scan_downloaded_data(
+            Path(output_dir), scan_config, step_num=4, total_steps=4,
+        )
+        if not scan_ok:
+            cli.error("Data collection aborted due to malware scan results.")
+            sys.exit(1)
 
     # ── Combine ───────────────────────────────────────────────────────
     if len(collected) > 1 and not args.no_combine:

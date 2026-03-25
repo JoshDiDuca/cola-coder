@@ -2,7 +2,32 @@
 # Used by: scripts/score_data.py and the "Score & Filter" menu.
 
 scoring:
-  # Sandbox settings for running tsc/eslint on untrusted code
+  # Security settings for running tools on untrusted code
+  security:
+    mode: "native"              # off | native | docker
+    require_docker: false       # if true + docker unavailable → refuse to score
+    timeout: 10                 # seconds per scoring operation
+    memory_mb: 512              # Docker memory limit
+    docker_image: "node:20-alpine"
+    audit_log: "logs/scoring_audit.jsonl"
+    credential_scan:
+      mode: "strip"             # off | warn | strip | reject
+    docker:
+      pids_limit: 64
+      cap_drop: ["ALL"]
+      network: "none"
+      read_only: true
+      tmpfs_size_mb: 64
+    malware_scan:
+      enabled: true
+      on_threat: "warn"          # warn | quarantine | abort
+      scanners:
+        defender: true           # Windows Defender (auto-detected)
+        yara: true               # Custom YARA rules (always available)
+        clamav: false            # ClamAV daemon (opt-in)
+      yara_rules_dir: null       # null = use embedded rules
+
+  # Sandbox settings for running tsc/eslint on untrusted code (legacy, see security: above)
   sandbox:
     use_docker: false    # Set true for maximum isolation (requires Docker)
     timeout: 10          # Seconds per scoring operation

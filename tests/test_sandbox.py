@@ -55,3 +55,78 @@ class TestSandboxedRunner:
         assert result.returncode == 0
         # The cwd should be the tmp_path (normalized)
         assert Path(result.stdout.strip()).resolve() == tmp_path.resolve()
+
+
+class TestSandboxedRunnerSecurity:
+    """Security hardening tests."""
+
+    def test_from_config_factory(self) -> None:
+        from cola_coder.data.scorers.security import SecurityConfig, SecurityMode
+
+        config = SecurityConfig(mode=SecurityMode.NATIVE, timeout=15)
+        runner = SandboxedRunner.from_config(config)
+        assert runner.timeout == 15
+
+    def test_from_config_docker_mode(self) -> None:
+        from cola_coder.data.scorers.security import SecurityConfig, SecurityMode
+
+        with patch.object(SandboxedRunner, "_docker_available", return_value=True):
+            config = SecurityConfig(mode=SecurityMode.DOCKER)
+            runner = SandboxedRunner.from_config(config)
+            assert runner.use_docker is True
+
+    def test_verify_or_fail_raises_when_docker_required(self) -> None:
+        from cola_coder.data.scorers.security import SecurityConfig, SecurityMode, SecurityError
+
+        config = SecurityConfig(mode=SecurityMode.DOCKER, require_docker=True)
+        with patch.object(SandboxedRunner, "_docker_available", return_value=False):
+            runner = SandboxedRunner.from_config(config)
+            with pytest.raises(SecurityError, match="Docker is required"):
+                runner.verify_or_fail()
+
+    def test_verify_or_fail_passes_when_docker_available(self) -> None:
+        from cola_coder.data.scorers.security import SecurityConfig, SecurityMode
+
+        config = SecurityConfig(mode=SecurityMode.DOCKER, require_docker=True)
+        with patch.object(SandboxedRunner, "_docker_available", return_value=True):
+            runner = SandboxedRunner.from_config(config)
+            runner.verify_or_fail()  # Should not raise
+
+    def test_cleanup_stale_temps(self, tmp_path: Path) -> None:
+        """cleanup_stale_temps removes orphaned dirs."""
+        import shutil
+        import tempfile
+
+        # Create a fake stale temp dir
+        stale = Path(tempfile.gettempdir()) / "cola_test_stale_12345"
+        stale.mkdir(exist_ok=True)
+        (stale / "file.ts").write_text("test")
+        try:
+            cleaned = SandboxedRunner.cleanup_stale_temps(prefix="cola_test_stale_")
+            assert cleaned >= 1
+            assert not stale.exists()
+        finally:
+            if stale.exists():
+                shutil.rmtree(stale)
+
+    def test_audit_integration(self, tmp_path: Path) -> None:
+        """run() logs to audit logger when configured."""
+        import json
+
+        from cola_coder.data.scorers.audit import ScoringAuditLogger
+        from cola_coder.data.scorers.security import SecurityConfig
+
+        log_path = tmp_path / "audit.jsonl"
+        logger = ScoringAuditLogger(log_path)
+        config = SecurityConfig()
+        runner = SandboxedRunner.from_config(config, audit_logger=logger)
+
+        runner.run(
+            ["python", "-c", "print('hi')"],
+            cwd=tmp_path, label="test_scorer", file_hash="abc123",
+        )
+
+        assert log_path.exists()
+        data = json.loads(log_path.read_text().strip())
+        assert data["scorer"] == "test_scorer"
+        assert data["file_hash"] == "abc123"
