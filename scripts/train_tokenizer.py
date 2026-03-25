@@ -23,7 +23,7 @@ from cola_coder.model.config import get_storage_config
 def _stream_hf_text_sample(
     dataset_name: str,
     text_field: str,
-    max_samples: int,
+    max_samples: int | None,
 ) -> Iterator[str]:
     """Stream text strings from a HuggingFace dataset.
 
@@ -34,7 +34,7 @@ def _stream_hf_text_sample(
     Args:
         dataset_name: HuggingFace dataset identifier, e.g. "HuggingFaceFW/fineweb-edu".
         text_field: Name of the column that holds the text, e.g. "text".
-        max_samples: Maximum number of rows to yield.
+        max_samples: Maximum number of rows to yield.  None = stream entire dataset.
 
     Yields:
         One text string per dataset row.
@@ -50,7 +50,7 @@ def _stream_hf_text_sample(
     dataset = load_dataset(dataset_name, split="train", streaming=True)
     count = 0
     for row in dataset:
-        if count >= max_samples:
+        if max_samples is not None and count >= max_samples:
             break
         text = row.get(text_field, "")
         if isinstance(text, str) and text.strip():
@@ -96,6 +96,14 @@ def main() -> None:
         help="Model config YAML. When given, resolves output path via DatasetResolver.",
     )
     parser.add_argument(
+        "--tok-samples",
+        type=int,
+        default=100_000,
+        dest="tok_samples",
+        help="Max samples per HF text/math source during tokenizer training (default: 100000). "
+             "Set 0 for unlimited (streams entire dataset — may take hours).",
+    )
+    parser.add_argument(
         "--data-sources",
         type=str,
         default="configs/data_sources.yaml",
@@ -124,14 +132,6 @@ def main() -> None:
         from cola_coder.data.dataset_resolver import DatasetResolver
         from cola_coder.tokenizer.train_tokenizer import train_from_iterator
 
-        try:
-            from cola_coder.data.download import download_sample_data
-        except ImportError:
-            cli.fatal(
-                "Could not import cola_coder",
-                hint="Make sure the package is installed: pip install -e .",
-            )
-
         # Load data_sources.yaml
         try:
             with open(args.data_sources) as f:
@@ -152,13 +152,6 @@ def main() -> None:
 
         sources_cfg: dict = ds_config.get("sources", {})
 
-        # Build per-source sample counts (proportional to weight)
-        total_weight = sum(
-            float(cfg.get("weight", 0))
-            for cfg in sources_cfg.values()
-            if isinstance(cfg, dict) and cfg.get("enabled", False)
-        )
-
         # Count total enabled sources upfront
         total_sources = sum(
             1 for cfg in sources_cfg.values()
@@ -167,27 +160,16 @@ def main() -> None:
 
         sources_used: list[str] = []
         iterators: list[Iterator[str]] = []
-        total_samples_used = 0
         step_num = 1
+        tok_cap: int | None = args.tok_samples if args.tok_samples > 0 else None
 
         for source_name, cfg in sources_cfg.items():
             if not isinstance(cfg, dict) or not cfg.get("enabled", False):
                 continue
 
-            weight = float(cfg.get("weight", 0))
-            proportional = int(args.num_samples * (weight / total_weight)) if total_weight > 0 else 0
-            if proportional <= 0:
-                continue
-
-            total_samples_used += proportional
             sources_used.append(source_name)
 
             if source_name == "code":
-                cli.step(
-                    step_num,
-                    total_sources,
-                    f"Collecting {proportional} code samples (weight={weight})",
-                )
                 # Model config languages take precedence over data_sources.yaml
                 if config_languages is not None:
                     source_languages: list[str] = config_languages
@@ -196,35 +178,33 @@ def main() -> None:
                 else:
                     source_languages = languages
 
-                file_paths = download_sample_data(
-                    output_dir=str(Path(storage.data_dir) / "raw"),
-                    languages=source_languages,
-                    num_samples=proportional,
-                )
-
-                def _file_iter(paths: list[str]) -> Iterator[str]:
-                    for fp in paths:
-                        try:
-                            with open(fp, encoding="utf-8", errors="replace") as fh:
-                                yield fh.read()
-                        except OSError:
-                            continue
-
-                iterators.append(_file_iter(file_paths))
-
-            else:
-                dataset_name: str = str(cfg.get("dataset", ""))
-                if not dataset_name:
-                    cli.fatal(f"Source '{source_name}' is missing 'dataset' key in {args.data_sources}")
-
-                text_field = "text"
                 cli.step(
                     step_num,
                     total_sources,
-                    f"Streaming {proportional} samples from {dataset_name} (weight={weight})",
+                    f"Streaming ALL cached {'+'.join(source_languages)} files (no sample cap)",
+                )
+                from cola_coder.data.download import stream_code_data
+                iterators.append(
+                    stream_code_data(
+                        cfg.get("dataset", "bigcode/starcoderdata"),
+                        languages=source_languages,
+                        max_samples=None,  # ALL cached parquet files
+                    )
+                )
+
+            else:
+                hf_dataset: str = str(cfg.get("dataset", ""))
+                if not hf_dataset:
+                    cli.fatal(f"Source '{source_name}' is missing 'dataset' key in {args.data_sources}")
+
+                cap_str = str(tok_cap) if tok_cap is not None else "unlimited"
+                cli.step(
+                    step_num,
+                    total_sources,
+                    f"Streaming {cap_str} samples from {hf_dataset}",
                 )
                 iterators.append(
-                    _stream_hf_text_sample(dataset_name, text_field, proportional)
+                    _stream_hf_text_sample(hf_dataset, "text", tok_cap)
                 )
 
             step_num += 1
@@ -261,7 +241,7 @@ def main() -> None:
             tokenizer_path=Path(args.output),
             vocab_size=tokenizer.get_vocab_size(),
             sources=sources_used,
-            num_samples=total_samples_used,
+            num_samples=0,  # code source is unbounded; not tracked
         )
 
     # ------------------------------------------------------------------

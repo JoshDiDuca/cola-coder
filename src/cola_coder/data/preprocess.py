@@ -203,8 +203,8 @@ def tokenize_and_chunk(
         print("Warning: No data was processed!")
         data = np.zeros((1, chunk_size), dtype=np.uint16)
     else:
-        # Read just the used portion and save as a proper .npy file
-        data = np.array(mmap_data[:num_chunks])
+        # Slice the memmap to the used portion — numpy.save handles this directly
+        data = mmap_data[:num_chunks]
 
     np.save(output_file, data)
 

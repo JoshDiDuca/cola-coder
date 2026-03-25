@@ -163,8 +163,8 @@ def main():
     parser.add_argument(
         "--output-dir",
         type=str,
-        default=str(Path(storage.data_dir) / "processed"),
-        help="Output directory for processed data (default: ./data/processed).",
+        default=None,
+        help="Output directory for processed data (default: per-dataset dir from DatasetResolver).",
     )
     parser.add_argument(
         "--output-name",
@@ -223,12 +223,19 @@ def main():
     )
     args = parser.parse_args()
 
+    from cola_coder.data.dataset_resolver import DatasetResolver
+
+    if args.output_dir is None:
+        if args.config is not None:
+            args.output_dir = str(DatasetResolver.get_dataset_dir(config_path=args.config))
+        else:
+            args.output_dir = str(Path(storage.data_dir) / "processed")
+
     if args.tokenizer is None:
         try:
-            from cola_coder.data.dataset_resolver import DatasetResolver
             args.tokenizer = (
-                str(DatasetResolver.get_tokenizer_path())
-                if DatasetResolver.tokenizer_exists()
+                str(DatasetResolver.get_tokenizer_path(config_path=args.config))
+                if DatasetResolver.tokenizer_exists(config_path=args.config)
                 else storage.tokenizer_path
             )
         except Exception:
