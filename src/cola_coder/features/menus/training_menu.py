@@ -802,7 +802,11 @@ class TrainingMenu:
         """Train BPE tokenizer."""
         _print_section_header("Train Tokenizer", "BPE tokenizer from scratch")
 
-        tokenizer_path = self._master._resolve_path(self._master.storage.tokenizer_path)
+        try:
+            from cola_coder.data.dataset_resolver import DatasetResolver
+            tokenizer_path = DatasetResolver.get_tokenizer_path()
+        except Exception:
+            tokenizer_path = self._master._resolve_path(self._master.storage.tokenizer_path)
         if tokenizer_path.exists():
             if not cli.confirm(
                 f"{tokenizer_path.name} already exists. Retrain?", default=False

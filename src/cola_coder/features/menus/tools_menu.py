@@ -314,7 +314,11 @@ class ToolsMenu:
         """Show configured storage paths from StorageConfig."""
         _print_section_header("Storage Paths", "Current data and checkpoint locations")
 
-        tokenizer_path = self._master._resolve_path(self._master.storage.tokenizer_path)
+        try:
+            from cola_coder.data.dataset_resolver import DatasetResolver
+            tokenizer_path = DatasetResolver.get_tokenizer_path()
+        except Exception:
+            tokenizer_path = self._master._resolve_path(self._master.storage.tokenizer_path)
         data_dir = self._master._resolve_path(self._master.storage.data_dir)
         checkpoints_dir = self._master._resolve_path(self._master.storage.checkpoints_dir)
 

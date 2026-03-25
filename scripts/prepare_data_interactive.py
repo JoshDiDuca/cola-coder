@@ -426,8 +426,8 @@ def main():
         description="Interactive data preparation for Cola-Coder.",
     )
     parser.add_argument(
-        "--tokenizer", type=str, default=storage.tokenizer_path,
-        help="Path to trained tokenizer.json file.",
+        "--tokenizer", type=str, default=None,
+        help="Path to tokenizer.json (auto-resolved from data sources config if omitted).",
     )
     parser.add_argument(
         "--output-dir", type=str, default=str(Path(storage.data_dir) / "processed"),
@@ -438,6 +438,17 @@ def main():
         help="Files per tokenization batch (default: 256).",
     )
     args = parser.parse_args()
+
+    if args.tokenizer is None:
+        try:
+            from cola_coder.data.dataset_resolver import DatasetResolver
+            args.tokenizer = (
+                str(DatasetResolver.get_tokenizer_path())
+                if DatasetResolver.tokenizer_exists()
+                else storage.tokenizer_path
+            )
+        except Exception:
+            args.tokenizer = storage.tokenizer_path
 
     # Validate tokenizer exists
     if not Path(args.tokenizer).exists():
