@@ -1,0 +1,59 @@
+# Data quality scoring configuration.
+# Used by: scripts/score_data.py and the "Score & Filter" menu.
+
+scoring:
+  # Sandbox settings for running tsc/eslint on untrusted code
+  sandbox:
+    use_docker: false    # Set true for maximum isolation (requires Docker)
+    timeout: 10          # Seconds per scoring operation
+    memory_mb: 512       # Docker memory limit
+
+  # Which scorers to enable and their composite weights
+  scorers:
+    tsc:
+      enabled: true
+      weight: 0.3
+      strict: true
+      timeout: 10
+
+    eslint:
+      enabled: true
+      weight: 0.2
+      timeout: 15
+
+    stars:
+      enabled: true
+      weight: 0.15
+      default_score: 0.3   # Fallback when no star data available
+
+    heuristic:
+      enabled: true
+      weight: 0.2
+
+    classifier:
+      enabled: false       # Enable after training with train_judge_classifier.py
+      weight: 0.15
+      model_dir: "models/quality_classifier"
+
+  # Score-to-training-weight tier mapping
+  tier_weights:
+    excellent: 2.0    # score >= 0.8
+    good: 1.5         # score >= 0.6
+    average: 1.0      # score >= 0.4
+    poor: 0.3         # score >= 0.2
+    reject: 0.0       # score < 0.2
+
+# LLM-as-Judge settings (for annotation phase)
+llm_judge:
+  provider: "ollama"              # "claude" or "ollama"
+  model: "codellama"              # Model name for scoring
+  base_url: "http://localhost:11434"  # Ollama API base URL
+  num_samples: 10000              # Number of samples to annotate
+  output_path: "data/annotations.jsonl"
+  # For Claude: set ANTHROPIC_API_KEY environment variable
+
+# Curriculum ordering settings
+curriculum:
+  enabled: false
+  strategy: "easy_to_hard"    # easy_to_hard, hard_to_easy, staged
+  num_phases: 3               # For staged strategy

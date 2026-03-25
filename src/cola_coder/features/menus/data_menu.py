@@ -163,6 +163,14 @@ class DataMenu:
                  "detail": "scripts/score_repos.py — rank repos by quality"},
                 {"label": "Train Quality Classifier",
                  "detail": "scripts/train_quality_classifier.py"},
+                {"label": "Run Data Scoring Pipeline",
+                 "detail": "Score data with tsc + ESLint + stars + heuristic scorers"},
+                {"label": "LLM-as-Judge Annotation",
+                 "detail": "Score samples with Claude/Ollama for classifier training"},
+                {"label": "Train Quality Classifier (new)",
+                 "detail": "Train fast classifier from LLM annotations"},
+                {"label": "Apply Curriculum Ordering",
+                 "detail": "Reorder data by quality score for curriculum learning"},
                 {"label": "Advanced Filters",
                  "detail": "PII, dedup, license, syntax — view available plugins"},
             ]
@@ -180,6 +188,14 @@ class DataMenu:
             elif choice == 3:
                 self._train_quality_classifier_menu()
             elif choice == 4:
+                self._run_scoring_pipeline()
+            elif choice == 5:
+                self._llm_judge_annotation()
+            elif choice == 6:
+                self._train_judge_classifier()
+            elif choice == 7:
+                self._apply_curriculum_ordering()
+            elif choice == 8:
                 self._advanced_filters_info()
 
     # ── Inspect & View ────────────────────────────────────────────────────
@@ -1006,6 +1022,210 @@ class DataMenu:
             "(scripts/prepare_data_interactive.py)[/dim]"
         )
 
+        self._master._pause()
+
+    def _run_scoring_pipeline(self) -> None:
+        """Run the data scoring pipeline (score_data.py)."""
+        _print_section_header(
+            "Data Scoring Pipeline",
+            "Score .npy or .jsonl data with composite scorers",
+        )
+
+        # Choose data format
+        fmt_options = [
+            {"label": "Score .npy data", "detail": "Tokenized data — requires tokenizer"},
+            {"label": "Score .jsonl data", "detail": "Raw JSONL (GitHub scraped)"},
+        ]
+        fmt_choice = cli.choose("Data format:", fmt_options, allow_cancel=True)
+        if fmt_choice is None:
+            return
+
+        try:
+            data_path = input("Path to data file: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            cli.warn("Cancelled.")
+            return
+        if not data_path:
+            cli.warn("No path entered — cancelled.")
+            return
+
+        args: list[str] = []
+        if fmt_choice == 0:
+            args.extend(["--data", data_path])
+            try:
+                tok_path = input("Path to tokenizer.json: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                cli.warn("Cancelled.")
+                return
+            if not tok_path:
+                cli.warn("Tokenizer path required for .npy data.")
+                return
+            args.extend(["--tokenizer", tok_path])
+        else:
+            args.extend(["--jsonl", data_path])
+
+        # Choose scorers
+        scorer_options = [
+            {"label": "All enabled scorers", "detail": "Use scoring.yaml config"},
+            {"label": "Full (tsc + eslint + heuristic)", "detail": "Comprehensive"},
+            {"label": "Quick (heuristic only)", "detail": "Fast heuristic-based scoring"},
+        ]
+        scorer_choice = cli.choose("Scorers:", scorer_options, allow_cancel=True)
+        if scorer_choice is None:
+            return
+        if scorer_choice == 1:
+            args.extend(["--scorers", "tsc,eslint,heuristic"])
+        elif scorer_choice == 2:
+            args.extend(["--scorers", "heuristic"])
+
+        self._master._run_script("score_data.py", args)
+        self._master._pause()
+
+    def _llm_judge_annotation(self) -> None:
+        """Run LLM-as-Judge annotation via train_judge_classifier.py annotate."""
+        _print_section_header(
+            "LLM-as-Judge Annotation",
+            "Score code samples with Claude or Ollama",
+        )
+
+        provider_options = [
+            {"label": "Ollama (local)", "detail": "Free, local — requires ollama running"},
+            {"label": "Claude (API)", "detail": "Higher quality — requires ANTHROPIC_API_KEY"},
+        ]
+        prov_choice = cli.choose("LLM provider:", provider_options, allow_cancel=True)
+        if prov_choice is None:
+            return
+
+        provider = "ollama" if prov_choice == 0 else "claude"
+        try:
+            model = input(f"Model name (default: {'codellama' if provider == 'ollama' else 'claude-sonnet-4-6'}): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            cli.warn("Cancelled.")
+            return
+        if not model:
+            model = "codellama" if provider == "ollama" else "claude-sonnet-4-6"
+
+        try:
+            data_path = input("Path to data file (.npy or .jsonl): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            cli.warn("Cancelled.")
+            return
+        if not data_path:
+            cli.warn("No path entered — cancelled.")
+            return
+
+        args = [
+            "annotate",
+            "--provider", provider,
+            "--model", model,
+            "--data", data_path,
+        ]
+
+        # Tokenizer for .npy
+        if data_path.endswith(".npy"):
+            try:
+                tok_path = input("Path to tokenizer.json: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                cli.warn("Cancelled.")
+                return
+            if tok_path:
+                args.extend(["--tokenizer", tok_path])
+
+        self._master._run_script("train_judge_classifier.py", args)
+        self._master._pause()
+
+    def _train_judge_classifier(self) -> None:
+        """Train quality classifier from LLM annotations."""
+        _print_section_header(
+            "Train Quality Classifier",
+            "Train fast classifier from LLM annotations",
+        )
+
+        cmd_options = [
+            {"label": "Train", "detail": "Train classifier from annotations.jsonl"},
+            {"label": "Evaluate", "detail": "Evaluate a trained classifier"},
+        ]
+        cmd_choice = cli.choose("Command:", cmd_options, allow_cancel=True)
+        if cmd_choice is None:
+            return
+
+        if cmd_choice == 0:
+            try:
+                ann_path = input("Path to annotations.jsonl: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                cli.warn("Cancelled.")
+                return
+            if not ann_path:
+                cli.warn("No path entered — cancelled.")
+                return
+            self._master._run_script(
+                "train_judge_classifier.py",
+                ["train", "--annotations", ann_path],
+            )
+        elif cmd_choice == 1:
+            try:
+                model_dir = input("Path to trained classifier directory: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                cli.warn("Cancelled.")
+                return
+            if not model_dir:
+                cli.warn("No path entered — cancelled.")
+                return
+            try:
+                ann_path = input("Path to test annotations.jsonl: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                cli.warn("Cancelled.")
+                return
+            if not ann_path:
+                cli.warn("No path entered — cancelled.")
+                return
+            self._master._run_script(
+                "train_judge_classifier.py",
+                ["evaluate", "--model-dir", model_dir, "--annotations", ann_path],
+            )
+        self._master._pause()
+
+    def _apply_curriculum_ordering(self) -> None:
+        """Apply curriculum ordering to scored data."""
+        _print_section_header(
+            "Curriculum Ordering",
+            "Reorder data by quality score for curriculum learning",
+        )
+
+        try:
+            data_path = input("Path to .npy data file: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            cli.warn("Cancelled.")
+            return
+        if not data_path:
+            cli.warn("No path entered — cancelled.")
+            return
+
+        try:
+            tok_path = input("Path to tokenizer.json: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            cli.warn("Cancelled.")
+            return
+        if not tok_path:
+            cli.warn("Tokenizer path required.")
+            return
+
+        strategy_options = [
+            {"label": "easy_to_hard", "detail": "Start with easy examples, increase difficulty"},
+            {"label": "hard_to_easy", "detail": "Start with hard examples first"},
+            {"label": "staged", "detail": "Discrete difficulty stages with transitions"},
+            {"label": "random", "detail": "Random ordering (baseline)"},
+        ]
+        strat_choice = cli.choose("Curriculum strategy:", strategy_options, allow_cancel=True)
+        if strat_choice is None:
+            return
+
+        strategies = ["easy_to_hard", "hard_to_easy", "staged", "random"]
+        self._master._run_script("score_data.py", [
+            "--data", data_path,
+            "--tokenizer", tok_path,
+            "--curriculum", strategies[strat_choice],
+        ])
         self._master._pause()
 
     def _advanced_filters_info(self) -> None:

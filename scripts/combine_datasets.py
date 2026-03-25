@@ -269,7 +269,7 @@ def run_pipeline(settings: dict, output_path: str):
             temp_paths = []
             for i, ds in enumerate(datasets):
                 arr = np.load(ds["path"], mmap_mode="r")
-                clean, removed = dedup.deduplicate_array(np.array(arr))
+                clean, removed = dedup.deduplicate_array(arr)
                 dedup_removed += removed
                 # Save cleaned version to temp file
                 temp_path = str(
@@ -466,10 +466,16 @@ def main():
         description="Interactive dataset combination tool for Cola-Coder.",
     )
     parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Model config YAML. When given, resolves --data-dir via DatasetResolver.",
+    )
+    parser.add_argument(
         "--data-dir",
         type=str,
-        default=str(Path(storage.data_dir) / "processed"),
-        help="Directory containing .npy dataset files (default: ./data/processed).",
+        default=None,
+        help="Directory containing .npy dataset files (default: per-dataset dir from DatasetResolver).",
     )
     parser.add_argument(
         "--tokenizer",
@@ -496,6 +502,13 @@ def main():
         ),
     )
     args = parser.parse_args()
+
+    if args.data_dir is None:
+        if args.config is not None:
+            from cola_coder.data.dataset_resolver import DatasetResolver
+            args.data_dir = str(DatasetResolver.get_dataset_dir(config_path=args.config))
+        else:
+            args.data_dir = str(Path(storage.data_dir) / "processed")
 
     # ── Non-interactive weighted mix (--datasets supplied) ────────────────
     if args.datasets:
