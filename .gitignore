@@ -220,7 +220,6 @@ cython_debug/
 
 # Ruff stuff:
 .ruff_cache/
-
 # PyPI configuration file
 .pypirc
 
@@ -238,3 +237,5 @@ CLAUDE.md
 
 # Git worktrees
 .worktrees/
+
+pipeline_runs
