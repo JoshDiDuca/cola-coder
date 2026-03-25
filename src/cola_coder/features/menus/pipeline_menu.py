@@ -389,14 +389,18 @@ class PipelineMenu:
 
         # ── Tokenizer check (BEFORE data collection) ──────────────────────
         cli.info("Dataset", dataset_name)
+        tok_path = DatasetResolver.get_tokenizer_path(ds_path)
 
         if not DatasetResolver.tokenizer_exists(ds_path):
             if cli.confirm(f"No tokenizer found for dataset '{dataset_name}'. Train one now?"):
                 self._train_tokenizer_for_run(run)
             else:
-                raise RuntimeError("Tokenizer required. Train it first with: python scripts/train_tokenizer.py --config " + run.config_path)
+                raise RuntimeError(
+                    f"Tokenizer required. Train it first with: "
+                    f"python scripts/train_tokenizer.py --config {run.config_path!r}"
+                )
         else:
-            meta = DatasetResolver.get_tokenizer_meta(DatasetResolver.get_tokenizer_path(ds_path))
+            meta = DatasetResolver.get_tokenizer_meta(tok_path)
             trained_at = meta.get("trained_at", "unknown")
             if isinstance(trained_at, str) and len(trained_at) >= 10:
                 trained_at = trained_at[:10]
@@ -423,8 +427,6 @@ class PipelineMenu:
         if choice is None:
             return str(dataset_dir)
 
-        # Tokenizer path for scripts
-        tok_path = DatasetResolver.get_tokenizer_path(ds_path)
         tok_args: list[str] = ["--tokenizer", str(tok_path)] if tok_path.exists() else []
 
         if choice == 0:

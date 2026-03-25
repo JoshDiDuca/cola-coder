@@ -437,6 +437,7 @@ class PipelineOrchestrator:
         """Check whether the per-dataset tokenizer exists."""
         try:
             from cola_coder.data.dataset_resolver import DatasetResolver
+            # No path arg — DatasetResolver defaults to "configs/data_sources.yaml"
             return DatasetResolver.tokenizer_exists()
         except Exception:
             return Path("tokenizer.json").exists()
@@ -449,6 +450,7 @@ class PipelineOrchestrator:
 
         try:
             from cola_coder.data.dataset_resolver import DatasetResolver
+            # No path arg — DatasetResolver defaults to "configs/data_sources.yaml"
             dataset_dir = DatasetResolver.get_dataset_dir()
             if dataset_dir.exists():
                 npy_files = [
