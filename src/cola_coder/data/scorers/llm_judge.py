@@ -1,8 +1,7 @@
-"""LLM-as-Judge scorer — use Claude API or Ollama to score code quality."""
+"""LLM-as-Judge scorer -- use Claude API or Ollama to score code quality."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -11,6 +10,7 @@ from typing import Any
 
 from cola_coder.data.scorers.credential_scanner import CredentialScanner
 from cola_coder.data.scorers.protocol import ScorerResult
+from cola_coder.data.scorers.utils import code_hash
 
 _JUDGE_PROMPT = """Rate this {language} code on a scale of 0-5 for training data quality.
 
@@ -53,9 +53,8 @@ def _parse_judge_response(text: str) -> tuple[int, str]:
     return score, reason
 
 
-def _code_hash(code: str) -> str:
-    """MD5 hash of code for dedup/caching."""
-    return hashlib.md5(code.encode("utf-8")).hexdigest()
+# Backward-compatible alias for tests that import _code_hash from this module
+_code_hash = code_hash
 
 
 class OllamaBackend:

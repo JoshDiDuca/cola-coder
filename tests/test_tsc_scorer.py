@@ -166,12 +166,14 @@ class TestTscScorerSandboxEnforcement:
         runner.run.assert_called_once()
 
     def test_does_not_import_type_check_reward(self) -> None:
-        """TscScorer should not import TypeCheckReward."""
+        """TscScorer should not import TypeCheckReward directly."""
         import cola_coder.data.scorers.tsc_scorer as mod
 
         source = Path(mod.__file__).read_text()
         assert "TypeCheckReward" not in source
-        assert "type_check" not in source
+        # TscRunner import IS allowed (it's the secure sandboxed path)
+        # type_check.py import is NOT allowed (it bypasses sandbox)
+        assert "from cola_coder.reasoning.rewards.type_check" not in source
 
     def test_writes_hardened_tsconfig(self, tmp_path: Path) -> None:
         """TscScorer writes tsconfig.json with plugins=[]."""
