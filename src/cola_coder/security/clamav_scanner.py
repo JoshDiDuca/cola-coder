@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from pathlib import Path
 
 from cola_coder.security.scanner import MalwareScanResult, ThreatFinding
+
+logger = logging.getLogger(__name__)
 
 
 class ClamAvScanner:
@@ -89,6 +92,10 @@ class ClamAvScanner:
             for filepath, (status, detail) in result.items():
                 files_scanned += 1
                 if status == "FOUND":
+                    logger.warning(
+                        "ClamAV threat [%s/high]: %s in %s",
+                        detail, detail, filepath,
+                    )
                     threats.append(ThreatFinding(
                         name=detail,
                         severity="high",

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import sys
 import time
 from pathlib import Path
 
 from cola_coder.security.scanner import MalwareScanResult, ThreatFinding
+
+logger = logging.getLogger(__name__)
 
 
 class DefenderScanner:
@@ -58,6 +61,11 @@ class DefenderScanner:
             # Exit codes: 0 = clean, 2 = threat found
             if result.returncode == 2:
                 threats = self._parse_threats(result.stdout, str(target))
+                for t in threats:
+                    logger.warning(
+                        "Defender threat [%s/%s]: %s in %s",
+                        t.name, t.severity, t.details, t.file_path,
+                    )
                 return MalwareScanResult(
                     is_clean=False,
                     threats=threats,

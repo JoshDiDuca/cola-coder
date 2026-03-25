@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from pathlib import Path
 
 from cola_coder.security.scanner import MalwareScanResult, ThreatFinding
+
+logger = logging.getLogger(__name__)
 
 
 # Code extensions to scan
@@ -215,8 +218,14 @@ class YaraScanner:
                     scanner=self.name,
                     details=description,
                 ))
-        except Exception:
-            pass
+            if threats:
+                for t in threats:
+                    logger.warning(
+                        "YARA threat [%s/%s]: %s in %s",
+                        t.name, t.severity, t.details, t.file_path,
+                    )
+        except Exception as e:
+            logger.debug("YARA scan error: %s", e)
         return threats
 
     def _scan_with_regex(self, path: Path, content: str) -> list[ThreatFinding]:
@@ -245,6 +254,13 @@ class YaraScanner:
                     file_path=str(path), scanner=f"{self.name}_regex",
                     details=details,
                 ))
+
+        if threats:
+            for t in threats:
+                logger.warning(
+                    "YARA regex threat [%s/%s]: %s in %s",
+                    t.name, t.severity, t.details, t.file_path,
+                )
 
         return threats
 

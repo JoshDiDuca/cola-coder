@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, runtime_checkable
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -48,11 +51,20 @@ class MalwareScannerProtocol(Protocol):
 class CompositeMalwareScanner:
     """Run multiple scanners and combine results."""
 
-    def __init__(self, scanners: list[MalwareScannerProtocol] | None = None) -> None:
+    def __init__(
+        self,
+        scanners: list[MalwareScannerProtocol] | None = None,
+        audit_logger: object | None = None,
+    ) -> None:
         self._scanners = [s for s in (scanners or []) if s.is_available()]
+        self._audit_logger = audit_logger
 
     @classmethod
-    def from_config(cls, config: dict | None = None) -> CompositeMalwareScanner:
+    def from_config(
+        cls,
+        config: dict | None = None,
+        audit_logger: object | None = None,
+    ) -> CompositeMalwareScanner:
         """Build scanner from config dict. Auto-detects available scanners."""
         config = config or {}
         scanners_cfg = config.get("scanners", {})
@@ -80,7 +92,7 @@ class CompositeMalwareScanner:
             except ImportError:
                 pass
 
-        return cls(scanners)
+        return cls(scanners, audit_logger=audit_logger)
 
     def scan_file(self, path: Path) -> MalwareScanResult:
         result = MalwareScanResult(files_scanned=1)
@@ -90,6 +102,19 @@ class CompositeMalwareScanner:
                 result = result.merge(sub)
             except Exception:
                 pass
+        if not result.is_clean:
+            for t in result.threats:
+                logger.warning(
+                    "MALWARE DETECTED [%s/%s]: %s in %s",
+                    t.scanner, t.severity, t.name, t.file_path,
+                )
+            if self._audit_logger:
+                for t in result.threats:
+                    self._audit_logger.log_security_event(
+                        f"malware_detected:{t.scanner}:{t.name}",
+                        scorer=t.scanner,
+                        file_hash=t.file_path,
+                    )
         return result
 
     def scan_directory(self, path: Path) -> MalwareScanResult:
@@ -100,6 +125,19 @@ class CompositeMalwareScanner:
                 result = result.merge(sub)
             except Exception:
                 pass
+        if not result.is_clean:
+            for t in result.threats:
+                logger.warning(
+                    "MALWARE DETECTED [%s/%s]: %s in %s",
+                    t.scanner, t.severity, t.name, t.file_path,
+                )
+            if self._audit_logger:
+                for t in result.threats:
+                    self._audit_logger.log_security_event(
+                        f"malware_detected:{t.scanner}:{t.name}",
+                        scorer=t.scanner,
+                        file_hash=t.file_path,
+                    )
         return result
 
     @property
