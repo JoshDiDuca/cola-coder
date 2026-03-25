@@ -411,6 +411,32 @@ class PipelineMenu:
         # ── Dataset selection: use auto-resolved or pick existing ─────────
         selected_dir = self._select_dataset_dir(dataset_dir, dataset_name)
         if selected_dir is not None:
+            # Offer scoring on the existing data
+            npy_files = list(selected_dir.glob("*.npy"))
+            if npy_files:
+                score_options = [
+                    {"label": "Full scoring (tsc + eslint + heuristic)",
+                     "detail": "Comprehensive quality assessment"},
+                    {"label": "Quick scoring (heuristic only)",
+                     "detail": "Fast heuristic-based scoring"},
+                    {"label": "Skip scoring",
+                     "detail": "Use data without quality weights"},
+                ]
+                score_choice = cli.choose(
+                    "Score collected data?", score_options, allow_cancel=True,
+                )
+                if score_choice == 0:
+                    self._run_stage_script("score_data.py", [
+                        "--data", str(npy_files[0]),
+                        "--tokenizer", str(tok_path),
+                        "--scorers", "tsc,eslint,heuristic",
+                    ])
+                elif score_choice == 1:
+                    self._run_stage_script("score_data.py", [
+                        "--data", str(npy_files[0]),
+                        "--tokenizer", str(tok_path),
+                        "--scorers", "heuristic",
+                    ])
             return str(selected_dir)
 
         # Fall through: no existing data selected → collect new data
