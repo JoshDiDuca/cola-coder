@@ -374,6 +374,7 @@ class Trainer:
                                 "training": vars(self.config.training)},
                         output_dir=self.config.checkpoint.output_dir,
                         max_checkpoints=self.config.checkpoint.max_checkpoints,
+                        data_path=data_path,
                         manifest_info=None,
                     )
                     self.metrics.finish()
@@ -417,6 +418,7 @@ class Trainer:
                             "training": vars(self.config.training)},
                     output_dir=self.config.checkpoint.output_dir,
                     max_checkpoints=self.config.checkpoint.max_checkpoints,
+                    data_path=data_path,
                     manifest_info={
                         "model_config": vars(self.config.model),
                         "training_config": vars(self.config.training),
@@ -450,6 +452,7 @@ class Trainer:
                         "training": vars(self.config.training)},
                 output_dir=self.config.checkpoint.output_dir,
                 max_checkpoints=self.config.checkpoint.max_checkpoints,
+                data_path=data_path,
                 manifest_info={
                     "model_config": vars(self.config.model),
                     "training_config": vars(self.config.training),

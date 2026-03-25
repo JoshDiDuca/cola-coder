@@ -170,10 +170,7 @@ def main():
     # ---- Device check ----
     cli.gpu_info()
 
-    # ---- Pick dataset (interactive if multiple exist) ----
-    data_path = _pick_dataset(args.data)
-
-    # ---- Load config ----
+    # ---- Load config (must happen before auto-resume so we can filter by arch) ----
     cli.step(1, 3, f"Loading config from {config_path}")
 
     try:
@@ -189,23 +186,32 @@ def main():
     except Exception as e:
         cli.fatal(f"Loading config: {e}")
 
-    # ---- Auto-resume: detect latest checkpoint ----
+    # ---- Auto-resume: detect latest checkpoint matching this architecture ----
     resume_from = args.resume
+    saved_data_path: str | None = None
     if args.auto_resume and not resume_from:
         try:
             from cola_coder.training.checkpoint import detect_latest_checkpoint
-            result = detect_latest_checkpoint()
+            result = detect_latest_checkpoint(model_config=vars(config.model))
             if result is not None:
                 checkpoint_path, checkpoint_info = result
                 step = checkpoint_info.get("step", "?")
                 cli.info("Auto-resume", f"Found checkpoint at step {step}: {checkpoint_path}")
                 resume_from = checkpoint_path
+                saved_data_path = checkpoint_info.get("data_path")
             else:
-                cli.warn("Auto-resume: no checkpoints found, starting fresh")
+                cli.warn("Auto-resume: no matching checkpoint found, starting fresh")
         except ImportError:
             cli.warn("Auto-resume: checkpoint module not available, starting fresh")
         except Exception as e:
             cli.warn(f"Auto-resume failed: {e}, starting fresh")
+
+    # ---- Pick dataset — skip prompt if restored from checkpoint ----
+    if saved_data_path and Path(saved_data_path).exists():
+        cli.info("Restored dataset", saved_data_path)
+        data_path = saved_data_path
+    else:
+        data_path = _pick_dataset(args.data)
 
     # ---- Pre-flight Checks ----
     cli.rule("Pre-flight Checks")

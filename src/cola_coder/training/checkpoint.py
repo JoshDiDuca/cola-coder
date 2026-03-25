@@ -32,6 +32,7 @@ def save_checkpoint(
     output_dir: str,
     max_checkpoints: int = 5,
     *,
+    data_path: str | None = None,
     manifest_info: dict | None = None,
 ) -> str:
     """Save a training checkpoint.
@@ -104,6 +105,7 @@ def save_checkpoint(
         "step": step,
         "loss": loss,
         "config": config,
+        "data_path": data_path,
     }
     (tmp_dir / "metadata.json").write_text(json.dumps(metadata, indent=2))
 
@@ -177,6 +179,22 @@ def load_checkpoint(
     # Load model weights
     # strict=False because we skip saving output.weight (it's tied to tok_emb.weight)
     state_dict = load_file(str(model_path), device=device)
+
+    # Validate architecture before loading — give a clear error instead of
+    # PyTorch's cryptic "size mismatch" message.
+    metadata_path = ckpt_dir / "metadata.json"
+    if metadata_path.exists():
+        meta = json.loads(metadata_path.read_text())
+        saved_dim = meta.get("config", {}).get("model", {}).get("dim")
+        if saved_dim is not None and "tok_emb.weight" in state_dict:
+            actual_dim = int(state_dict["tok_emb.weight"].shape[1])
+            if saved_dim != actual_dim:
+                raise RuntimeError(
+                    f"Architecture mismatch: checkpoint has dim={saved_dim} "
+                    f"but current model has dim={actual_dim}. "
+                    f"Use the matching config for this checkpoint "
+                    f"or point --resume at a compatible checkpoint directory."
+                )
 
     # Handle torch.compile: if model is compiled, keys need _orig_mod. prefix
     # Checkpoints always store clean keys (no prefix) for portability.
@@ -275,18 +293,35 @@ def get_checkpoint_info(checkpoint_dir: str) -> dict:
         return {}
 
 
-def detect_latest_checkpoint(checkpoints_dir: str = "checkpoints") -> tuple[str, dict] | None:
-    """Auto-detect the latest checkpoint across all model sizes.
+def detect_latest_checkpoint(
+    checkpoints_dir: str = "checkpoints",
+    model_config: dict | None = None,
+) -> tuple[str, dict] | None:
+    """Auto-detect the latest checkpoint matching the current model architecture.
 
-    Scans checkpoints/<size>/latest files and returns the most recent one.
+    Scans checkpoints/<size>/latest files and returns the most recent one that
+    matches the provided model_config (if given). Matching is done on the key
+    architecture fields: dim, n_layers, n_heads, n_kv_heads, vocab_size.
 
     Args:
         checkpoints_dir: Base checkpoints directory.
+        model_config: Dict of model config fields (e.g. vars(config.model)).
+            When provided, only checkpoints with matching architecture are returned.
 
     Returns:
         Tuple of (checkpoint_path, metadata_dict) or None if no checkpoints found.
-        metadata_dict contains: step, loss, config (from metadata.json).
+        metadata_dict contains: step, loss, config, data_path (from metadata.json).
     """
+    _ARCH_FIELDS = ("dim", "n_layers", "n_heads", "n_kv_heads", "vocab_size")
+
+    def _matches_arch(info: dict) -> bool:
+        if model_config is None:
+            return True
+        saved_model = info.get("config", {}).get("model", {})
+        return all(
+            saved_model.get(f) == model_config.get(f) for f in _ARCH_FIELDS
+        )
+
     base = Path(checkpoints_dir)
     if not base.exists():
         return None
@@ -304,7 +339,7 @@ def detect_latest_checkpoint(checkpoints_dir: str = "checkpoints") -> tuple[str,
         if latest_file.is_file():
             found_latest = True
             info = get_checkpoint_info(str(latest_file))
-            if info and info.get("step", -1) > best_step:
+            if info and _matches_arch(info) and info.get("step", -1) > best_step:
                 best_step = info["step"]
                 best_path = info["checkpoint_dir"]
                 best_info = info
@@ -325,7 +360,7 @@ def detect_latest_checkpoint(checkpoints_dir: str = "checkpoints") -> tuple[str,
         # Take the highest step dir for this size
         highest = step_dirs[-1]
         info = get_checkpoint_info(str(highest))
-        if info and info.get("step", -1) > best_step:
+        if info and _matches_arch(info) and info.get("step", -1) > best_step:
             best_step = info["step"]
             best_path = str(highest)
             best_info = info
