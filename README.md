@@ -1,6 +1,6 @@
 # Cola-Coder
 
-**A code generation transformer AI model.**
+**A code generation transformer AI model — built from scratch.**
 
 A collaboration with Claude — part learning project, part real engineering.
 
@@ -30,7 +30,7 @@ User prompt → [Router Model: 125M]
 
 | Component | Size | Role |
 |-----------|------|------|
-| **Router** | 125M | Task decomposition, context extraction, output assembly |
+| **Router** | 125M | Task decomposition, domain classification, output assembly |
 | **React specialist** | 50M | Components, hooks, JSX, state management |
 | **Next.js specialist** | 50M | App router, server components, server actions |
 | **GraphQL specialist** | 50M | Schemas, resolvers, Apollo patterns |
@@ -40,8 +40,6 @@ User prompt → [Router Model: 125M]
 | **General TS fallback** | 125M | Anything that doesn't match a specialist |
 
 **Active per request: ~175M** (router + one specialist). **Total system knowledge: 475M+.** Runs inference in ~2 GB VRAM. Each specialist trains independently in 1-2 days on a consumer GPU.
-
-The practical path: train the base model first (this repo), fine-tune specialists from it, use Claude API as the router initially, then train a local router from the collected routing decisions.
 
 ---
 
@@ -61,9 +59,10 @@ Cola-Coder uses the same architecture as the models powering LLaMA 3, Mistral, D
 | **Tokenizer** | Byte-Pair Encoding (BPE) via HuggingFace Tokenizers | Rust-backed, handles any encoding, code-aware pre-tokenization |
 | **Checkpoints** | Safetensors format | No arbitrary code execution on load (unlike pickle) |
 | **Reasoning** | Chain-of-thought + GRPO reinforcement learning | Same approach as DeepSeek-R1 — verifiable rewards from code execution |
-| **MoE** (optional) | Mixture of Experts layer | Sparse expert routing replaces standard FFN — more params, same compute |
+| **MoE** (optional) | Mixture of Experts upcycling | Convert any dense checkpoint to sparse MoE — more params, same compute |
 | **FIM** | Fill-in-the-Middle training (PSM + SPM) | Enables IDE autocomplete at arbitrary cursor positions |
 | **Performance** | torch.compile + Flash Attention + TF32 | 2-4x combined speedup from GPU kernel optimizations |
+| **Context Extension** | YaRN RoPE scaling | Extend context 2x-16x via frequency-domain positional scaling |
 
 ### Model Configurations
 
@@ -71,87 +70,140 @@ Cola-Coder uses the same architecture as the models powering LLaMA 3, Mistral, D
 |--------|-----------|--------|-----|-------------|-----------|---------|-------------|
 | **Tiny** | ~50M | 8 | 512 | 8 / 4 | 896 | 1024 | ~3.6 GB |
 | **Small** | ~125M | 12 | 768 | 12 / 4 | 1344 | 2048 | ~6.5 GB |
-| **Medium** | ~350M | 24 | 1024 | 16 / 4 | 1792 | 2048 | ~8.2 GB |
+| **Medium** | ~299M | 18 | 1024 | 16 / 4 | 1792 | 2048 | ~8.2 GB |
 | **4080 Max** | ~455M | 24 | 1280 | 20 / 4 | 3456 | 4096 | ~14.1 GB |
 | **Large** | ~1B+ | 32 | 2048 | 32 / 8 | 3584 | 4096 | ~24 GB |
 
-The **4080 Max** config is tuned to squeeze every GB from a 16GB GPU: wider model (dim=1280), double the context length (4096), RoPE theta=500K for long-range position encoding, and zero dropout (regularized by data quality instead). Currently untested as I'm training a small model (2 days).
+The **4080 Max** config is tuned to squeeze every GB from a 16GB GPU: wider model (dim=1280), double the context length (4096), RoPE theta=500K for long-range position encoding, and zero dropout (regularized by data quality instead).
 
 ---
 
-## Training Pipeline
+## 10-Stage Training Pipeline
 
-### 4 Stages (3 core + 1 optional)
-
-```
-Stage 1: Tokenizer       Train BPE tokenizer on code corpus → tokenizer.json
-              ↓
-Stage 2: Data Prep        Download, filter, quality-score, tokenize → train_data.npy
-              ↓
-Stage 3: Training         Main training loop with mixed precision → checkpoints/
-              ↓
-Stage 4: Reasoning        (Optional) SFT warmup + GRPO fine-tuning → reasoning checkpoints/
-```
-
-### Understanding the Training Screen
-
-During training, you'll see output like this every 100 steps:
+Cola-Coder's end-to-end pipeline transforms raw data into a production-grade code generation model in 10 sequential stages. Every stage is resumable, overridable, and tracked with named runs.
 
 ```
-14:32:07 step   1,200 (12.0%) loss 4.2341 ppl    68.8 lr 5.87e-04  142,830 tok/s | ETA 2h 15m (16:47)
-14:33:19 step   1,300 (13.0%) loss 3.8917 ppl    48.9 lr 5.94e-04  145,102 tok/s | ETA 2h 13m (16:46)
-14:34:31 step   1,400 (14.0%) loss 3.5204 ppl    33.8 lr 6.00e-04  143,567 tok/s | ETA 2h 11m (16:45)
+1. Collect Data        Download code, text, math from HuggingFace/GitHub
+         ↓
+2. Prepare Data        Filter, score, tokenize, mix into .npy training files
+         ↓
+3. Pretrain            Train the base transformer model from scratch
+         ↓
+4. Extend Context      (Optional) YaRN RoPE scaling for longer context
+         ↓
+5. Generate Instructions   Create SFT instruction pairs from code
+         ↓
+6. Instruction Tune    Fine-tune on ChatML instruction data (SFT)
+         ↓
+7. Upcycle MoE         (Optional) Convert dense model to Mixture of Experts
+         ↓
+8. Train Router        Train semantic domain routing classifier
+         ↓
+9. Train Reasoning     GRPO reinforcement learning with <think> tokens
+         ↓
+10. Evaluate           Smoke test + HumanEval + quality report
 ```
 
-Here's what every column means:
+**Stages 4 and 7 are optional** and can be skipped. The pipeline auto-detects whether RoPE scaling and MoE are configured and skips them gracefully if not.
 
-| Column | Example | What It Means |
-|--------|---------|--------------|
-| **Timestamp** | `14:32:07` | Wall clock time — when this log line printed |
-| **Step** | `step 1,200` | Current optimizer step (one weight update). Each step processes `batch_size × grad_accum × seq_len` tokens |
-| **Progress** | `(12.0%)` | Percentage of `max_steps` completed |
-| **Loss** | `loss 4.2341` | **Cross-entropy loss** — how wrong the model's predictions are. Lower = better. Color-coded: 🟢 <2.0 (great), 🟡 <4.0 (learning), 🟠 <6.0 (early), 🔴 >6.0 (just started) |
-| **PPL** | `ppl 68.8` | **Perplexity** = e^loss. Intuitively: "the model is choosing between 69 equally likely next tokens." Target: 8-15 for good code generation. 68.8 means it's still early |
-| **LR** | `lr 5.87e-04` | Current learning rate. Ramps up during warmup, then decays via cosine schedule to `min_lr` |
-| **Throughput** | `142,830 tok/s` | Tokens processed per second. Higher = faster training. Color-coded: 🟢 >200K, 🟡 >50K, 🔴 <50K |
-| **ETA** | `ETA 2h 15m (16:47)` | Estimated time remaining and finish time (wall clock) |
+### Running the Pipeline
 
-#### Loss & Perplexity — The Key Numbers
+```bash
+# Interactive Pipeline Manager (recommended)
+.venv/Scripts/python scripts/menu.py
+# → Training → Pipeline Manager → New Pipeline Run
 
-**Loss** (cross-entropy) is the primary training metric. Think of it as a score for how surprised the model is by the correct next token:
+# Full CLI run
+.venv/Scripts/python scripts/full_pipeline.py --config configs/small.yaml
 
-| Loss | Perplexity | What It Means | Stage |
-|------|-----------|---------------|-------|
-| ~10.4 | ~33,000 | Random guessing (32K vocab) | Step 0 |
-| 6.0 | ~403 | Learning basic syntax | First few hundred steps |
-| 4.0 | ~55 | Knows common patterns | Early training |
-| 3.0 | ~20 | Decent code structure | Mid training |
-| 2.5 | ~12 | Good code generation | Target for small models |
-| 2.0 | ~7.4 | Very good quality | Target for medium/4080_max |
-| <1.8 | <6 | Excellent (watch for overfitting) | Late training |
+# Skip optional stages
+.venv/Scripts/python scripts/full_pipeline.py --config configs/small.yaml --skip-optional
 
-**Perplexity = e^loss**. It answers: "how many tokens is the model effectively choosing between?" A perplexity of 12 means the model has narrowed 32,768 possible tokens down to ~12 plausible candidates at each position. For code, that's good — there are usually only a handful of valid next tokens.
+# Run specific stages only
+.venv/Scripts/python scripts/full_pipeline.py --config configs/small.yaml --stages 3,6,9,10
 
-#### What to Watch For
+# Resume from a failed stage
+.venv/Scripts/python scripts/full_pipeline.py --config configs/small.yaml --start-from 6
+```
 
-- **Loss going down steadily** — training is working
-- **Loss plateauing** — might need more data, lower LR, or you've hit the model's capacity ceiling
-- **Loss spiking up suddenly** — gradient explosion or bad data batch. The grad_clip=1.0 setting prevents most spikes, but if you see repeated spikes, reduce learning rate
-- **Throughput dropping** — GPU thermal throttling, or background process stealing VRAM
-- **PPL under 15** — model is generating usable code. Try `scripts/generate.py` to see what it produces
+---
+
+## Pipeline Manager
+
+The Pipeline Manager provides **named, resumable pipeline runs** with complete state persistence. Every stage tracks its status, timing, output artifact, and error message — so you can always pick up exactly where you left off.
+
+### Features
+
+- **Named runs** — create runs like `small-v1`, `4080-experiment-3`, each with its own config and stage selection
+- **Full resume** — continue from the next pending stage after any failure
+- **Re-run** — execute any specific stage again (e.g., re-generate instructions with different settings)
+- **Input override** — swap in any checkpoint or data file for any stage without re-running earlier stages
+- **Stage selection** — include/exclude optional stages 4 and 7 per run
+- **State persistence** — runs save to `pipeline_runs/{name}.json` and survive restarts
+
+### Run State
+
+Each run tracks all 10 stages with per-stage state:
+
+```json
+{
+  "name": "small-v1",
+  "config_path": "configs/small.yaml",
+  "stages": {
+    "3": {"status": "completed", "artifact": "checkpoints/small/step_100000", "duration_secs": 7200},
+    "6": {"status": "failed",    "error": "FileNotFoundError: instructions.jsonl"},
+    "9": {"status": "pending",   "override": "/custom/checkpoint"}
+  }
+}
+```
+
+### Input Override Precedence
+
+When a stage needs an input, it resolves in this order:
+1. Stage override (manually set via menu)
+2. Previous stage's artifact (the output from stage N-1)
+3. Filesystem auto-detect
+
+---
+
+## Multi-Source Training Data
+
+Cola-Coder follows the **Qwen2.5-Coder validated approach**: mixing code, text, and math at 70/20/10 ratios produces significantly better code generation than code-only training. The ratios are defined in `configs/data_sources.yaml`.
+
+| Source | Dataset | Weight | Purpose |
+|--------|---------|--------|---------|
+| **Code** | `bigcode/the-stack-v2-dedup` | 70% | Python, TypeScript, JavaScript, Java, Go, Rust |
+| **Text** | `HuggingFaceFW/fineweb-edu` | 20% | Educational web text for language understanding |
+| **Math** | `open-web-math/open-web-math` | 10% | Mathematical text for logical reasoning |
+
+```bash
+# Collect all three sources with weighted mixing
+.venv/Scripts/python scripts/collect_data.py --config configs/small.yaml
+
+# Code only (faster, simpler)
+.venv/Scripts/python scripts/collect_data.py --config configs/small.yaml --sources code
+
+# Quick test (1000 samples per source)
+.venv/Scripts/python scripts/collect_data.py --config configs/small.yaml --max-samples 1000
+```
+
+The `DatasetCombiner` interleaves the three sources according to their weights, producing a single `mixed_train_data.npy` file ready for training.
 
 ---
 
 ## Data Pipeline
 
-The data pipeline is production-grade, built to handle raw GitHub code and produce high-quality training tokens.
+The data pipeline handles raw code from multiple sources and produces high-quality training tokens.
 
 ### Sources
 
-- **HuggingFace** — BigCode StarCoderData, streaming or bulk parquet download (cached locally)
-- **GitHub scraping** — additional domain-specific repositories for specialist fine-tuning
-- **Local files** — drop your own code into a directory and include it in training
-- All sources can be combined and deduplicated into a single dataset
+- **HuggingFace** — BigCode the-stack-v2, FineWeb-Edu, OpenWebMath, StarCoderData (streaming)
+- **GitHub scraping** — REST API with rich filters (stars, language %, license, recency, owner type)
+- **Software Heritage** — Universal source code archive (SWH API, 1,200+ req/hr)
+- **Local files** — drop code into a directory and include it in training
+- **Framework docs** — scrape React, Next.js, Zod, Prisma, TypeORM documentation
+
+All sources emit `DataRecord(content=..., metadata={...})` through a middleware pipeline.
 
 ### Quality Filtering
 
@@ -159,275 +211,30 @@ Two filter modes, each running 15+ checks in parallel:
 
 | Mode | Rejection Rate | Use Case |
 |------|---------------|----------|
-| **Conservative** (default) | ~48% of raw GitHub | Base model training |
-| **Strict** | ~65% of raw GitHub | Fine-tuning, high-quality specialists |
+| **Conservative** (default) | ~48% of raw code | Base model training |
+| **Strict** | ~65% of raw code | Fine-tuning, high-quality specialists |
 
-Filter checks include: minimum/maximum length, line length distribution, character diversity, auto-generated file headers, binary/data file detection, comment ratio bounds, test dump detection, syntax parsing (AST), and brace balance. Filters are modular plugins — easy to add or disable.
+Filter checks: minimum/maximum length, line length distribution, character diversity, auto-generated headers, binary/data file detection, comment ratio bounds, test dump detection, syntax parsing (AST), brace balance, PII detection, license filtering. All filters are modular plugins.
 
 ### Quality Scoring & Weighted Training
 
-Beyond binary pass/fail filtering, every file receives a continuous quality score from **0.0 to 1.0** based on 13 weighted signals:
+Every file receives a continuous quality score from 0.0 to 1.0 based on **13 weighted signals**:
 
 - Cyclomatic complexity, documentation density, naming conventions
 - Type annotation coverage, function/class structure
-- Import organization, test coverage indicators
-- And more — all combined into a single float score
+- Import organization, test coverage indicators, and more
 
-High-quality code contributes more to the training loss via per-example weights. Files scoring near 1.0 are weighted more heavily in the loss calculation, so the model learns disproportionately from well-structured code.
+High-quality code contributes more to the training loss via per-example weights. See [`docs/deep-dives/quality-weighted-training.md`](docs/deep-dives/quality-weighted-training.md).
 
-See [`docs/deep-dives/quality-weighted-training.md`](docs/deep-dives/quality-weighted-training.md) for the full pipeline.
+### Fill-in-the-Middle (FIM)
 
-### Fill-in-the-Middle (FIM) Training
+FIM teaches the model to complete code at arbitrary cursor positions — not just at the end. Critical for IDE autocomplete.
 
-FIM teaches the model to complete code at arbitrary cursor positions — not just at the end of a file. Critical for IDE autocomplete.
-
-- **PSM format** (Prefix-Suffix-Middle): rearranges code so the model sees what comes before AND after the cursor
-- **SPM format** (Suffix-Prefix-Middle): alternative ordering that improves insert-at-cursor scenarios
+- **PSM format** (Prefix-Suffix-Middle): sees what comes before AND after the cursor
+- **SPM format** (Suffix-Prefix-Middle): alternative ordering for insert-at-cursor
 - Mixing 50/50 PSM + SPM yields +5 points on FIM benchmarks vs PSM alone
-- Line-boundary aware splits preserve code integrity
 
-See [`docs/deep-dives/fill-in-the-middle.md`](docs/deep-dives/fill-in-the-middle.md) for the full explanation.
-
-### Tokenization Pipeline
-
-A producer-consumer architecture keeps your GPU saturated:
-
-1. Worker processes read and filter source files in parallel
-2. Filtered text streams to tokenizer workers (Rust-backed BPE)
-3. Tokenized chunks write directly to memory-mapped numpy arrays
-4. Training reads from the mmap file with zero RAM overhead
-
----
-
-## Reasoning Module
-
-Multi-stage reasoning pipeline inspired by DeepSeek-R1:
-
-1. **Thinking tokens**: `<think>` / `</think>` brackets for chain-of-thought reasoning
-2. **SFT warmup** (optional): supervised fine-tuning on curated reasoning examples before RL
-3. **GRPO**: Group Relative Policy Optimization — generate multiple solutions per problem, execute tests, reinforce the correct ones
-4. **Pluggable rewards**: `python_exec` (test execution), `typescript` (compiler-based), `combined` (multi-signal)
-5. **Parallel generation**: batched forward pass with KV-cache expansion for efficiency
-6. **Curriculum learning**: easy → medium → hard problem progression with per-difficulty temperature scaling
-7. **62 built-in problems** across easy/medium/hard difficulty, plus custom JSONL problem sets
-
----
-
-## Mixture of Experts (MoE)
-
-Optional sparse MoE layer replaces the standard FFN in each transformer block:
-
-- **Expert router**: learned gating network assigns tokens to top-k experts
-- **Sparse activation**: only k of N experts compute per token (e.g., top-2 of 8)
-- **Load balancing**: auxiliary loss prevents expert collapse
-- More total parameters without proportional compute increase
-
-See [`docs/deep-dives/mixture-of-experts.md`](docs/deep-dives/mixture-of-experts.md) for the full explanation.
-
----
-
-## Performance Stack
-
-Training performance comes from stacking multiple GPU optimizations:
-
-| Optimization | What It Does | Speedup |
-|-------------|-------------|---------|
-| **torch.compile** | JIT-compiles Python to fused GPU kernels | ~20-40% |
-| **Flash Attention** | Tiles attention to stay in GPU SRAM, O(n) memory | ~2-3x attention |
-| **TF32 matmul** | Tensor Core acceleration on Ampere+ GPUs | ~10-15% |
-| **Fused AdamW** | Single CUDA kernel for optimizer step | ~5-10% |
-| **bf16 mixed precision** | Half-precision compute, fp32 optimizer state | ~2x throughput |
-| **Non-blocking transfers** | Overlap CPU→GPU data movement with compute | ~5% |
-
-See [`docs/deep-dives/torch-compile-and-cuda.md`](docs/deep-dives/torch-compile-and-cuda.md) for the full breakdown.
-
----
-
-## Features
-
-Cola-Coder has **166 optional feature modules** across 10 categories. Every feature follows the same pattern: a `FEATURE_ENABLED` flag and `is_enabled()` function. Enable only what you need — the core training loop runs without any of them.
-
-| Category | Examples | Count |
-|----------|----------|-------|
-| **Code Analysis** | complexity scorer, code entropy, import analyzer, repetition detector, code smell detector | ~20 |
-| **Training Tools** | gradient accumulation calculator, activation monitor, gradient noise estimator, plateau detector, anomaly detector | ~20 |
-| **Model Analysis** | architecture visualizer, attention analyzer, pruning analyzer, model fingerprint, VRAM estimator | ~15 |
-| **Data Quality** | data quality report, data leakage detector, dedup checker, tokenizer coverage, data balancer | ~12 |
-| **Evaluation** | completion benchmark, benchmark store, safety checker, output diversity scorer, confidence calibrator | ~10 |
-| **Inference** | inference profiler, generation cache, latency optimizer, model size estimator | ~8 |
-| **Reasoning** | reasoning curriculum, MoE layer, SFT warmup, reward registry | ~6 |
-| **Utilities** | prompt templates, code normalizer, formatting standardizer, checkpoint converter, cost estimator | ~15 |
-| **Advanced ML** | distillation helper, checkpoint merger (linear/SLERP/task arithmetic), LR range test, loss landscape analyzer | ~12 |
-| **Experiment Tracking** | hyperparameter logger, experiment comparator, training summary, progress estimator | ~10 |
-
----
-
-## Quick Start
-
-```bash
-# Set up
-python -m venv .venv
-.venv/Scripts/pip install -e ".[dev,logging]"
-
-# Interactive CLI menu (recommended)
-.venv/Scripts/python scripts/menu.py
-
-# Or run steps manually:
-.venv/Scripts/python scripts/train_tokenizer.py
-.venv/Scripts/python scripts/prepare_data.py --config configs/4080_max.yaml --tokenizer tokenizer.json --score
-.venv/Scripts/python scripts/train.py --config configs/4080_max.yaml
-.venv/Scripts/python scripts/run.py
-```
-
-### Data Prep Flags
-
-```bash
-# Parallel workers (default: CPU count), larger batch size for faster processing
-.venv/Scripts/python scripts/prepare_data.py --config configs/4080_max.yaml --tokenizer tokenizer.json --workers 4 --batch-size 64
-
-# Quality-weighted training data (recommended)
-.venv/Scripts/python scripts/prepare_data.py --config configs/4080_max.yaml --tokenizer tokenizer.json --score
-
-# Strict quality filtering
-.venv/Scripts/python scripts/prepare_data.py --config configs/4080_max.yaml --tokenizer tokenizer.json --filter-strict
-
-# Cap total tokens (useful for experiments)
-.venv/Scripts/python scripts/prepare_data.py --config configs/tiny.yaml --tokenizer tokenizer.json --max-tokens 500000000
-```
-
-Prepared data is reusable across training runs. Only re-prepare if you change the tokenizer, sequence length, dataset, languages, or filter mode.
-
----
-
-## Project Structure
-
-```
-cola-coder/
-├── configs/                     # YAML configs (model, training, features, storage, reasoning)
-├── docs/                        # 5 educational guides + 10 deep-dives
-│   └── deep-dives/              # FIM, MoE, RoPE, torch.compile, quality, checkpoints, ...
-├── src/cola_coder/
-│   ├── model/                   # Transformer (GQA, SwiGLU, RMSNorm, RoPE, MoE)
-│   ├── tokenizer/               # BPE tokenizer (Rust-backed)
-│   ├── data/                    # Full data pipeline (FIM, quality filter, weighted dataset)
-│   │   ├── filters/             # Modular filter plugins
-│   │   ├── sources/             # Data sources (HF, GitHub, local)
-│   │   └── curation/            # Test execution scoring + Docker sandbox
-│   ├── training/                # Training loop, checkpoints, metrics, early stopping
-│   ├── inference/               # KV-cache generator, sampling, batched generation, API server
-│   ├── evaluation/              # HumanEval (62 problems), completion benchmark, pass@k
-│   ├── reasoning/               # CoT, GRPO, SFT warmup, reward registry, curriculum
-│   ├── features/                # 166 optional feature modules
-│   └── cli.py                   # Rich CLI + questionary arrow menus
-├── scripts/                     # 45 CLI entry points
-└── tests/                       # 122 test files (~2,600 tests)
-```
-
----
-
-## Scripts (45 total)
-
-### Training & Data
-| Script | Purpose |
-|--------|---------|
-| `menu.py` | Master arrow-key menu for all scripts |
-| `train_tokenizer.py` | Train BPE tokenizer |
-| `prepare_data.py` | Download, filter, tokenize training data |
-| `prepare_data_interactive.py` | Guided interactive data preparation |
-| `prepare_fim_data.py` | Prepare FIM-formatted training data |
-| `train.py` | Main training loop |
-| `train_reasoning.py` | SFT warmup + GRPO reasoning fine-tune |
-| `train_quality_classifier.py` | Train ML-based quality scorer |
-| `train_router.py` | Train domain router model |
-| `find_lr.py` | Learning rate range finder |
-| `combine_datasets.py` | Merge multiple datasets |
-
-### Inference & Generation
-| Script | Purpose |
-|--------|---------|
-| `run.py` | Interactive inference REPL |
-| `generate.py` | One-shot generation |
-| `generate_instructions.py` | Create instruction pairs from code |
-| `generate_router_data.py` | Generate router training data |
-| `serve.py` | FastAPI inference server |
-
-### Evaluation & Benchmarking
-| Script | Purpose |
-|--------|---------|
-| `evaluate.py` | HumanEval pass@k benchmark |
-| `benchmark.py` | Quick tok/s benchmark |
-| `nano_benchmark.py` | Fast generation speed test |
-| `inference_benchmark.py` | Detailed inference profiling |
-| `smoke_test.py` | 8-check quick validation |
-| `ts_benchmark.py` | TypeScript-specific benchmark |
-| `regression_test.py` | Track quality across versions |
-| `quality_report.py` | Auto-generate quality report |
-| `compare_models.py` | Side-by-side model comparison |
-| `run_eval_suite.py` | Run all evaluations in sequence |
-
-### Analysis & Tools
-| Script | Purpose |
-|--------|---------|
-| `training_status.py` | CPU-only training progress check |
-| `training_dashboard.py` | Live training metrics dashboard |
-| `training_eval_history.py` | Auto-eval history over training |
-| `checkpoint_diff.py` | Detailed checkpoint diff |
-| `checkpoint_info.py` | Display checkpoint metadata |
-| `average_checkpoints.py` | Checkpoint averaging (model soups) |
-| `model_card.py` | Generate HuggingFace model card |
-| `vram_estimate.py` | Estimate VRAM before training |
-| `export_model.py` | Export to GGUF/Ollama/quantized formats |
-| `env_check.py` | Environment validation |
-| `project_health.py` | Overall project health score |
-
----
-
-## Documentation
-
-### Guides (docs/)
-| Doc | Topic |
-|-----|-------|
-| [`01_python_for_ts_devs.md`](docs/01_python_for_ts_devs.md) | Python fundamentals for TypeScript developers |
-| [`02_how_transformers_work.md`](docs/02_how_transformers_work.md) | Transformer architecture from scratch |
-| [`03_training_pipeline.md`](docs/03_training_pipeline.md) | Training loop, optimizer, scheduling, mixed precision |
-| [`04_reasoning_experiments.md`](docs/04_reasoning_experiments.md) | CoT thinking tokens, GRPO, reward functions |
-| [`05_hardware_guide.md`](docs/05_hardware_guide.md) | GPU specs, VRAM budgets, cloud scaling |
-
-### Deep Dives (docs/deep-dives/)
-| Doc | Topic |
-|-----|-------|
-| [`fill-in-the-middle.md`](docs/deep-dives/fill-in-the-middle.md) | FIM training: PSM/SPM formats, special tokens, IDE autocomplete |
-| [`mixture-of-experts.md`](docs/deep-dives/mixture-of-experts.md) | MoE layer, expert routing, load balancing, capacity factor |
-| [`rope-positional-encoding.md`](docs/deep-dives/rope-positional-encoding.md) | RoPE math, theta tuning (10K→500K), long-context |
-| [`torch-compile-and-cuda.md`](docs/deep-dives/torch-compile-and-cuda.md) | torch.compile, TF32, Flash Attention, fused ops |
-| [`quality-weighted-training.md`](docs/deep-dives/quality-weighted-training.md) | 13-signal scorer, weighted loss pipeline |
-| [`checkpoint-safety.md`](docs/deep-dives/checkpoint-safety.md) | Safetensors, weight tying, atomic saves, recovery |
-| [`custom-data-competitive-edge.md`](docs/deep-dives/custom-data-competitive-edge.md) | Phi-1 style synthetic data, distillation |
-| [`data-refinement.md`](docs/deep-dives/data-refinement.md) | Quality filtering, scoring, curriculum ordering |
-| [`multi-agent-specialization.md`](docs/deep-dives/multi-agent-specialization.md) | Router + specialist architecture |
-| [`single-language-specialization.md`](docs/deep-dives/single-language-specialization.md) | TypeScript-only training, type-aware data |
-
----
-
-## Hardware
-
-| Config | Params | VRAM | Throughput | Training Time |
-|--------|--------|------|-----------|---------------|
-| tiny   | 50M    | ~3.6 GB | ~86 tok/s | ~4 hours |
-| small  | 125M   | ~6.5 GB | ~45 tok/s | ~2 days |
-| medium | 350M   | ~8.2 GB | ~22 tok/s | ~7 days |
-| 4080_max | 455M | ~14.1 GB | ~16 tok/s | ~10 days |
-| large  | 1B+    | ~24 GB  | N/A       | cloud only |
-
-Tested on RTX 4080 Super (16GB, bf16) and RTX 3080 (10GB, fp16 + GradScaler). The 4080_max config pushes to ~14.1 GB VRAM with gradient checkpointing, 4096 context, and RoPE theta=500K.
-
----
-
-## Training Data
-
-Source: [BigCode StarCoderData](https://huggingface.co/datasets/bigcode/starcoderdata) — curated, deduplicated code from GitHub across 80+ languages. Configurable per-language filtering (default: Python, TypeScript, JavaScript; 4080_max adds Java, Go, Rust).
-
-The dataset is gated. Set `HF_TOKEN` in your environment and accept the terms at huggingface.co/datasets/bigcode/starcoderdata before running data prep.
+See [`docs/deep-dives/fill-in-the-middle.md`](docs/deep-dives/fill-in-the-middle.md).
 
 ### Quality Scoring Pipeline
 
@@ -452,13 +259,468 @@ Quality score: 0.0 ──────────────── 1.0
 
 ---
 
+## Menu System
+
+The interactive CLI (`scripts/menu.py`) provides arrow-key navigation through all training and evaluation tools. The Training section is organized into **6 groups** that map directly to the pipeline stages:
+
+```
+Training
+  1. Pipeline Manager              Create, resume, and manage named pipeline runs
+  2. Foundation (Stage 1-2)        Train tokenizer, prepare data
+  3. Pre-Training (Stage 3)        Train model, resume, background training
+  4. Post-Training (Stage 4-7)     Context extension, instruction generation, SFT, MoE
+  5. Alignment & Reasoning (8-9)   Semantic router, GRPO reasoning, self-play
+  6. Monitoring & Tools            VRAM estimation, LR finder, dashboard, eval history
+```
+
+Other top-level menus:
+
+- **Data** — Collect (GitHub, HuggingFace, SWH, local), Modify, Score, Inspect, Prepare
+- **Evaluation** — HumanEval, benchmarks, comparisons, quality reports
+- **Tools** — Tests, linting, GPU info, feature toggles, export
+
+---
+
+## Understanding the Training Screen
+
+During training, you'll see output like this every 100 steps:
+
+```
+14:32:07 step   1,200 (12.0%) loss 4.2341 ppl    68.8 lr 5.87e-04  142,830 tok/s | ETA 2h 15m (16:47)
+14:33:19 step   1,300 (13.0%) loss 3.8917 ppl    48.9 lr 5.94e-04  145,102 tok/s | ETA 2h 13m (16:46)
+```
+
+| Column | Example | What It Means |
+|--------|---------|--------------|
+| **Timestamp** | `14:32:07` | Wall clock time |
+| **Step** | `step 1,200` | Current optimizer step (one weight update) |
+| **Progress** | `(12.0%)` | Percentage of max_steps completed |
+| **Loss** | `loss 4.2341` | Cross-entropy loss — lower is better. 🟢 <2.0 (great), 🟡 <4.0 (learning), 🔴 >6.0 (early) |
+| **PPL** | `ppl 68.8` | Perplexity = e^loss. Target: 8-15 for good code generation |
+| **LR** | `lr 5.87e-04` | Current learning rate (warmup → cosine decay) |
+| **Throughput** | `142,830 tok/s` | Tokens processed per second. 🟢 >200K, 🟡 >50K |
+| **ETA** | `ETA 2h 15m (16:47)` | Estimated remaining time and finish wall clock |
+
+### Loss & Perplexity Targets
+
+| Loss | Perplexity | Stage |
+|------|-----------|-------|
+| ~10.4 | ~33,000 | Step 0 (random) |
+| 6.0 | ~403 | Learning basic syntax |
+| 3.0 | ~20 | Decent code structure |
+| 2.5 | ~12 | Good code generation (small model target) |
+| 2.0 | ~7.4 | Very good quality (medium/4080_max target) |
+| <1.8 | <6 | Excellent (watch for overfitting) |
+
+---
+
+## Reasoning Module
+
+Multi-stage reasoning pipeline inspired by DeepSeek-R1:
+
+1. **Thinking tokens** — `<think>` / `</think>` brackets for chain-of-thought reasoning
+2. **SFT warmup** (optional) — supervised fine-tuning on curated reasoning examples before RL
+3. **GRPO** — Group Relative Policy Optimization: generate G solutions per problem, execute tests, reinforce the correct ones
+4. **Pluggable rewards** — `python_exec` (test execution), `typescript` (tsc --strict compiler), `combined` (multi-signal)
+5. **Parallel generation** — batched forward pass with KV-cache expansion for efficiency
+6. **Curriculum learning** — easy → medium → hard problem progression with per-difficulty temperature scaling
+7. **62 built-in problems** — easy/medium/hard, plus custom JSONL problem sets
+
+```bash
+.venv/Scripts/python scripts/train_reasoning.py \
+    --config configs/4080_max.yaml \
+    --sft-warmup \
+    --reward combined \
+    --problems all
+```
+
+GRPO works by generating a group of solutions for each problem, scoring them with the reward function, then updating the model to increase probability of correct solutions relative to the group mean. No critic needed — the group itself provides the baseline.
+
+---
+
+## Mixture of Experts (MoE)
+
+Optional sparse MoE layer replaces the standard FFN in each transformer block. Any trained dense checkpoint can be converted:
+
+```bash
+.venv/Scripts/python scripts/upcycle_to_moe.py \
+    --config configs/4080_max.yaml \
+    --checkpoint checkpoints/4080_max/latest \
+    --num-experts 8 \
+    --num-shared 2
+```
+
+- **Expert router** — learned gating network assigns tokens to top-k experts
+- **Sparse activation** — only k of N experts compute per token (e.g., top-2 of 8)
+- **Shared experts** — N shared experts always active (DeepSeek-V3 approach)
+- **Load balancing** — auxiliary loss prevents expert collapse
+- More total parameters without proportional compute increase
+
+See [`docs/deep-dives/mixture-of-experts.md`](docs/deep-dives/mixture-of-experts.md).
+
+---
+
+## Performance Stack
+
+| Optimization | What It Does | Speedup |
+|-------------|-------------|---------|
+| **torch.compile** | JIT-compiles Python to fused GPU kernels | ~20-40% |
+| **Flash Attention** | Tiles attention to stay in GPU SRAM, O(n) memory | ~2-3x attention |
+| **TF32 matmul** | Tensor Core acceleration on Ampere+ GPUs | ~10-15% |
+| **Fused AdamW** | Single CUDA kernel for optimizer step | ~5-10% |
+| **bf16 mixed precision** | Half-precision compute, fp32 optimizer state | ~2x throughput |
+| **Non-blocking transfers** | Overlap CPU→GPU data movement with compute | ~5% |
+| **Gradient checkpointing** | Recompute activations to save ~50% VRAM | (memory, not speed) |
+
+See [`docs/deep-dives/torch-compile-and-cuda.md`](docs/deep-dives/torch-compile-and-cuda.md).
+
+---
+
+## VS Code Extension
+
+A TypeScript extension provides AI-assisted coding directly in VS Code, powered by the local FastAPI server.
+
+### Capabilities
+
+- **Inline completions** — ghost text suggestions at cursor position via FIM format
+- **Chat participant** — `@cola-coder` in VS Code chat for code-aware conversation
+- **Code actions** — quick-fix suggestions from the model
+- **Thinking blocks** — collapsible `<think>...</think>` blocks when using a reasoning model
+
+### Setup
+
+```bash
+cd vscode-extension
+npm run build
+npx tsc --noEmit
+npx vsce package --no-dependencies
+code --install-extension cola-coder-0.1.0.vsix --force
+```
+
+Start the server with `--cors` flag before using the extension:
+
+```bash
+.venv/Scripts/python scripts/serve.py --checkpoint checkpoints/4080_max/latest --config configs/4080_max.yaml --cors
+```
+
+### Extension ↔ Server Endpoints
+
+| Endpoint | Purpose |
+|----------|---------|
+| `/v1/chat/completions` | Chat participant, streaming SSE |
+| `/v1/fim` | Inline completions (fill-in-the-middle) |
+| `/v1/context` | Multi-file context assembly |
+| `/v1/models` | Available model list |
+| `/health` | Server health check |
+
+### Key Settings
+
+- `cola-coder.chat.baseModelMode` — `true` for raw code completion (base model), `false` for instruction-tuned structured prompts
+- `cola-coder.inline.enabled` — enable/disable ghost text completions
+- `cola-coder.inline.languages` — which file types receive completions
+
+---
+
+## Checkpoint Safety
+
+**Breaking any of these rules corrupts checkpoints:**
+
+1. **Weight tying** — `tok_emb.weight` and `output.weight` share the same tensor. `output.weight` is excluded from the saved state dict and re-tied on load.
+2. **torch.compile** — wraps parameter keys with `_orig_mod.` prefix. Stripped on save, added on load.
+3. **Atomic saves** — writes to temp file, then renames. Prevents corruption if training crashes mid-save.
+4. **Safetensors only** — never pickle. No arbitrary code execution on checkpoint load.
+
+```bash
+# Run this after ANY change to checkpoint.py, transformer.py, or model configs
+.venv/Scripts/pytest tests/test_checkpoint.py -v
+```
+
+Never start training if checkpoint tests fail.
+
+---
+
+## Features
+
+Cola-Coder has **175 optional feature modules** across 10 categories. Every feature follows the same pattern: a `FEATURE_ENABLED` flag and `is_enabled()` function in `configs/features.yaml`. Enable only what you need — the core training loop runs without any of them.
+
+| Category | Examples | Count |
+|----------|----------|-------|
+| **Code Analysis** | complexity scorer, code entropy, import analyzer, repetition detector, code smell detector | ~20 |
+| **Training Tools** | gradient norm monitor, activation monitor, plateau detector, anomaly detector, dead neuron detection | ~20 |
+| **Model Analysis** | architecture visualizer, attention analyzer, pruning analyzer, model fingerprint, VRAM estimator | ~15 |
+| **Data Quality** | data quality report, data leakage detector, dedup checker, tokenizer coverage, data balancer | ~12 |
+| **Evaluation** | completion benchmark, benchmark store, safety checker, output diversity scorer, confidence calibrator | ~10 |
+| **Inference** | inference profiler, generation cache, latency optimizer, speculative decoding | ~8 |
+| **Reasoning** | reasoning curriculum, MoE layer, SFT warmup, reward registry, domain rewards | ~6 |
+| **Routing & Specialists** | cascade routing, confidence routing, domain detector, hot-swap specialists | ~8 |
+| **Utilities** | prompt templates, code normalizer, checkpoint converter, cost estimator, export tools | ~15 |
+| **Advanced ML** | distillation helper, checkpoint merger (linear/SLERP/task arithmetic), LR range test | ~12 |
+
+---
+
+## Quick Start
+
+```bash
+# Set up
+python -m venv .venv
+.venv/Scripts/pip install -e ".[dev,logging]"
+
+# Interactive CLI menu (recommended entry point)
+.venv/Scripts/python scripts/menu.py
+
+# Or run steps manually:
+.venv/Scripts/python scripts/train_tokenizer.py
+.venv/Scripts/python scripts/collect_data.py --config configs/small.yaml
+.venv/Scripts/python scripts/prepare_data.py --config configs/small.yaml --score
+.venv/Scripts/python scripts/train.py --config configs/small.yaml
+.venv/Scripts/python scripts/evaluate.py --checkpoint checkpoints/small/latest --config configs/small.yaml
+```
+
+### Data Prep Flags
+
+```bash
+# Multi-source collection (code 70% + text 20% + math 10%)
+.venv/Scripts/python scripts/collect_data.py --config configs/4080_max.yaml
+
+# Code-only (faster, simpler)
+.venv/Scripts/python scripts/collect_data.py --config configs/4080_max.yaml --sources code
+
+# Quality-weighted training data (recommended)
+.venv/Scripts/python scripts/prepare_data.py --config configs/4080_max.yaml --score
+
+# Strict quality filtering
+.venv/Scripts/python scripts/prepare_data.py --config configs/4080_max.yaml --filter-strict
+
+# Parallel workers + larger batch
+.venv/Scripts/python scripts/prepare_data.py --config configs/4080_max.yaml --workers 4 --batch-size 64
+```
+
+Prepared data is reusable across runs. Only re-prepare if you change the tokenizer, sequence length, dataset, languages, or filter mode.
+
+---
+
+## Project Structure
+
+```
+cola-coder/
+├── configs/                      # YAML configs: model, training, data sources, features, reasoning
+│   ├── tiny.yaml                 # 50M — quick experiments
+│   ├── small.yaml                # 125M
+│   ├── medium.yaml               # 299M
+│   ├── 4080_max.yaml             # 455M — recommended for RTX 4080
+│   ├── large.yaml                # 1B+ — cloud only
+│   ├── data_sources.yaml         # Code 70% / text 20% / math 10% mixing ratios
+│   ├── features.yaml             # 175 feature module toggles
+│   ├── reasoning.yaml            # GRPO + thinking token config
+│   └── storage.yaml              # Alternate data/checkpoint paths
+├── docs/                         # 6 guides + 10 deep-dives
+│   └── deep-dives/               # FIM, MoE, RoPE, torch.compile, quality, checkpoints, ...
+├── pipeline_runs/                # Named pipeline run state files (JSON)
+├── src/cola_coder/
+│   ├── model/                    # Transformer: GQA, SwiGLU, RMSNorm, RoPE, MoE
+│   ├── tokenizer/                # BPE tokenizer training & utilities
+│   ├── data/                     # Full data pipeline (FIM, quality filter, weighted dataset)
+│   │   ├── filters/              # Modular filter plugins (15+ checks)
+│   │   ├── sources/              # Data sources (HuggingFace, GitHub, SWH, local, docs)
+│   │   └── curation/             # Test execution scoring + Docker sandbox
+│   ├── training/                 # Trainer loop, checkpoints, optimizer, metrics, early stopping
+│   ├── inference/                # KV-cache generator, sampling, batched generation, FastAPI server
+│   ├── evaluation/               # HumanEval (62 problems), completion benchmark, pass@k, smoke tests
+│   ├── reasoning/                # CoT thinking tokens, GRPO, SFT warmup, reward registry, curriculum
+│   ├── pipeline/                 # Pipeline run manager: named runs, state persistence, artifact chains
+│   ├── features/                 # 175 optional feature modules
+│   │   └── menus/                # Training, data, eval, tools, pipeline sub-menus
+│   ├── export/                   # GGUF, Ollama, quantization export
+│   ├── tools/                    # Tool registry, agent, executor
+│   ├── memory/                   # Long-context memory management
+│   └── cli.py                    # Rich CLI + questionary arrow menus
+├── scripts/                      # 55 CLI entry points
+├── tests/                        # 127 test files (~2,800 tests)
+└── vscode-extension/             # TypeScript VS Code extension
+    └── src/
+        ├── client/               # HTTP + SSE client to FastAPI server
+        ├── providers/            # InlineCompletion, ChatParticipant, CodeAction
+        ├── server/               # ServerManager, HealthMonitor
+        └── ui/                   # StatusBar, ThinkingRenderer
+```
+
+---
+
+## Scripts (55 total)
+
+### Pipeline & Training
+| Script | Purpose |
+|--------|---------|
+| `menu.py` | Master arrow-key menu for all scripts |
+| `full_pipeline.py` | Run all 10 pipeline stages end-to-end |
+| `train_tokenizer.py` | Train BPE tokenizer from scratch |
+| `collect_data.py` | Multi-source data collection (code + text + math) |
+| `prepare_data.py` | Download, filter, tokenize training data |
+| `prepare_data_interactive.py` | Guided interactive data preparation |
+| `prepare_fim_data.py` | Prepare FIM-formatted training data |
+| `prepare_docs_data.py` | Tokenize framework documentation (React, Next.js, Zod) |
+| `prepare_repo_context_data.py` | Create repo context training pairs |
+| `combine_datasets.py` | Merge multiple datasets with weighted mixing |
+| `train.py` | Main training loop (pretraining + context extension) |
+| `train_sft.py` | Supervised fine-tuning on instruction pairs (stage 6) |
+| `train_reasoning.py` | SFT warmup + GRPO reasoning fine-tune |
+| `train_quality_classifier.py` | Train ML-based quality scorer |
+| `train_router.py` | Train semantic domain router (MLP or Transformer) |
+| `find_lr.py` | Learning rate range finder |
+| `background_train.py` | Overnight training with GPU throttling |
+| `upcycle_to_moe.py` | Convert dense checkpoint to Mixture of Experts |
+
+### Inference & Generation
+| Script | Purpose |
+|--------|---------|
+| `run.py` | Interactive inference REPL |
+| `generate.py` | One-shot code generation |
+| `generate_instructions.py` | Create instruction pairs from code (template/LLM/self-instruct) |
+| `generate_router_data.py` | Generate domain router training data |
+| `generate_sft_data.py` | Generate instruction-following pairs |
+| `serve.py` | FastAPI inference server (OpenAI-compatible + FIM + SSE) |
+
+### Data Collection
+| Script | Purpose |
+|--------|---------|
+| `scrape_github.py` | GitHub API scraper with rich filters (stars, license, language) |
+| `scrape_docs.py` | Framework documentation scraper |
+
+### Evaluation & Benchmarking
+| Script | Purpose |
+|--------|---------|
+| `evaluate.py` | HumanEval pass@k benchmark (62 problems) |
+| `benchmark.py` | Quick tok/s throughput benchmark |
+| `nano_benchmark.py` | Fast generation speed test |
+| `inference_benchmark.py` | Detailed latency profiling (prefill, decode, memory) |
+| `smoke_test.py` | 8-check quick validation (~30 seconds) |
+| `ts_benchmark.py` | TypeScript-specific benchmark (tsc --strict rewards) |
+| `regression_test.py` | Track quality regressions across checkpoints |
+| `quality_report.py` | Auto-generate quality report (syntax, types, tokens) |
+| `compare_models.py` | Side-by-side model comparison on benchmarks |
+| `run_eval_suite.py` | Run all evaluations in sequence |
+| `test_type_reward.py` | Test GRPO TypeScript reward function |
+
+### Analysis & Tools
+| Script | Purpose |
+|--------|---------|
+| `training_status.py` | CPU-only training progress readout |
+| `training_dashboard.py` | Live metrics dashboard (loss, perplexity, throughput) |
+| `training_eval_history.py` | Auto-eval snapshots tracked over training |
+| `checkpoint_diff.py` | Detailed weight-by-weight checkpoint diff |
+| `checkpoint_info.py` | Display checkpoint metadata and architecture |
+| `compare_checkpoints.py` | Side-by-side checkpoint comparison |
+| `average_checkpoints.py` | Checkpoint averaging (model soups) |
+| `model_card.py` | Generate HuggingFace model card |
+| `vram_estimate.py` | Predict VRAM before training |
+| `export_model.py` | Export to GGUF/Ollama/quantized formats |
+| `data_stats.py` | Training data statistics (token counts, language distribution) |
+| `tokenizer_health.py` | Tokenizer quality checks |
+| `env_check.py` | Validate Python, PyTorch, CUDA, tokenizer |
+| `project_health.py` | Overall project health score |
+| `migrate_storage.py` | Move data/checkpoints to alternate paths |
+| `run_pipeline.py` | Flexible multi-stage pipeline runner |
+
+---
+
+## Documentation
+
+### Guides (docs/)
+| Doc | Topic |
+|-----|-------|
+| [`01_python_for_ts_devs.md`](docs/01_python_for_ts_devs.md) | Python fundamentals for TypeScript developers |
+| [`02_how_transformers_work.md`](docs/02_how_transformers_work.md) | Transformer architecture from scratch |
+| [`03_training_pipeline.md`](docs/03_training_pipeline.md) | Training loop, optimizer, scheduling, mixed precision |
+| [`04_reasoning_experiments.md`](docs/04_reasoning_experiments.md) | CoT thinking tokens, GRPO, reward functions |
+| [`05_hardware_guide.md`](docs/05_hardware_guide.md) | GPU specs, VRAM budgets, cloud scaling |
+| [`06_pipeline_guide.md`](docs/06_pipeline_guide.md) | Complete 10-stage pipeline reference + Pipeline Manager |
+
+### Deep Dives (docs/deep-dives/)
+| Doc | Topic |
+|-----|-------|
+| [`fill-in-the-middle.md`](docs/deep-dives/fill-in-the-middle.md) | FIM training: PSM/SPM formats, special tokens, IDE autocomplete |
+| [`mixture-of-experts.md`](docs/deep-dives/mixture-of-experts.md) | MoE layer, expert routing, load balancing, upcycling |
+| [`rope-positional-encoding.md`](docs/deep-dives/rope-positional-encoding.md) | RoPE math, theta tuning (10K→500K), YaRN scaling |
+| [`torch-compile-and-cuda.md`](docs/deep-dives/torch-compile-and-cuda.md) | torch.compile, TF32, Flash Attention, fused ops |
+| [`quality-weighted-training.md`](docs/deep-dives/quality-weighted-training.md) | 13-signal scorer, weighted loss pipeline |
+| [`checkpoint-safety.md`](docs/deep-dives/checkpoint-safety.md) | Safetensors, weight tying, atomic saves, recovery |
+| [`custom-data-competitive-edge.md`](docs/deep-dives/custom-data-competitive-edge.md) | Phi-1 style synthetic data, distillation |
+| [`data-refinement.md`](docs/deep-dives/data-refinement.md) | Quality filtering, scoring, curriculum ordering |
+| [`multi-agent-specialization.md`](docs/deep-dives/multi-agent-specialization.md) | Router + specialist architecture |
+| [`single-language-specialization.md`](docs/deep-dives/single-language-specialization.md) | TypeScript-only training, type-aware data |
+
+---
+
+## Hardware
+
+| Config | Params | VRAM | Throughput | Training Time |
+|--------|--------|------|-----------|---------------|
+| tiny | 50M | ~3.6 GB | ~86 tok/s | ~4 hours |
+| small | 125M | ~6.5 GB | ~45 tok/s | ~2 days |
+| medium | 299M | ~8.2 GB | ~22 tok/s | ~14 days |
+| 4080_max | 455M | ~14.1 GB | ~16 tok/s | ~10 days |
+| large | 1B+ | ~24 GB | N/A | cloud only |
+
+Tested on RTX 4080 Super (16GB, bf16) and RTX 3080 (10GB, fp16 + GradScaler). The 4080_max config pushes to ~14.1 GB VRAM with gradient checkpointing, 4096 context length, and RoPE theta=500K.
+
+---
+
+## Key Commands
+
+```bash
+# Interactive menu (main entry point)
+.venv/Scripts/python scripts/menu.py
+
+# Full pipeline end-to-end
+.venv/Scripts/python scripts/full_pipeline.py --config configs/small.yaml
+
+# Multi-source data collection
+.venv/Scripts/python scripts/collect_data.py --config configs/small.yaml
+
+# Training
+.venv/Scripts/python scripts/train.py --config configs/4080_max.yaml
+.venv/Scripts/python scripts/train.py --config configs/4080_max.yaml --auto-resume
+
+# Instruction tuning (SFT)
+.venv/Scripts/python scripts/train_sft.py --data data/sft/instructions.jsonl --config configs/small.yaml --checkpoint checkpoints/small/latest --epochs 2 --lr 2e-5
+
+# Reasoning (GRPO)
+.venv/Scripts/python scripts/train_reasoning.py --config configs/4080_max.yaml --sft-warmup --reward combined --problems all
+
+# Generation & evaluation
+.venv/Scripts/python scripts/generate.py --checkpoint checkpoints/4080_max/latest --config configs/4080_max.yaml
+.venv/Scripts/python scripts/evaluate.py --checkpoint checkpoints/4080_max/latest --config configs/4080_max.yaml
+.venv/Scripts/python scripts/quality_report.py --checkpoint checkpoints/4080_max/latest --config configs/4080_max.yaml --eval
+
+# Tests & lint (run before training)
+.venv/Scripts/pytest tests/ -v
+.venv/Scripts/pytest tests/test_checkpoint.py -v  # CRITICAL
+.venv/Scripts/ruff check src/ scripts/ tests/
+.venv/Scripts/ruff check --fix src/ scripts/ tests/
+```
+
+---
+
+## Training Data
+
+**Primary source:** [BigCode The Stack v2 Dedup](https://huggingface.co/datasets/bigcode/the-stack-v2-dedup) — deduplicated code from GitHub across 600+ languages.
+
+**Mixed pretraining** (Qwen2.5-Coder approach):
+- 70% code: Python, TypeScript, JavaScript, Java, Go, Rust
+- 20% text: [FineWeb-Edu](https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu) (educational web text)
+- 10% math: [OpenWebMath](https://huggingface.co/datasets/open-web-math/open-web-math) (mathematical reasoning)
+
+The dataset is gated. Set `HF_TOKEN` in your environment and accept the terms before running data prep.
+
+---
+
 ## Disclaimer
 
 This project is for **educational and research purposes only**. When collecting training data:
 
 - Always respect `robots.txt` and applicable rate limits
 - The GitHub data collector uses the **official GitHub REST API** — not HTML scraping
-- Software Heritage access follows their published API rate limits (1,200 req/hr unauthenticated, 12,000 with token)
+- Software Heritage access follows their published API rate limits (1,200 req/hr unauthenticated)
 - HuggingFace datasets are accessed through their official Python SDK
 - Check and comply with all applicable licenses before using collected code for training
 - Be mindful of Terms of Service for any data source you access

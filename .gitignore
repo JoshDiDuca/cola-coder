@@ -234,6 +234,7 @@ __marimo__/
 tokenizer.json
 
 CLAUDE.md
+.claude
 
 # Git worktrees
 .worktrees/

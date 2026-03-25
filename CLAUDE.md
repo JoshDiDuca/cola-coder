@@ -14,26 +14,34 @@ Josh is an experienced TypeScript developer learning ML — frame explanations i
 
 ## Architecture
 
-Decoder-only transformer (LLaMA 3 / Mistral / DeepSeek-Coder): RoPE, GQA, SwiGLU, RMSNorm, AdamW, cosine LR. Optional MoE layer. Safetensors checkpoints. HuggingFace BPE tokenizer.
+Decoder-only transformer (LLaMA 3 / Mistral / DeepSeek-Coder): RoPE, GQA, SwiGLU, RMSNorm, AdamW, cosine LR. Optional MoE layer. Safetensors checkpoints. HuggingFace BPE tokenizer. YaRN context extension (optional).
 
 ## Project Layout
 
 ```
-configs/              YAML model & training configs (+ features.yaml, storage.yaml, reasoning.yaml)
+configs/              YAML model & training configs (+ features.yaml, storage.yaml, reasoning.yaml, data_sources.yaml)
+pipeline_runs/        Named pipeline run state files — pipeline_runs/{name}.json
 src/cola_coder/
   model/              Transformer: attention, feedforward, normalization, rope, config
   tokenizer/          BPE tokenizer training & utilities
   data/               Download, preprocess, quality filter, FIM, dataset, collator
-  training/           Trainer loop, optimizer, checkpoint, metrics, early stopping
+    filters/          Modular filter plugins (15+ checks)
+    sources/          Data sources (HuggingFace, GitHub, SWH, local, docs, mixed)
+    curation/         Test execution scoring + Docker sandbox
+  training/           Trainer loop, optimizer, checkpoint, metrics, early stopping, SFT
   inference/          KV-cache generator, sampling, batched generation, FastAPI server
   evaluation/         HumanEval (62 problems), completion benchmark, pass@k, smoke tests
   reasoning/          CoT thinking tokens, GRPO, SFT warmup, reward registry, curriculum
-  features/           166 feature modules — all toggled via configs/features.yaml
-    menus/            Sub-menu modules: data, training, eval, tools (split from master_menu.py)
+  pipeline/           Pipeline run manager: named runs, state persistence, artifact chains
+  features/           175 feature modules — all toggled via configs/features.yaml
+    menus/            Sub-menu modules: data, training, eval, tools, pipeline
+  export/             GGUF, Ollama, quantization export
+  tools/              Tool registry, agent executor
+  memory/             Long-context memory management
   cli.py              Shared CLI styling (rich + questionary arrow-key menus, multi_select, weight_editor)
-scripts/              45 CLI entry points — all use `from cola_coder.cli import cli`, never direct Rich
-tests/                122 test files (~2800 tests)
-docs/                 Educational guides (01-05) + deep-dives/
+scripts/              55 CLI entry points — all use `from cola_coder.cli import cli`, never direct Rich
+tests/                127 test files (~2800 tests)
+docs/                 Educational guides (01-06) + deep-dives/
 vscode-extension/     TypeScript VS Code extension (see below)
 ```
 
@@ -78,19 +86,41 @@ code --install-extension cola-coder-0.1.0.vsix --force  # install locally
 
 ## Training Pipeline
 
-1. **Tokenizer** — `scripts/train_tokenizer.py` → `tokenizer.json`
-2. **Data prep** — `scripts/prepare_data.py --config configs/<size>.yaml --tokenizer tokenizer.json` → `data/processed/train_data.npy`
-3. **Training** — `scripts/train.py --config configs/<size>.yaml`
-4. **Reasoning** (optional) — `scripts/train_reasoning.py` — SFT warmup + GRPO with test-based rewards
+The full training pipeline is **10 stages**. Use the Pipeline Manager or `full_pipeline.py` to run it end-to-end.
+
+1. **Collect Data** — `scripts/collect_data.py` → multi-source (code 70% + text 20% + math 10%)
+2. **Prepare Data** — `scripts/prepare_data.py --config --score` → `data/processed/train_data.npy`
+3. **Pretrain** — `scripts/train.py --config` → `checkpoints/{size}/`
+4. **Extend Context** (optional) — `scripts/train.py --config` with `rope_scaling` in config
+5. **Generate Instructions** — `scripts/generate_instructions.py` → `data/sft/instructions.jsonl`
+6. **Instruction Tune** — `scripts/train_sft.py --data --config --checkpoint` → `checkpoints/{size}_sft/`
+7. **Upcycle MoE** (optional) — `scripts/upcycle_to_moe.py` → `checkpoints/moe/`
+8. **Train Router** — `scripts/train_router.py --arch mlp` → `checkpoints/router/`
+9. **Train Reasoning** — `scripts/train_reasoning.py --sft-warmup --reward combined` → reasoning checkpoint
+10. **Evaluate** — `scripts/smoke_test.py` + `scripts/evaluate.py` + `scripts/quality_report.py`
 
 Re-prepare data only if tokenizer, seq_len, dataset, languages, or filter mode changes.
+
+### Multi-Source Data (Qwen2.5-Coder ratios)
+```bash
+# Collect code + text + math with 70/20/10 weights
+.venv/Scripts/python scripts/collect_data.py --config configs/small.yaml
+
+# Sources defined in configs/data_sources.yaml
+# Code: bigcode/the-stack-v2-dedup (70%)
+# Text: HuggingFaceFW/fineweb-edu (20%)
+# Math: open-web-math/open-web-math (10%)
+```
 
 ## Key Commands
 
 ```bash
 .venv/Scripts/python scripts/menu.py                           # Master menu
+.venv/Scripts/python scripts/full_pipeline.py --config configs/small.yaml  # Full 10-stage pipeline
+.venv/Scripts/python scripts/collect_data.py --config configs/4080_max.yaml  # Multi-source data
 .venv/Scripts/python scripts/train.py --config configs/4080_max.yaml
 .venv/Scripts/python scripts/train.py --config configs/4080_max.yaml --auto-resume
+.venv/Scripts/python scripts/train_sft.py --data data/sft/instructions.jsonl --config configs/4080_max.yaml --checkpoint checkpoints/4080_max/latest --epochs 2 --lr 2e-5
 .venv/Scripts/python scripts/generate.py --checkpoint checkpoints/4080_max/latest --config configs/4080_max.yaml
 .venv/Scripts/python scripts/evaluate.py --checkpoint checkpoints/4080_max/latest --config configs/4080_max.yaml
 .venv/Scripts/python scripts/train_reasoning.py --config configs/4080_max.yaml --sft-warmup --reward combined --problems all
@@ -118,7 +148,7 @@ If checkpoint tests fail, DO NOT start training.
 - Use ruff. Line length: 100 (pyproject.toml)
 - Use pytest for tests. Type hints used but not strictly enforced
 - Use `from cola_coder.cli import cli` for all CLI output — never raw Rich imports
-- CLI methods: `cli.header()`, `cli.choose()`, `cli.confirm()`, `cli.kv_table()`, `cli.multi_select()`, `cli.weight_editor()`, `cli.pick_languages()`, `cli.info()`, `cli.success()`, `cli.error()`, `cli.warn()`, `cli.dim()`, `cli.done()`, `cli.print()`
+- CLI methods: `cli.header()`, `cli.choose()`, `cli.confirm()`, `cli.kv_table()`, `cli.multi_select()`, `cli.weight_editor()`, `cli.pick_languages()`, `cli.info()`, `cli.success()`, `cli.error()`, `cli.warn()`, `cli.dim()`, `cli.done()`, `cli.print()`, `cli.step()`, `cli.rule()`
 - Every new user-facing feature or script MUST have a menu entry. No orphan scripts.
 - Use `cli.pick_languages()` for any language selection — never inline language loops.
 - New feature modules must be in a `_FEATURE_CATEGORIES` group, not left in "Other".
@@ -129,27 +159,61 @@ Master menu is split into sub-modules for maintainability:
 
 ```
 src/cola_coder/features/
-  master_menu.py              # Thin coordinator (~960 lines) — shared helpers, generate, router
+  master_menu.py              # Thin coordinator — shared helpers, generate, router
   menus/
-    __init__.py               # Exports: DataMenu, TrainingMenu, EvalMenu, ToolsMenu
+    __init__.py               # Exports: DataMenu, TrainingMenu, EvalMenu, ToolsMenu, PipelineMenu
     data_menu.py              # 5 grouped sub-menus: Collect, Modify, Score, Inspect, Prepare
-    training_menu.py          # Train, resume, background, tokenizer, reasoning, VRAM
+    training_menu.py          # 6 sub-menus: Pipeline Manager, Foundation, Pre-Training,
+                              #   Post-Training, Alignment & Reasoning, Monitoring & Tools
     eval_menu.py              # HumanEval, benchmarks, comparisons, quality reports
     tools_menu.py             # Tests, linting, GPU, features, settings, export
+    pipeline_menu.py          # Named pipeline runs, resume, stage override, state tracking
 ```
 
-Sub-menus accept `master: MasterMenu` in constructor and call `self._master._run_script()` etc. Feature scanning functions stay in master_menu.py — ToolsMenu imports them from there.
+Sub-menus accept `master: MasterMenu` in constructor and call `self._master._run_script()` etc.
+`PipelineMenu` uses `_run_stage_script()` (its own helper) — raises on non-zero exit so stages fail correctly.
+Feature scanning functions stay in master_menu.py — ToolsMenu imports them from there.
+
+### Training Menu Structure (6 groups)
+```
+1. Pipeline Manager     → pipeline_menu.py (create/resume/view/override named runs)
+2. Foundation (1-2)     → Train tokenizer, Prepare data
+3. Pre-Training (3)     → Train model, Resume, Background training
+4. Post-Training (4-7)  → Extend context, Generate instructions, Instruction tuning, MoE upcycle
+5. Alignment (8-9)      → Train semantic router, GRPO reasoning, Self-play
+6. Monitoring           → VRAM estimation, LR finder, dashboard, eval history
+```
+
+### Pipeline Manager
+- Creates named runs persisted to `pipeline_runs/{name}.json`
+- 10-stage state machine: pending → running → completed / failed / skipped
+- Artifact chain resolution: stage override → previous artifact → filesystem auto-detect
+- `PipelineRunManager` in `src/cola_coder/pipeline/run_manager.py`
 
 ### Data Sources
 All data sources (GitHub, HuggingFace, SWH, Local) emit `pipeline.DataRecord(content=..., metadata={...})`. The `metadata` dict carries source-specific fields (e.g. `"source": "github"`, `"repo_name"`, `"file_path"`). Access via `record.metadata.get("field_name", "")`.
 
+### Instruction Tuning (Stage 6)
+- Script: `train_sft.py` (NOT `train.py`)
+- Args: `--data`, `--config`, `--checkpoint`, `--epochs`, `--lr`
+- Saves to: `checkpoints/{config_stem}_sft/`
+- LR: 2e-5, Epochs: 2-3
+
+### Context Extension (Stage 4)
+- Uses `RoPEScalingConfig` in model config: `type` (default "none"), `factor` (default 1.0)
+- Auto-skipped when `type == "none"` or `factor <= 1.0`
+- Runs `train.py --auto-resume` with the yarn scaling config applied
+
 ## Important Notes
 
 - HuggingFace dataset is gated: set `HF_TOKEN` env var
+- Tokenizer path from `configs/storage.yaml` — pipeline scripts must pass `--tokenizer` from storage config
 - Verify GPU utilization with `nvidia-smi` during training
 - Resume: `--resume checkpoints/<size>/latest` or `--auto-resume`
 - wandb: `--wandb` flag (needs `pip install wandb` + `wandb login`)
 - Storage config: `configs/storage.yaml` for alternate data/checkpoint paths
+- `_run_script()` in master_menu does NOT raise on non-zero exit (prints error, continues)
+- `_run_stage_script()` in pipeline_menu DOES raise — required for pipeline stage failure tracking
 - **DO NOT interrupt active training runs** — checkpoint corruption loses days of GPU time
 
 ## Vision
