@@ -234,9 +234,8 @@ class PipelineOrchestrator:
         # Track the data file as an artifact
         if result.success:
             try:
-                from cola_coder.model.config import Config
-                cfg = Config.from_yaml(self.config_path)
-                data_dir = Path(cfg.data.data_dir) / "processed"
+                from cola_coder.data.dataset_resolver import DatasetResolver
+                data_dir = DatasetResolver.get_dataset_dir()
                 data_file = str(data_dir / "train_data.npy")
             except Exception:
                 data_file = "data/processed/train_data.npy"
