@@ -378,14 +378,35 @@ class PipelineMenu:
 
     def _stage_collect(self, run: PipelineRun, config) -> str:
         """Stage 1: Data collection — auto or interactive."""
-        data_dir = Path(self._master.storage.data_dir)
-        processed = data_dir / "processed"
-        existing = list(processed.glob("*.npy")) if processed.exists() else []
+        from cola_coder.data.dataset_resolver import DatasetResolver
+
+        ds_path = "configs/data_sources.yaml"
+        dataset_name = DatasetResolver.get_dataset_name(ds_path)
+        dataset_dir = DatasetResolver.get_dataset_dir(ds_path)
+
+        # ── Tokenizer check (BEFORE data collection) ──────────────────────
+        cli.info("Dataset", dataset_name)
+
+        if not DatasetResolver.tokenizer_exists(ds_path):
+            if cli.confirm(f"No tokenizer found for dataset '{dataset_name}'. Train one now?"):
+                self._train_tokenizer_for_run(run)
+            else:
+                raise RuntimeError("Tokenizer required. Train it first with: python scripts/train_tokenizer.py --config " + run.config_path)
+        else:
+            meta = DatasetResolver.get_tokenizer_meta(DatasetResolver.get_tokenizer_path(ds_path))
+            trained_at = meta.get("trained_at", "unknown")
+            if isinstance(trained_at, str) and len(trained_at) >= 10:
+                trained_at = trained_at[:10]
+            if cli.confirm(f"Tokenizer found (trained {trained_at}). Retrain? (No = use existing)", default=False):
+                self._train_tokenizer_for_run(run)
+
+        # ── Data existence check ──────────────────────────────────────────
+        existing = list(dataset_dir.glob("*.npy")) if dataset_dir.exists() else []
 
         if existing:
-            cli.info("Existing data", f"{len(existing)} .npy file(s) in {processed}")
+            cli.info("Existing data", f"{len(existing)} .npy file(s) in {dataset_dir}")
             if not cli.confirm("Re-collect data? (No = use existing)", default=False):
-                return str(data_dir)
+                return str(dataset_dir)
 
         collect_options = [
             {"label": "Auto-collect (code + text + math)",
@@ -397,14 +418,13 @@ class PipelineMenu:
         ]
         choice = cli.choose("Collection mode:", collect_options, allow_cancel=True)
         if choice is None:
-            return str(data_dir)
+            return str(dataset_dir)
 
-        # Resolve tokenizer from storage config so scripts can find it
-        tok_path = Path(self._master.storage.tokenizer_path)
+        # Tokenizer path for scripts
+        tok_path = DatasetResolver.get_tokenizer_path(ds_path)
         tok_args: list[str] = ["--tokenizer", str(tok_path)] if tok_path.exists() else []
 
         if choice == 0:
-            # _run_stage_script raises RuntimeError on non-zero exit
             self._run_stage_script("collect_data.py", [
                 "--config", run.config_path,
                 "--sources", "code,text,math",
@@ -417,23 +437,27 @@ class PipelineMenu:
                 *tok_args,
             ])
         elif choice == 2:
-            # Interactive menu — user controls collection; verify files exist on return
             self._master._data.menu()
 
         # Verify data files exist after collection
-        new_files = list(processed.glob("*.npy")) if processed.exists() else []
+        new_files = list(dataset_dir.glob("*.npy")) if dataset_dir.exists() else []
         if not new_files:
             raise RuntimeError(
-                f"No .npy data files found in {processed} after collection. "
+                f"No .npy data files found in {dataset_dir} after collection. "
                 "Check the collection output above for errors."
             )
 
-        return str(data_dir)
+        return str(dataset_dir)
+
+    def _train_tokenizer_for_run(self, run: PipelineRun) -> None:
+        """Train tokenizer for the current dataset configuration."""
+        self._run_stage_script("train_tokenizer.py", ["--config", run.config_path])
 
     def _stage_prepare(self, run: PipelineRun, config) -> str:
         """Stage 2: Prepare and tokenize data."""
         args = ["--config", run.config_path]
-        tokenizer = Path(self._master.storage.tokenizer_path)
+        from cola_coder.data.dataset_resolver import DatasetResolver
+        tokenizer = DatasetResolver.get_tokenizer_path("configs/data_sources.yaml")
         if tokenizer.exists():
             args.extend(["--tokenizer", str(tokenizer)])
         args.append("--score")

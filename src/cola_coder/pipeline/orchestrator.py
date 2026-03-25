@@ -198,16 +198,21 @@ class PipelineOrchestrator:
     # ─────────────────────────────────────────────────────────────────────────
 
     def _run_tokenizer(self) -> StageResult:
-        """Train tokenizer if tokenizer.json doesn't exist."""
+        """Train tokenizer if it doesn't exist yet."""
         cmd = [
             self._python,
             str(self._scripts_dir / "train_tokenizer.py"),
+            "--config", self.config_path,
         ]
         return self._run_stage(PipelineStage.TOKENIZER, cmd, timeout=3600)
 
     def _run_data_prep(self) -> StageResult:
         """Prepare data if train_data.npy doesn't exist."""
-        tokenizer_path = self._artifacts.get("tokenizer_path", "tokenizer.json")
+        try:
+            from cola_coder.data.dataset_resolver import DatasetResolver
+            tokenizer_path = str(DatasetResolver.get_tokenizer_path())
+        except Exception:
+            tokenizer_path = self._artifacts.get("tokenizer_path", "tokenizer.json")
         cmd = [
             self._python,
             str(self._scripts_dir / "prepare_data.py"),
@@ -421,22 +426,32 @@ class PipelineOrchestrator:
         )
 
     def _tokenizer_exists(self) -> bool:
-        """Check whether tokenizer.json exists."""
+        """Check whether the per-dataset tokenizer exists."""
         try:
-            from cola_coder.model.config import get_storage_config
-            storage = get_storage_config()
-            return Path(storage.tokenizer_path).exists()
+            from cola_coder.data.dataset_resolver import DatasetResolver
+            return DatasetResolver.tokenizer_exists()
         except Exception:
             return Path("tokenizer.json").exists()
 
     def _data_exists(self) -> bool:
         """Check whether at least one training .npy file exists."""
-        # Check for previously tracked artifact first
         data_path = self._artifacts.get("data_path")
         if data_path and Path(data_path).exists():
             return True
 
-        # Fall back to scanning the processed data directory
+        try:
+            from cola_coder.data.dataset_resolver import DatasetResolver
+            dataset_dir = DatasetResolver.get_dataset_dir()
+            if dataset_dir.exists():
+                npy_files = [
+                    f for f in dataset_dir.glob("*.npy")
+                    if not f.name.endswith("_tmp.npy") and not f.name.endswith(".weights.npy")
+                ]
+                return bool(npy_files)
+        except Exception:
+            pass
+
+        # Legacy fallback
         try:
             from cola_coder.model.config import Config
             cfg = Config.from_yaml(self.config_path)
