@@ -8,7 +8,7 @@
 
 sources:
   code:
-    dataset: "bigcode/the-stack-v2-dedup"
+    dataset: "bigcode/starcoderdata"
     weight: 0.7
     enabled: true
     languages:
