@@ -171,6 +171,8 @@ class DataMenu:
                  "detail": "Train fast classifier from LLM annotations"},
                 {"label": "Apply Curriculum Ordering",
                  "detail": "Reorder data by quality score for curriculum learning"},
+                {"label": "Scan Data for Malware",
+                 "detail": "Run YARA + Windows Defender on collected data"},
                 {"label": "Advanced Filters",
                  "detail": "PII, dedup, license, syntax — view available plugins"},
             ]
@@ -196,7 +198,97 @@ class DataMenu:
             elif choice == 7:
                 self._apply_curriculum_ordering()
             elif choice == 8:
+                self._scan_malware_menu()
+            elif choice == 9:
                 self._advanced_filters_info()
+
+    # ── Malware Scanning ─────────────────────────────────────────────────
+
+    def _scan_malware_menu(self) -> None:
+        """On-demand malware scan of a dataset directory."""
+        from cola_coder.security.scanner import CompositeMalwareScanner
+
+        _print_section_header(
+            "Scan Data for Malware",
+            "Run YARA + Windows Defender on collected data",
+        )
+
+        # Step 1: Pick dataset directory
+        data_dir = self._master._resolve_path("data")
+        if not data_dir.exists():
+            cli.warn("No data/ directory found.")
+            self._master._pause()
+            return
+
+        # Scan for directories containing files
+        candidates: list[tuple[str, Path]] = []
+        for d in sorted(data_dir.rglob("*")):
+            if d.is_dir() and any(d.iterdir()):
+                # Only include leaf-ish dirs or dirs with actual files
+                files = [f for f in d.iterdir() if f.is_file()]
+                if files:
+                    rel = d.relative_to(data_dir)
+                    candidates.append((str(rel), d))
+
+        if not candidates:
+            cli.warn("No data directories with files found.")
+            self._master._pause()
+            return
+
+        dir_options = [
+            {"label": name, "detail": str(path)}
+            for name, path in candidates[:20]  # Limit to 20 options
+        ]
+
+        dir_choice = cli.choose(
+            "Select dataset directory to scan:", dir_options, allow_cancel=True,
+        )
+        if dir_choice is None:
+            return
+
+        _, scan_path = candidates[dir_choice]
+
+        # Step 2: Choose scanners
+        scanner_options = [
+            {"label": "Full scan (Defender + YARA)",
+             "detail": "Recommended for untrusted data"},
+            {"label": "Quick scan (YARA only)",
+             "detail": "Fast code-specific pattern check"},
+        ]
+        scanner_choice = cli.choose(
+            "Scanner mode:", scanner_options, allow_cancel=True,
+        )
+        if scanner_choice is None:
+            return
+
+        scan_cfg = {
+            "scanners": {"yara": True, "defender": scanner_choice == 0},
+        }
+        scanner = CompositeMalwareScanner.from_config(scan_cfg)
+
+        cli.info("Directory", str(scan_path))
+        cli.info("Scanners", ", ".join(scanner.available_scanners))
+        cli.print()
+
+        # Step 3: Run scan
+        result = scanner.scan_directory(scan_path)
+
+        if result.is_clean:
+            cli.success(
+                f"Clean: {result.files_scanned} files scanned "
+                f"({result.scan_duration_ms:.0f}ms)"
+            )
+        else:
+            cli.warn(
+                f"{len(result.threats)} threat(s) found in "
+                f"{result.files_scanned} files ({result.scan_duration_ms:.0f}ms)"
+            )
+            for t in result.threats:
+                cli.error(f"  [{t.severity.upper()}] {t.name}: {t.file_path}")
+                if t.details:
+                    cli.dim(f"    {t.details}")
+
+        self._master._pause()
 
     # ── Inspect & View ────────────────────────────────────────────────────
 

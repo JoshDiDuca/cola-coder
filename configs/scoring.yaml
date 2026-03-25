@@ -18,6 +18,14 @@ scoring:
       network: "none"
       read_only: true
       tmpfs_size_mb: 64
+    malware_scan:
+      enabled: true
+      on_threat: "warn"          # warn | quarantine | abort
+      scanners:
+        defender: true           # Windows Defender (auto-detected)
+        yara: true               # Custom YARA rules (always available)
+        clamav: false            # ClamAV daemon (opt-in)
+      yara_rules_dir: null       # null = use embedded rules
 
   # Sandbox settings for running tsc/eslint on untrusted code (legacy, see security: above)
   sandbox:

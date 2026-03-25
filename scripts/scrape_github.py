@@ -22,11 +22,15 @@ Usage:
 import argparse
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
+import yaml
+
 from cola_coder.model.config import get_storage_config
 from cola_coder.cli import cli
+from cola_coder.security.scanner import CompositeMalwareScanner
 
 # ---------------------------------------------------------------------------
 # Menu definitions
@@ -339,6 +343,35 @@ def show_summary(settings: dict) -> bool:
     return cli.confirm("Start scraping?", default=True)
 
 
+def _load_scan_config() -> dict:
+    """Load malware_scan config from scoring.yaml."""
+    scoring_path = Path("configs/scoring.yaml")
+    if not scoring_path.exists():
+        return {}
+    with open(scoring_path, encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+    return cfg.get("scoring", {}).get("security", {})
+
+
+def _scan_cloned_repo(
+    clone_dir: Path,
+    repo_name: str,
+    scan_config: dict,
+) -> bool:
+    """Scan a cloned repo for malware. Returns True if clean."""
+    scanner = CompositeMalwareScanner.from_config(scan_config.get("malware_scan", {}))
+    if not scanner.available_scanners:
+        return True
+
+    result = scanner.scan_directory(clone_dir)
+    if not result.is_clean:
+        cli.warn(f"Threats in {repo_name}: {[t.name for t in result.threats]}")
+        for t in result.threats:
+            cli.error(f"  [{t.severity.upper()}] {t.name}: {Path(t.file_path).name}")
+        return False
+    return True
+
+
 def run_pipeline(settings: dict, tokenizer_path: str | None):
     """Run the scraping pipeline with the selected settings."""
     from cola_coder.data.sources.github import (
@@ -350,6 +383,8 @@ def run_pipeline(settings: dict, tokenizer_path: str | None):
     cli.print()
     cli.print("[bold cyan]Starting GitHub scraper...[/bold cyan]")
     cli.print()
+
+    scan_config = _load_scan_config()
 
     output_dir = Path(settings["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -386,6 +421,13 @@ def run_pipeline(settings: dict, tokenizer_path: str | None):
                 cli.print(f"  [red]Failed to clone {repo_name}: {e}[/red]")
                 continue
 
+            # Scan for malware before extraction
+            if not _scan_cloned_repo(repo_path, repo_name, scan_config):
+                cli.warn(f"  Skipping {repo_name} due to detected threats.")
+                if repo_path.exists():
+                    shutil.rmtree(repo_path, ignore_errors=True)
+                continue
+
             try:
                 # Get repo info for metadata
                 try:
@@ -419,7 +461,6 @@ def run_pipeline(settings: dict, tokenizer_path: str | None):
                 )
             finally:
                 # Cleanup
-                import shutil
                 if repo_path.exists():
                     try:
                         shutil.rmtree(repo_path)

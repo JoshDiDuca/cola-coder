@@ -478,6 +478,35 @@ class PipelineMenu:
                 "Check the collection output above for errors."
             )
 
+        # ── Malware scan option ──────────────────────────────────────────
+        scan_options = [
+            {"label": "Full scan (Defender + YARA)",
+             "detail": "Recommended for untrusted data"},
+            {"label": "Quick scan (YARA only)",
+             "detail": "Fast code-specific pattern check"},
+            {"label": "Skip scanning",
+             "detail": "Trusted data sources only"},
+        ]
+        scan_choice = cli.choose(
+            "Scan collected data for malware?", scan_options, allow_cancel=True,
+        )
+        if scan_choice is not None and scan_choice < 2:
+            from cola_coder.security.scanner import CompositeMalwareScanner
+
+            scan_cfg = {
+                "scanners": {"yara": True, "defender": scan_choice == 0},
+            }
+            scanner = CompositeMalwareScanner.from_config(scan_cfg)
+            result = scanner.scan_directory(dataset_dir)
+            if not result.is_clean:
+                cli.warn(f"Found {len(result.threats)} threat(s)")
+                for t in result.threats:
+                    cli.error(
+                        f"  [{t.severity}] {t.name}: {Path(t.file_path).name}"
+                    )
+            else:
+                cli.success(f"Clean: {result.files_scanned} files scanned")
+
         return str(dataset_dir)
 
     @staticmethod
