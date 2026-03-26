@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,8 @@ from cola_coder.data.scorers.credential_scanner import CredentialScanner
 from cola_coder.data.scorers.protocol import CompositeScorer, ScorerProtocol
 from cola_coder.data.scorers.sandbox import SandboxedRunner
 from cola_coder.data.scorers.security import SecurityConfig
+
+logger = logging.getLogger(__name__)
 
 
 def load_scoring_config(
@@ -55,6 +58,9 @@ def build_composite_scorer(
 
     # Build sandbox runner with security config
     runner = SandboxedRunner.from_config(security_cfg, audit_logger=audit_logger)
+
+    # Log sandbox status (visible in CLI output)
+    runner.log_status()
 
     # Verify Docker if required
     runner.verify_or_fail()

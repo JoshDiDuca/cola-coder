@@ -7,6 +7,7 @@ mode for maximum security.
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
@@ -14,6 +15,8 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def _kill_process_tree(name: str) -> None:
@@ -40,10 +43,17 @@ class SandboxedRunner:
         memory_mb: int = 512,
         docker_image: str = "node:20-alpine",
     ) -> None:
+        self._docker_requested = use_docker
         self.use_docker = use_docker and self._docker_available()
         self.timeout = timeout
         self.memory_mb = memory_mb
         self.docker_image = docker_image
+
+        # Execution counters for reporting
+        self._docker_runs: int = 0
+        self._native_runs: int = 0
+        self._total_runs: int = 0
+        self._errors: int = 0
 
     @classmethod
     def from_config(
@@ -63,6 +73,50 @@ class SandboxedRunner:
         instance._config = config
         instance._audit_logger = audit_logger
         return instance
+
+    def log_status(self) -> dict[str, object]:
+        """Return sandbox status info for display. Also logs via Python logging."""
+        mode = "docker" if self.use_docker else "native"
+        docker_available = self._docker_available()
+
+        status: dict[str, object] = {
+            "mode": mode,
+            "docker_requested": self._docker_requested,
+            "docker_available": docker_available,
+            "docker_connected": self.use_docker,
+            "timeout": self.timeout,
+            "memory_mb": self.memory_mb,
+            "docker_image": self.docker_image if self.use_docker else None,
+        }
+
+        if self.use_docker:
+            logger.info(
+                "Sandbox: Docker mode ACTIVE — image=%s, network=none, "
+                "memory=%dMB, timeout=%ds",
+                self.docker_image, self.memory_mb, self.timeout,
+            )
+        elif self._docker_requested:
+            logger.warning(
+                "Sandbox: Docker was REQUESTED but is NOT AVAILABLE — "
+                "falling back to native isolation",
+            )
+        else:
+            logger.info(
+                "Sandbox: native mode — temp dir isolation, timeout=%ds "
+                "(set security.mode=docker for container isolation)",
+                self.timeout,
+            )
+
+        return status
+
+    def get_run_summary(self) -> dict[str, int]:
+        """Return execution statistics for end-of-run reporting."""
+        return {
+            "total_runs": self._total_runs,
+            "docker_runs": self._docker_runs,
+            "native_runs": self._native_runs,
+            "errors": self._errors,
+        }
 
     def verify_or_fail(self) -> None:
         """Raises SecurityError if Docker is required but unavailable."""
@@ -122,9 +176,19 @@ class SandboxedRunner:
     ) -> subprocess.CompletedProcess[str]:
         """Internal run dispatcher."""
         cwd = str(Path(cwd).resolve())
+        self._total_runs += 1
+
         if self.use_docker:
-            return self._run_docker(cmd, cwd, capture_output)
-        return self._run_native(cmd, cwd, capture_output)
+            self._docker_runs += 1
+            result = self._run_docker(cmd, cwd, capture_output)
+        else:
+            self._native_runs += 1
+            result = self._run_native(cmd, cwd, capture_output)
+
+        if result.returncode < 0:
+            self._errors += 1
+
+        return result
 
     def _run_native(
         self,
