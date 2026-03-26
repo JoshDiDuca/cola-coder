@@ -109,6 +109,61 @@ class TestSandboxedRunnerSecurity:
             if stale.exists():
                 shutil.rmtree(stale)
 
+    def test_run_counter_increments(self, tmp_path: Path) -> None:
+        """Run counter tracks native executions."""
+        runner = SandboxedRunner(use_docker=False, timeout=5)
+        assert runner.get_run_summary()["total_runs"] == 0
+
+        runner.run(["python", "-c", "print(1)"], cwd=tmp_path)
+        runner.run(["python", "-c", "print(2)"], cwd=tmp_path)
+
+        summary = runner.get_run_summary()
+        assert summary["total_runs"] == 2
+        assert summary["native_runs"] == 2
+        assert summary["docker_runs"] == 0
+
+    def test_error_counter_on_timeout(self, tmp_path: Path) -> None:
+        """Error counter increments on timeout (returncode -1)."""
+        runner = SandboxedRunner(use_docker=False, timeout=1)
+        runner.run(["python", "-c", "import time; time.sleep(10)"], cwd=tmp_path)
+
+        summary = runner.get_run_summary()
+        assert summary["errors"] == 1
+        assert summary["total_runs"] == 1
+
+    def test_error_counter_on_missing_command(self, tmp_path: Path) -> None:
+        """Error counter increments on command not found (returncode -2)."""
+        runner = SandboxedRunner(use_docker=False, timeout=5)
+        runner.run(["nonexistent_xyz_12345"], cwd=tmp_path)
+
+        summary = runner.get_run_summary()
+        assert summary["errors"] == 1
+
+    def test_log_status_native(self) -> None:
+        """log_status returns correct info for native mode."""
+        runner = SandboxedRunner(use_docker=False, timeout=10)
+        status = runner.log_status()
+        assert status["mode"] == "native"
+        assert status["docker_connected"] is False
+
+    def test_log_status_docker_connected(self) -> None:
+        """log_status shows docker connected when active."""
+        with patch.object(SandboxedRunner, "_docker_available", return_value=True):
+            runner = SandboxedRunner(use_docker=True, timeout=10)
+            status = runner.log_status()
+            assert status["mode"] == "docker"
+            assert status["docker_connected"] is True
+            assert status["docker_image"] == "node:20-alpine"
+
+    def test_log_status_docker_requested_unavailable(self) -> None:
+        """log_status shows warning when Docker requested but unavailable."""
+        with patch.object(SandboxedRunner, "_docker_available", return_value=False):
+            runner = SandboxedRunner(use_docker=True, timeout=10)
+            status = runner.log_status()
+            assert status["mode"] == "native"
+            assert status["docker_requested"] is True
+            assert status["docker_connected"] is False
+
     def test_audit_integration(self, tmp_path: Path) -> None:
         """run() logs to audit logger when configured."""
         import json

@@ -50,16 +50,90 @@ def main() -> None:
         enabled = "enabled" if s["enabled"] else "disabled"
         cli.dim(f"  {status} {s['name']} (weight={s['weight']}, {enabled})")
 
-    # Build composite scorer
+    # Build composite scorer (this also logs sandbox status)
     scorer_names = args.scorers.split(",") if args.scorers else None
     composite = build_composite_scorer(args.config, scorer_names)
+
+    # Show sandbox status banner
+    _show_sandbox_banner(composite)
 
     if args.jsonl:
         _score_jsonl(args, composite)
     elif args.data:
         _score_npy(args, composite)
 
+    # Show sandbox execution summary
+    _show_sandbox_summary(composite)
+
     cli.success("Scoring complete!")
+
+
+def _get_sandbox_runner(composite: CompositeScorer) -> "SandboxedRunner | None":
+    """Extract the SandboxedRunner from any subprocess-based scorer in the composite."""
+    from cola_coder.data.scorers.sandbox import SandboxedRunner
+
+    for scorer, _ in composite._scorers:
+        # TscScorer has _runner, EslintScorer has _runner
+        runner = getattr(scorer, "_runner", None)
+        if isinstance(runner, SandboxedRunner):
+            return runner
+        # TscScorer wraps TscRunner which has _runner
+        tsc = getattr(scorer, "_tsc", None)
+        if tsc is not None:
+            inner = getattr(tsc, "_runner", None)
+            if isinstance(inner, SandboxedRunner):
+                return inner
+    return None
+
+
+def _show_sandbox_banner(composite: CompositeScorer) -> None:
+    """Show sandbox/Docker status at the top of scoring output."""
+    runner = _get_sandbox_runner(composite)
+    if runner is None:
+        cli.dim("  Sandbox: N/A (no subprocess scorers active)")
+        return
+
+    if runner.use_docker:
+        cli.info(
+            "Sandbox",
+            f"Docker CONNECTED — image={runner.docker_image}, "
+            f"network=none, memory={runner.memory_mb}MB",
+        )
+    elif runner._docker_requested:
+        cli.warn(
+            "  Sandbox: Docker was REQUESTED but NOT AVAILABLE — "
+            "using native isolation (temp dir + timeout)",
+        )
+    else:
+        cli.info(
+            "Sandbox",
+            f"Native mode — temp dir isolation, timeout={runner.timeout}s "
+            "(set security.mode=docker for container isolation)",
+        )
+
+
+def _show_sandbox_summary(composite: CompositeScorer) -> None:
+    """Show sandbox execution statistics at end of scoring."""
+    runner = _get_sandbox_runner(composite)
+    if runner is None:
+        return
+
+    summary = runner.get_run_summary()
+    total = summary["total_runs"]
+    if total == 0:
+        return
+
+    cli.info("Sandbox summary", "")
+    if runner.use_docker:
+        cli.dim(
+            f"  Docker: {summary['docker_runs']:,}/{total:,} executions "
+            f"(all sandboxed in {runner.docker_image})"
+        )
+    else:
+        cli.dim(f"  Native: {summary['native_runs']:,}/{total:,} executions (temp dir isolation)")
+
+    if summary["errors"] > 0:
+        cli.warn(f"  Errors: {summary['errors']:,} tool execution failures")
 
 
 def _score_jsonl(args, composite) -> None:
