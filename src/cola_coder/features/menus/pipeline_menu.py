@@ -317,7 +317,7 @@ class PipelineMenu:
 
         # Offer to start running immediately
         if cli.confirm("Start running now?"):
-            self._execute_from(run)
+            self._execute_from(run, target_stage)
 
     # ── Delete ────────────────────────────────────────────────────────
 
