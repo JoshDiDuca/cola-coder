@@ -263,25 +263,6 @@ Never start training if checkpoint tests fail.
 
 ---
 
-## Features
-
-Cola-Coder has **175 optional feature modules** across 10 categories. Every feature follows the same pattern: a `FEATURE_ENABLED` flag and `is_enabled()` function in `configs/features.yaml`. Enable only what you need — the core training loop runs without any of them.
-
-| Category | Examples | Count |
-|----------|----------|-------|
-| **Code Analysis** | complexity scorer, code entropy, import analyzer, repetition detector, code smell detector | ~20 |
-| **Training Tools** | gradient norm monitor, activation monitor, plateau detector, anomaly detector, dead neuron detection | ~20 |
-| **Model Analysis** | architecture visualizer, attention analyzer, pruning analyzer, model fingerprint, VRAM estimator | ~15 |
-| **Data Quality** | data quality report, data leakage detector, dedup checker, tokenizer coverage, data balancer | ~12 |
-| **Evaluation** | completion benchmark, benchmark store, safety checker, output diversity scorer, confidence calibrator | ~10 |
-| **Inference** | inference profiler, generation cache, latency optimizer, speculative decoding | ~8 |
-| **Reasoning** | reasoning curriculum, MoE layer, SFT warmup, reward registry, domain rewards | ~6 |
-| **Routing & Specialists** | cascade routing, confidence routing, domain detector, hot-swap specialists | ~8 |
-| **Utilities** | prompt templates, code normalizer, checkpoint converter, cost estimator, export tools | ~15 |
-| **Advanced ML** | distillation helper, checkpoint merger (linear/SLERP/task arithmetic), LR range test | ~12 |
-
----
-
 ## Quick Start
 
 ```bash
