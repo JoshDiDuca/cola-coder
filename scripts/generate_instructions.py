@@ -16,6 +16,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import time
 from pathlib import Path
 
@@ -230,11 +231,35 @@ def _run_pipeline(
     cli.print(f"  [cyan]Output:[/cyan] {sample.output[:120]}...")
     cli.print(f"  [cyan]Quality:[/cyan] {sample.quality_score:.2f}")
 
-    # Save
-    pipeline.save_jsonl(examples, output_path)
+    # Save in ChatML format expected by train_sft.py.
+    # Each example is converted from {instruction, output, quality_score} to
+    # {"messages": [{"role": "user", ...}, {"role": "assistant", ...}]} so
+    # that Stage 6 (SFT instruction tuning) can consume it directly.
+    _save_chatml_jsonl(examples, output_path)
     cli.print()
-    cli.success(f"Saved to {output_path}")
+    cli.success(f"Saved to {output_path} (ChatML format)")
     cli.info("Size", f"{len(examples)} examples, {Path(output_path).stat().st_size / 1024:.1f} KB")
+
+
+def _save_chatml_jsonl(examples: list, output_path: str) -> None:
+    """Save instruction examples as ChatML JSONL for train_sft.py.
+
+    Converts each InstructionExample to the ``{"messages": [...]}`` format
+    that ``train_sft.py`` and ``SFTDataset`` expect.  Each example becomes a
+    two-turn conversation: a user turn with the instruction and an assistant
+    turn with the solution.
+    """
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with open(out, "w", encoding="utf-8") as f:
+        for ex in examples:
+            record = {
+                "messages": [
+                    {"role": "user", "content": ex.instruction},
+                    {"role": "assistant", "content": ex.output},
+                ],
+            }
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 def _generate_demo_examples(

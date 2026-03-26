@@ -787,13 +787,53 @@ class PipelineMenu:
         sft_latest = sft_dir / "latest"
         return str(sft_latest) if sft_latest.exists() else str(sft_dir)
 
+    @staticmethod
+    def _resolve_checkpoint(
+        run: PipelineRun, config, input_path: str,
+    ) -> str:
+        """Resolve a model checkpoint path for stages that need one.
+
+        ``resolve_input()`` walks back through all completed stages and may
+        return a JSONL data file (from stage 5) rather than a model
+        checkpoint directory.  This helper validates the path and falls back
+        through sensible alternatives:
+
+        1. User override (already in ``input_path`` if set).
+        2. SFT checkpoint from stage 6 (``checkpoints/<stem>_sft/``).
+        3. Base pretrained checkpoint (``config.checkpoint.output_dir/latest``).
+        """
+        # If input_path points to a real checkpoint directory, use it
+        if input_path:
+            p = Path(input_path)
+            # Accept directories and "latest" pointer files.
+            # Reject JSONL / plain data files — they aren't checkpoints.
+            if p.is_dir() or (p.exists() and p.suffix not in (".jsonl", ".json", ".npy")):
+                return input_path
+            # If it's a "latest" pointer file that exists, read it
+            if p.name == "latest" and p.exists():
+                return p.read_text(encoding="utf-8").strip()
+
+        # Try SFT checkpoint (stage 6 output)
+        cfg_stem = Path(run.config_path).stem
+        sft_dir = Path(f"checkpoints/{cfg_stem}_sft")
+        sft_latest = sft_dir / "latest"
+        if sft_latest.exists():
+            return sft_latest.read_text(encoding="utf-8").strip()
+        if sft_dir.exists():
+            return str(sft_dir)
+
+        # Fallback to base pretrained checkpoint
+        ckpt_dir = Path(config.checkpoint.output_dir)
+        latest = ckpt_dir / "latest"
+        if latest.exists():
+            return latest.read_text(encoding="utf-8").strip()
+        return str(latest)
+
     def _stage_upcycle_moe(
         self, run: PipelineRun, config, input_path: str,
     ) -> str:
         """Stage 7: MoE upcycling."""
-        ckpt_dir = Path(config.checkpoint.output_dir)
-        latest = ckpt_dir / "latest"
-        checkpoint = input_path if input_path else str(latest)
+        checkpoint = self._resolve_checkpoint(run, config, input_path)
 
         args = [
             "--checkpoint", checkpoint,
@@ -822,9 +862,7 @@ class PipelineMenu:
         self, run: PipelineRun, config, input_path: str,
     ) -> str:
         """Stage 9: GRPO reasoning training."""
-        ckpt_dir = Path(config.checkpoint.output_dir)
-        latest = ckpt_dir / "latest"
-        checkpoint = input_path if input_path else str(latest)
+        checkpoint = self._resolve_checkpoint(run, config, input_path)
 
         args = [
             "--config", "configs/reasoning.yaml",
@@ -833,15 +871,19 @@ class PipelineMenu:
             "--problems", "all",
         ]
         self._run_stage_script("train_reasoning.py", args)
+
+        # train_reasoning.py saves to config.checkpoint.output_dir or
+        # checkpoints/reasoning/ — return whichever exists
+        reasoning_dir = Path("checkpoints/reasoning")
+        if reasoning_dir.exists():
+            return str(reasoning_dir)
         return checkpoint
 
     def _stage_evaluate(
         self, run: PipelineRun, config, input_path: str,
     ) -> str:
         """Stage 10: Full evaluation suite (smoke + HumanEval + quality report)."""
-        ckpt_dir = Path(config.checkpoint.output_dir)
-        latest = ckpt_dir / "latest"
-        checkpoint = input_path if input_path else str(latest)
+        checkpoint = self._resolve_checkpoint(run, config, input_path)
 
         # 1. Smoke test
         cli.step(1, 3, "Running smoke test")
