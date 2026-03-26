@@ -13,11 +13,24 @@ We use safetensors format instead of PyTorch's default pickle format because:
 For a TS dev: think of pickle like eval() and safetensors like JSON.parse().
 """
 
+import dataclasses
 import json
 from pathlib import Path
+from typing import Any
 
 import torch
 from safetensors.torch import save_file, load_file
+
+
+class _ConfigEncoder(json.JSONEncoder):
+    """JSON encoder that handles dataclass objects and other non-serializable types."""
+
+    def default(self, o: Any) -> Any:
+        if dataclasses.is_dataclass(o) and not isinstance(o, type):
+            return dataclasses.asdict(o)
+        if isinstance(o, Path):
+            return str(o)
+        return super().default(o)
 
 from ..manifest import write_training_manifest
 
@@ -107,7 +120,7 @@ def save_checkpoint(
         "config": config,
         "data_path": data_path,
     }
-    (tmp_dir / "metadata.json").write_text(json.dumps(metadata, indent=2))
+    (tmp_dir / "metadata.json").write_text(json.dumps(metadata, indent=2, cls=_ConfigEncoder))
 
     # Atomic rename: tmp -> final (if final already exists, replace it)
     if final_dir.exists():
