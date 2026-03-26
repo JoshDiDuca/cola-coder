@@ -249,20 +249,30 @@ def _score_tiered(args, data, tokenizer, fast_scorers, slow_scorers, n_samples: 
     cli.step(1, 4, f"Fast scoring all {n_samples:,} samples")
     fast_composite = CompositeScorer(fast_scorers)
     fast_weights = np.ones(n_samples, dtype=np.float32)
+    fast_score_sum: float = 0.0
 
     for i in range(n_samples):
         tokens = data[i].tolist()
         text = tokenizer.decode(tokens)
         result = fast_composite.score(text)
         fast_weights[i] = result.overall  # Store raw overall, not tier weight
+        fast_score_sum += result.overall
 
         if (i + 1) % 2000 == 0:
             elapsed = time.time() - start_time
             rate = (i + 1) / elapsed
             eta = (n_samples - i - 1) / rate if rate > 0 else 0
-            cli.dim(f"  [{(i+1)/n_samples*100:5.1f}%] {i+1:,}/{n_samples:,} ({rate:.0f}/sec, ETA: {_format_eta(eta)})")
+            avg = fast_score_sum / (i + 1)
+            cli.dim(
+                f"  [{(i+1)/n_samples*100:5.1f}%] {i+1:,}/{n_samples:,} "
+                f"({rate:.0f}/sec, ETA: {_format_eta(eta)}) avg={avg:.3f}"
+            )
 
-    cli.success(f"  Fast scoring done: {n_samples:,} samples in {_format_eta(time.time() - start_time)}")
+    fast_avg = fast_score_sum / n_samples if n_samples > 0 else 0.0
+    cli.success(
+        f"  Fast scoring done: {n_samples:,} samples in "
+        f"{_format_eta(time.time() - start_time)} (avg={fast_avg:.3f})"
+    )
 
     # --- Tier 2: Slow scorers on SAMPLE ---
     sample_size = min(args.sample_size or 10000, n_samples)
@@ -392,10 +402,15 @@ def _score_direct(args, data, tokenizer, composite, n_samples: int) -> None:
     cli.dim(f"  Output: {data_path.with_suffix('.scores.jsonl').name} + {data_path.with_suffix('.weights.npy').name}")
 
     weights_list: list[float] = []
+    score_sum: float = 0.0  # Running sum for average
     scores_path = data_path.with_suffix(".scores.jsonl")
     start_time = time.time()
     last_log_time = start_time
     errors = 0
+
+    # Per-scorer running sums for breakdown
+    scorer_sums: dict[str, float] = {}
+    scorer_counts: dict[str, int] = {}
 
     # Adaptive log interval: log more frequently for slow scorers
     log_interval = 10 if slow_scorers else 500
@@ -410,6 +425,12 @@ def _score_direct(args, data, tokenizer, composite, n_samples: int) -> None:
 
                 result = composite.score(text)
                 weights_list.append(result.weight)
+                score_sum += result.overall
+
+                # Track per-scorer averages
+                for name, sr in result.per_scorer.items():
+                    scorer_sums[name] = scorer_sums.get(name, 0.0) + sr.score
+                    scorer_counts[name] = scorer_counts.get(name, 0) + 1
 
                 score_entry = {
                     "index": i,
@@ -436,10 +457,20 @@ def _score_direct(args, data, tokenizer, composite, n_samples: int) -> None:
                 remaining = n_samples - i - 1
                 eta = remaining / rate if rate > 0 else 0
                 pct = (i + 1) / n_samples * 100
+                scored_count = i + 1
+                avg = score_sum / scored_count if scored_count > 0 else 0.0
+
+                # Build per-scorer avg string
+                parts: list[str] = []
+                for sn in sorted(scorer_sums.keys()):
+                    sc = scorer_counts.get(sn, 1)
+                    parts.append(f"{sn}={scorer_sums[sn] / sc:.2f}")
+                scorer_str = ", ".join(parts)
+
                 cli.dim(
-                    f"  [{pct:5.1f}%] {i + 1:,}/{n_samples:,} "
-                    f"({rate:.1f}/sec, ETA: {_format_eta(eta)}, "
-                    f"errors: {errors})"
+                    f"  [{pct:5.1f}%] {scored_count:,}/{n_samples:,} "
+                    f"({rate:.1f}/sec, ETA: {_format_eta(eta)}) "
+                    f"avg={avg:.3f} [{scorer_str}]"
                 )
                 last_log_time = now
 
@@ -448,9 +479,10 @@ def _score_direct(args, data, tokenizer, composite, n_samples: int) -> None:
                 fout.flush()
 
     elapsed = time.time() - start_time
+    final_avg = score_sum / n_samples if n_samples > 0 else 0.0
     cli.success(
         f"  Scored {n_samples:,} chunks in {_format_eta(elapsed)} "
-        f"({n_samples / elapsed:.1f}/sec, {errors} errors)"
+        f"({n_samples / elapsed:.1f}/sec, avg={final_avg:.3f}, {errors} errors)"
     )
 
     weights = np.array(weights_list, dtype=np.float32)
