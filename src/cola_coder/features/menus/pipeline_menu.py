@@ -336,11 +336,17 @@ class PipelineMenu:
 
         Unlike master_menu._run_script, this raises RuntimeError on non-zero
         exit so that _execute_stage can catch it and mark the stage as failed.
+        Output is teed to the session log file if active.
         """
         cmd = [str(self._master.venv_python), f"scripts/{script}", *args]
         cli.dim(f"Running: {' '.join(cmd)}")
         try:
-            result = subprocess.run(cmd, cwd=str(self._master.project_root))
+            from cola_coder.session_log import get_session_log
+            session = get_session_log()
+            if session is not None:
+                result = session.run_and_tee(cmd, cwd=self._master.project_root)
+            else:
+                result = subprocess.run(cmd, cwd=str(self._master.project_root))
         except KeyboardInterrupt:
             raise RuntimeError(f"{script} interrupted by user")
         if result.returncode != 0:

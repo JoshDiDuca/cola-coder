@@ -176,13 +176,31 @@ def _read_key() -> str:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
+def _strip_rich_markup(text: str) -> str:
+    """Remove Rich markup tags like [bold cyan] from a string."""
+    return re.sub(r"\[/?[a-z_ ]+\]", "", text)
+
+
 class CLI:
     """Consistent CLI output for cola-coder scripts."""
+
+    def _log(self, text: str) -> None:
+        """Write plain text to the session log file (if active)."""
+        from cola_coder.session_log import get_session_log
+        session = get_session_log()
+        if session is not None:
+            plain = _strip_rich_markup(text)
+            session.write(plain)
 
     # ── Branding ──────────────────────────────────────────────────────────
 
     def header(self, title: str, subtitle: str = "") -> None:
         """Print the app header banner."""
+        line = f"═══ {title}"
+        if subtitle:
+            line += f" — {subtitle}"
+        line += " ═══"
+        self._log(line)
         if _HAS_RICH:
             text = Text()
             text.append(f" {title}", style="bold cyan")
@@ -192,16 +210,13 @@ class CLI:
                 text, box=box.HEAVY, style="cyan", padding=(0, 1),
             ))
         else:
-            line = f"═══ {title}"
-            if subtitle:
-                line += f" — {subtitle}"
-            line += " ═══"
             print(line)
 
     # ── Steps & Progress ──────────────────────────────────────────────────
 
     def step(self, current: int, total: int, message: str) -> None:
         """Print a step indicator: Step 1/3 · Loading tokenizer"""
+        self._log(f"Step {current}/{total} · {message}")
         if _HAS_RICH:
             _console.print(
                 f"\n[bold cyan]Step {current}/{total}[/bold cyan]"
@@ -212,6 +227,7 @@ class CLI:
 
     def substep(self, message: str) -> None:
         """Print an indented sub-step."""
+        self._log(f"  · {message}")
         if _HAS_RICH:
             _console.print(f"  [bold cyan]·[/bold cyan] {message}")
         else:
@@ -221,6 +237,7 @@ class CLI:
 
     def info(self, key: str, value: str | int | float) -> None:
         """Print a key: value pair."""
+        self._log(f"  {key}: {value}")
         if _HAS_RICH:
             _console.print(f"  [cyan]{key}:[/cyan] {value}")
         else:
@@ -250,6 +267,7 @@ class CLI:
 
     def success(self, message: str) -> None:
         """Print a success message."""
+        self._log(f"✓ {message}")
         if _HAS_RICH:
             _console.print(f"[bold green]✓[/bold green] {message}")
         else:
@@ -257,6 +275,9 @@ class CLI:
 
     def error(self, message: str, hint: str = "") -> None:
         """Print an error message and optional hint."""
+        self._log(f"✗ Error: {message}")
+        if hint:
+            self._log(f"  {hint}")
         if _HAS_RICH:
             _console.print(f"[bold red]✗ Error:[/bold red] {message}")
             if hint:
@@ -268,6 +289,7 @@ class CLI:
 
     def warn(self, message: str) -> None:
         """Print a warning message."""
+        self._log(f"⚠ {message}")
         if _HAS_RICH:
             _console.print(f"[bold yellow]⚠[/bold yellow] {message}")
         else:
@@ -275,6 +297,7 @@ class CLI:
 
     def dim(self, message: str) -> None:
         """Print a dimmed/secondary message."""
+        self._log(f"  {message}")
         if _HAS_RICH:
             _console.print(f"  [dim]{message}[/dim]")
         else:
@@ -284,6 +307,10 @@ class CLI:
 
     def done(self, message: str, extras: dict[str, str] | None = None) -> None:
         """Print a completion panel with optional extra info."""
+        self._log(f"✓ {message}")
+        if extras:
+            for k, v in extras.items():
+                self._log(f"  {k}: {v}")
         if _HAS_RICH:
             body = f"[bold green]✓ {message}[/bold green]"
             if extras:
