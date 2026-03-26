@@ -868,13 +868,15 @@ class PipelineMenu:
         # If input_path points to a real checkpoint directory, use it
         if input_path:
             p = Path(input_path)
-            # Accept directories and "latest" pointer files.
-            # Reject JSONL / plain data files — they aren't checkpoints.
-            if p.is_dir() or (p.exists() and p.suffix not in (".jsonl", ".json", ".npy")):
-                return input_path
-            # If it's a "latest" pointer file that exists, read it
+            # If it's a "latest" pointer file, read the actual path
             if p.name == "latest" and p.exists():
-                return p.read_text(encoding="utf-8").strip()
+                resolved = p.read_text(encoding="utf-8").strip()
+                if (Path(resolved) / "model.safetensors").exists():
+                    return resolved
+            # Accept directories that contain model.safetensors (actual LM checkpoints).
+            # Reject router checkpoints, JSONL, or plain data files.
+            if p.is_dir() and (p / "model.safetensors").exists():
+                return input_path
 
         # Try SFT checkpoint (stage 6 output)
         cfg_stem = Path(run.config_path).stem

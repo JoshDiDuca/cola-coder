@@ -67,7 +67,36 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Device override: 'cuda' or 'cpu' (auto-detected by default).",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    # Resolve tokenizer: checkpoint metadata → DatasetResolver with config → storage default
+    if args.tokenizer is None or not Path(args.tokenizer).exists():
+        resolved = None
+        # Priority 1: checkpoint metadata
+        if args.checkpoint:
+            _meta = Path(args.checkpoint) / "metadata.json"
+            if _meta.exists():
+                try:
+                    import json as _json
+                    _m = _json.loads(_meta.read_text(encoding="utf-8"))
+                    _tok = _m.get("tokenizer_path", "")
+                    if _tok and Path(_tok).exists():
+                        resolved = _tok
+                except Exception:
+                    pass
+        # Priority 2: DatasetResolver with config
+        if resolved is None:
+            try:
+                from cola_coder.data.dataset_resolver import DatasetResolver
+                _cfg = args.config
+                if DatasetResolver.tokenizer_exists(config_path=_cfg):
+                    resolved = str(DatasetResolver.get_tokenizer_path(config_path=_cfg))
+            except Exception:
+                pass
+        if resolved:
+            args.tokenizer = resolved
+
+    return args
 
 
 def _print_results(report, output_json: bool) -> None:
