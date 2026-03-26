@@ -239,3 +239,4 @@ CLAUDE.md
 .worktrees/
 
 pipeline_runs
+logs
