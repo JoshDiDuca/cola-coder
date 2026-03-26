@@ -592,18 +592,80 @@ class PipelineMenu:
         self._run_stage_script("train_tokenizer.py", ["--config", run.config_path])
 
     def _stage_prepare(self, run: PipelineRun, config) -> str:
-        """Stage 2: Prepare and tokenize data."""
-        args = ["--config", run.config_path]
+        """Stage 2: Prepare and tokenize data.
+
+        If Stage 1 already produced scored .npy data (code_data.npy + .weights.npy),
+        we skip re-downloading and offer to use it directly. Re-preparing from scratch
+        only makes sense if you want different filters, chunk size, or languages.
+        """
         from cola_coder.data.dataset_resolver import DatasetResolver
-        tokenizer = DatasetResolver.get_tokenizer_path(_DATA_SOURCES_PATH, config_path=run.config_path)
+
+        data_dir = DatasetResolver.get_dataset_dir(
+            _DATA_SOURCES_PATH, config_path=run.config_path,
+        )
+        tokenizer = DatasetResolver.get_tokenizer_path(
+            _DATA_SOURCES_PATH, config_path=run.config_path,
+        )
+
+        # Check if Stage 1 already produced scored data
+        existing_npys = sorted(data_dir.glob("*.npy")) if data_dir.exists() else []
+        # Filter out .weights.npy and .scores.* files — only count actual data files
+        data_npys = [f for f in existing_npys if ".weights" not in f.name and ".scores" not in f.name]
+        weights_files = [f for f in existing_npys if ".weights" in f.name]
+
+        if data_npys:
+            data_file = data_npys[0]
+            has_weights = bool(weights_files)
+
+            cli.info("Existing data", str(data_file.name))
+            cli.dim(f"  Path: {data_file}")
+            cli.dim(f"  Size: {data_file.stat().st_size / (1024**3):.2f} GB")
+            if has_weights:
+                cli.dim(f"  Weights: {weights_files[0].name} (scored)")
+
+            prepare_options = [
+                {"label": "Use existing data" + (" + weights" if has_weights else ""),
+                 "detail": "Skip re-downloading — data is already collected, tokenized" +
+                           (", and scored" if has_weights else "")},
+                {"label": "Re-prepare from scratch",
+                 "detail": "Re-download, re-filter, re-tokenize (use if you changed config)"},
+            ]
+
+            if not has_weights:
+                prepare_options.insert(1, {
+                    "label": "Score existing data",
+                    "detail": "Run quality scoring on the existing .npy (generates .weights.npy)",
+                })
+
+            choice = cli.choose("Data already exists from Stage 1:", prepare_options)
+
+            if choice == 0:
+                # Use existing data as-is
+                cli.success(f"Using existing data: {data_file.name}")
+                return str(data_dir)
+
+            if not has_weights and choice == 1:
+                # Score the existing data
+                score_args = [
+                    "--data", str(data_file),
+                    "--tokenizer", str(tokenizer),
+                ]
+                self._run_stage_script("score_data.py", score_args)
+                return str(data_dir)
+
+            # Fall through to re-prepare
+
+        # Re-prepare from scratch
+        args = ["--config", run.config_path]
         if tokenizer.exists():
             args.extend(["--tokenizer", str(tokenizer)])
         args.append("--score")
         self._run_stage_script("prepare_data.py", args)
+
         # Find the output .npy in the per-dataset directory
-        data_dir = DatasetResolver.get_dataset_dir(_DATA_SOURCES_PATH)
         npys = sorted(data_dir.glob("*.npy")) if data_dir.exists() else []
-        return str(npys[-1]) if npys else str(data_dir)
+        data_npys = [f for f in npys if ".weights" not in f.name and ".scores" not in f.name]
+        return str(data_npys[-1]) if data_npys else str(data_dir)
 
     def _stage_pretrain(self, run: PipelineRun, config) -> str:
         """Stage 3: Base model pretraining."""
