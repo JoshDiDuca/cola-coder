@@ -259,13 +259,21 @@ class MasterMenu:
     # ── Script runner ─────────────────────────────────────────────────────
 
     def _run_script(self, script: str, args: list[str] | None = None) -> None:
-        """Run a Python script from the scripts/ directory."""
+        """Run a Python script from the scripts/ directory.
+
+        If session logging is active, output is teed to the log file.
+        """
         cmd = [str(self.venv_python), f"scripts/{script}"]
         if args:
             cmd.extend(args)
         cli.dim(f"Running: {' '.join(cmd)}")
         try:
-            result = subprocess.run(cmd, cwd=str(self.project_root))
+            from cola_coder.session_log import get_session_log
+            session = get_session_log()
+            if session is not None:
+                result = session.run_and_tee(cmd, cwd=self.project_root)
+            else:
+                result = subprocess.run(cmd, cwd=str(self.project_root))
             if result.returncode != 0:
                 cli.error(f"Script exited with code {result.returncode}")
         except KeyboardInterrupt:
@@ -274,10 +282,18 @@ class MasterMenu:
             cli.error(str(e))
 
     def _run_shell(self, cmd: list[str]) -> None:
-        """Run an arbitrary shell command in the project root."""
+        """Run an arbitrary shell command in the project root.
+
+        If session logging is active, output is teed to the log file.
+        """
         cli.dim(f"Running: {' '.join(cmd)}")
         try:
-            result = subprocess.run(cmd, cwd=str(self.project_root))
+            from cola_coder.session_log import get_session_log
+            session = get_session_log()
+            if session is not None:
+                result = session.run_and_tee(cmd, cwd=self.project_root)
+            else:
+                result = subprocess.run(cmd, cwd=str(self.project_root))
             if result.returncode != 0:
                 cli.error(f"Command exited with code {result.returncode}")
         except KeyboardInterrupt:
