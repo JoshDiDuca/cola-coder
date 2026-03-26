@@ -72,12 +72,13 @@ Full technical deep-dive: [**docs/ARCHITECTURE.md**](docs/ARCHITECTURE.md)
 ## Key Features
 
 - **175 optional feature modules** across 10 categories (code analysis, training tools, model analysis, eval, inference, reasoning, routing, ...)
-- **5-scorer data quality pipeline** — tsc, eslint, GitHub stars, 13-signal heuristic, LLM-as-judge + distilled classifier
-- **Security sandbox** for untrusted code — Docker isolation, hardened tsconfig, credential scanning, audit logging
-- **Malware scanning** at ingestion — YARA rules, Windows Defender, ClamAV
-- **Curriculum ordering** — train on easy data first, hard data later
-- **Per-dataset tokenizers** — config-driven dataset naming, auto-detection
-- **GRPO reasoning** — generate, execute, reinforce (62 built-in problems)
+- **5-scorer data quality pipeline** — tsc `--noEmit`, ESLint, GitHub stars, 13-signal heuristic, LLM-as-judge (Claude/Ollama) + distilled TF-IDF classifier
+- **Security sandbox** — untrusted code runs in Docker containers (or isolated temp dirs) with no network, memory limits, hardened tsconfig, credential scanning
+- **Malware scanning at ingestion** — YARA rules (6 categories: crypto miners, shell spawns, env harvesting, obfuscation, encoded payloads, known malware), Windows Defender, ClamAV. Scans run automatically on HuggingFace downloads and GitHub scrapes
+- **Curriculum ordering** — reorder training data by quality score (easy-to-hard, hard-to-easy, or staged phases)
+- **Per-dataset tokenizers** — config-driven dataset naming (`typescript-text-math/`), model config language overrides
+- **Session logging** — every CLI session tees all output (menus, training, scoring, errors) to `logs/session_*.log`
+- **GRPO reasoning** — generate, execute, reinforce (62 built-in problems, pluggable reward functions)
 - **Performance stack** — torch.compile + Flash Attention + TF32 + fused ops (~2-4x combined)
 - **VS Code extension** — inline completions, chat participant, code actions
 
@@ -318,8 +319,9 @@ cola-coder/
 │   ├── features.yaml             # 175 feature module toggles
 │   ├── reasoning.yaml            # GRPO + thinking token config
 │   └── storage.yaml              # Alternate data/checkpoint paths
-├── docs/                         # 6 guides + 10 deep-dives
-│   └── deep-dives/               # FIM, MoE, RoPE, torch.compile, quality, checkpoints, ...
+├── configs/                      # YAML configs (model, training, features, storage, reasoning, scoring)
+├── docs/                         # 6 guides + 16 deep-dives
+│   └── deep-dives/               # FIM, MoE, RoPE, torch.compile, quality, checkpoints, security, ...
 ├── pipeline_runs/                # Named pipeline run state files (JSON)
 ├── src/cola_coder/
 │   ├── model/                    # Transformer: GQA, SwiGLU, RMSNorm, RoPE, MoE
@@ -327,7 +329,9 @@ cola-coder/
 │   ├── data/                     # Full data pipeline (FIM, quality filter, weighted dataset)
 │   │   ├── filters/              # Modular filter plugins (15+ checks)
 │   │   ├── sources/              # Data sources (HuggingFace, GitHub, SWH, local, docs)
+│   │   ├── scorers/              # Quality scorers (tsc, eslint, heuristic, stars, LLM judge, classifier)
 │   │   └── curation/             # Test execution scoring + Docker sandbox
+│   ├── security/                 # Malware scanning (YARA rules, Windows Defender, ClamAV)
 │   ├── training/                 # Trainer loop, checkpoints, optimizer, metrics, early stopping
 │   ├── inference/                # KV-cache generator, sampling, batched generation, FastAPI server
 │   ├── evaluation/               # HumanEval (62 problems), completion benchmark, pass@k, smoke tests
@@ -338,9 +342,10 @@ cola-coder/
 │   ├── export/                   # GGUF, Ollama, quantization export
 │   ├── tools/                    # Tool registry, agent, executor
 │   ├── memory/                   # Long-context memory management
+│   ├── session_log.py            # Session logging — tee all output to timestamped log files
 │   └── cli.py                    # Rich CLI + questionary arrow menus
-├── scripts/                      # 55 CLI entry points
-├── tests/                        # 127 test files (~2,800 tests)
+├── scripts/                      # 57 CLI entry points
+├── tests/                        # 135+ test files
 └── vscode-extension/             # TypeScript VS Code extension
     └── src/
         ├── client/               # HTTP + SSE client to FastAPI server
@@ -353,7 +358,17 @@ cola-coder/
 
 ## Documentation
 
-6 guides, 16 deep-dives, and a full architecture reference — all organized by topic in the [**Documentation Index**](docs/INDEX.md).
+6 guides, 16 deep-dives, and a full architecture reference — organized by topic in the [**Documentation Index**](docs/INDEX.md).
+
+| Doc | What It Covers |
+|-----|---------------|
+| [**ARCHITECTURE.md**](docs/ARCHITECTURE.md) | Full technical reference — all 57 scripts, data flow, security model, pipeline stages |
+| [**INDEX.md**](docs/INDEX.md) | Complete documentation index with reading times and categories |
+| [Python for TS Devs](docs/01_python_for_ts_devs.md) | Python fundamentals mapped to TypeScript concepts |
+| [How Transformers Work](docs/02_how_transformers_work.md) | Transformer architecture from scratch |
+| [Training Pipeline](docs/03_training_pipeline.md) | Training loop, optimizer, scheduling, mixed precision |
+| [Pipeline Guide](docs/06_pipeline_guide.md) | Pipeline manager, named runs, stage override, resume |
+| [Hardware Guide](docs/05_hardware_guide.md) | GPU specs, VRAM budgets, cloud scaling |
 
 ---
 
