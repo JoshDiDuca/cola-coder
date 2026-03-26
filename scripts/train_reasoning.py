@@ -213,6 +213,24 @@ def main():
         tokenizer = CodeTokenizer(args.tokenizer)
         cli.info("Tokenizer vocab size", tokenizer.vocab_size)
 
+        # Check checkpoint vocab size — SFT checkpoints have extra ChatML tokens
+        ckpt_vocab_size = config.model.vocab_size
+        try:
+            from safetensors import safe_open
+            with safe_open(
+                str(Path(args.base_checkpoint) / "model.safetensors"),
+                framework="pt",
+            ) as f:
+                if "tok_emb.weight" in f.keys():
+                    ckpt_vocab_size = f.get_tensor("tok_emb.weight").shape[0]
+        except Exception:
+            pass
+
+        # Resize model to match checkpoint if needed (SFT adds ChatML tokens)
+        if ckpt_vocab_size != config.model.vocab_size:
+            cli.dim(f"  Checkpoint vocab: {ckpt_vocab_size} (config: {config.model.vocab_size})")
+            config.model.vocab_size = ckpt_vocab_size
+
         model = Transformer(config.model).to(device)
         load_model_only(args.base_checkpoint, model, device=device)
         cli.info("Checkpoint", args.base_checkpoint)
