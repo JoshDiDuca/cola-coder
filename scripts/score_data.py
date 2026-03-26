@@ -245,33 +245,45 @@ def _score_tiered(args, data, tokenizer, fast_scorers, slow_scorers, n_samples: 
     data_path = Path(args.data)
     start_time = time.time()
 
-    # --- Tier 1: Fast scorers on ALL data ---
-    cli.step(1, 4, f"Fast scoring all {n_samples:,} samples")
+    # --- Tier 1: Fast scorers on ALL data (batched for speed) ---
+    FAST_BATCH = 10000
+    cli.step(1, 4, f"Fast scoring all {n_samples:,} samples (batch={FAST_BATCH:,})")
     fast_composite = CompositeScorer(fast_scorers)
     fast_weights = np.ones(n_samples, dtype=np.float32)
     fast_score_sum: float = 0.0
+    fast_scored: int = 0
 
-    for i in range(n_samples):
-        tokens = data[i].tolist()
-        text = tokenizer.decode(tokens)
-        result = fast_composite.score(text)
-        fast_weights[i] = result.overall  # Store raw overall, not tier weight
-        fast_score_sum += result.overall
+    for batch_start in range(0, n_samples, FAST_BATCH):
+        batch_end = min(batch_start + FAST_BATCH, n_samples)
 
-        if (i + 1) % 2000 == 0:
-            elapsed = time.time() - start_time
-            rate = (i + 1) / elapsed
-            eta = (n_samples - i - 1) / rate if rate > 0 else 0
-            avg = fast_score_sum / (i + 1)
-            cli.dim(
-                f"  [{(i+1)/n_samples*100:5.1f}%] {i+1:,}/{n_samples:,} "
-                f"({rate:.0f}/sec, ETA: {_format_eta(eta)}) avg={avg:.3f}"
-            )
+        # Batch decode
+        batch_data = data[batch_start:batch_end]
+        texts: list[str] = []
+        for row in batch_data:
+            texts.append(tokenizer.decode(row.tolist()))
+
+        # Batch score
+        items: list[tuple[str, dict[str, object] | None]] = [(t, None) for t in texts]
+        results = fast_composite.score_batch(items)
+
+        for j, result in enumerate(results):
+            fast_weights[batch_start + j] = result.overall
+            fast_score_sum += result.overall
+
+        fast_scored = batch_end
+        elapsed = time.time() - start_time
+        rate = fast_scored / elapsed if elapsed > 0 else 0
+        eta = (n_samples - fast_scored) / rate if rate > 0 else 0
+        avg = fast_score_sum / fast_scored if fast_scored > 0 else 0.0
+        cli.dim(
+            f"  [{fast_scored/n_samples*100:5.1f}%] {fast_scored:,}/{n_samples:,} "
+            f"({rate:,.0f}/sec, ETA: {_format_eta(eta)}) avg={avg:.3f}"
+        )
 
     fast_avg = fast_score_sum / n_samples if n_samples > 0 else 0.0
     cli.success(
         f"  Fast scoring done: {n_samples:,} samples in "
-        f"{_format_eta(time.time() - start_time)} (avg={fast_avg:.3f})"
+        f"{_format_eta(time.time() - start_time)} ({n_samples / (time.time() - start_time):,.0f}/sec, avg={fast_avg:.3f})"
     )
 
     # --- Tier 2: Slow scorers on SAMPLE ---
@@ -391,76 +403,96 @@ def _score_tiered(args, data, tokenizer, fast_scorers, slow_scorers, n_samples: 
 
 
 def _score_direct(args, data, tokenizer, composite, n_samples: int) -> None:
-    """Direct scoring for small datasets or fast-only scorers."""
+    """Direct scoring with batched decoding for performance.
+
+    Batches numpy→text decoding and scoring in chunks of BATCH_SIZE
+    to minimize per-item overhead. ~10-50x faster than one-at-a-time.
+    """
     data_path = Path(args.data)
     active_scorers = {s.name for s, _ in composite._scorers} if hasattr(composite, "_scorers") else set()
     subprocess_scorers = {"tsc", "eslint"}
     slow_scorers = active_scorers & subprocess_scorers
 
+    # Larger batches for pure-Python scorers, smaller for subprocess
+    BATCH_SIZE = 100 if slow_scorers else 10000
+
     cli.step(2, 3 if args.curriculum else 2, f"Scoring {n_samples:,} chunks from {data_path.name}")
     cli.dim(f"  Active scorers: {', '.join(active_scorers) if active_scorers else 'none'}")
+    cli.dim(f"  Batch size: {BATCH_SIZE:,} ({'subprocess' if slow_scorers else 'fast'} mode)")
     cli.dim(f"  Output: {data_path.with_suffix('.scores.jsonl').name} + {data_path.with_suffix('.weights.npy').name}")
 
-    weights_list: list[float] = []
-    score_sum: float = 0.0  # Running sum for average
+    # Pre-allocate weights array instead of building a list
+    weights = np.ones(n_samples, dtype=np.float32)
+    score_sum: float = 0.0
     scores_path = data_path.with_suffix(".scores.jsonl")
     start_time = time.time()
     last_log_time = start_time
     errors = 0
+    scored_total = 0
 
     # Per-scorer running sums for breakdown
     scorer_sums: dict[str, float] = {}
     scorer_counts: dict[str, int] = {}
 
-    # Adaptive log interval: log more frequently for slow scorers
-    log_interval = 10 if slow_scorers else 500
-    flush_interval = max(log_interval, 100)
+    # Log interval: every 10k samples or 10 seconds
+    log_interval = max(BATCH_SIZE, 10000)
 
-    with open(scores_path, "w", encoding="utf-8") as fout:
-        for i in range(n_samples):
+    with open(scores_path, "w", encoding="utf-8", buffering=1 << 20) as fout:
+        for batch_start in range(0, n_samples, BATCH_SIZE):
+            batch_end = min(batch_start + BATCH_SIZE, n_samples)
+            batch_len = batch_end - batch_start
+
             try:
-                # Decode chunk back to text
-                tokens = data[i].tolist()
-                text = tokenizer.decode(tokens)
+                # Batch decode: read numpy slice → decode all at once
+                batch_data = data[batch_start:batch_end]  # numpy slice (fast)
+                texts: list[str] = []
+                for row in batch_data:
+                    texts.append(tokenizer.decode(row.tolist()))
 
-                result = composite.score(text)
-                weights_list.append(result.weight)
-                score_sum += result.overall
+                # Batch score via score_batch (scorers can optimize internally)
+                items: list[tuple[str, dict[str, object] | None]] = [(t, None) for t in texts]
+                results = composite.score_batch(items)
 
-                # Track per-scorer averages
-                for name, sr in result.per_scorer.items():
-                    scorer_sums[name] = scorer_sums.get(name, 0.0) + sr.score
-                    scorer_counts[name] = scorer_counts.get(name, 0) + 1
+                # Write results and accumulate stats
+                lines: list[str] = []
+                for j, result in enumerate(results):
+                    idx = batch_start + j
+                    weights[idx] = result.weight
+                    score_sum += result.overall
 
-                score_entry = {
-                    "index": i,
-                    "overall": round(result.overall, 4),
-                    "weight": round(result.weight, 2),
-                }
-                for name, sr in result.per_scorer.items():
-                    score_entry[name] = round(sr.score, 4)
-                fout.write(json.dumps(score_entry) + "\n")
+                    for name, sr in result.per_scorer.items():
+                        scorer_sums[name] = scorer_sums.get(name, 0.0) + sr.score
+                        scorer_counts[name] = scorer_counts.get(name, 0) + 1
+
+                    entry = {
+                        "index": idx,
+                        "overall": round(result.overall, 4),
+                        "weight": round(result.weight, 2),
+                    }
+                    for name, sr in result.per_scorer.items():
+                        entry[name] = round(sr.score, 4)
+                    lines.append(json.dumps(entry))
+
+                # Batch write (one I/O call per batch, not per sample)
+                fout.write("\n".join(lines) + "\n")
+                scored_total += batch_len
 
             except Exception as e:
-                errors += 1
-                weights_list.append(1.0)  # Neutral weight on error
-                if errors <= 5:
-                    cli.warn(f"  Error scoring chunk {i}: {e}")
-                elif errors == 6:
-                    cli.warn(f"  Suppressing further error messages...")
+                errors += batch_len
+                scored_total += batch_len
+                if errors <= 5 * BATCH_SIZE:
+                    cli.warn(f"  Error scoring batch {batch_start}-{batch_end}: {e}")
 
             # Progress logging
             now = time.time()
-            if (i + 1) % log_interval == 0 or (now - last_log_time) >= 10:
+            if scored_total % log_interval < BATCH_SIZE or (now - last_log_time) >= 10:
                 elapsed = now - start_time
-                rate = (i + 1) / elapsed if elapsed > 0 else 0
-                remaining = n_samples - i - 1
+                rate = scored_total / elapsed if elapsed > 0 else 0
+                remaining = n_samples - scored_total
                 eta = remaining / rate if rate > 0 else 0
-                pct = (i + 1) / n_samples * 100
-                scored_count = i + 1
-                avg = score_sum / scored_count if scored_count > 0 else 0.0
+                pct = scored_total / n_samples * 100
+                avg = score_sum / scored_total if scored_total > 0 else 0.0
 
-                # Build per-scorer avg string
                 parts: list[str] = []
                 for sn in sorted(scorer_sums.keys()):
                     sc = scorer_counts.get(sn, 1)
@@ -468,24 +500,19 @@ def _score_direct(args, data, tokenizer, composite, n_samples: int) -> None:
                 scorer_str = ", ".join(parts)
 
                 cli.dim(
-                    f"  [{pct:5.1f}%] {scored_count:,}/{n_samples:,} "
-                    f"({rate:.1f}/sec, ETA: {_format_eta(eta)}) "
+                    f"  [{pct:5.1f}%] {scored_total:,}/{n_samples:,} "
+                    f"({rate:,.0f}/sec, ETA: {_format_eta(eta)}) "
                     f"avg={avg:.3f} [{scorer_str}]"
                 )
                 last_log_time = now
-
-            # Flush periodically to see partial results
-            if (i + 1) % flush_interval == 0:
-                fout.flush()
 
     elapsed = time.time() - start_time
     final_avg = score_sum / n_samples if n_samples > 0 else 0.0
     cli.success(
         f"  Scored {n_samples:,} chunks in {_format_eta(elapsed)} "
-        f"({n_samples / elapsed:.1f}/sec, avg={final_avg:.3f}, {errors} errors)"
+        f"({n_samples / elapsed:,.0f}/sec, avg={final_avg:.3f}, {errors} errors)"
     )
 
-    weights = np.array(weights_list, dtype=np.float32)
     weights_path = data_path.with_suffix(".weights.npy")
     np.save(str(weights_path), weights)
 
