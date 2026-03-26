@@ -7,14 +7,29 @@ For a TS dev: think of manifests like package-lock.json — they capture the
 exact state of everything that went into producing an artifact.
 """
 
+import dataclasses
 import hashlib
 import platform
 import socket
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import yaml
+
+
+def _make_yaml_safe(obj: Any) -> Any:
+    """Recursively convert dataclasses, Paths, and other non-YAML-safe types."""
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return _make_yaml_safe(dataclasses.asdict(obj))
+    if isinstance(obj, dict):
+        return {k: _make_yaml_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_make_yaml_safe(v) for v in obj]
+    if isinstance(obj, Path):
+        return str(obj)
+    return obj
 
 
 def _environment_info() -> dict:
@@ -128,7 +143,9 @@ def write_data_manifest(path: str | Path, **kwargs) -> str:
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(manifest, default_flow_style=False, sort_keys=False))
+    path.write_text(yaml.safe_dump(
+        _make_yaml_safe(manifest), default_flow_style=False, sort_keys=False,
+    ))
     return str(path)
 
 
@@ -245,7 +262,9 @@ def write_training_manifest(path: str | Path, **kwargs) -> str:
     # Environment
     manifest["environment"] = _environment_info()
 
-    path.write_text(yaml.safe_dump(manifest, default_flow_style=False, sort_keys=False))
+    path.write_text(yaml.safe_dump(
+        _make_yaml_safe(manifest), default_flow_style=False, sort_keys=False,
+    ))
     return str(path)
 
 
