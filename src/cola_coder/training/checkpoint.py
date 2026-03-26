@@ -46,6 +46,7 @@ def save_checkpoint(
     max_checkpoints: int = 5,
     *,
     data_path: str | None = None,
+    tokenizer_path: str | None = None,
     manifest_info: dict | None = None,
 ) -> str:
     """Save a training checkpoint.
@@ -119,6 +120,7 @@ def save_checkpoint(
         "loss": loss,
         "config": config,
         "data_path": data_path,
+        "tokenizer_path": tokenizer_path,
     }
     (tmp_dir / "metadata.json").write_text(json.dumps(metadata, indent=2, cls=_ConfigEncoder))
 

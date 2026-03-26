@@ -198,6 +198,10 @@ class Trainer:
         # prepared with a larger chunk size than the model expects.
         # If a quality-weights file exists next to the data file, weighted
         # training is activated automatically (no flag needed).
+        # Resolve tokenizer path — sibling of data file for checkpoint metadata
+        _tok_candidate = Path(data_path).parent / "tokenizer.json"
+        tokenizer_path: str | None = str(_tok_candidate) if _tok_candidate.exists() else None
+
         weights_path = str(Path(data_path).with_suffix(".weights.npy"))
         dataloader = create_dataloader(
             data_path,
@@ -375,6 +379,7 @@ class Trainer:
                         output_dir=self.config.checkpoint.output_dir,
                         max_checkpoints=self.config.checkpoint.max_checkpoints,
                         data_path=data_path,
+                        tokenizer_path=tokenizer_path,
                         manifest_info=None,
                     )
                     self.metrics.finish()
@@ -419,6 +424,7 @@ class Trainer:
                     output_dir=self.config.checkpoint.output_dir,
                     max_checkpoints=self.config.checkpoint.max_checkpoints,
                     data_path=data_path,
+                    tokenizer_path=tokenizer_path,
                     manifest_info={
                         "model_config": vars(self.config.model),
                         "training_config": vars(self.config.training),

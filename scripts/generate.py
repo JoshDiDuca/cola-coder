@@ -67,15 +67,29 @@ def main():
     args = parser.parse_args()
 
     if args.tokenizer is None:
-        try:
-            from cola_coder.data.dataset_resolver import DatasetResolver
-            args.tokenizer = (
-                str(DatasetResolver.get_tokenizer_path())
-                if DatasetResolver.tokenizer_exists()
-                else storage.tokenizer_path
-            )
-        except Exception:
-            args.tokenizer = storage.tokenizer_path
+        # Priority 1: checkpoint metadata (most reliable — saved during training)
+        meta_path = Path(args.checkpoint) / "metadata.json"
+        if meta_path.exists():
+            try:
+                import json
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                saved_tok = meta.get("tokenizer_path", "")
+                if saved_tok and Path(saved_tok).exists():
+                    args.tokenizer = saved_tok
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        # Priority 2: DatasetResolver with config (matches training tokenizer)
+        if args.tokenizer is None:
+            try:
+                from cola_coder.data.dataset_resolver import DatasetResolver
+                args.tokenizer = (
+                    str(DatasetResolver.get_tokenizer_path(config_path=args.config))
+                    if DatasetResolver.tokenizer_exists(config_path=args.config)
+                    else storage.tokenizer_path
+                )
+            except Exception:
+                args.tokenizer = storage.tokenizer_path
 
     cli.header("Cola-Coder", "Code Generation")
 
