@@ -458,7 +458,7 @@ Prepared data is reusable across training runs. Only re-prepare if you change th
 ```
 cola-coder/
 ├── configs/                     # YAML configs (model, training, features, storage, reasoning, scoring)
-├── docs/                        # 5 educational guides + 10 deep-dives
+├── docs/                        # 5 educational guides + 16 deep-dives
 │   └── deep-dives/              # FIM, MoE, RoPE, torch.compile, quality, checkpoints, ...
 ├── src/cola_coder/
 │   ├── model/                   # Transformer (GQA, SwiGLU, RMSNorm, RoPE, MoE)
@@ -564,6 +564,12 @@ cola-coder/
 | [`data-refinement.md`](docs/deep-dives/data-refinement.md) | Quality filtering, scoring, curriculum ordering |
 | [`multi-agent-specialization.md`](docs/deep-dives/multi-agent-specialization.md) | Router + specialist architecture |
 | [`single-language-specialization.md`](docs/deep-dives/single-language-specialization.md) | TypeScript-only training, type-aware data |
+| [`data-quality-scoring-pipeline.md`](docs/deep-dives/data-quality-scoring-pipeline.md) | Five scorers, composite scoring, weighted training data |
+| [`malware-scanning-ingestion.md`](docs/deep-dives/malware-scanning-ingestion.md) | YARA rules, Windows Defender, ClamAV integration |
+| [`per-dataset-tokenizer.md`](docs/deep-dives/per-dataset-tokenizer.md) | Per-config tokenizers, dataset naming, auto-detection |
+| [`security-architecture.md`](docs/deep-dives/security-architecture.md) | SandboxedRunner, Docker isolation, credential scanning |
+| [`tscrunner-solid-architecture.md`](docs/deep-dives/tscrunner-solid-architecture.md) | SOLID principles, unified tsc execution, hardened tsconfig |
+| [`shared-utilities-helpers.md`](docs/deep-dives/shared-utilities-helpers.md) | language_detect, ScoreMapper, audit logger, DRY enforcement |
 
 ---
 
