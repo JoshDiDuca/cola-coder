@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from cola_coder.data.scorers.eslint_scorer import EslintScorer
+from cola_coder.data.scorers.language_detect import detect_extension
 from cola_coder.data.scorers.protocol import ScorerProtocol, ScorerResult
 
 
@@ -161,7 +162,7 @@ class TestEslintScorer:
 
     def test_detect_extension_from_metadata(self) -> None:
         """Extension detected from file_path metadata."""
-        assert EslintScorer._detect_extension({"file_path": "app.tsx"}) == ".tsx"
-        assert EslintScorer._detect_extension({"file_path": "index.js"}) == ".js"
-        assert EslintScorer._detect_extension({"language": "typescript"}) == ".ts"
-        assert EslintScorer._detect_extension(None) == ".ts"
+        assert detect_extension({"file_path": "app.tsx"}) == ".tsx"
+        assert detect_extension({"file_path": "index.js"}) == ".js"
+        assert detect_extension({"language": "typescript"}) == ".ts"
+        assert detect_extension(None) == ".ts"

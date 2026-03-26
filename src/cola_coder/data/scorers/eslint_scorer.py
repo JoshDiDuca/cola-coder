@@ -194,12 +194,3 @@ class EslintScorer:
             or shutil.which("npx") is not None
         )
 
-    @staticmethod
-    def _is_js_ts(code: str, metadata: dict[str, object] | None) -> bool:
-        """Detect if code is JavaScript/TypeScript. Delegates to language_detect."""
-        return is_js_ts(code, metadata)
-
-    @staticmethod
-    def _detect_extension(metadata: dict[str, object] | None) -> str:
-        """Detect appropriate file extension from metadata. Delegates to language_detect."""
-        return detect_extension(metadata)
