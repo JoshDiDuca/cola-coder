@@ -930,7 +930,7 @@ class PipelineMenu:
         checkpoint = self._resolve_checkpoint(run, config, input_path)
 
         args = [
-            "--config", "configs/reasoning.yaml",
+            "--config", run.config_path,
             "--base-checkpoint", checkpoint,
             "--reward", "combined",
             "--problems", "all",
