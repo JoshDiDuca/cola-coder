@@ -34,34 +34,71 @@ def _format_size(size_bytes: int) -> str:
 
 
 def _scan_datasets(data_dir: str | None = None) -> list[dict]:
-    """Scan for available .npy dataset files and return metadata."""
-    if data_dir is None:
-        storage = get_storage_config()
-        data_dir = str(Path(storage.data_dir) / "processed")
-    out_path = Path(data_dir)
-    if not out_path.exists():
-        return []
+    """Scan for available .npy dataset files and return metadata.
 
-    datasets = []
-    for f in sorted(out_path.glob("*.npy")):
-        if f.name.endswith("_tmp.npy"):
-            continue  # Skip temp files
-        stat = f.stat()
-        try:
-            arr = np.load(str(f), mmap_mode="r")
-            chunks, seq_len = arr.shape
-            token_count = chunks * seq_len
-            detail = f"{chunks:,} chunks x {seq_len} = {token_count:,} tokens"
-        except Exception:
-            detail = "unknown format"
+    Scans both the legacy 'processed/' directory AND per-dataset directories
+    (e.g. 'typescript-text-math/') under storage.data_dir.
+    """
+    storage = get_storage_config()
+    base_dir = Path(data_dir) if data_dir else Path(storage.data_dir)
 
-        datasets.append({
-            "name": f.stem,
-            "path": str(f),
-            "size": _format_size(stat.st_size),
-            "date": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
-            "detail": detail,
-        })
+    # Collect all directories to scan
+    scan_dirs: list[Path] = []
+
+    # Legacy path: data/processed/
+    legacy = base_dir / "processed"
+    if legacy.exists():
+        scan_dirs.append(legacy)
+
+    # Per-dataset directories: data/<dataset-name>/ (e.g. typescript-text-math)
+    if base_dir.exists():
+        for child in sorted(base_dir.iterdir()):
+            if child.is_dir() and child.name != "processed" and child.name != "raw":
+                # Only include dirs that have .npy files
+                if any(child.glob("*.npy")):
+                    scan_dirs.append(child)
+
+    # Also scan explicit data_dir if provided directly
+    if data_dir and Path(data_dir).exists() and Path(data_dir) not in scan_dirs:
+        scan_dirs.append(Path(data_dir))
+
+    datasets: list[dict] = []
+    seen_paths: set[str] = set()
+
+    for scan_path in scan_dirs:
+        for f in sorted(scan_path.glob("*.npy")):
+            if f.name.endswith("_tmp.npy"):
+                continue
+            if ".weights" in f.name or ".scores" in f.name:
+                continue  # Skip sidecar files
+            fstr = str(f.resolve())
+            if fstr in seen_paths:
+                continue
+            seen_paths.add(fstr)
+
+            stat = f.stat()
+            try:
+                arr = np.load(str(f), mmap_mode="r")
+                chunks, seq_len = arr.shape
+                token_count = chunks * seq_len
+                detail = f"{chunks:,} chunks x {seq_len} = {token_count:,} tokens"
+            except Exception:
+                detail = "unknown format"
+
+            # Check for weights sidecar
+            weights_path = f.with_suffix(".weights.npy")
+            has_weights = weights_path.exists()
+
+            # Include parent dir name for clarity
+            parent = f.parent.name
+
+            datasets.append({
+                "name": f"{parent}/{f.stem}" if parent != "processed" else f.stem,
+                "path": str(f),
+                "size": _format_size(stat.st_size),
+                "date": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
+                "detail": detail + (" [scored]" if has_weights else ""),
+            })
     return datasets
 
 
@@ -87,8 +124,9 @@ def _pick_dataset(explicit_path: str | None) -> str:
     if not datasets:
         storage = get_storage_config()
         cli.fatal(
-            f"No training data found in {Path(storage.data_dir) / 'processed'}",
-            hint="Prepare data first with: python scripts/prepare_data.py",
+            f"No training data found in {storage.data_dir}",
+            hint="Prepare data first with: python scripts/prepare_data.py\n"
+                 "  or collect data with: python scripts/collect_data.py --config <config>",
         )
 
     if len(datasets) == 1:
