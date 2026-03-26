@@ -5,7 +5,7 @@ scoring:
   # Security settings for running tools on untrusted code
   security:
     mode: "native"              # off | native | docker
-    require_docker: false       # if true + docker unavailable → refuse to score
+    require_docker: true       # if true + docker unavailable → refuse to score
     timeout: 10                 # seconds per scoring operation
     memory_mb: 512              # Docker memory limit
     docker_image: "node:20-alpine"
@@ -29,7 +29,7 @@ scoring:
 
   # Sandbox settings for running tsc/eslint on untrusted code (legacy, see security: above)
   sandbox:
-    use_docker: false    # Set true for maximum isolation (requires Docker)
+    use_docker: true    # Set true for maximum isolation (requires Docker)
     timeout: 10          # Seconds per scoring operation
     memory_mb: 512       # Docker memory limit
 
