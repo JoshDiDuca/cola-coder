@@ -13,10 +13,13 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -53,6 +56,11 @@ def _scan_downloaded_data(
         return True
 
     # Threats found
+    for t in result.threats:
+        logger.warning(
+            "MALWARE DETECTED in downloaded data [%s/%s]: %s in %s",
+            t.scanner, t.severity, t.name, t.file_path,
+        )
     cli.warn(f"  {len(result.threats)} threat(s) found in {result.files_scanned} files")
     for t in result.threats:
         cli.error(f"    [{t.severity.upper()}] {t.name}: {t.file_path}")
@@ -96,7 +104,7 @@ def stream_hf_text(
     from datasets import load_dataset
 
     cli.dim(f"  Streaming from {dataset_name} (field: {text_field})...")
-    ds = load_dataset(dataset_name, split=split, streaming=True, trust_remote_code=True)
+    ds = load_dataset(dataset_name, split=split, streaming=True, trust_remote_code=False)
 
     count = 0
     for sample in ds:

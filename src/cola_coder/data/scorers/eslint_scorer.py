@@ -1,4 +1,4 @@
-"""ESLint scorer — score TypeScript/JavaScript files using ESLint."""
+"""ESLint scorer -- score TypeScript/JavaScript files using ESLint."""
 
 from __future__ import annotations
 
@@ -7,24 +7,26 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from cola_coder.data.scorers.language_detect import detect_extension, is_js_ts
 from cola_coder.data.scorers.protocol import ScorerResult
 from cola_coder.data.scorers.sandbox import SandboxedRunner
+from cola_coder.data.scorers.utils import ScoreMapper
+
+
+# Score mapping: issue count -> quality score
+_ESLINT_SCORE_MAP = ScoreMapper([
+    (0, 1.0),     # 0 issues = perfect
+    (2, 0.9),     # 1-2 issues = great
+    (5, 0.7),     # 3-5 issues = good
+    (10, 0.5),    # 6-10 issues = average
+    (20, 0.3),    # 11-20 issues = poor
+])
 
 
 class EslintScorer:
     """Score TypeScript/JavaScript code quality using ESLint."""
 
     name: str = "eslint"
-
-    # Score mapping: error/warning count -> quality score
-    _SCORE_MAP: list[tuple[int, float]] = [
-        (0, 1.0),     # 0 issues = perfect
-        (2, 0.9),     # 1-2 issues = great
-        (5, 0.7),     # 3-5 issues = good
-        (10, 0.5),    # 6-10 issues = average
-        (20, 0.3),    # 11-20 issues = poor
-    ]
-    # 21+ issues = 0.1
 
     def __init__(
         self,
@@ -36,13 +38,13 @@ class EslintScorer:
 
     def score(self, code: str, metadata: dict[str, object] | None = None) -> ScorerResult:
         """Score a single code sample with ESLint."""
-        if not self._is_js_ts(code, metadata):
+        if not is_js_ts(code, metadata):
             return ScorerResult(
                 score=0.5, scorer_name=self.name,
                 details={"skipped": True, "reason": "not_js_ts"},
             )
 
-        ext = self._detect_extension(metadata)
+        ext = detect_extension(metadata)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             filepath = Path(tmpdir) / f"file{ext}"
@@ -58,7 +60,7 @@ class EslintScorer:
             return self._parse_result(result)
 
     def score_batch(self, items: list[tuple[str, dict[str, object] | None]]) -> list[ScorerResult]:
-        """Score multiple samples — writes all to temp dir, runs eslint ONCE."""
+        """Score multiple samples -- writes all to temp dir, runs eslint ONCE."""
         if not items:
             return []
 
@@ -70,14 +72,14 @@ class EslintScorer:
             file_map: dict[str, int] = {}  # filename -> original index
 
             for i, (code, metadata) in enumerate(items):
-                if not self._is_js_ts(code, metadata):
+                if not is_js_ts(code, metadata):
                     results[i] = ScorerResult(
                         score=0.5, scorer_name=self.name,
                         details={"skipped": True, "reason": "not_js_ts"},
                     )
                     continue
 
-                ext = self._detect_extension(metadata)
+                ext = detect_extension(metadata)
                 filename = f"file_{i}{ext}"
                 filepath = Path(tmpdir) / filename
                 filepath.write_text(code, encoding="utf-8")
@@ -91,7 +93,7 @@ class EslintScorer:
             eslint_result = self._run_eslint(tmpdir, list(file_map.keys()))
 
             if eslint_result is None:
-                # ESLint failed entirely — return neutral for all
+                # ESLint failed entirely -- return neutral for all
                 for i in js_ts_indices:
                     results[i] = ScorerResult(
                         score=0.5, scorer_name=self.name,
@@ -104,7 +106,7 @@ class EslintScorer:
                     if filepath_str in per_file:
                         results[idx] = per_file[filepath_str]
                     else:
-                        # File not in output — assume clean
+                        # File not in output -- assume clean
                         results[idx] = ScorerResult(
                             score=1.0, scorer_name=self.name,
                             details={"error_count": 0, "warning_count": 0},
@@ -182,10 +184,7 @@ class EslintScorer:
     @classmethod
     def _issues_to_score(cls, total_issues: int) -> float:
         """Map total issue count to 0.0-1.0 score."""
-        for threshold, score in cls._SCORE_MAP:
-            if total_issues <= threshold:
-                return score
-        return 0.1  # 21+ issues
+        return _ESLINT_SCORE_MAP.map(total_issues)
 
     @staticmethod
     def is_available() -> bool:
@@ -197,33 +196,10 @@ class EslintScorer:
 
     @staticmethod
     def _is_js_ts(code: str, metadata: dict[str, object] | None) -> bool:
-        """Detect if code is JavaScript/TypeScript."""
-        if metadata:
-            lang = str(metadata.get("language", "")).lower()
-            if lang in ("typescript", "javascript", "ts", "js", "tsx", "jsx"):
-                return True
-            file_path = str(metadata.get("file_path", ""))
-            if file_path:
-                ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
-                if ext in ("ts", "tsx", "js", "jsx", "mts", "cts", "mjs", "cjs"):
-                    return True
-
-        ts_indicators = ["const ", "let ", "import ", "export ", "=> {", "function "]
-        matches = sum(1 for ind in ts_indicators if ind in code)
-        return matches >= 2
+        """Detect if code is JavaScript/TypeScript. Delegates to language_detect."""
+        return is_js_ts(code, metadata)
 
     @staticmethod
     def _detect_extension(metadata: dict[str, object] | None) -> str:
-        """Detect appropriate file extension from metadata."""
-        if metadata:
-            file_path = str(metadata.get("file_path", ""))
-            if file_path and "." in file_path:
-                ext = "." + file_path.rsplit(".", 1)[-1].lower()
-                if ext in (".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"):
-                    return ext
-            lang = str(metadata.get("language", "")).lower()
-            if lang in ("typescript", "ts"):
-                return ".ts"
-            if lang in ("javascript", "js"):
-                return ".js"
-        return ".ts"  # Default to TypeScript
+        """Detect appropriate file extension from metadata. Delegates to language_detect."""
+        return detect_extension(metadata)

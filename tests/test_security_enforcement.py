@@ -44,11 +44,13 @@ class TestTscScorerEnforcement:
         runner.run.assert_called_once()
 
     def test_no_type_check_reward_import(self) -> None:
-        """TscScorer source must not reference TypeCheckReward."""
+        """TscScorer source must not reference TypeCheckReward directly."""
         import cola_coder.data.scorers.tsc_scorer as mod
         source = Path(mod.__file__).read_text()
         assert "TypeCheckReward" not in source
-        assert "from cola_coder.reasoning" not in source
+        # TscRunner import IS allowed (it's the secure sandboxed path)
+        # type_check.py import is NOT allowed (it bypasses sandbox)
+        assert "from cola_coder.reasoning.rewards.type_check" not in source
 
 
 class TestEslintScorerEnforcement:

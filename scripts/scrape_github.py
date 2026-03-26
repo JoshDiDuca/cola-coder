@@ -21,12 +21,15 @@ Usage:
 
 import argparse
 import json
+import logging
 import os
 import shutil
 import sys
 from pathlib import Path
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 from cola_coder.model.config import get_storage_config
 from cola_coder.cli import cli
@@ -365,6 +368,11 @@ def _scan_cloned_repo(
 
     result = scanner.scan_directory(clone_dir)
     if not result.is_clean:
+        for t in result.threats:
+            logger.warning(
+                "MALWARE DETECTED in cloned repo %s [%s/%s]: %s in %s",
+                repo_name, t.scanner, t.severity, t.name, t.file_path,
+            )
         cli.warn(f"Threats in {repo_name}: {[t.name for t in result.threats]}")
         for t in result.threats:
             cli.error(f"  [{t.severity.upper()}] {t.name}: {Path(t.file_path).name}")
