@@ -34,31 +34,37 @@ User prompt → [Router Model: 125M]
 
 ## Architecture
 
-Same architecture as LLaMA 3, Mistral, DeepSeek-Coder, and Qwen:
+Cola-Coder uses the same architecture as the models powering LLaMA 3, Mistral, DeepSeek-Coder, and Qwen.
 
-| Component | Implementation | Why |
-|-----------|---------------|-----|
-| **Core** | Decoder-only transformer | Standard for all modern code LLMs |
-| **Position** | Rotary Position Embeddings (RoPE) | Generalizes to unseen lengths, zero learned params |
-| **Attention** | Grouped Query Attention (GQA) | 3-4x smaller KV-cache for consumer GPU inference |
-| **Activation** | SwiGLU | Outperforms GELU/ReLU in every ablation study |
-| **Norm** | RMSNorm (pre-norm) | Simpler and faster than LayerNorm |
-| **Precision** | bf16/fp16 mixed | Half the VRAM, 2x throughput, zero quality loss |
-| **Reasoning** | Chain-of-thought + GRPO | Same approach as DeepSeek-R1 |
-| **MoE** | Mixture of Experts (optional) | More params, same compute via sparse routing |
-| **FIM** | Fill-in-the-Middle (PSM + SPM) | IDE autocomplete at arbitrary cursor positions |
+| Component | Implementation | Why This Choice |
+|-----------|---------------|-----------------|
+| **Architecture** | Decoder-only transformer | The standard for all modern code LLMs |
+| **Positional Encoding** | Rotary Position Embeddings (RoPE) | Generalizes to unseen sequence lengths, zero learned parameters. Theta configurable up to 500K for long-context |
+| **Attention** | Grouped Query Attention (GQA) | 3-4x smaller KV-cache than standard MHA — critical for consumer GPU inference |
+| **Activation** | SwiGLU (Sigmoid Linear Unit + Gated Linear Unit) | Outperforms GELU/ReLU in every published ablation study |
+| **Normalization** | RMSNorm (pre-norm) | Simpler and faster than LayerNorm, no centering bias, equally effective |
+| **Optimizer** | AdamW with cosine LR schedule + linear warmup | The battle-tested recipe from GPT-2 through LLaMA 3 |
+| **Precision** | bf16 / fp16 mixed precision | Half the VRAM, 2x throughput, zero quality loss |
+| **Tokenizer** | Byte-Pair Encoding (BPE) via HuggingFace Tokenizers | Rust-backed, handles any encoding, code-aware pre-tokenization |
+| **Checkpoints** | Safetensors format | No arbitrary code execution on load (unlike pickle) |
+| **Reasoning** | Chain-of-thought + GRPO reinforcement learning | Same approach as DeepSeek-R1 — verifiable rewards from code execution |
+| **MoE** (optional) | Mixture of Experts layer | Sparse expert routing replaces standard FFN — more params, same compute |
+| **FIM** | Fill-in-the-Middle training (PSM + SPM) | Enables IDE autocomplete at arbitrary cursor positions |
+| **Performance** | torch.compile + Flash Attention + TF32 | 2-4x combined speedup from GPU kernel optimizations |
 
 ### Model Configurations
 
-| Config | Params | Layers | Dim | VRAM (train) |
-|--------|--------|--------|-----|-------------|
-| **Tiny** | ~50M | 8 | 512 | ~3.6 GB |
-| **Small** | ~125M | 12 | 768 | ~6.5 GB |
-| **Medium** | ~350M | 24 | 1024 | ~8.2 GB |
-| **4080 Max** | ~455M | 24 | 1280 | ~14.1 GB |
-| **Large** | ~1B+ | 32 | 2048 | ~24 GB |
+| Config | Parameters | Layers | Dim | Heads (Q/KV) | FFN Hidden | Max Seq | VRAM (train) |
+|--------|-----------|--------|-----|-------------|-----------|---------|-------------|
+| **Tiny** | ~50M | 8 | 512 | 8 / 4 | 896 | 1024 | ~3.6 GB |
+| **Small** | ~125M | 12 | 768 | 12 / 4 | 1344 | 2048 | ~6.5 GB |
+| **Medium** | ~350M | 24 | 1024 | 16 / 4 | 1792 | 2048 | ~8.2 GB |
+| **4080 Max** | ~455M | 24 | 1280 | 20 / 4 | 3456 | 4096 | ~14.1 GB |
+| **Large** | ~1B+ | 32 | 2048 | 32 / 8 | 3584 | 4096 | ~24 GB |
 
-→ Full architecture details in [**docs/ARCHITECTURE.md**](docs/ARCHITECTURE.md)
+The **4080 Max** config is tuned to squeeze every GB from a 16GB GPU: wider model (dim=1280), double the context length (4096), RoPE theta=500K for long-range position encoding, and zero dropout (regularized by data quality instead). Currently untested as I'm training a small model (2 days).
+
+Full technical deep-dive: [**docs/ARCHITECTURE.md**](docs/ARCHITECTURE.md)
 
 ---
 
@@ -98,19 +104,26 @@ python -m venv .venv
 
 ```
 cola-coder/
-├── configs/                     # YAML configs (model, training, features, storage, scoring)
-├── docs/                        # 6 guides + 16 deep-dives + ARCHITECTURE.md
+├── configs/                     # YAML configs (model, training, features, storage, reasoning, scoring)
+├── docs/                        # 6 educational guides + 16 deep-dives + ARCHITECTURE.md
+│   └── deep-dives/              # FIM, MoE, RoPE, torch.compile, quality, checkpoints, ...
 ├── src/cola_coder/
 │   ├── model/                   # Transformer (GQA, SwiGLU, RMSNorm, RoPE, MoE)
-│   ├── data/                    # Full data pipeline + quality scorers + security
-│   ├── training/                # Training loop, checkpoints, metrics
-│   ├── inference/               # KV-cache generator, sampling, API server
-│   ├── evaluation/              # HumanEval, benchmarks, pass@k
-│   ├── reasoning/               # CoT, GRPO, SFT warmup, rewards
+│   ├── tokenizer/               # BPE tokenizer (Rust-backed)
+│   ├── data/                    # Full data pipeline (FIM, quality filter, weighted dataset)
+│   │   ├── filters/             # Modular filter plugins
+│   │   ├── sources/             # Data sources (HF, GitHub, local)
+│   │   ├── scorers/             # Quality scorers (tsc, eslint, heuristic, stars, LLM judge, classifier)
+│   │   └── curation/            # Test execution scoring + Docker sandbox
+│   ├── security/                # Malware scanning (YARA, Defender, ClamAV)
+│   ├── training/                # Training loop, checkpoints, metrics, early stopping
+│   ├── inference/               # KV-cache generator, sampling, batched generation, API server
+│   ├── evaluation/              # HumanEval (62 problems), completion benchmark, pass@k
+│   ├── reasoning/               # CoT, GRPO, SFT warmup, reward registry, curriculum
 │   ├── features/                # 166 optional feature modules
-│   └── security/                # Malware scanning (YARA, Defender, ClamAV)
+│   └── cli.py                   # Rich CLI + questionary arrow menus
 ├── scripts/                     # 47 CLI entry points
-└── tests/                       # 122 test files
+└── tests/                       # 122 test files (~2,600 tests)
 ```
 
 ---
@@ -124,25 +137,13 @@ cola-coder/
 | **Evaluation** | `evaluate.py` (HumanEval), `benchmark.py`, `ts_benchmark.py`, `regression_test.py` |
 | **Analysis** | `training_dashboard.py`, `training_status.py`, `checkpoint_diff.py`, `vram_estimate.py`, `export_model.py` |
 
-→ Full script reference in [**docs/ARCHITECTURE.md**](docs/ARCHITECTURE.md#scripts)
+Full script reference with descriptions: [**docs/ARCHITECTURE.md** → Scripts](docs/ARCHITECTURE.md#scripts)
 
 ---
 
 ## Documentation
 
-| Doc | What You'll Learn |
-|-----|-------------------|
-| [**ARCHITECTURE.md**](docs/ARCHITECTURE.md) | Full technical reference — pipeline stages, data flow, security, performance, all 47 scripts |
-| [Python for TS Devs](docs/01_python_for_ts_devs.md) | Python fundamentals if you're coming from TypeScript |
-| [How Transformers Work](docs/02_how_transformers_work.md) | Transformer architecture from scratch |
-| [Training Pipeline](docs/03_training_pipeline.md) | Training loop, optimizer, scheduling, mixed precision |
-| [Reasoning Experiments](docs/04_reasoning_experiments.md) | CoT thinking tokens, GRPO, reward functions |
-| [Hardware Guide](docs/05_hardware_guide.md) | GPU specs, VRAM budgets, cloud scaling |
-| [Pipeline Guide](docs/06_pipeline_guide.md) | Pipeline manager, named runs, stage override |
-
-### Deep Dives
-
-16 focused technical documents covering: [FIM training](docs/deep-dives/fill-in-the-middle.md) · [MoE routing](docs/deep-dives/mixture-of-experts.md) · [RoPE encoding](docs/deep-dives/rope-positional-encoding.md) · [torch.compile](docs/deep-dives/torch-compile-and-cuda.md) · [Quality scoring](docs/deep-dives/data-quality-scoring-pipeline.md) · [Security architecture](docs/deep-dives/security-architecture.md) · [Malware scanning](docs/deep-dives/malware-scanning-ingestion.md) · [Checkpoint safety](docs/deep-dives/checkpoint-safety.md) · [Per-dataset tokenizer](docs/deep-dives/per-dataset-tokenizer.md) · [TscRunner SOLID](docs/deep-dives/tscrunner-solid-architecture.md) · [Shared utilities](docs/deep-dives/shared-utilities-helpers.md) · [Weighted training](docs/deep-dives/quality-weighted-training.md) · [Custom data](docs/deep-dives/custom-data-competitive-edge.md) · [Data refinement](docs/deep-dives/data-refinement.md) · [Multi-agent](docs/deep-dives/multi-agent-specialization.md) · [Single-language](docs/deep-dives/single-language-specialization.md)
+All documentation is organized in the [**Documentation Index**](docs/INDEX.md) — guides, deep-dives, and architecture reference, categorized by topic.
 
 ---
 
