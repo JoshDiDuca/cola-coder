@@ -749,12 +749,19 @@ class PipelineMenu:
         self, run: PipelineRun, config, input_path: str,
     ) -> str:
         """Stage 6: SFT instruction tuning via train_sft.py."""
+        # Checkpoint = pretrained model from stage 3/4, NOT stage 5 artifact
+        # (input_path from resolve_input walks back to stage 5's JSONL file,
+        # which is instruction data, not a model checkpoint)
         ckpt_dir = Path(config.checkpoint.output_dir)
         latest = ckpt_dir / "latest"
-        checkpoint = input_path if input_path else str(latest)
+        if latest.exists():
+            # "latest" is a text file pointing to the real checkpoint dir
+            checkpoint = latest.read_text(encoding="utf-8").strip()
+        else:
+            checkpoint = str(latest)
 
         instruction_data = "data/sft/instructions.jsonl"
-        # Use stage 5 artifact if available
+        # Use stage 5 artifact if available (this IS the instructions data)
         st5 = run.stages.get(5)
         if st5 and st5.artifact:
             instruction_data = st5.artifact
