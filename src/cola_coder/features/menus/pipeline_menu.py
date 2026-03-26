@@ -668,8 +668,28 @@ class PipelineMenu:
         return str(data_npys[-1]) if data_npys else str(data_dir)
 
     def _stage_pretrain(self, run: PipelineRun, config) -> str:
-        """Stage 3: Base model pretraining."""
+        """Stage 3: Base model pretraining.
+
+        Resolves the training data from the per-dataset directory (from Stage 1/2)
+        and passes it explicitly via --data to avoid the legacy 'processed/' lookup.
+        """
+        from cola_coder.data.dataset_resolver import DatasetResolver
+
         args = ["--config", run.config_path, "--auto-resume"]
+
+        # Find the .npy data file from per-dataset directory
+        data_dir = DatasetResolver.get_dataset_dir(
+            _DATA_SOURCES_PATH, config_path=run.config_path,
+        )
+        if data_dir.exists():
+            data_npys = sorted([
+                f for f in data_dir.glob("*.npy")
+                if ".weights" not in f.name and ".scores" not in f.name
+            ])
+            if data_npys:
+                args.extend(["--data", str(data_npys[0])])
+                cli.dim(f"  Training data: {data_npys[0].name} ({data_dir.name}/)")
+
         self._run_stage_script("train.py", args)
         ckpt_dir = Path(config.checkpoint.output_dir)
         latest = ckpt_dir / "latest"
