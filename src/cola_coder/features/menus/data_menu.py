@@ -974,7 +974,7 @@ class DataMenu:
         # Scraped data directories store repos under _clones/
         clones_dir = path / "_clones"
         if clones_dir.is_dir():
-            cli.info("Detected scraped data directory — scoring repos in _clones/")
+            cli.info("Source", "Detected scraped data directory — scoring repos in _clones/")
             path = clones_dir
         args = [str(path)]
         if path.is_dir():

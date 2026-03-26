@@ -66,10 +66,10 @@ def add_chat_tokens(
     im_end_id = tokenizer.tokenizer.token_to_id(IM_END)
 
     cli.info(
-        f"Added chat tokens: {IM_START} (id={im_start_id}), "
-        f"{IM_END} (id={im_end_id})"
+        "Chat tokens",
+        f"{IM_START} (id={im_start_id}), {IM_END} (id={im_end_id})",
     )
-    cli.info(f"New vocab size: {new_vocab_size}")
+    cli.info("New vocab size", str(new_vocab_size))
 
     return im_start_id, im_end_id
 

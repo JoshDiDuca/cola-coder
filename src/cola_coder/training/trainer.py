@@ -471,7 +471,7 @@ class Trainer:
                 },
             )
         else:
-            cli.info("Training already complete — no new steps to run.")
+            cli.info("Status", "Training already complete — no new steps to run.")
 
         self.metrics.finish()
         print("\nTraining complete!")
