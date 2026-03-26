@@ -20,7 +20,7 @@ scoring:
       tmpfs_size_mb: 64
     malware_scan:
       enabled: true
-      on_threat: "warn"          # warn | quarantine | abort
+      on_threat: "quarantine"          # warn | quarantine | abort
       scanners:
         defender: true           # Windows Defender (auto-detected)
         yara: true               # Custom YARA rules (always available)
