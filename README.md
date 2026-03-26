@@ -164,18 +164,78 @@ Two filter modes, each running 15+ checks in parallel:
 
 Filter checks include: minimum/maximum length, line length distribution, character diversity, auto-generated file headers, binary/data file detection, comment ratio bounds, test dump detection, syntax parsing (AST), and brace balance. Filters are modular plugins — easy to add or disable.
 
-### Quality Scoring & Weighted Training
+### Data Quality Scoring Pipeline
 
-Beyond binary pass/fail filtering, every file receives a continuous quality score from **0.0 to 1.0** based on 13 weighted signals:
+Five independent scorers produce a composite quality score for every file:
 
-- Cyclomatic complexity, documentation density, naming conventions
-- Type annotation coverage, function/class structure
-- Import organization, test coverage indicators
-- And more — all combined into a single float score
+| Scorer | What It Measures | Default Weight |
+|--------|-----------------|----------------|
+| **tsc** | TypeScript compiler errors (strict mode) | 0.30 |
+| **eslint** | Lint rule violations | 0.20 |
+| **heuristic** | 13 static signals (complexity, docs, naming, types, structure, imports, ...) | 0.20 |
+| **stars** | GitHub star count of the source repo | 0.15 |
+| **classifier** | Distilled LLM-as-Judge (TF-IDF + logistic regression) | 0.15 |
 
-High-quality code contributes more to the training loss via per-example weights. Files scoring near 1.0 are weighted more heavily in the loss calculation, so the model learns disproportionately from well-structured code.
+All tool-based scorers (tsc, eslint) execute inside the **SandboxedRunner** — see [Security Architecture](#security-architecture) below.
 
-See [`docs/deep-dives/quality-weighted-training.md`](docs/deep-dives/quality-weighted-training.md) for the full pipeline.
+**Composite scoring** combines enabled scorers by weighted average into a single 0.0-1.0 score, then maps to training weight tiers:
+
+| Tier | Score Range | Training Weight |
+|------|------------|-----------------|
+| Excellent | >= 0.8 | 2.0x |
+| Good | >= 0.6 | 1.5x |
+| Average | >= 0.4 | 1.0x |
+| Poor | >= 0.2 | 0.3x |
+| Reject | < 0.2 | 0.0x (excluded) |
+
+Outputs:
+- `.weights.npy` sidecar file (same length as `train_data.npy`) for weighted training loss
+- `.scores.jsonl` per-file details (resume-capable — re-runs skip already-scored files)
+
+**Curriculum ordering** reorders training data by difficulty: `easy_to_hard`, `hard_to_easy`, `staged` (phased difficulty ramps), or `random`.
+
+**Distilled classifier workflow** — use an LLM to annotate ~10k samples, then train a fast TF-IDF + logistic regression model for bulk scoring:
+
+```bash
+# Step 1: LLM annotates samples
+python scripts/train_judge_classifier.py annotate --provider ollama --model codellama --data data.jsonl
+
+# Step 2: Train fast classifier from annotations
+python scripts/train_judge_classifier.py train --annotations data/annotations.jsonl
+
+# Step 3: Evaluate accuracy
+python scripts/train_judge_classifier.py evaluate --model-dir models/quality_classifier --annotations data/annotations.jsonl
+```
+
+**CLI** — `scripts/score_data.py`:
+
+```bash
+# Score a .npy dataset (all enabled scorers)
+python scripts/score_data.py --data code_data.npy --tokenizer tokenizer.json
+
+# Score with specific scorers only
+python scripts/score_data.py --data code_data.npy --scorers tsc,eslint --tokenizer tokenizer.json
+
+# Score a JSONL file (GitHub scraped data)
+python scripts/score_data.py --jsonl github_scraped.jsonl
+
+# Score + curriculum ordering
+python scripts/score_data.py --data code_data.npy --tokenizer tokenizer.json --curriculum easy_to_hard
+```
+
+Configuration lives in `configs/scoring.yaml`. See [`docs/deep-dives/quality-weighted-training.md`](docs/deep-dives/quality-weighted-training.md) for the full pipeline.
+
+### Malware Scanning at Ingestion
+
+Untrusted code is scanned for malware before it enters the training pipeline. Scans run after HuggingFace downloads **and** after GitHub clones.
+
+| Scanner | Coverage | Availability |
+|---------|----------|-------------|
+| **YARA** | 6 embedded rules: crypto miners, reverse shells, obfuscation, data exfiltration, postinstall exploits, dangerous imports | Always (falls back to regex when `yara-python` not installed) |
+| **Windows Defender** | Full AV engine via `MpCmdRun.exe` | Auto-detected on Windows |
+| **ClamAV** | `clamd` daemon client | Opt-in (`clamav: true` in config) |
+
+Threat response is configurable per-scanner: `warn` (log and continue), `quarantine` (move to isolation dir), or `abort` (stop the pipeline). Configure in `configs/scoring.yaml` under `security.malware_scan`.
 
 ### Fill-in-the-Middle (FIM) Training
 
@@ -196,6 +256,42 @@ A producer-consumer architecture keeps your GPU saturated:
 2. Filtered text streams to tokenizer workers (Rust-backed BPE)
 3. Tokenized chunks write directly to memory-mapped numpy arrays
 4. Training reads from the mmap file with zero RAM overhead
+
+**Per-dataset tokenizers** — each dataset gets its own tokenizer stored alongside the data. The dataset name is derived from `data_sources.yaml` + model config (e.g., `typescript-text-math`), and the tokenizer lives at `<data_dir>/<dataset-name>/tokenizer.json`. The pipeline menu auto-detects existing tokenizers so you don't retrain them unnecessarily. The `data.languages` field in model configs can override the default code languages from `data_sources.yaml`.
+
+---
+
+## Security Architecture
+
+All code scoring and tool execution runs inside a security sandbox. Three modes are available, configured in `configs/scoring.yaml`:
+
+| Mode | Isolation | Requirements |
+|------|-----------|-------------|
+| **off** | No sandbox, direct execution | None |
+| **native** | Temp dir isolation, process timeout, `CREATE_NO_WINDOW` on Windows | None |
+| **docker** | `--network none`, `--read-only`, `--cap-drop ALL`, `--pids-limit 64`, `--memory 512m`, `--user nobody` | Docker |
+
+The **SandboxedRunner** is the single entry point for all tsc/eslint execution on untrusted code. The **TscRunner** handles all TypeScript compiler invocations with a hardened `tsconfig.json` that blocks compiler plugin execution (`plugins: []`, `types: []`, `typeRoots: []`).
+
+Additional security layers:
+
+- **Credential scanner** — 20+ regex patterns detect leaked secrets (API keys, tokens, passwords). Four modes: `off`, `warn` (log), `strip` (redact before scoring), `reject` (skip file entirely)
+- **Audit logging** — every scoring operation writes a JSONL entry to `logs/scoring_audit.jsonl` with timestamps, file hashes, scorer results, and security decisions
+- **Malware scanning** — YARA rules + optional AV engines scan all ingested code (see [Data Pipeline](#malware-scanning-at-ingestion) above)
+
+Key files:
+
+| Module | Purpose |
+|--------|---------|
+| `data/scorers/sandbox.py` | SandboxedRunner (native + Docker modes) |
+| `data/scorers/security.py` | Security manager, mode selection |
+| `data/scorers/credential_scanner.py` | Secret detection and handling |
+| `data/scorers/audit.py` | JSONL audit trail |
+| `data/scorers/tsc_scorer.py` | TscRunner (hardened tsc execution) |
+| `data/scorers/tsconfig_factory.py` | Hardened tsconfig generation |
+| `security/yara_scanner.py` | YARA malware scanner |
+| `security/defender_scanner.py` | Windows Defender integration |
+| `security/clamav_scanner.py` | ClamAV daemon client |
 
 ---
 
@@ -303,7 +399,7 @@ Prepared data is reusable across training runs. Only re-prepare if you change th
 
 ```
 cola-coder/
-├── configs/                     # YAML configs (model, training, features, storage, reasoning)
+├── configs/                     # YAML configs (model, training, features, storage, reasoning, scoring)
 ├── docs/                        # 5 educational guides + 10 deep-dives
 │   └── deep-dives/              # FIM, MoE, RoPE, torch.compile, quality, checkpoints, ...
 ├── src/cola_coder/
@@ -312,20 +408,22 @@ cola-coder/
 │   ├── data/                    # Full data pipeline (FIM, quality filter, weighted dataset)
 │   │   ├── filters/             # Modular filter plugins
 │   │   ├── sources/             # Data sources (HF, GitHub, local)
+│   │   ├── scorers/             # Quality scorers (tsc, eslint, heuristic, stars, LLM judge, classifier)
 │   │   └── curation/            # Test execution scoring + Docker sandbox
+│   ├── security/                # Malware scanning (YARA, Defender, ClamAV)
 │   ├── training/                # Training loop, checkpoints, metrics, early stopping
 │   ├── inference/               # KV-cache generator, sampling, batched generation, API server
 │   ├── evaluation/              # HumanEval (62 problems), completion benchmark, pass@k
 │   ├── reasoning/               # CoT, GRPO, SFT warmup, reward registry, curriculum
 │   ├── features/                # 166 optional feature modules
 │   └── cli.py                   # Rich CLI + questionary arrow menus
-├── scripts/                     # 45 CLI entry points
+├── scripts/                     # 47 CLI entry points
 └── tests/                       # 122 test files (~2,600 tests)
 ```
 
 ---
 
-## Scripts (45 total)
+## Scripts (47 total)
 
 ### Training & Data
 | Script | Purpose |
@@ -337,6 +435,8 @@ cola-coder/
 | `prepare_fim_data.py` | Prepare FIM-formatted training data |
 | `train.py` | Main training loop |
 | `train_reasoning.py` | SFT warmup + GRPO reasoning fine-tune |
+| `score_data.py` | Score data quality, generate `.weights.npy` for weighted training |
+| `train_judge_classifier.py` | LLM-as-Judge annotation + distilled classifier training |
 | `train_quality_classifier.py` | Train ML-based quality scorer |
 | `train_router.py` | Train domain router model |
 | `find_lr.py` | Learning rate range finder |
