@@ -208,8 +208,26 @@ class LlmJudge:
         )
 
     def score_batch(self, items: list[tuple[str, dict[str, object] | None]]) -> list[ScorerResult]:
-        """Score multiple samples sequentially (each is an LLM call)."""
-        return [self.score(code, meta) for code, meta in items]
+        """Score multiple samples with concurrent LLM calls.
+
+        Uses ThreadPoolExecutor for I/O-bound parallelism (API requests).
+        Concurrency is limited to avoid overwhelming the LLM backend.
+        """
+        if not items or len(items) <= 2:
+            return [self.score(code, meta) for code, meta in items]
+
+        from concurrent.futures import ThreadPoolExecutor
+
+        # Ollama: 2-4 concurrent (local GPU bottleneck)
+        # Claude: 4-8 concurrent (API rate limits)
+        max_concurrent = 4 if self.provider == "ollama" else 8
+
+        with ThreadPoolExecutor(max_workers=min(max_concurrent, len(items))) as executor:
+            futures = [
+                executor.submit(self.score, code, meta)
+                for code, meta in items
+            ]
+            return [f.result() for f in futures]
 
     def annotate_batch(
         self,
