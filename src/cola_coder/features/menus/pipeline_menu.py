@@ -66,6 +66,8 @@ class PipelineMenu:
                  "detail": "List all runs with stage-by-stage status"},
                 {"label": "Run Single Stage",
                  "detail": "Execute one specific stage from an existing run"},
+                {"label": "Reset to Stage",
+                 "detail": "Reset a run back to a specific stage and re-run from there"},
                 {"label": "Delete Pipeline Run",
                  "detail": "Remove a saved run and its state file"},
                 {"label": "Quick Pipeline (legacy)",
@@ -85,8 +87,10 @@ class PipelineMenu:
             elif choice == 3:
                 self._run_single_stage()
             elif choice == 4:
-                self._delete_run()
+                self._reset_to_stage()
             elif choice == 5:
+                self._delete_run()
+            elif choice == 6:
                 self._legacy_pipeline()
 
     # ── Create ────────────────────────────────────────────────────────
@@ -255,6 +259,65 @@ class PipelineMenu:
         run.stages[stage_num].status = "pending"
         self._mgr.save(run)
         self._execute_stage(run, stage_num)
+
+    # ── Reset to stage ─────────────────────────────────────────────────
+
+    def _reset_to_stage(self) -> None:
+        """Reset a run back to a specific stage and optionally re-run."""
+        run = self._pick_run("Select run to reset:")
+        if run is None:
+            return
+
+        # Show current stage status
+        _print_section_header("Reset to Stage", f"Run: {run.name}")
+        for num in sorted(run.stages):
+            st = run.stages[num]
+            stage_def = STAGE_DEFS.get(num, {})
+            name = stage_def.get("name", f"stage-{num}")
+            icon = {"completed": "✓", "failed": "✗", "skipped": "⊘",
+                    "running": "▶", "pending": "○"}.get(st.status, "?")
+            dur = f"({st.duration_secs:.0f}s)" if st.duration_secs else ""
+            cli.dim(f"  {icon} {num:>2}. {name:<26} {st.status:<10} {dur}")
+
+        # Pick which stage to reset to
+        stage_options = []
+        for num in sorted(run.stages):
+            stage_def = STAGE_DEFS.get(num, {})
+            name = stage_def.get("name", f"stage-{num}")
+            desc = stage_def.get("description", "")
+            stage_options.append({
+                "label": f"Stage {num}: {name}",
+                "detail": desc,
+            })
+
+        choice = cli.choose("Reset to which stage?", stage_options, allow_cancel=True)
+        if choice is None:
+            return
+
+        target_stage = sorted(run.stages)[choice]
+        stage_name = STAGE_DEFS.get(target_stage, {}).get("name", f"stage-{target_stage}")
+
+        # Count what will be reset
+        reset_count = sum(
+            1 for num in run.stages
+            if num >= target_stage and run.stages[num].status != "skipped"
+        )
+
+        if not cli.confirm(
+            f"Reset '{run.name}' to stage {target_stage} ({stage_name})? "
+            f"This will reset {reset_count} stage(s) to pending."
+        ):
+            return
+
+        self._mgr.reset_to_stage(run, target_stage)
+        cli.success(
+            f"Reset to stage {target_stage} ({stage_name}). "
+            f"Stages {target_stage}-10 are now pending."
+        )
+
+        # Offer to start running immediately
+        if cli.confirm("Start running now?"):
+            self._execute_run(run)
 
     # ── Delete ────────────────────────────────────────────────────────
 

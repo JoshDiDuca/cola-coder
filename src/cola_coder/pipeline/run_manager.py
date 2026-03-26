@@ -248,6 +248,28 @@ class PipelineRunManager:
         run.stages[stage_num].override = path
         self.save(run)
 
+    def reset_to_stage(self, run: PipelineRun, stage_num: int) -> None:
+        """Reset a run so it re-executes from *stage_num* onward.
+
+        Stages before *stage_num* keep their status (completed/skipped/etc).
+        Stage *stage_num* and all later stages are reset to pending,
+        preserving artifacts from earlier stages so downstream stages
+        can still resolve inputs.
+        """
+        for num in sorted(run.stages):
+            if num >= stage_num:
+                st = run.stages[num]
+                if st.status == "skipped":
+                    continue  # Don't un-skip stages the user chose to skip
+                st.status = "pending"
+                st.started_at = None
+                st.completed_at = None
+                st.duration_secs = 0.0
+                st.error = ""
+                # Keep artifact from previous runs — it might still be valid
+                # and downstream stages may need it as fallback
+        self.save(run)
+
     # ── Artifact resolution ───────────────────────────────────────────
 
     def resolve_input(self, run: PipelineRun, stage_num: int) -> str:
