@@ -63,6 +63,12 @@ def sample_next_token(
 
     # Convert to probabilities and sample
     probs = F.softmax(logits, dim=-1)
+
+    # Safety: if filtering zeroed out all probabilities (NaN/Inf logits or
+    # overly aggressive top-k/top-p), fall back to greedy on the argmax
+    if probs.sum() == 0 or torch.isnan(probs.sum()) or torch.isinf(probs.sum()):
+        return logits.argmax().item()
+
     return torch.multinomial(probs, num_samples=1).item()
 
 
@@ -103,6 +109,17 @@ def sample_next_tokens_batch(
         logits = _top_p_filter_batch(logits, top_p)
 
     probs = F.softmax(logits, dim=-1)
+
+    # Safety: if any row has all-zero probs (filtering too aggressive or NaN),
+    # fall back to greedy argmax for those rows to avoid CUDA assert
+    bad_rows = (probs.sum(dim=-1) == 0) | torch.isnan(probs.sum(dim=-1))
+    if bad_rows.any():
+        probs[bad_rows] = F.softmax(logits[bad_rows].clamp(min=-1e9), dim=-1)
+        # If still zero after clamp, use uniform
+        still_bad = probs.sum(dim=-1) == 0
+        if still_bad.any():
+            probs[still_bad] = 1.0 / probs.shape[-1]
+
     # torch.multinomial on a 2-D tensor samples independently per row
     return torch.multinomial(probs, num_samples=1).squeeze(1)
 
