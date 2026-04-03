@@ -25,6 +25,7 @@ from cola_coder.training.checkpoint import (
     load_model_only,
     get_checkpoint_info,
     detect_latest_checkpoint,
+    _maybe_resize_vocab,
 )
 from cola_coder.training.optimizer import create_optimizer, create_scheduler
 
@@ -316,6 +317,101 @@ class TestLoadModelOnly:
         model2 = _make_model()
         load_model_only(ckpt, model2, device="cpu")
 
+        assert model2.output.weight.data_ptr() == model2.tok_emb.weight.data_ptr()
+
+
+class TestVocabResize:
+    """Checkpoint loading must survive vocab expansion (e.g. thinking tokens added in reasoning)."""
+
+    def _make_expanded_state_dict(self, base_vocab: int, extra: int, dim: int) -> dict:
+        """Simulate a checkpoint saved after thinking tokens expanded the vocab."""
+        new_vocab = base_vocab + extra
+        return {"tok_emb.weight": torch.randn(new_vocab, dim)}
+
+    def test_maybe_resize_vocab_expands_model(self):
+        """_maybe_resize_vocab resizes tok_emb and output to match checkpoint."""
+        cfg = ModelConfig(vocab_size=256, dim=64, n_layers=2, n_heads=4, n_kv_heads=2, max_seq_len=64)
+        model = Transformer(cfg)
+        assert model.tok_emb.weight.shape[0] == 256
+
+        state_dict = self._make_expanded_state_dict(256, 2, 64)  # 258 tokens
+        _maybe_resize_vocab(model, state_dict)
+
+        assert model.tok_emb.weight.shape[0] == 258
+        assert model.output.weight.shape[0] == 258
+        assert model.config.vocab_size == 258
+
+    def test_maybe_resize_vocab_retains_weight_tying(self):
+        """Weight tying is preserved after resize."""
+        model = Transformer(_tiny_config())
+        state_dict = self._make_expanded_state_dict(256, 2, 64)
+        _maybe_resize_vocab(model, state_dict)
+        assert model.output.weight.data_ptr() == model.tok_emb.weight.data_ptr()
+
+    def test_maybe_resize_vocab_preserves_device(self):
+        """New embedding layers land on the same device as the original (CPU here)."""
+        model = Transformer(_tiny_config())
+        assert model.tok_emb.weight.device.type == "cpu"
+        state_dict = self._make_expanded_state_dict(256, 2, 64)
+        _maybe_resize_vocab(model, state_dict)
+        assert model.tok_emb.weight.device.type == "cpu"
+        assert model.output.weight.device.type == "cpu"
+
+    def test_maybe_resize_vocab_noop_when_sizes_match(self):
+        """No-op when checkpoint and model vocab sizes already agree."""
+        model = Transformer(_tiny_config())
+        original_ptr = model.tok_emb.weight.data_ptr()
+        state_dict = {"tok_emb.weight": torch.randn(256, 64)}  # same size
+        _maybe_resize_vocab(model, state_dict)
+        assert model.tok_emb.weight.data_ptr() == original_ptr
+
+    def test_load_checkpoint_with_expanded_vocab(self, tmp_path):
+        """load_checkpoint succeeds when checkpoint has more vocab tokens than config."""
+        # Simulate: save a model, then manually expand its tok_emb (like thinking tokens do),
+        # resave. The loader must handle this without a size mismatch error.
+        model = Transformer(_tiny_config())
+        opt, sched = _make_training_state(model)
+        ckpt = save_checkpoint(model, opt, sched, step=1, loss=2.0, config={}, output_dir=str(tmp_path))
+
+        # Manually overwrite model.safetensors with an expanded vocab checkpoint.
+        # Write to a temp path then rename — safetensors keeps a memory-mapped
+        # handle open on Windows, so overwriting in-place causes error 1224.
+        from safetensors.torch import save_file, load_file
+        orig = Path(ckpt) / "model.safetensors"
+        sd = load_file(str(orig), device="cpu")
+        expanded = torch.cat([sd["tok_emb.weight"], torch.randn(2, 64) * 0.02], dim=0)
+        sd["tok_emb.weight"] = expanded
+        tmp = orig.with_suffix(".tmp")
+        save_file(sd, str(tmp))
+        orig.unlink()
+        tmp.rename(orig)
+
+        # Loading into a 256-vocab model must succeed (step=0 — no optimizer passed)
+        model2 = Transformer(_tiny_config())
+        step = load_checkpoint(ckpt, model2, device="cpu")
+        assert step == 0  # training_state.pt only read when optimizer is provided
+        assert model2.tok_emb.weight.shape[0] == 258
+        assert model2.config.vocab_size == 258
+
+    def test_load_model_only_with_expanded_vocab(self, tmp_path):
+        """load_model_only also handles expanded vocab checkpoints."""
+        model = Transformer(_tiny_config())
+        opt, sched = _make_training_state(model)
+        ckpt = save_checkpoint(model, opt, sched, step=1, loss=2.0, config={}, output_dir=str(tmp_path))
+
+        from safetensors.torch import save_file, load_file
+        orig = Path(ckpt) / "model.safetensors"
+        sd = load_file(str(orig), device="cpu")
+        sd["tok_emb.weight"] = torch.cat([sd["tok_emb.weight"], torch.randn(2, 64) * 0.02], dim=0)
+        tmp = orig.with_suffix(".tmp")
+        save_file(sd, str(tmp))
+        orig.unlink()
+        tmp.rename(orig)
+
+        model2 = Transformer(_tiny_config())
+        load_model_only(ckpt, model2, device="cpu")
+        assert model2.tok_emb.weight.shape[0] == 258
+        # Weight tying must still hold
         assert model2.output.weight.data_ptr() == model2.tok_emb.weight.data_ptr()
 
 

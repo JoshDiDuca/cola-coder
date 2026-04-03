@@ -228,8 +228,28 @@ class GRPOTrainer:
         # Step 3: Compute advantages (relative to group mean)
         rewards_tensor = torch.tensor(rewards, device=self.device)
         mean_reward = rewards_tensor.mean()
-        std_reward = rewards_tensor.std() + 1e-8  # Prevent division by zero
-        advantages = (rewards_tensor - mean_reward) / std_reward
+        std_reward = rewards_tensor.std()
+
+        # Collapse guard: when all rewards are identical (std≈0) the advantage
+        # signal is degenerate — all advantages collapse to ~0 and the gradient
+        # step is pure noise that can corrupt weights without improving the policy.
+        # Skip the update; log the skip so it's visible in training output.
+        num_correct = sum(1 for info in infos if info["correct"])
+        if std_reward < 1e-4:
+            print(
+                f"  [GRPO] Skipping update — zero reward variance "
+                f"(all {self.group_size} rewards = {mean_reward.item():.3f})"
+            )
+            return {
+                "loss": 0.0,
+                "mean_reward": mean_reward.item(),
+                "num_correct": num_correct,
+                "group_size": self.group_size,
+                "pass_rate": num_correct / self.group_size,
+                "skipped": True,
+            }
+
+        advantages = (rewards_tensor - mean_reward) / (std_reward + 1e-8)
 
         # Step 4: Policy gradient update
         self.model.train()

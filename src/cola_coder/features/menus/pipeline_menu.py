@@ -793,16 +793,67 @@ class PipelineMenu:
         ])
         return str(latest) if latest.exists() else ""
 
+    @staticmethod
+    def _model_scale(config) -> dict:
+        """Derive per-model scaling values from training.max_steps.
+
+        max_steps in each config (Chinchilla-calibrated to model size):
+          tiny      20 K  →  50M params
+          small    100 K  → 125M params
+          medium   150 K  → 299M params
+          4080_max 200 K  → 455M params
+        """
+        training = getattr(config, "training", None)
+        max_steps = getattr(training, "max_steps", 20000) if training is not None else 20000
+
+        # SFT instruction examples: proportional to training budget.
+        # max_steps // 4 naturally gives 5K / 25K / 37.5K / 50K across configs.
+        sft_examples = max(2000, min(60000, max_steps // 4))
+
+        # SFT epochs: tiny models need more passes over their smaller dataset;
+        # larger configs have enough data that 2 epochs avoids overfitting.
+        sft_epochs = 3 if max_steps <= 50000 else 2
+
+        # GRPO group size: larger models can explore more candidate solutions
+        # per problem without running out of VRAM.
+        if max_steps <= 25000:
+            grpo_group_size = 4    # tiny
+        elif max_steps <= 120000:
+            grpo_group_size = 8    # small
+        else:
+            grpo_group_size = 16   # medium / 4080_max
+
+        return {
+            "sft_examples": sft_examples,
+            "sft_epochs": sft_epochs,
+            "grpo_group_size": grpo_group_size,
+        }
+
     def _stage_generate_instructions(
         self, run: PipelineRun, config, input_path: str,
     ) -> str:
-        """Stage 5: Generate instruction-tuning data."""
+        """Stage 5: Generate instruction-tuning data.
+
+        Mirrors Stage 1: uses the same dataset and ALL languages from the run
+        config so instruction examples come from the same distribution the model
+        was pretrained on.  Count scales with model size via _model_scale().
+        """
         output = "data/sft/instructions.jsonl"
+        scale = self._model_scale(config)
+
+        data_cfg = getattr(config, "data", None)
+        dataset = getattr(data_cfg, "dataset", "bigcode/starcoderdata") if data_cfg is not None else "bigcode/starcoderdata"
+        languages = getattr(data_cfg, "languages", ["typescript"]) if data_cfg is not None else ["typescript"]
+        if not isinstance(languages, list):
+            languages = [str(languages)]
+
         args = [
             "--non-interactive",
             "--source", "huggingface",
+            "--dataset", dataset,
+            "--languages", *languages,
             "--mode", "template",
-            "--count", "5000",
+            "--count", str(scale["sft_examples"]),
             "--output", output,
         ]
         self._run_stage_script("generate_instructions.py", args)
@@ -814,14 +865,22 @@ class PipelineMenu:
         """Stage 6: SFT instruction tuning via train_sft.py."""
         # Checkpoint = pretrained model from stage 3/4, NOT stage 5 artifact
         # (input_path from resolve_input walks back to stage 5's JSONL file,
-        # which is instruction data, not a model checkpoint)
+        # which is instruction data, not a model checkpoint).
+        #
+        # Scan step_* dirs directly rather than trusting the 'latest' pointer
+        # file: if training was restarted from scratch in the same output dir,
+        # 'latest' can become stale (pointing to a step that was subsequently
+        # deleted by max_checkpoints cleanup).
         ckpt_dir = Path(config.checkpoint.output_dir)
-        latest = ckpt_dir / "latest"
-        if latest.exists():
-            # "latest" is a text file pointing to the real checkpoint dir
-            checkpoint = latest.read_text(encoding="utf-8").strip()
+        step_dirs = sorted(
+            [d for d in ckpt_dir.iterdir() if d.is_dir() and d.name.startswith("step_")],
+            key=lambda d: int(d.name.split("_")[1]),
+        ) if ckpt_dir.exists() else []
+        if step_dirs:
+            checkpoint = str(step_dirs[-1])
         else:
-            checkpoint = str(latest)
+            latest = ckpt_dir / "latest"
+            checkpoint = latest.read_text(encoding="utf-8").strip() if latest.exists() else str(latest)
 
         instruction_data = "data/sft/instructions.jsonl"
         # Use stage 5 artifact if available (this IS the instructions data)
@@ -835,11 +894,12 @@ class PipelineMenu:
                 "Run Stage 5 (generate-instructions) first."
             )
 
+        scale = self._model_scale(config)
         args = [
             "--data", instruction_data,
             "--config", run.config_path,
             "--checkpoint", checkpoint,
-            "--epochs", "2",
+            "--epochs", str(scale["sft_epochs"]),
             "--lr", "2e-5",
         ]
         self._run_stage_script("train_sft.py", args)
@@ -909,7 +969,14 @@ class PipelineMenu:
         return str(moe_dir) if moe_dir.exists() else checkpoint
 
     def _stage_train_router(self, run: PipelineRun, config) -> str:
-        """Stage 8: Train semantic router."""
+        """Stage 8: Train semantic router.
+
+        Generates router training data from the actual collected .npy training
+        data (Stage 1/2) so the router sees the same distribution as the model.
+        Falls back to synthetic bootstrap data only if no .npy is available.
+        """
+        from cola_coder.data.dataset_resolver import DatasetResolver
+
         save_dir = f"checkpoints/router/{run.name}"
         data_path = Path("data/router_training_data.jsonl")
 
@@ -917,8 +984,29 @@ class PipelineMenu:
             cli.info("Router data", f"Using existing {data_path}")
             args = ["--data", str(data_path), "--arch", "mlp", "--save-dir", save_dir]
         else:
-            cli.dim("  Generating router training data...")
+            cli.dim("  Generating router training data from training corpus...")
             args = ["--generate-data", "--arch", "mlp", "--save-dir", save_dir]
+
+            # Pass the actual .npy training data so the router is trained on
+            # the same distribution as the model (not synthetic bootstrap data)
+            data_dir = DatasetResolver.get_dataset_dir(
+                _DATA_SOURCES_PATH, config_path=run.config_path,
+            )
+            if data_dir.exists():
+                data_npys = sorted([
+                    f for f in data_dir.glob("*.npy")
+                    if ".weights" not in f.name and ".scores" not in f.name
+                ])
+                if data_npys:
+                    args.extend(["--source", str(data_npys[0])])
+                    cli.dim(f"  Source: {data_npys[0].name} ({data_dir.name}/)")
+
+            # Pass tokenizer so router data tokenisation matches the model vocab
+            tokenizer = DatasetResolver.get_tokenizer_path(
+                _DATA_SOURCES_PATH, config_path=run.config_path,
+            )
+            if tokenizer.exists():
+                args.extend(["--tokenizer", str(tokenizer)])
 
         self._run_stage_script("train_router.py", args)
         return save_dir
@@ -929,11 +1017,30 @@ class PipelineMenu:
         """Stage 9: GRPO reasoning training."""
         checkpoint = self._resolve_checkpoint(run, config, input_path)
 
+        scale = self._model_scale(config)
+        data_cfg = getattr(config, "data", None)
+        languages = getattr(data_cfg, "languages", ["python"]) if data_cfg is not None else ["python"]
+        language = languages[0] if languages else "python"
+
+        # Reward derived directly from config.data.languages — same source of truth
+        # as pretraining and SFT so GRPO reinforces what the model already learned:
+        #   single typescript  → tsc --strict type-checking
+        #   single python      → python execution tests
+        #   multi-language     → combined (type + syntax + style + completeness)
+        if len(languages) > 1:
+            reward = "combined"
+        elif language == "typescript":
+            reward = "typescript"
+        else:
+            reward = "python_exec"
+
         args = [
             "--config", run.config_path,
             "--base-checkpoint", checkpoint,
-            "--reward", "combined",
+            "--language", language,
+            "--reward", reward,
             "--problems", "all",
+            "--group-size", str(scale["grpo_group_size"]),
         ]
         self._run_stage_script("train_reasoning.py", args)
 
@@ -950,9 +1057,10 @@ class PipelineMenu:
         """Stage 10: Full evaluation suite (smoke + HumanEval + quality report)."""
         checkpoint = self._resolve_checkpoint(run, config, input_path)
 
-        # 1. Smoke test
+        # 1. Smoke test — use _run_stage_script so a failing smoke test marks
+        #    stage 10 as failed (it's a quality gate, not just informational)
         cli.step(1, 3, "Running smoke test")
-        self._master._run_script("smoke_test.py", [
+        self._run_stage_script("smoke_test.py", [
             "--checkpoint", checkpoint,
             "--config", run.config_path,
         ])

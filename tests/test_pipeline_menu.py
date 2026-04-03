@@ -42,6 +42,11 @@ def _make_config(output_dir: str = "./checkpoints") -> SimpleNamespace:
             rope_scaling=SimpleNamespace(type="none", factor=1.0),
             max_seq_len=2048,
         ),
+        data=SimpleNamespace(
+            dataset="bigcode/starcoderdata",
+            languages=["typescript"],
+        ),
+        training=SimpleNamespace(max_steps=20000),
     )
 
 
@@ -324,7 +329,7 @@ class TestStageHandlerArgs:
     def test_stage_train_reasoning_passes_checkpoint(
         self, pipeline_menu: Any, tmp_path: Path,
     ) -> None:
-        """Stage 9 resolves to a model checkpoint, not a router save dir."""
+        """Stage 9 resolves to a model checkpoint, not a router save dir, and passes --language."""
         run = _make_run()
         # Stage 8 produced a router save dir (NOT a model checkpoint)
         run.stages[8] = StageState(
@@ -346,11 +351,22 @@ class TestStageHandlerArgs:
                 assert "router" not in ckpt_value, (
                     "Reasoning stage should get SFT/pretrain checkpoint, not router dir"
                 )
+                # Language and reward must be derived from config.data.languages
+                assert "--language" in args, "Stage 9 must pass --language to train_reasoning.py"
+                lang_idx = args.index("--language")
+                assert args[lang_idx + 1] == "typescript", (
+                    "Config has languages=['typescript'], so --language typescript expected"
+                )
+                assert "--reward" in args, "Stage 9 must pass --reward derived from config.data.languages"
+                reward_idx = args.index("--reward")
+                assert args[reward_idx + 1] == "typescript", (
+                    "Single-language typescript config should use --reward typescript"
+                )
 
     def test_stage_evaluate_runs_three_scripts(
         self, pipeline_menu: Any, tmp_path: Path,
     ) -> None:
-        """Stage 10 runs smoke_test, evaluate, and quality_report in order."""
+        """Stage 10 runs smoke_test (via _run_stage_script), then evaluate + quality_report."""
         run = _make_run()
         config = _make_config(str(tmp_path / "checkpoints"))
 
@@ -358,13 +374,18 @@ class TestStageHandlerArgs:
             type(pipeline_menu), "_resolve_checkpoint",
             return_value="checkpoints/step-1000",
         ):
-            pipeline_menu._stage_evaluate(run, config, "")
-            master = pipeline_menu._master
-            assert master._run_script.call_count == 3
+            with patch.object(pipeline_menu, "_run_stage_script") as mock_stage_script:
+                pipeline_menu._stage_evaluate(run, config, "")
 
-            calls = master._run_script.call_args_list
-            scripts_called = [c[0][0] for c in calls]
-            assert scripts_called == ["smoke_test.py", "evaluate.py", "quality_report.py"]
+                # smoke_test.py is a quality gate → must use _run_stage_script
+                mock_stage_script.assert_called_once()
+                assert mock_stage_script.call_args[0][0] == "smoke_test.py"
+
+                # evaluate.py and quality_report.py are informational → _master._run_script
+                master = pipeline_menu._master
+                assert master._run_script.call_count == 2
+                scripts_called = [c[0][0] for c in master._run_script.call_args_list]
+                assert scripts_called == ["evaluate.py", "quality_report.py"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════

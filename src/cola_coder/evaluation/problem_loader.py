@@ -100,6 +100,23 @@ class ProblemSet:
 
         return self
 
+    def add_typescript(self) -> "ProblemSet":
+        """Add built-in TypeScript coding problems.
+
+        Returns:
+            self, for method chaining.
+        """
+        from .humaneval import get_typescript_problems
+
+        new_problems = get_typescript_problems()
+        self._sources.append("builtin_typescript")
+        existing_ids = {p.task_id for p in self._problems}
+        for p in new_problems:
+            if p.task_id not in existing_ids:
+                self._problems.append(p)
+                existing_ids.add(p.task_id)
+        return self
+
     def add_from_jsonl(self, path: str | Path) -> "ProblemSet":
         """Load problems from a JSONL file.
 

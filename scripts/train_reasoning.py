@@ -146,6 +146,18 @@ def main():
         choices=["all", "easy", "medium", "hard"],
         help="Filter problems by difficulty before training (default: all).",
     )
+    parser.add_argument(
+        "--language",
+        type=str,
+        default="python",
+        choices=["python", "typescript"],
+        help=(
+            "Language of the coding problems and CoT examples to use. "
+            "'python': built-in HumanEval problems + Python CoT examples (default). "
+            "'typescript': built-in TypeScript problems + TypeScript CoT examples. "
+            "Also auto-selects --reward typescript when not explicitly set."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -288,7 +300,7 @@ def main():
                 precision=precision,
             )
 
-            sft_examples = get_cot_training_data()
+            sft_examples = get_cot_training_data(language=args.language)
 
             if args.sft_synthetic:
                 cli.info("SFT synthetic", "generating augmented CoT examples...")
@@ -323,10 +335,15 @@ def main():
     use_curriculum = args.problems == "curriculum"
     source = "extended" if args.problems in ("curriculum", "all", "extended") else args.problems
 
+    cli.info("Language", args.language)
+
     try:
         ps = ProblemSet()
         if source == "jsonl":
             ps.add_from_jsonl(args.problems_jsonl)
+        elif args.language == "typescript":
+            # TypeScript mode: use TS-specific problems (ignores --problems builtin/extended/all)
+            ps.add_typescript()
         elif source == "builtin":
             ps.add_builtin(extended=False)
         else:
@@ -354,8 +371,11 @@ def main():
     cli.info("Device", device)
     cli.info("Curriculum", use_curriculum)
 
-    # Resolve reward function: CLI flag > config > default
-    reward_name: str = args.reward or "python_exec"
+    # Resolve reward function: CLI flag > config > language default > global default
+    # When called from the pipeline, --reward is always set from config.data.languages.
+    # Language default: typescript → tsc reward, python → python_exec.
+    language_default = "typescript" if args.language == "typescript" else "python_exec"
+    reward_name: str = args.reward or language_default
     reasoning_cfg = getattr(config, "reasoning", None)
     if args.reward is None and reasoning_cfg is not None:
         cfg_reward = getattr(reasoning_cfg, "reward_function", None)

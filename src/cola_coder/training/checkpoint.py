@@ -15,11 +15,41 @@ For a TS dev: think of pickle like eval() and safetensors like JSON.parse().
 
 import dataclasses
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
 import torch
 from safetensors.torch import save_file, load_file
+
+
+def _maybe_resize_vocab(model: torch.nn.Module, state_dict: dict) -> None:
+    """Resize model embeddings to match checkpoint vocab size.
+
+    Reasoning training adds thinking tokens (<think>/<\think>), expanding the
+    vocabulary from e.g. 32768 → 32770. When the model is later reconstructed
+    from its YAML config it uses the original vocab_size, causing a size mismatch
+    on load. This function detects the discrepancy and resizes the embedding and
+    output layers before load_state_dict is called — the actual weights come from
+    the checkpoint, so the new rows are just placeholder shells.
+
+    Handles torch.compile by operating on the inner _orig_mod when present.
+    """
+    if "tok_emb.weight" not in state_dict:
+        return
+    ckpt_vocab = int(state_dict["tok_emb.weight"].shape[0])
+    inner = getattr(model, "_orig_mod", model)
+    if not hasattr(inner, "config") or ckpt_vocab == inner.config.vocab_size:
+        return
+    dim = int(state_dict["tok_emb.weight"].shape[1])
+    # Create new layers on the same device as the existing embedding so that
+    # load_state_dict doesn't strand them on CPU when the model is already on CUDA.
+    emb_device = inner.tok_emb.weight.device
+    inner.tok_emb = torch.nn.Embedding(ckpt_vocab, dim).to(emb_device)
+    # Resize output projection and re-tie weights (same tensor as tok_emb)
+    inner.output = torch.nn.Linear(dim, ckpt_vocab, bias=False).to(emb_device)
+    inner.output.weight = inner.tok_emb.weight
+    inner.config.vocab_size = ckpt_vocab
 
 
 class _ConfigEncoder(json.JSONEncoder):
@@ -78,7 +108,6 @@ def save_checkpoint(
     """
     # Save to a temp directory first, then rename — this makes the save atomic.
     # If we crash mid-write, only the temp dir is corrupted, not a real checkpoint.
-    import shutil
     final_dir = Path(output_dir) / f"step_{step:08d}"
     tmp_dir = Path(output_dir) / f".tmp_step_{step:08d}"
 
@@ -148,8 +177,11 @@ def save_checkpoint(
     # On Windows, use a text file with the path instead of symlink
     latest_path.write_text(str(ckpt_dir))
 
-    # Clean up old checkpoints (keep only max_checkpoints most recent)
-    _cleanup_old_checkpoints(output_dir, max_checkpoints)
+    # Clean up old checkpoints (keep only max_checkpoints most recent).
+    # Pass the just-saved directory so cleanup never deletes it, even if its
+    # step number is lower than existing checkpoints (e.g. fresh run in a dir
+    # that already has high-step checkpoints from a previous run).
+    _cleanup_old_checkpoints(output_dir, max_checkpoints, protected=str(ckpt_dir))
 
     print(f"Checkpoint saved: {ckpt_dir}")
     return str(ckpt_dir)
@@ -210,6 +242,11 @@ def load_checkpoint(
                     f"Use the matching config for this checkpoint "
                     f"or point --resume at a compatible checkpoint directory."
                 )
+
+    # If reasoning training expanded the vocabulary (e.g. added thinking tokens),
+    # the checkpoint's tok_emb shape won't match the config-built model. Resize
+    # before loading so load_state_dict sees matching shapes.
+    _maybe_resize_vocab(model, state_dict)
 
     # Handle torch.compile: if model is compiled, keys need _orig_mod. prefix
     # Checkpoints always store clean keys (no prefix) for portability.
@@ -275,6 +312,8 @@ def load_model_only(
 
     # strict=False because output.weight is tied to tok_emb.weight and not saved separately
     state_dict = load_file(str(ckpt_dir / "model.safetensors"), device=device)
+    # Expand embeddings if checkpoint vocab differs (e.g. thinking tokens added in reasoning stage)
+    _maybe_resize_vocab(model, state_dict)
     if hasattr(model, "_orig_mod"):
         state_dict = {f"_orig_mod.{k}": v for k, v in state_dict.items()}
     model.load_state_dict(state_dict, strict=False)
@@ -383,8 +422,21 @@ def detect_latest_checkpoint(
     return (best_path, best_info) if best_path is not None else None
 
 
-def _cleanup_old_checkpoints(output_dir: str, max_checkpoints: int):
-    """Remove old checkpoints, keeping only the most recent ones."""
+def _cleanup_old_checkpoints(
+    output_dir: str, max_checkpoints: int, protected: str | None = None
+):
+    """Remove old checkpoints, keeping only the most recent ones.
+
+    Args:
+        output_dir: Directory containing step_* checkpoint subdirectories.
+        max_checkpoints: Maximum number of checkpoint dirs to keep.
+        protected: Absolute path to a checkpoint dir that must never be
+            deleted (typically the one that was just saved).  This prevents
+            the newly-created checkpoint from being culled when its step
+            number happens to be numerically lower than existing ones (e.g.
+            when training is restarted from scratch in a directory that
+            already contains high-step checkpoints from a previous run).
+    """
     ckpt_dirs = sorted(
         [d for d in Path(output_dir).iterdir() if d.is_dir() and d.name.startswith("step_")],
         key=lambda d: int(d.name.split("_")[1]),
@@ -392,7 +444,7 @@ def _cleanup_old_checkpoints(output_dir: str, max_checkpoints: int):
 
     while len(ckpt_dirs) > max_checkpoints:
         old_dir = ckpt_dirs.pop(0)
+        if protected and str(old_dir) == protected:
+            continue  # never delete the checkpoint we just saved
         print(f"Removing old checkpoint: {old_dir}")
-        for f in old_dir.iterdir():
-            f.unlink()
-        old_dir.rmdir()
+        shutil.rmtree(old_dir)

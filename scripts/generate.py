@@ -123,6 +123,24 @@ def main():
 
     try:
         config = Config.from_yaml(args.config)
+
+        # Auto-detect vocab size from checkpoint — SFT checkpoints have extra ChatML tokens
+        ckpt_vocab_size = config.model.vocab_size
+        try:
+            from safetensors import safe_open
+            with safe_open(
+                str(Path(args.checkpoint) / "model.safetensors"),
+                framework="pt",
+            ) as f:
+                if "tok_emb.weight" in f.keys():
+                    ckpt_vocab_size = f.get_tensor("tok_emb.weight").shape[0]
+        except Exception:
+            pass
+
+        if ckpt_vocab_size != config.model.vocab_size:
+            cli.dim(f"  Checkpoint vocab: {ckpt_vocab_size} (config: {config.model.vocab_size})")
+            config.model.vocab_size = ckpt_vocab_size
+
         cli.info("Model", f"{config.model.total_params_human} parameters")
 
         tokenizer = CodeTokenizer(args.tokenizer)

@@ -2155,3 +2155,1102 @@ def get_problems_by_difficulty(difficulty: str) -> list[CodingProblem]:
 def get_problems_by_category(category: str) -> list[CodingProblem]:
     """Return all problems in the given category."""
     return [p for p in ALL_PROBLEMS if p.category == category]
+
+
+# ---------------------------------------------------------------------------
+# TypeScript problems — verified with tsc --noEmit --strict
+# ---------------------------------------------------------------------------
+TYPESCRIPT_PROBLEMS: list[CodingProblem] = [
+    CodingProblem(
+        task_id="ts_has_close_elements",
+        difficulty="easy",
+        category="array",
+        language="typescript",
+        prompt='''function hasCloseElements(numbers: number[], threshold: number): boolean {
+  /** Return true if any two numbers in the list are closer than threshold. */
+''',
+        test_code='''
+const r1: boolean = hasCloseElements([1, 2, 3], 0.5);
+const r2: boolean = hasCloseElements([1, 2.8, 3, 4, 5, 2], 0.3);
+const r3: boolean = hasCloseElements([], 0.5);
+''',
+        entry_point="hasCloseElements",
+        canonical_solution='''  for (let i = 0; i < numbers.length; i++) {
+    for (let j = i + 1; j < numbers.length; j++) {
+      if (Math.abs(numbers[i] - numbers[j]) < threshold) return true;
+    }
+  }
+  return false;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_below_zero",
+        difficulty="easy",
+        category="math",
+        language="typescript",
+        prompt='''function belowZero(operations: number[]): boolean {
+  /** Return true if running balance ever goes below zero. */
+''',
+        test_code='''
+const r1: boolean = belowZero([1, 2, 3]);
+const r2: boolean = belowZero([1, 2, -4, 5]);
+const r3: boolean = belowZero([]);
+''',
+        entry_point="belowZero",
+        canonical_solution='''  let balance = 0;
+  for (const op of operations) {
+    balance += op;
+    if (balance < 0) return true;
+  }
+  return false;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_fibonacci",
+        difficulty="easy",
+        category="math",
+        language="typescript",
+        prompt='''function fibonacci(n: number): number {
+  /** Return the n-th Fibonacci number (0-indexed: fib(0)=0, fib(1)=1). */
+''',
+        test_code='''
+const r1: number = fibonacci(0);
+const r2: number = fibonacci(1);
+const r3: number = fibonacci(10);
+''',
+        entry_point="fibonacci",
+        canonical_solution='''  if (n <= 0) return 0;
+  let a = 0, b = 1;
+  for (let i = 1; i < n; i++) {
+    [a, b] = [b, a + b];
+  }
+  return b;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_rolling_max",
+        difficulty="easy",
+        category="array",
+        language="typescript",
+        prompt='''function rollingMax(numbers: number[]): number[] {
+  /** Return an array where each element is the maximum of all prior elements up to that index. */
+''',
+        test_code='''
+const r1: number[] = rollingMax([1, 2, 3, 2, 3, 4, 2]);
+const r2: number[] = rollingMax([]);
+const r3: number[] = rollingMax([5]);
+''',
+        entry_point="rollingMax",
+        canonical_solution='''  if (numbers.length === 0) return [];
+  const result: number[] = [];
+  let max = numbers[0];
+  for (const n of numbers) {
+    max = Math.max(max, n);
+    result.push(max);
+  }
+  return result;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_correct_bracketing",
+        difficulty="medium",
+        category="string",
+        language="typescript",
+        prompt='''function correctBracketing(s: string): boolean {
+  /** Return true if every opening parenthesis has a matching closing parenthesis. */
+''',
+        test_code='''
+const r1: boolean = correctBracketing("()");
+const r2: boolean = correctBracketing("(()())");
+const r3: boolean = correctBracketing(")(");
+const r4: boolean = correctBracketing("");
+''',
+        entry_point="correctBracketing",
+        canonical_solution='''  let depth = 0;
+  for (const ch of s) {
+    if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    if (depth < 0) return false;
+  }
+  return depth === 0;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_reverse_string",
+        difficulty="easy",
+        category="string",
+        language="typescript",
+        prompt='''function reverseString(s: string): string {
+  /** Return the string reversed. */
+''',
+        test_code='''
+const r1: string = reverseString("hello");
+const r2: string = reverseString("");
+const r3: string = reverseString("a");
+''',
+        entry_point="reverseString",
+        canonical_solution='''  return s.split("").reverse().join("");
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_count_vowels",
+        difficulty="easy",
+        category="string",
+        language="typescript",
+        prompt='''function countVowels(s: string): number {
+  /** Return the number of vowels (a, e, i, o, u, case-insensitive) in s. */
+''',
+        test_code='''
+const r1: number = countVowels("Hello World");
+const r2: number = countVowels("");
+const r3: number = countVowels("bcdfg");
+''',
+        entry_point="countVowels",
+        canonical_solution='''  return (s.toLowerCase().match(/[aeiou]/g) ?? []).length;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_is_prime",
+        difficulty="medium",
+        category="math",
+        language="typescript",
+        prompt='''function isPrime(n: number): boolean {
+  /** Return true if n is a prime number. */
+''',
+        test_code='''
+const r1: boolean = isPrime(2);
+const r2: boolean = isPrime(17);
+const r3: boolean = isPrime(1);
+const r4: boolean = isPrime(15);
+''',
+        entry_point="isPrime",
+        canonical_solution='''  if (n < 2) return false;
+  for (let i = 2; i * i <= n; i++) {
+    if (n % i === 0) return false;
+  }
+  return true;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_sum_digits",
+        difficulty="easy",
+        category="math",
+        language="typescript",
+        prompt='''function sumDigits(n: number): number {
+  /** Return the sum of all decimal digits of non-negative integer n. */
+''',
+        test_code='''
+const r1: number = sumDigits(0);
+const r2: number = sumDigits(123);
+const r3: number = sumDigits(9999);
+''',
+        entry_point="sumDigits",
+        canonical_solution='''  return String(Math.abs(n)).split("").reduce((acc, d) => acc + Number(d), 0);
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_deduplicate",
+        difficulty="easy",
+        category="array",
+        language="typescript",
+        prompt='''function deduplicate(arr: number[]): number[] {
+  /** Return a new array with duplicate values removed, preserving original order. */
+''',
+        test_code='''
+const r1: number[] = deduplicate([1, 2, 2, 3, 1]);
+const r2: number[] = deduplicate([]);
+const r3: number[] = deduplicate([5, 5, 5]);
+''',
+        entry_point="deduplicate",
+        canonical_solution='''  return [...new Set(arr)];
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_flatten_once",
+        difficulty="medium",
+        category="array",
+        language="typescript",
+        prompt='''function flattenOnce(arr: (number | number[])[]): number[] {
+  /** Flatten one level of nesting: [[1,2],[3,4],5] -> [1,2,3,4,5]. */
+''',
+        test_code='''
+const r1: number[] = flattenOnce([[1, 2], [3, 4], 5]);
+const r2: number[] = flattenOnce([]);
+const r3: number[] = flattenOnce([[1], [2], [3]]);
+''',
+        entry_point="flattenOnce",
+        canonical_solution='''  const result: number[] = [];
+  for (const item of arr) {
+    if (Array.isArray(item)) {
+      result.push(...item);
+    } else {
+      result.push(item);
+    }
+  }
+  return result;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_max_subarray_sum",
+        difficulty="medium",
+        category="algorithm",
+        language="typescript",
+        prompt='''function maxSubarraySum(nums: number[]): number {
+  /** Return the maximum sum of any contiguous subarray (Kadane's algorithm). Return 0 for empty array. */
+''',
+        test_code='''
+const r1: number = maxSubarraySum([-2, 1, -3, 4, -1, 2, 1, -5, 4]);
+const r2: number = maxSubarraySum([1]);
+const r3: number = maxSubarraySum([]);
+const r4: number = maxSubarraySum([-1, -2, -3]);
+''',
+        entry_point="maxSubarraySum",
+        canonical_solution='''  if (nums.length === 0) return 0;
+  let maxSum = nums[0];
+  let cur = nums[0];
+  for (let i = 1; i < nums.length; i++) {
+    cur = Math.max(nums[i], cur + nums[i]);
+    maxSum = Math.max(maxSum, cur);
+  }
+  return maxSum;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_two_sum",
+        difficulty="medium",
+        category="algorithm",
+        language="typescript",
+        prompt='''function twoSum(nums: number[], target: number): [number, number] | null {
+  /** Return indices [i, j] where nums[i] + nums[j] === target, or null if none. */
+''',
+        test_code='''
+const r1: [number, number] | null = twoSum([2, 7, 11, 15], 9);
+const r2: [number, number] | null = twoSum([3, 2, 4], 6);
+const r3: [number, number] | null = twoSum([1, 2], 10);
+''',
+        entry_point="twoSum",
+        canonical_solution='''  const seen = new Map<number, number>();
+  for (let i = 0; i < nums.length; i++) {
+    const complement = target - nums[i];
+    if (seen.has(complement)) return [seen.get(complement)!, i];
+    seen.set(nums[i], i);
+  }
+  return null;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_group_by",
+        difficulty="hard",
+        category="algorithm",
+        language="typescript",
+        prompt='''function groupBy<T>(arr: T[], keyFn: (item: T) => string): Record<string, T[]> {
+  /** Group array elements by the key returned by keyFn. */
+''',
+        test_code='''
+interface Person { name: string; age: number; }
+const people: Person[] = [
+  { name: "Alice", age: 30 },
+  { name: "Bob", age: 25 },
+  { name: "Carol", age: 30 },
+];
+const r1: Record<string, Person[]> = groupBy(people, (p) => String(p.age));
+const r2: Record<string, number[]> = groupBy([1, 2, 3, 4], (n) => n % 2 === 0 ? "even" : "odd");
+''',
+        entry_point="groupBy",
+        canonical_solution='''  const result: Record<string, T[]> = {};
+  for (const item of arr) {
+    const key = keyFn(item);
+    if (!result[key]) result[key] = [];
+    result[key].push(item);
+  }
+  return result;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_binary_search",
+        difficulty="medium",
+        category="algorithm",
+        language="typescript",
+        prompt='''function binarySearch(sorted: number[], target: number): number {
+  /** Return the index of target in sorted array, or -1 if not found. */
+''',
+        test_code='''
+const r1: number = binarySearch([1, 3, 5, 7, 9], 5);
+const r2: number = binarySearch([1, 3, 5, 7, 9], 6);
+const r3: number = binarySearch([], 1);
+''',
+        entry_point="binarySearch",
+        canonical_solution='''  let lo = 0, hi = sorted.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (sorted[mid] === target) return mid;
+    if (sorted[mid] < target) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  return -1;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_intersperse",
+        difficulty="easy",
+        category="array",
+        language="typescript",
+        prompt='''function intersperse(numbers: number[], delimiter: number): number[] {
+  /** Insert delimiter between every two consecutive elements of numbers.
+   * intersperse([], 4) => []
+   * intersperse([1, 2, 3], 4) => [1, 4, 2, 4, 3]
+   */
+''',
+        test_code='''
+const assert = require('assert');
+assert.deepStrictEqual(intersperse([], 4), []);
+assert.deepStrictEqual(intersperse([1, 2, 3], 4), [1, 4, 2, 4, 3]);
+assert.deepStrictEqual(intersperse([1, 2, 3, 4, 5], 8), [1, 8, 2, 8, 3, 8, 4, 8, 5]);
+assert.deepStrictEqual(intersperse([5], 0), [5]);
+''',
+        entry_point="intersperse",
+        canonical_solution='''  const result: number[] = [];
+  for (let i = 0; i < numbers.length; i++) {
+    result.push(numbers[i]);
+    if (i < numbers.length - 1) result.push(delimiter);
+  }
+  return result;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_mean_absolute_deviation",
+        difficulty="easy",
+        category="math",
+        language="typescript",
+        prompt='''function meanAbsoluteDeviation(numbers: number[]): number {
+  /** Return Mean Absolute Deviation of the input array.
+   * MAD = mean(|x - mean(x)|)
+   */
+''',
+        test_code='''
+const assert = require('assert');
+assert.strictEqual(meanAbsoluteDeviation([1.0, 2.0, 3.0, 4.0]), 1.0);
+assert.ok(Math.abs(meanAbsoluteDeviation([1.0, 2.0, 3.0]) - 0.6667) < 0.001);
+assert.strictEqual(meanAbsoluteDeviation([5.0]), 0.0);
+''',
+        entry_point="meanAbsoluteDeviation",
+        canonical_solution='''  const mean = numbers.reduce((a, b) => a + b, 0) / numbers.length;
+  return numbers.reduce((acc, x) => acc + Math.abs(x - mean), 0) / numbers.length;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_truncate_number",
+        difficulty="easy",
+        category="math",
+        language="typescript",
+        prompt='''function truncateNumber(number: number): number {
+  /** Return the decimal part of a positive floating point number.
+   * truncateNumber(3.5) => 0.5
+   */
+''',
+        test_code='''
+const assert = require('assert');
+assert.ok(Math.abs(truncateNumber(3.5) - 0.5) < 1e-9);
+assert.ok(Math.abs(truncateNumber(1.25) - 0.25) < 1e-9);
+assert.ok(Math.abs(truncateNumber(123.0) - 0.0) < 1e-9);
+assert.ok(Math.abs(truncateNumber(0.75) - 0.75) < 1e-9);
+''',
+        entry_point="truncateNumber",
+        canonical_solution='''  return number % 1;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_filter_by_substring",
+        difficulty="easy",
+        category="string",
+        language="typescript",
+        prompt='''function filterBySubstring(strings: string[], substring: string): string[] {
+  /** Filter an array of strings, returning only those that contain the given substring. */
+''',
+        test_code='''
+const assert = require('assert');
+assert.deepStrictEqual(filterBySubstring([], "a"), []);
+assert.deepStrictEqual(filterBySubstring(["abc", "bacd", "xyz"], "a"), ["abc", "bacd"]);
+assert.deepStrictEqual(filterBySubstring(["hello", "world", "hi"], "h"), ["hello", "hi"]);
+assert.deepStrictEqual(filterBySubstring(["one", "two", "three"], "four"), []);
+''',
+        entry_point="filterBySubstring",
+        canonical_solution='''  return strings.filter(s => s.includes(substring));
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_count_distinct_characters",
+        difficulty="easy",
+        category="string",
+        language="typescript",
+        prompt='''function countDistinctCharacters(s: string): number {
+  /** Return the number of distinct characters in s (case-insensitive). */
+''',
+        test_code='''
+const assert = require('assert');
+assert.strictEqual(countDistinctCharacters(""), 0);
+assert.strictEqual(countDistinctCharacters("abcde"), 5);
+assert.strictEqual(countDistinctCharacters("aAbBcC"), 3);
+assert.strictEqual(countDistinctCharacters("hello"), 4);
+''',
+        entry_point="countDistinctCharacters",
+        canonical_solution='''  return new Set(s.toLowerCase().split("")).size;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_is_palindrome",
+        difficulty="easy",
+        category="string",
+        language="typescript",
+        prompt='''function isPalindrome(text: string): boolean {
+  /** Return true if the string is a palindrome, false otherwise.
+   * isPalindrome("racecar") => true
+   * isPalindrome("hello") => false
+   */
+''',
+        test_code='''
+const assert = require('assert');
+assert.strictEqual(isPalindrome(""), true);
+assert.strictEqual(isPalindrome("a"), true);
+assert.strictEqual(isPalindrome("racecar"), true);
+assert.strictEqual(isPalindrome("hello"), false);
+assert.strictEqual(isPalindrome("abba"), true);
+''',
+        entry_point="isPalindrome",
+        canonical_solution='''  const rev = text.split("").reverse().join("");
+  return text === rev;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_sum_to_n",
+        difficulty="easy",
+        category="math",
+        language="typescript",
+        prompt='''function sumToN(n: number): number {
+  /** Return the sum of numbers from 1 to n inclusive.
+   * sumToN(5) => 15
+   */
+''',
+        test_code='''
+const assert = require('assert');
+assert.strictEqual(sumToN(1), 1);
+assert.strictEqual(sumToN(5), 15);
+assert.strictEqual(sumToN(10), 55);
+assert.strictEqual(sumToN(0), 0);
+''',
+        entry_point="sumToN",
+        canonical_solution='''  return (n * (n + 1)) / 2;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_max_element",
+        difficulty="easy",
+        category="array",
+        language="typescript",
+        prompt='''function maxElement(l: number[]): number {
+  /** Return the maximum element of the array. */
+''',
+        test_code='''
+const assert = require('assert');
+assert.strictEqual(maxElement([1, 2, 3]), 3);
+assert.strictEqual(maxElement([5, 3, -5, 2, -3, 3, 9, 0, -123, 1, -10]), 9);
+assert.strictEqual(maxElement([-1, -2, -3]), -1);
+''',
+        entry_point="maxElement",
+        canonical_solution='''  return Math.max(...l);
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_pairs_sum_to_zero",
+        difficulty="medium",
+        category="algorithm",
+        language="typescript",
+        prompt='''function pairsSumToZero(l: number[]): boolean {
+  /** Return true if there are two distinct elements in l that sum to zero.
+   * pairsSumToZero([1, 3, -2, 1]) => false
+   * pairsSumToZero([-1, 0, 2, -2]) => true
+   */
+''',
+        test_code='''
+const assert = require('assert');
+assert.strictEqual(pairsSumToZero([1, 3, -2, 1]), false);
+assert.strictEqual(pairsSumToZero([3, 7, 1, 2, -1, -5]), false);
+assert.strictEqual(pairsSumToZero([-1, 0, 2, -2]), true);
+assert.strictEqual(pairsSumToZero([1, -1]), true);
+assert.strictEqual(pairsSumToZero([]), false);
+''',
+        entry_point="pairsSumToZero",
+        canonical_solution='''  const seen = new Set<number>();
+  for (const x of l) {
+    if (seen.has(-x)) return true;
+    seen.add(x);
+  }
+  return false;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_is_sorted",
+        difficulty="easy",
+        category="array",
+        language="typescript",
+        prompt='''function isSorted(lst: number[]): boolean {
+  /** Return true if the array is sorted in non-decreasing order AND has no duplicates.
+   * isSorted([1, 2, 4, 20]) => true
+   * isSorted([1, 20, 4, 10]) => false
+   * isSorted([1, 1, 2]) => false  (duplicate)
+   */
+''',
+        test_code='''
+const assert = require('assert');
+assert.strictEqual(isSorted([5]), true);
+assert.strictEqual(isSorted([1, 2, 4, 20]), true);
+assert.strictEqual(isSorted([1, 20, 4, 10]), false);
+assert.strictEqual(isSorted([1, 1, 2]), false);
+assert.strictEqual(isSorted([3, 2, 1]), false);
+''',
+        entry_point="isSorted",
+        canonical_solution='''  for (let i = 1; i < lst.length; i++) {
+    if (lst[i] <= lst[i - 1]) return false;
+  }
+  return true;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_merge_sorted",
+        difficulty="medium",
+        category="algorithm",
+        language="typescript",
+        prompt='''function mergeSorted(l1: number[], l2: number[]): number[] {
+  /** Merge two sorted arrays into a single sorted array. */
+''',
+        test_code='''
+const assert = require('assert');
+assert.deepStrictEqual(mergeSorted([], []), []);
+assert.deepStrictEqual(mergeSorted([1, 3, 5], [2, 4, 6]), [1, 2, 3, 4, 5, 6]);
+assert.deepStrictEqual(mergeSorted([1, 2], [3, 4]), [1, 2, 3, 4]);
+assert.deepStrictEqual(mergeSorted([5], [1, 2, 3]), [1, 2, 3, 5]);
+''',
+        entry_point="mergeSorted",
+        canonical_solution='''  const result: number[] = [];
+  let i = 0, j = 0;
+  while (i < l1.length && j < l2.length) {
+    if (l1[i] <= l2[j]) result.push(l1[i++]);
+    else result.push(l2[j++]);
+  }
+  while (i < l1.length) result.push(l1[i++]);
+  while (j < l2.length) result.push(l2[j++]);
+  return result;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_longest_prefix",
+        difficulty="medium",
+        category="string",
+        language="typescript",
+        prompt='''function longestCommonPrefix(strings: string[]): string {
+  /** Find the longest common prefix of an array of strings.
+   * longestCommonPrefix(["flower","flow","flight"]) => "fl"
+   * longestCommonPrefix([]) => ""
+   */
+''',
+        test_code='''
+const assert = require('assert');
+assert.strictEqual(longestCommonPrefix([]), "");
+assert.strictEqual(longestCommonPrefix(["flower", "flow", "flight"]), "fl");
+assert.strictEqual(longestCommonPrefix(["dog", "racecar", "car"]), "");
+assert.strictEqual(longestCommonPrefix(["abc", "abc", "abc"]), "abc");
+assert.strictEqual(longestCommonPrefix(["a"]), "a");
+''',
+        entry_point="longestCommonPrefix",
+        canonical_solution='''  if (strings.length === 0) return "";
+  let prefix = strings[0];
+  for (let i = 1; i < strings.length; i++) {
+    while (!strings[i].startsWith(prefix)) {
+      prefix = prefix.slice(0, -1);
+      if (prefix === "") return "";
+    }
+  }
+  return prefix;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_common_elements",
+        difficulty="medium",
+        category="array",
+        language="typescript",
+        prompt='''function commonElements(l1: number[], l2: number[]): number[] {
+  /** Return sorted common elements between two sorted arrays (no duplicates). */
+''',
+        test_code='''
+const assert = require('assert');
+assert.deepStrictEqual(commonElements([1, 4, 3, 34, 653, 2, 5], [5, 7, 1, 5, 9, 653, 121]), [1, 5, 653]);
+assert.deepStrictEqual(commonElements([5, 3, 2, 8], [3, 2]), [2, 3]);
+assert.deepStrictEqual(commonElements([], [1, 2]), []);
+''',
+        entry_point="commonElements",
+        canonical_solution='''  const set = new Set(l1);
+  const common = [...new Set(l2.filter(x => set.has(x)))];
+  return common.sort((a, b) => a - b);
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_circular_shift",
+        difficulty="medium",
+        category="string",
+        language="typescript",
+        prompt='''function circularShift(x: number, shift: number): string {
+  /** Circular shift the digits of integer x to the right by shift positions.
+   * If shift > number of digits, reverse the digits string.
+   * circularShift(12, 1) => "21"
+   * circularShift(12, 2) => "12"
+   */
+''',
+        test_code='''
+const assert = require('assert');
+assert.strictEqual(circularShift(12, 1), "21");
+assert.strictEqual(circularShift(12, 2), "12");
+assert.strictEqual(circularShift(1234, 2), "3412");
+assert.strictEqual(circularShift(1234, 5), "4321");
+assert.strictEqual(circularShift(9, 1), "9");
+''',
+        entry_point="circularShift",
+        canonical_solution='''  const s = String(x);
+  if (shift > s.length) return s.split("").reverse().join("");
+  const n = shift % s.length;
+  return s.slice(s.length - n) + s.slice(0, s.length - n);
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_any_int",
+        difficulty="easy",
+        category="math",
+        language="typescript",
+        prompt='''function anyInt(x: number, y: number, z: number): boolean {
+  /** Return true if one of the three numbers equals the sum of the other two. */
+''',
+        test_code='''
+const assert = require('assert');
+assert.strictEqual(anyInt(5, 2, 7), true);
+assert.strictEqual(anyInt(3, 2, 2), false);
+assert.strictEqual(anyInt(3, -2, 1), true);
+assert.strictEqual(anyInt(3.6, -2.2, 2), false);
+assert.strictEqual(anyInt(1, 2, 3), true);
+''',
+        entry_point="anyInt",
+        canonical_solution='''  return x === y + z || y === x + z || z === x + y;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_triangle_area",
+        difficulty="easy",
+        category="math",
+        language="typescript",
+        prompt='''function triangleArea(a: number, b: number, c: number): number | -1 {
+  /** Return the area of a triangle with sides a, b, c using Heron's formula,
+   * rounded to 2 decimal places. Return -1 if sides don't form a valid triangle.
+   */
+''',
+        test_code='''
+const assert = require('assert');
+assert.strictEqual(triangleArea(3, 4, 5), 6.0);
+assert.strictEqual(triangleArea(1, 2, 10), -1);
+assert.strictEqual(triangleArea(5, 5, 5), Math.round(10.83 * 100) / 100);
+''',
+        entry_point="triangleArea",
+        canonical_solution='''  if (a + b <= c || a + c <= b || b + c <= a) return -1;
+  const s = (a + b + c) / 2;
+  return Math.round(Math.sqrt(s * (s - a) * (s - b) * (s - c)) * 100) / 100;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_multiply",
+        difficulty="easy",
+        category="math",
+        language="typescript",
+        prompt='''function multiply(a: number, b: number): number {
+  /** Return the product of the unit digits of a and b.
+   * multiply(148, 412) => 16  (8 * 2)
+   */
+''',
+        test_code='''
+const assert = require('assert');
+assert.strictEqual(multiply(148, 412), 16);
+assert.strictEqual(multiply(19, 28), 72);
+assert.strictEqual(multiply(2020, 1851), 0);
+assert.strictEqual(multiply(3, 7), 21);
+''',
+        entry_point="multiply",
+        canonical_solution='''  return (Math.abs(a) % 10) * (Math.abs(b) % 10);
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_count_nums",
+        difficulty="medium",
+        category="math",
+        language="typescript",
+        prompt='''function countNums(arr: number[]): number {
+  /** Count how many elements have a digit sum greater than 0.
+   * For negative numbers, the leading minus makes the first digit negative.
+   * countNums([-1, 11, -11]) => 1  (-1+1=0, 1+1=2>0, -1+1=0)
+   */
+''',
+        test_code='''
+const assert = require('assert');
+assert.strictEqual(countNums([]), 0);
+assert.strictEqual(countNums([-1, -2, 0]), 0);
+assert.strictEqual(countNums([1, 1, 2, -2, 3, 4, 5]), 6);
+assert.strictEqual(countNums([-1, 11, -11]), 1);
+assert.strictEqual(countNums([11, -1]), 2);
+''',
+        entry_point="countNums",
+        canonical_solution='''  const digitSum = (n: number): number => {
+    const s = String(Math.abs(n));
+    const digits = s.split("").map(Number);
+    const sum = digits.reduce((a, b) => a + b, 0);
+    return n < 0 ? sum - 2 * digits[0] : sum;
+  };
+  return arr.filter(n => digitSum(n) > 0).length;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_add_elements",
+        difficulty="easy",
+        category="array",
+        language="typescript",
+        prompt='''function addElements(arr: number[], k: number): number {
+  /** Return the sum of elements in arr that have at most 2 digits, only looking at the first k elements. */
+''',
+        test_code='''
+const assert = require('assert');
+assert.strictEqual(addElements([111, 21, 3, 4000, 5], 4), 24);
+assert.strictEqual(addElements([1, 2, 3], 2), 3);
+assert.strictEqual(addElements([100, 5, 10], 3), 15);
+assert.strictEqual(addElements([], 0), 0);
+''',
+        entry_point="addElements",
+        canonical_solution='''  return arr.slice(0, k).filter(n => Math.abs(n) <= 99).reduce((a, b) => a + b, 0);
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_even_odd_palindrome",
+        difficulty="medium",
+        category="math",
+        language="typescript",
+        prompt='''function evenOddPalindrome(n: number): [number, number] {
+  /** Return a tuple (even_count, odd_count) of palindromes in range [1, n]. */
+''',
+        test_code='''
+const assert = require('assert');
+assert.deepStrictEqual(evenOddPalindrome(3), [1, 2]);
+assert.deepStrictEqual(evenOddPalindrome(12), [4, 6]);
+assert.deepStrictEqual(evenOddPalindrome(1), [0, 1]);
+''',
+        entry_point="evenOddPalindrome",
+        canonical_solution='''  const isPalin = (n: number): boolean => {
+    const s = String(n);
+    return s === s.split("").reverse().join("");
+  };
+  let even = 0, odd = 0;
+  for (let i = 1; i <= n; i++) {
+    if (isPalin(i)) {
+      if (i % 2 === 0) even++;
+      else odd++;
+    }
+  }
+  return [even, odd];
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_move_one_ball",
+        difficulty="medium",
+        category="algorithm",
+        language="typescript",
+        prompt='''function moveOneBall(arr: number[]): boolean {
+  /** Return true if all elements can be sorted in non-decreasing order
+   * by performing any number of right-shift operations on the array.
+   * An empty array returns true.
+   */
+''',
+        test_code='''
+const assert = require('assert');
+assert.strictEqual(moveOneBall([3, 4, 5, 1, 2]), true);
+assert.strictEqual(moveOneBall([3, 5, 4, 1, 2]), false);
+assert.strictEqual(moveOneBall([]), true);
+assert.strictEqual(moveOneBall([1, 2, 3]), true);
+assert.strictEqual(moveOneBall([5, 4, 3, 2, 1]), false);
+''',
+        entry_point="moveOneBall",
+        canonical_solution='''  if (arr.length === 0) return true;
+  let drops = 0;
+  for (let i = 1; i < arr.length; i++) {
+    if (arr[i] < arr[i - 1]) drops++;
+  }
+  if (arr[arr.length - 1] > arr[0]) drops++;
+  return drops <= 1;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_exchange",
+        difficulty="medium",
+        category="algorithm",
+        language="typescript",
+        prompt='''function exchange(lst1: number[], lst2: number[]): string {
+  /** Determine if elements of lst1 can all become even by swapping with lst2 elements.
+   * Return "YES" if possible, "NO" otherwise.
+   */
+''',
+        test_code='''
+const assert = require('assert');
+assert.strictEqual(exchange([1, 2, 3, 4], [1, 2, 3, 4]), "YES");
+assert.strictEqual(exchange([1, 2, 3, 4], [1, 5, 3, 4]), "NO");
+assert.strictEqual(exchange([2, 4, 6], [1, 3, 5]), "YES");
+assert.strictEqual(exchange([1, 3], [2]), "NO");
+''',
+        entry_point="exchange",
+        canonical_solution='''  const oddCount = lst1.filter(x => x % 2 !== 0).length;
+  const evenInLst2 = lst2.filter(x => x % 2 === 0).length;
+  return evenInLst2 >= oddCount ? "YES" : "NO";
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_next_smallest",
+        difficulty="medium",
+        category="array",
+        language="typescript",
+        prompt='''function nextSmallest(lst: number[]): number | null {
+  /** Return the second smallest element, or null if it doesn't exist. */
+''',
+        test_code='''
+const assert = require('assert');
+assert.strictEqual(nextSmallest([1, 2, 3, 4, 5]), 2);
+assert.strictEqual(nextSmallest([5, 1, 4, 3, 2]), 2);
+assert.strictEqual(nextSmallest([]), null);
+assert.strictEqual(nextSmallest([1, 1]), null);
+assert.strictEqual(nextSmallest([1, 2, 2]), 2);
+''',
+        entry_point="nextSmallest",
+        canonical_solution='''  const unique = [...new Set(lst)].sort((a, b) => a - b);
+  return unique.length >= 2 ? unique[1] : null;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_count_up_to",
+        difficulty="easy",
+        category="math",
+        language="typescript",
+        prompt='''function countUpTo(n: number): number[] {
+  /** Return an array of prime numbers less than n. */
+''',
+        test_code='''
+const assert = require('assert');
+assert.deepStrictEqual(countUpTo(5), [2, 3]);
+assert.deepStrictEqual(countUpTo(11), [2, 3, 5, 7]);
+assert.deepStrictEqual(countUpTo(0), []);
+assert.deepStrictEqual(countUpTo(20), [2, 3, 5, 7, 11, 13, 17, 19]);
+''',
+        entry_point="countUpTo",
+        canonical_solution='''  const isPrime = (x: number): boolean => {
+    if (x < 2) return false;
+    for (let i = 2; i <= Math.sqrt(x); i++) {
+      if (x % i === 0) return false;
+    }
+    return true;
+  };
+  const result: number[] = [];
+  for (let i = 2; i < n; i++) {
+    if (isPrime(i)) result.push(i);
+  }
+  return result;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_word_count",
+        difficulty="easy",
+        category="string",
+        language="typescript",
+        prompt='''function wordCount(sentence: string): Record<string, number> {
+  /** Return a map of word frequencies in the sentence (case-insensitive). */
+''',
+        test_code='''
+const assert = require('assert');
+assert.deepStrictEqual(wordCount(""), {});
+assert.deepStrictEqual(wordCount("hello world hello"), { hello: 2, world: 1 });
+assert.deepStrictEqual(wordCount("The the THE"), { the: 3 });
+''',
+        entry_point="wordCount",
+        canonical_solution='''  const counts: Record<string, number> = {};
+  for (const word of sentence.toLowerCase().split(/\s+/).filter(w => w.length > 0)) {
+    counts[word] = (counts[word] ?? 0) + 1;
+  }
+  return counts;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_sort_by_key",
+        difficulty="medium",
+        category="array",
+        language="typescript",
+        prompt='''function sortByKey<T>(arr: T[], keyFn: (item: T) => number): T[] {
+  /** Return a new array sorted in ascending order by the key function. */
+''',
+        test_code='''
+const assert = require('assert');
+assert.deepStrictEqual(sortByKey([3, 1, 2], x => x), [1, 2, 3]);
+assert.deepStrictEqual(sortByKey(["banana", "apple", "fig"], s => s.length), ["fig", "apple", "banana"]);
+''',
+        entry_point="sortByKey",
+        canonical_solution='''  return [...arr].sort((a, b) => keyFn(a) - keyFn(b));
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_deep_flatten",
+        difficulty="hard",
+        category="algorithm",
+        language="typescript",
+        prompt='''function deepFlatten(arr: unknown[]): number[] {
+  /** Recursively flatten a nested array of numbers to a flat array. */
+''',
+        test_code='''
+const assert = require('assert');
+assert.deepStrictEqual(deepFlatten([1, [2, [3, [4]], 5]]), [1, 2, 3, 4, 5]);
+assert.deepStrictEqual(deepFlatten([]), []);
+assert.deepStrictEqual(deepFlatten([1, 2, 3]), [1, 2, 3]);
+assert.deepStrictEqual(deepFlatten([[1, 2], [3, [4, [5]]]]), [1, 2, 3, 4, 5]);
+''',
+        entry_point="deepFlatten",
+        canonical_solution='''  const result: number[] = [];
+  for (const item of arr) {
+    if (Array.isArray(item)) result.push(...deepFlatten(item));
+    else result.push(item as number);
+  }
+  return result;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_separate_paren_groups",
+        difficulty="hard",
+        category="string",
+        language="typescript",
+        prompt='''function separateParenGroups(paren_string: string): string[] {
+  /** Separate groups of balanced parentheses in the input string.
+   * separateParenGroups("( ) (( )) (( )( ))") => ["()", "(())", "(()())"]
+   */
+''',
+        test_code='''
+const assert = require('assert');
+assert.deepStrictEqual(separateParenGroups("( ) (( )) (( )( ))"), ["()", "(())", "(()())"]);
+assert.deepStrictEqual(separateParenGroups("( ) ()"), ["()", "()"]);
+''',
+        entry_point="separateParenGroups",
+        canonical_solution='''  const groups: string[] = [];
+  let depth = 0, current = "";
+  for (const ch of paren_string.replace(/\s/g, "")) {
+    current += ch;
+    if (ch === "(") depth++;
+    else if (ch === ")") {
+      depth--;
+      if (depth === 0) {
+        groups.push(current);
+        current = "";
+      }
+    }
+  }
+  return groups;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_chunk_array",
+        difficulty="medium",
+        category="array",
+        language="typescript",
+        prompt='''function chunkArray<T>(arr: T[], size: number): T[][] {
+  /** Split arr into chunks of the given size. Last chunk may be smaller. */
+''',
+        test_code='''
+const assert = require('assert');
+assert.deepStrictEqual(chunkArray([1,2,3,4,5], 2), [[1,2],[3,4],[5]]);
+assert.deepStrictEqual(chunkArray([1,2,3], 3), [[1,2,3]]);
+assert.deepStrictEqual(chunkArray([], 2), []);
+assert.deepStrictEqual(chunkArray([1,2,3,4], 1), [[1],[2],[3],[4]]);
+''',
+        entry_point="chunkArray",
+        canonical_solution='''  const result: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) {
+    result.push(arr.slice(i, i + size));
+  }
+  return result;
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_zip_arrays",
+        difficulty="easy",
+        category="array",
+        language="typescript",
+        prompt='''function zipArrays<A, B>(a: A[], b: B[]): [A, B][] {
+  /** Zip two arrays into an array of pairs, up to the length of the shorter array. */
+''',
+        test_code='''
+const assert = require('assert');
+assert.deepStrictEqual(zipArrays([1,2,3], ["a","b","c"]), [[1,"a"],[2,"b"],[3,"c"]]);
+assert.deepStrictEqual(zipArrays([1,2], ["a","b","c"]), [[1,"a"],[2,"b"]]);
+assert.deepStrictEqual(zipArrays([], [1,2]), []);
+''',
+        entry_point="zipArrays",
+        canonical_solution='''  const len = Math.min(a.length, b.length);
+  return Array.from({ length: len }, (_, i) => [a[i], b[i]]);
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_digit_sum",
+        difficulty="easy",
+        category="math",
+        language="typescript",
+        prompt='''function digitSum(n: number): number {
+  /** Return the sum of digits of a non-negative integer.
+   * digitSum(123) => 6
+   */
+''',
+        test_code='''
+const assert = require('assert');
+assert.strictEqual(digitSum(0), 0);
+assert.strictEqual(digitSum(123), 6);
+assert.strictEqual(digitSum(999), 27);
+assert.strictEqual(digitSum(100), 1);
+''',
+        entry_point="digitSum",
+        canonical_solution='''  return String(n).split("").reduce((acc, d) => acc + Number(d), 0);
+}''',
+    ),
+    CodingProblem(
+        task_id="ts_rotate_matrix",
+        difficulty="hard",
+        category="algorithm",
+        language="typescript",
+        prompt='''function rotateMatrix(matrix: number[][]): number[][] {
+  /** Rotate an n×n matrix 90 degrees clockwise in-place and return it. */
+''',
+        test_code='''
+const assert = require('assert');
+assert.deepStrictEqual(rotateMatrix([[1,2],[3,4]]), [[3,1],[4,2]]);
+assert.deepStrictEqual(rotateMatrix([[1,2,3],[4,5,6],[7,8,9]]), [[7,4,1],[8,5,2],[9,6,3]]);
+assert.deepStrictEqual(rotateMatrix([[1]]), [[1]]);
+''',
+        entry_point="rotateMatrix",
+        canonical_solution='''  const n = matrix.length;
+  // Transpose
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      [matrix[i][j], matrix[j][i]] = [matrix[j][i], matrix[i][j]];
+    }
+  }
+  // Reverse each row
+  for (let i = 0; i < n; i++) matrix[i].reverse();
+  return matrix;
+}''',
+    ),
+]
+
+
+def get_typescript_problems() -> list[CodingProblem]:
+    """Return all built-in TypeScript coding problems."""
+    return list(TYPESCRIPT_PROBLEMS)

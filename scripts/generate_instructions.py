@@ -146,7 +146,7 @@ def run_interactive() -> None:
         source_dataset=source_dataset,
         mode=mode,
         count=count,
-        language=language,
+        languages=[language],
         min_quality=min_quality,
         output_path=output_path,
     )
@@ -158,54 +158,70 @@ def _run_pipeline(
     source_dataset: str | None,
     mode: str,
     count: int,
-    language: str,
+    languages: list[str],
     min_quality: float,
     output_path: str,
 ) -> None:
     """Run the generation pipeline and save results."""
-    from cola_coder.data.sources.self_align import (
-        SelfAlignPipeline,
-    )
+    from cola_coder.data.sources.self_align import SelfAlignPipeline
 
     cli.print()
     cli.print("[bold]Generating instruction data...[/bold]")
     cli.print(f"  Mode: {mode}")
     cli.print(f"  Target: {count} examples")
-    cli.print(f"  Language: {language}")
+    cli.print(f"  Languages: {', '.join(languages)}")
     cli.print(f"  Min quality: {min_quality}")
     cli.print()
 
-    # Build source
-    inner_source = None
-    if source_type == "local" and source_paths:
+    start = time.time()
+    examples: list = []
+
+    if source_type == "huggingface" and source_dataset:
+        # Run a separate pipeline per language — seed extraction and instruction
+        # templates are language-specific, so mixing languages in one pipeline
+        # produces wrong results (e.g. Python extractor on TypeScript code).
+        try:
+            from cola_coder.data.sources.huggingface import HuggingFaceSource
+        except ImportError:
+            cli.fatal("HuggingFace source requires datasets package.")
+
+        per_lang = max(1, count // len(languages))
+        for lang in languages:
+            cli.dim(f"  [{lang}] target {per_lang} examples...")
+            src = HuggingFaceSource(dataset=source_dataset, languages=[lang])
+            pl = SelfAlignPipeline(
+                source=src, mode=mode, min_quality=min_quality, language=lang,
+            )
+            examples.extend(pl.generate(max_examples=per_lang))
+        examples = examples[:count]
+
+    elif source_type == "local" and source_paths:
         from cola_coder.data.sources.local import LocalFileSource
         ext_map = {
             "typescript": [".ts", ".tsx"],
             "javascript": [".js", ".jsx"],
             "python": [".py"],
         }
-        extensions = ext_map.get(language, [".ts", ".tsx", ".js"])
+        extensions: list[str] = []
+        for lang in languages:
+            extensions.extend(ext_map.get(lang, []))
+        # Deduplicate while preserving order
+        extensions = list(dict.fromkeys(extensions))
         inner_source = LocalFileSource(paths=source_paths, extensions=extensions)
-    elif source_type == "huggingface" and source_dataset:
-        try:
-            from cola_coder.data.sources.huggingface import HuggingFaceSource
-            inner_source = HuggingFaceSource(dataset=source_dataset)
-        except ImportError:
-            cli.fatal("HuggingFace source requires datasets package.")
-
-    pipeline = SelfAlignPipeline(
-        source=inner_source,
-        mode=mode,
-        min_quality=min_quality,
-        language=language,
-    )
-
-    start = time.time()
-
-    if inner_source is not None:
+        # Seed extraction uses the first language as the primary heuristic
+        pipeline = SelfAlignPipeline(
+            source=inner_source, mode=mode, min_quality=min_quality, language=languages[0],
+        )
         examples = pipeline.generate(max_examples=count)
+
     else:
-        # Demo mode: generate from built-in examples
+        # Demo mode: only 6 built-in examples — warn loudly if a source was requested
+        if source_type is not None:
+            cli.warn(
+                f"Source '{source_type}' did not produce a data reader "
+                "(missing --dataset or --paths?). Falling back to 6 demo examples."
+            )
+        pipeline = SelfAlignPipeline(mode=mode, min_quality=min_quality, language=languages[0])
         examples = _generate_demo_examples(pipeline, count)
 
     elapsed = time.time() - start
@@ -377,7 +393,7 @@ def run_cli(args: argparse.Namespace) -> None:
         source_dataset=args.dataset,
         mode=args.mode,
         count=args.count,
-        language=args.language,
+        languages=args.languages,
         min_quality=args.min_quality,
         output_path=args.output,
     )
@@ -402,7 +418,10 @@ def main() -> None:
     parser.add_argument("--dataset", default=None, help="HF dataset name (for --source huggingface).")
     parser.add_argument("--mode", choices=["template", "llm", "self"], default="template")
     parser.add_argument("--count", type=int, default=1000)
-    parser.add_argument("--language", default="typescript")
+    parser.add_argument(
+        "--languages", nargs="+", default=["typescript"],
+        help="Programming language(s). Example: --languages typescript python",
+    )
     parser.add_argument("--min-quality", type=float, default=0.5)
     parser.add_argument("--output", default=str(Path(storage.data_dir) / "processed" / "instructions.jsonl"))
 

@@ -9,7 +9,7 @@ model:
   n_layers: 8
   n_heads: 8
   n_kv_heads: 4
-  ffn_dim_multiplier: 2.667
+  ffn_dim_multiplier: 3.0  # LLaMA canonical: round(4*dim*2/3) / dim
   max_seq_len: 1024
   dropout: 0.1
   rope_theta: 10000.0
