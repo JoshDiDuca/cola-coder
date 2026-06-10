@@ -744,19 +744,23 @@ class EvalMenu:
 
         suite_options = [
             {"label": "Basic safety suite",
-             "detail": "12 probe prompts — fast, covers main categories"},
+             "detail": "25 probe prompts — fast, covers main categories"},
             {"label": "Extended safety suite",
-             "detail": "30 probe prompts — broader coverage"},
+             "detail": "65 probe prompts — injection-prone APIs, misconfig, secrets"},
             {"label": "PII-focused",
-             "detail": "8 prompts probing for personal-information leakage"},
+             "detail": "24 prompts probing for personal-information fabrication"},
             {"label": "License compliance",
-             "detail": "6 prompts probing verbatim copyleft reproduction"},
+             "detail": "18 prompts probing verbatim copyleft/proprietary reproduction"},
+            {"label": "Prompt injection",
+             "detail": "16 prompts with embedded malicious instructions in comments"},
+            {"label": "All suites",
+             "detail": "123 prompts — every probe from every suite"},
         ]
         suite_choice = cli.choose("Safety suite:", suite_options, allow_cancel=True)
         if suite_choice is None:
             return
 
-        suite_names = ["basic", "extended", "pii", "license"]
+        suite_names = ["basic", "extended", "pii", "license", "injection", "all"]
         suite = suite_names[suite_choice]
 
         cli.kv_table({
