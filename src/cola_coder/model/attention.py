@@ -22,6 +22,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from .normalization import RMSNorm
 from .rope import apply_rope
 
 
@@ -35,6 +36,7 @@ class GroupedQueryAttention(nn.Module):
         n_kv_heads: int,
         max_seq_len: int,
         dropout: float = 0.0,
+        qk_norm: bool = False,
     ):
         """
         Args:
@@ -43,6 +45,10 @@ class GroupedQueryAttention(nn.Module):
             n_kv_heads: Number of key/value heads. Must divide n_heads evenly.
             max_seq_len: Maximum sequence length (for KV-cache allocation).
             dropout: Attention dropout rate.
+            qk_norm: Apply RMSNorm to Q and K per head before RoPE
+                (Gemma 2/3, OLMo 2, Qwen3). Bounds attention logits so they
+                can't blow up mid-training — the main source of loss spikes
+                in deeper models — and tolerates higher learning rates.
         """
         super().__init__()
         assert n_heads % n_kv_heads == 0, (
@@ -65,6 +71,11 @@ class GroupedQueryAttention(nn.Module):
         # Attention dropout is applied inside scaled_dot_product_attention
         # via dropout_p — no separate nn.Dropout module needed.
         self.dropout_p = dropout
+
+        # Optional QK-Norm: per-head RMSNorm over head_dim, applied before
+        # RoPE (Qwen3/OLMo 2 ordering)
+        self.q_norm = RMSNorm(self.head_dim) if qk_norm else None
+        self.k_norm = RMSNorm(self.head_dim) if qk_norm else None
 
         # KV-cache: pre-allocated tensors for inference efficiency
         # These get filled in token-by-token during generation
@@ -135,6 +146,13 @@ class GroupedQueryAttention(nn.Module):
         q = q.view(batch, seq_len, self.n_heads, self.head_dim)
         k = k.view(batch, seq_len, self.n_kv_heads, self.head_dim)
         v = v.view(batch, seq_len, self.n_kv_heads, self.head_dim)
+
+        # QK-Norm (when enabled): normalize each head's query/key vectors so
+        # attention logits stay bounded regardless of how large the
+        # projections grow during training
+        if self.q_norm is not None:
+            q = self.q_norm(q)
+            k = self.k_norm(k)
 
         # Apply RoPE to Q and K (position encoding by rotation)
         q, k = apply_rope(q, k, rope_freqs, start_pos)

@@ -61,6 +61,7 @@ class CodeGenerator:
         temperature: float = 0.8,
         top_k: int = 50,
         top_p: float = 0.9,
+        min_p: float = 0.0,
         repetition_penalty: float = 1.1,
         stop_tokens: list[str] | None = None,
     ) -> str:
@@ -72,6 +73,8 @@ class CodeGenerator:
             temperature: Sampling temperature (0 = greedy, higher = more random).
             top_k: Top-k filtering threshold.
             top_p: Top-p (nucleus) filtering threshold.
+            min_p: Confidence-scaled floor — drop tokens below
+                   min_p * max_token_prob (0 = disabled, try 0.05-0.1).
             repetition_penalty: Penalty for repeating tokens.
             stop_tokens: Stop generation when any of these tokens are generated.
 
@@ -113,6 +116,7 @@ class CodeGenerator:
                 temperature=temperature,
                 top_k=top_k,
                 top_p=top_p,
+                min_p=min_p,
                 repetition_penalty=repetition_penalty,
                 generated_ids=generated_ids,
             )
@@ -145,6 +149,7 @@ class CodeGenerator:
         temperature: float = 0.8,
         top_k: int = 50,
         top_p: float = 0.9,
+        min_p: float = 0.0,
         repetition_penalty: float = 1.1,
         stop_tokens: list[str] | None = None,
     ) -> Generator[str, None, None]:
@@ -205,6 +210,7 @@ class CodeGenerator:
                     temperature=temperature,
                     top_k=top_k,
                     top_p=top_p,
+                    min_p=min_p,
                     repetition_penalty=repetition_penalty,
                     generated_ids=generated_ids,
                 )

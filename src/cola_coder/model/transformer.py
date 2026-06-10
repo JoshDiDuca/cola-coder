@@ -15,6 +15,8 @@ The residual connections (the "+ input" arrows) are what make deep transformers
 trainable. Without them, gradients would vanish in early layers.
 """
 
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -31,6 +33,7 @@ def language_modeling_loss(
     logits: torch.Tensor,
     token_ids: torch.Tensor,
     sample_weights: torch.Tensor | None = None,
+    z_loss: float = 0.0,
 ) -> torch.Tensor:
     """Next-token cross-entropy loss over a batch of sequences.
 
@@ -48,6 +51,11 @@ def language_modeling_loss(
             When provided, each sequence's loss contributes proportionally to
             its weight (weighted mean), so high-quality samples influence the
             gradient more than low-quality ones WITHIN the same batch.
+        z_loss: Weight for the auxiliary log(Z)^2 regularizer (PaLM / OLMo 2,
+            typically ~1e-4). Cross-entropy only constrains logit
+            DIFFERENCES; the absolute scale can drift upward over a long run
+            until bf16 precision degrades. Z-loss pulls the softmax
+            normalizer toward 1, keeping logits bounded. 0 = disabled.
 
     Returns:
         Scalar loss value.
@@ -56,23 +64,31 @@ def language_modeling_loss(
     shift_labels = token_ids[:, 1:].contiguous()
 
     if sample_weights is None:
-        return F.cross_entropy(
+        loss = F.cross_entropy(
             shift_logits.view(-1, shift_logits.size(-1)),
             shift_labels.view(-1),
         )
+    else:
+        # Per-sample weighting: compute per-token loss, average per sequence,
+        # then take the weighted mean across the batch. A plain
+        # `mean_loss * weights.mean()` would only rescale the whole batch —
+        # it could not differentiate samples within it.
+        per_token = F.cross_entropy(
+            shift_logits.view(-1, shift_logits.size(-1)),
+            shift_labels.view(-1),
+            reduction="none",
+        ).view(shift_labels.shape)  # (batch, seq_len - 1)
+        per_sample = per_token.mean(dim=1)  # (batch,)
+        weights = sample_weights.to(per_sample.dtype)
+        loss = (per_sample * weights).sum() / weights.sum().clamp_min(1e-8)
 
-    # Per-sample weighting: compute per-token loss, average per sequence,
-    # then take the weighted mean across the batch. A plain
-    # `mean_loss * weights.mean()` would only rescale the whole batch —
-    # it could not differentiate samples within it.
-    per_token = F.cross_entropy(
-        shift_logits.view(-1, shift_logits.size(-1)),
-        shift_labels.view(-1),
-        reduction="none",
-    ).view(shift_labels.shape)  # (batch, seq_len - 1)
-    per_sample = per_token.mean(dim=1)  # (batch,)
-    weights = sample_weights.to(per_sample.dtype)
-    return (per_sample * weights).sum() / weights.sum().clamp_min(1e-8)
+    if z_loss > 0.0:
+        # log(Z) per position; float32 for the logsumexp to avoid bf16
+        # overflow on exactly the runs where drift is the problem
+        log_z = torch.logsumexp(shift_logits.float(), dim=-1)
+        loss = loss + z_loss * (log_z ** 2).mean()
+
+    return loss
 
 
 class TransformerBlock(nn.Module):
@@ -96,6 +112,7 @@ class TransformerBlock(nn.Module):
             n_kv_heads=config.n_kv_heads,
             max_seq_len=config.max_seq_len,
             dropout=config.dropout,
+            qk_norm=getattr(config, "qk_norm", False),
         )
         self.ffn = SwiGLUFFN(
             dim=config.dim,
@@ -226,6 +243,17 @@ class Transformer(nn.Module):
                     torch.nn.init.zeros_(module.bias)
             elif isinstance(module, nn.Embedding):
                 torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+
+        # Residual-scaled init (GPT-2 paper, used by LLaMA/nanoGPT): the
+        # projections that WRITE INTO the residual stream (attention out_proj,
+        # FFN down_proj) get std scaled by 1/sqrt(2 * n_layers). Without this,
+        # the residual stream's variance grows with depth — each of the
+        # 2*n_layers residual additions piles on, which is exactly what makes
+        # deep models (24 layers in 4080_max) unstable early in training.
+        residual_std = 0.02 / math.sqrt(2 * self.config.n_layers)
+        for name, param in self.named_parameters():
+            if name.endswith("out_proj.weight") or name.endswith("down_proj.weight"):
+                torch.nn.init.normal_(param, mean=0.0, std=residual_std)
 
     def forward(
         self,

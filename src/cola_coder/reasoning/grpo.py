@@ -54,6 +54,30 @@ _DIFFICULTY_ORDER = {"easy": 0, "medium": 1, "hard": 2}
 _CURRICULUM_TEMP = {"easy": 0.7, "medium": 0.8, "hard": 0.9}
 
 
+def compute_group_advantages(
+    rewards: torch.Tensor,
+    norm: str = "std",
+) -> torch.Tensor:
+    """Group-relative advantages for GRPO.
+
+    Args:
+        rewards: Shape (group_size,) — one reward per generated solution.
+        norm: "std" — original GRPO, (r - mean) / (std + eps).
+              "mean" — Dr. GRPO (Liu et al. 2025, "GRPO Done Right"):
+              r - mean only. Dividing by the group std inflates the update
+              for groups where nearly everything passed or nearly everything
+              failed (tiny std), biasing training toward the easiest and
+              hardest problems instead of the informative middle.
+
+    Returns:
+        Advantage tensor, same shape as rewards.
+    """
+    centered = rewards - rewards.mean()
+    if norm == "mean":
+        return centered
+    return centered / (rewards.std() + 1e-8)
+
+
 class GRPOTrainer:
     """Simplified GRPO trainer for reasoning experiments."""
 
@@ -64,6 +88,8 @@ class GRPOTrainer:
         learning_rate: float = 1e-5,
         group_size: int = 8,
         clip_epsilon: float = 0.2,
+        clip_epsilon_high: float | None = None,
+        advantage_norm: str = "std",
         max_new_tokens: int = 512,
         max_thinking_tokens: int = 256,
         device: str = "cuda",
@@ -78,7 +104,16 @@ class GRPOTrainer:
             tokenizer: Trained tokenizer.
             learning_rate: Learning rate for GRPO updates (should be very small).
             group_size: Number of solutions to generate per problem (G).
-            clip_epsilon: PPO-style clipping parameter.
+            clip_epsilon: PPO-style clipping parameter (lower bound).
+            clip_epsilon_high: Optional separate UPPER clip bound (DAPO
+                "clip-higher", e.g. 0.28 with clip_epsilon=0.2). A looser
+                upper bound lets low-probability tokens grow, which fights
+                the entropy collapse symmetric clipping causes. None =
+                symmetric (original GRPO behavior).
+            advantage_norm: "std" (original GRPO: divide by group std) or
+                "mean" (Dr. GRPO, Liu et al. 2025: subtract mean only —
+                dividing by std over-weights near-zero-variance groups,
+                i.e. problems that are nearly always right or always wrong).
             max_new_tokens: Maximum tokens to generate per solution.
             max_thinking_tokens: Maximum thinking trace length for reward.
             device: "cuda" or "cpu".
@@ -101,6 +136,8 @@ class GRPOTrainer:
         self.device = device
         self.group_size = group_size
         self.clip_epsilon = clip_epsilon
+        self.clip_epsilon_high = clip_epsilon_high
+        self.advantage_norm = advantage_norm
         self.max_new_tokens = max_new_tokens
         self.max_thinking_tokens = max_thinking_tokens
 
@@ -249,7 +286,7 @@ class GRPOTrainer:
                 "skipped": True,
             }
 
-        advantages = (rewards_tensor - mean_reward) / (std_reward + 1e-8)
+        advantages = compute_group_advantages(rewards_tensor, norm=self.advantage_norm)
 
         # Step 4: Policy gradient update
         self.model.train()
@@ -274,10 +311,17 @@ class GRPOTrainer:
             old_log_prob = log_probs_list[i]
             ratio = torch.exp(current_log_prob - old_log_prob)
 
-            # Clipped surrogate objective (PPO-style)
+            # Clipped surrogate objective (PPO-style). Upper bound may be
+            # looser than the lower one (DAPO clip-higher) to counteract
+            # entropy collapse.
             advantage = advantages[i]
+            eps_high = (
+                self.clip_epsilon_high
+                if self.clip_epsilon_high is not None
+                else self.clip_epsilon
+            )
             unclipped = ratio * advantage
-            clipped = torch.clamp(ratio, 1 - self.clip_epsilon, 1 + self.clip_epsilon) * advantage
+            clipped = torch.clamp(ratio, 1 - self.clip_epsilon, 1 + eps_high) * advantage
             loss = -torch.min(unclipped, clipped)
 
             # Accumulate loss

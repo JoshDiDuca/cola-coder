@@ -61,6 +61,9 @@ class ModelConfig:
     rope_theta: float = 10000.0  # RoPE base frequency (controls position encoding wavelength)
     rope_scaling: RoPEScalingConfig = field(default_factory=RoPEScalingConfig)  # YaRN / NTK scaling
     moe: MoEConfig = field(default_factory=MoEConfig)  # MoE config (disabled by default)
+    qk_norm: bool = False  # RMSNorm on Q/K per head (Gemma 2/3, OLMo 2, Qwen3) —
+    # stabilizes attention logits, tolerates higher LR. Adds small per-layer params,
+    # so only enable for configs with no existing checkpoints.
 
     @property
     def head_dim(self) -> int:
@@ -124,6 +127,17 @@ class TrainingConfig:
     grad_clip: float = 1.0  # Clip gradients to prevent explosions
     precision: str = "bf16"  # "bf16" for RTX 4080+, "fp16" for RTX 3080
     gradient_checkpointing: bool = False  # Trade compute for VRAM (needed for 350M+)
+    optimizer: str = "adamw"  # "adamw" or "muon" (orthogonalized momentum for 2D
+    # hidden weights + embedded AdamW for embeddings/norms — Kimi K2/GLM-4.5 recipe,
+    # ~1.5-2x token efficiency in public benchmarks). Fresh runs only: switching
+    # optimizers breaks --resume because saved optimizer state won't match.
+    muon_lr: float = 0.02  # Muon update scale (Keller Jordan convention; only used
+    # when optimizer=muon — AdamW params keep learning_rate)
+    lr_schedule: str = "cosine"  # "cosine" or "wsd" (warmup-stable-decay: hold peak
+    # LR, decay only in the final fraction — better for continual pretraining since
+    # you can extend max_steps without restarting the cosine)
+    z_loss: float = 0.0  # Aux logit regularization weight (PaLM/OLMo 2; ~1e-4).
+    # Penalizes log(Z)^2 to keep softmax logits from drifting; 0 = disabled
 
     @property
     def effective_batch_size(self) -> int:

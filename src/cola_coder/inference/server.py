@@ -56,6 +56,7 @@ class GenerateRequest(BaseModel):
     temperature: float = 0.8
     top_k: int = 50
     top_p: float = 0.9
+    min_p: float = 0.0
     repetition_penalty: float = 1.1
     stop_tokens: list[str] | None = None
 
@@ -110,6 +111,7 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: int = 256
     top_p: float = 0.9
     top_k: int = 50
+    min_p: float = 0.0
     repetition_penalty: float = 1.1
     stop: list[str] | None = None
 
@@ -145,6 +147,7 @@ class CompletionRequest(BaseModel):
     temperature: float = 0.8
     top_p: float = 0.9
     top_k: int = 50
+    min_p: float = 0.0
     repetition_penalty: float = 1.1
     stop: list[str] | None = None
     stream: bool = False
@@ -181,6 +184,7 @@ class FimRequest(BaseModel):
     temperature: float = 0.2
     top_p: float = 0.9
     top_k: int = 50
+    min_p: float = 0.0
     language: str | None = None  # Metadata only — reserved for language-specific stops
     file_path: str | None = None
 
@@ -368,6 +372,7 @@ def create_app(
                 temperature=request.temperature,
                 top_k=request.top_k,
                 top_p=request.top_p,
+                min_p=request.min_p,
                 repetition_penalty=request.repetition_penalty,
                 stop_tokens=request.stop_tokens,
             )
@@ -478,6 +483,7 @@ def create_app(
                 temperature=request.temperature,
                 top_k=request.top_k,
                 top_p=request.top_p,
+                min_p=request.min_p,
                 repetition_penalty=request.repetition_penalty,
                 stop_tokens=request.stop,
             )
@@ -527,6 +533,7 @@ def create_app(
                 temperature=request.temperature,
                 top_k=request.top_k,
                 top_p=request.top_p,
+                min_p=request.min_p,
                 repetition_penalty=request.repetition_penalty,
                 stop_tokens=request.stop,
             )
@@ -628,6 +635,7 @@ def create_app(
                 temperature=request.temperature,
                 top_k=request.top_k,
                 top_p=request.top_p,
+                min_p=request.min_p,
                 repetition_penalty=request.repetition_penalty,
                 stop_tokens=request.stop,
             )
@@ -675,6 +683,7 @@ def create_app(
                 temperature=request.temperature,
                 top_k=request.top_k,
                 top_p=request.top_p,
+                min_p=request.min_p,
                 repetition_penalty=request.repetition_penalty,
                 stop_tokens=request.stop,
             )
@@ -790,6 +799,7 @@ def create_app(
                 temperature=request.temperature,
                 top_k=request.top_k,
                 top_p=request.top_p,
+                min_p=request.min_p,
                 stop_tokens=stop_tokens,
             )
 

@@ -121,11 +121,14 @@ class Trainer:
             except Exception as e:
                 print(f"torch.compile not available: {e}")
 
-        # Create optimizer and scheduler
+        # Create optimizer and scheduler (both selectable from config:
+        # optimizer adamw|muon, lr_schedule cosine|wsd)
         self.optimizer = create_optimizer(
             self.model,
             learning_rate=config.training.learning_rate,
             weight_decay=config.training.weight_decay,
+            optimizer=getattr(config.training, "optimizer", "adamw"),
+            muon_lr=getattr(config.training, "muon_lr", 0.02),
         )
 
         min_lr_ratio = config.training.min_lr / config.training.learning_rate
@@ -134,6 +137,7 @@ class Trainer:
             warmup_steps=config.training.warmup_steps,
             max_steps=config.training.max_steps,
             min_lr_ratio=min_lr_ratio,
+            schedule=getattr(config.training, "lr_schedule", "cosine"),
         )
 
         # Mixed precision setup
@@ -313,7 +317,10 @@ class Trainer:
 
                         if weights is not None:
                             weights = weights.to(self.device, non_blocking=True)
-                        loss = language_modeling_loss(logits, input_ids, weights)
+                        loss = language_modeling_loss(
+                            logits, input_ids, weights,
+                            z_loss=getattr(cfg, "z_loss", 0.0),
+                        )
 
                         scaled_loss = loss * inv_accum
 

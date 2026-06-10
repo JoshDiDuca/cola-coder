@@ -28,6 +28,8 @@ model:
   max_seq_len: 4096     # 2x medium — critical for real-world code files
   dropout: 0.0          # zero dropout: DeepSeek/Qwen approach for 400M+ models
   rope_theta: 500000.0  # Yi-Coder/LLaMA-3 style — spreads frequencies for long context
+  qk_norm: true         # Gemma 2/3 / OLMo 2 / Qwen3: per-head RMSNorm on Q/K —
+                        # bounds attention logits, prevents mid-run loss spikes at depth 24
 
 training:
   batch_size: 4
@@ -40,6 +42,16 @@ training:
   grad_clip: 1.0
   precision: "bf16"
   gradient_checkpointing: true  # REQUIRED — saves ~60% activation VRAM
+  optimizer: "muon"     # 2025-26 recipe (Kimi K2 / GLM-4.5 / nanoGPT speedruns):
+                        # orthogonalized momentum on hidden 2D weights, AdamW on
+                        # embeddings/norms. ~1.5-2x token efficiency vs AdamW in
+                        # public results. Revert to "adamw" if loss is unstable.
+                        # Fresh runs only — switching breaks --resume.
+  muon_lr: 0.02         # Muon update scale (AdamW side keeps learning_rate)
+  z_loss: 1.0e-4        # PaLM/OLMo 2 logit regularizer — prevents logit drift
+                        # over the 200K-step run
+  # lr_schedule: "wsd"  # optional: warmup-stable-decay instead of cosine —
+                        # better if you plan to extend training later
 
 data:
   dataset: "bigcode/starcoderdata"

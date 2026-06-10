@@ -12,6 +12,12 @@ Different strategies give different results:
   picking extremely unlikely tokens.
 - Top-p (nucleus): only consider tokens whose cumulative probability reaches p.
   Adaptive — includes more tokens when the model is uncertain, fewer when confident.
+- Min-p: only consider tokens whose probability is at least min_p * max_prob.
+  Scales with model confidence: when the top token has 80% probability,
+  min_p=0.1 prunes everything below 8%; when the model is uncertain (top
+  token 20%), the floor drops to 2% so diversity survives. Outperforms
+  top-p at higher temperatures, especially for small models (Nguyen et al.
+  2024; adopted by llama.cpp, vLLM, and most 2025+ inference runtimes).
 - Repetition penalty: reduce probability of tokens already generated.
   Prevents the "I am a model and I am a model and I am a model..." failure mode.
 """
@@ -25,6 +31,7 @@ def sample_next_token(
     temperature: float = 0.8,
     top_k: int = 50,
     top_p: float = 0.9,
+    min_p: float = 0.0,
     repetition_penalty: float = 1.1,
     generated_ids: list[int] | None = None,
 ) -> int:
@@ -36,6 +43,8 @@ def sample_next_token(
         temperature: Controls randomness. 0 = greedy, 1 = default, >1 = more random.
         top_k: Only consider the top k tokens.
         top_p: Only consider tokens until cumulative probability reaches p.
+        min_p: Drop tokens below min_p * max_token_probability (0 = disabled).
+               Recommended 0.05-0.1; pairs well with higher temperatures.
         repetition_penalty: Penalize tokens that appeared before. >1 = penalize.
         generated_ids: List of previously generated token IDs (for repetition penalty).
 
@@ -52,6 +61,11 @@ def sample_next_token(
         return logits.argmax().item()
 
     logits = logits / temperature
+
+    # Min-p filtering (confidence-scaled floor) — applied first so the floor
+    # is computed on the full temperature-scaled distribution
+    if min_p > 0.0:
+        logits = _min_p_filter(logits, min_p)
 
     # Top-k filtering
     if top_k > 0:
@@ -77,6 +91,7 @@ def sample_next_tokens_batch(
     temperature: float = 0.8,
     top_k: int = 50,
     top_p: float = 0.9,
+    min_p: float = 0.0,
 ) -> torch.Tensor:
     """Sample next tokens for a batch of sequences independently.
 
@@ -101,6 +116,9 @@ def sample_next_tokens_batch(
         return logits.argmax(dim=-1)
 
     logits = logits / temperature
+
+    if min_p > 0.0:
+        logits = _min_p_filter_batch(logits, min_p)
 
     if top_k > 0:
         logits = _top_k_filter_batch(logits, top_k)
@@ -170,6 +188,26 @@ def _top_p_filter_batch(logits: torch.Tensor, p: float) -> torch.Tensor:
     )
     logits = logits.masked_fill(mask, float("-inf"))
     return logits
+
+
+def _min_p_filter(logits: torch.Tensor, min_p: float) -> torch.Tensor:
+    """Min-p filter: drop tokens with prob < min_p * max_token_prob.
+
+    The threshold scales with the model's confidence, so it adapts like
+    top-p but with much better behavior at high temperatures: a confident
+    distribution gets aggressively pruned, an uncertain one keeps its
+    diversity. (Nguyen et al. 2024, "Min P Sampling".)
+    """
+    probs = F.softmax(logits, dim=-1)
+    threshold = min_p * probs.max()
+    return logits.masked_fill(probs < threshold, float("-inf"))
+
+
+def _min_p_filter_batch(logits: torch.Tensor, min_p: float) -> torch.Tensor:
+    """Min-p filter for a batch of logit rows. Shape (batch, vocab)."""
+    probs = F.softmax(logits, dim=-1)
+    threshold = min_p * probs.max(dim=-1, keepdim=True).values  # (batch, 1)
+    return logits.masked_fill(probs < threshold, float("-inf"))
 
 
 def _apply_repetition_penalty(
