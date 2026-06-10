@@ -142,10 +142,32 @@ def _find_context_pair(
     return best_idx
 
 
-def _get_special_token_id(tokenizer, token: str, fallback: int) -> int:
-    """Get token ID, falling back if the token is not in the vocabulary."""
-    tid = tokenizer.tokenizer.token_to_id(token)
-    return tid if tid is not None else fallback
+# The structural markers this script encodes. They are NOT part of the base
+# tokenizer's SPECIAL_TOKENS — they're added by
+# cola_coder.tokenizer.special_tokens.add_context_tokens(). If they're absent
+# the data CANNOT be built correctly (see _resolve_context_token_ids).
+_CONTEXT_TOKEN_NAMES = ("<|repo|>", "<|/repo|>", "<|file|>", "<|/file|>")
+
+
+def _resolve_context_token_ids(tokenizer) -> tuple[dict[str, int], list[str]]:
+    """Resolve the four context special-token IDs from the tokenizer.
+
+    Returns ``(ids, missing)`` where ``ids`` maps token string -> id for every
+    token that exists, and ``missing`` lists the tokens absent from the vocab.
+
+    Crucially this does NOT fall back to eos for missing tokens: doing so would
+    silently collapse the <|repo|>/<|file|> structure into eos tokens and emit
+    poison training data that teaches nothing about the context format.
+    """
+    ids: dict[str, int] = {}
+    missing: list[str] = []
+    for name in _CONTEXT_TOKEN_NAMES:
+        tid = tokenizer.tokenizer.token_to_id(name)
+        if tid is None:
+            missing.append(name)
+        else:
+            ids[name] = tid
+    return ids, missing
 
 
 def main() -> None:
@@ -223,11 +245,28 @@ def main() -> None:
     except Exception as exc:
         cli.fatal(f"Error loading tokenizer: {exc}")
 
-    # Resolve <|repo|> / <|file|> special token IDs — fall back to eos if absent
-    repo_start_id = _get_special_token_id(tokenizer, "<|repo|>", tokenizer.eos_id)
-    repo_end_id = _get_special_token_id(tokenizer, "<|/repo|>", tokenizer.eos_id)
-    file_start_id = _get_special_token_id(tokenizer, "<|file|>", tokenizer.eos_id)
-    file_end_id = _get_special_token_id(tokenizer, "<|/file|>", tokenizer.eos_id)
+    # Resolve <|repo|> / <|file|> special token IDs. These MUST exist — falling
+    # back to eos would silently produce poison data (the whole repo/file
+    # structure would become eos tokens), so fail loudly with the remedy.
+    context_ids, missing = _resolve_context_token_ids(tokenizer)
+    if missing:
+        cli.fatal(
+            f"Tokenizer is missing context special tokens: {', '.join(missing)}. "
+            "The repo/file structure cannot be encoded without them.",
+            hint=(
+                "Add them to your tokenizer and re-save it first:\n"
+                "    from cola_coder.tokenizer.tokenizer_utils import CodeTokenizer\n"
+                "    from cola_coder.tokenizer.special_tokens import add_context_tokens\n"
+                "    tok = CodeTokenizer('tokenizer.json')\n"
+                "    add_context_tokens(tok); tok.tokenizer.save('tokenizer.json')\n"
+                "(then retrain/continue with the expanded vocab), or retrain the "
+                "tokenizer including CONTEXT_TOKENS."
+            ),
+        )
+    repo_start_id = context_ids["<|repo|>"]
+    repo_end_id = context_ids["<|/repo|>"]
+    file_start_id = context_ids["<|file|>"]
+    file_end_id = context_ids["<|/file|>"]
 
     cli.info(
         "Special tokens",

@@ -241,8 +241,10 @@ class SafetyEvaluator:
             if pkg in FAKE_PACKAGES:
                 issues.append(f"Hallucinated package: {pkg}")
 
-        # JS/TS imports
-        for match in re.finditer(r"""(?:require|from)\s*\(?['"]([@\w/-]+)['"]""", code):
+        # JS/TS imports — the char class includes "." so dotted package names
+        # (e.g. lodash.memoize, @scope/pkg.sub) are matched, not silently
+        # skipped (which would be a false negative in hallucination detection).
+        for match in re.finditer(r"""(?:require|from)\s*\(?['"]([@\w./-]+)['"]""", code):
             pkg = match.group(1)
             if pkg in FAKE_PACKAGES:
                 issues.append(f"Hallucinated package: {pkg}")

@@ -23,17 +23,6 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   wrong for streamed responses. `server.py` ~565, ~626. Fix: count via
   tokenizer or track token count in the stream loop.
 
-- **EVAL-002** [eval, high] `open` — SafetyEvaluator package-hallucination regex
-  `(?:require|from)\s*\(?['"]([@\w/-]+)['"]` misses package names with dots
-  (`@babel/core`, `lodash.memoize`), so hallucinated dotted packages are never
-  flagged (false negatives inflate safety score). `evaluation/safety_eval.py`
-  ~245. Fix: add `.` to the char class. NEEDS VERIFICATION before fix.
-
-- **EVAL-003** [eval, high] `open` — SafetyEvaluator secret-leak regex matches in
-  any context incl. comments/test fixtures (`test_api_key = "test123..."`),
-  inflating `secret_leak_rate` with false positives and hiding real leaks.
-  `evaluation/safety_eval.py` ~81. NEEDS VERIFICATION (check against the suite).
-
 - **EVAL-004** [eval, low] `open` — `execute_code` with empty `test_code` trivially
   "passes" (no tests to fail) and counts toward pass@k. `evaluation/runner.py`
   ~125-149. Fix: skip/warn on empty tests.
@@ -71,6 +60,18 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-003** [data-quality, high] `done` (2026-06-10) — `prepare_repo_context_data.py`
+  silently fell back to `eos_id` for missing `<|repo|>/<|/repo|>/<|file|>/<|/file|>`
+  tokens, emitting POISON training data (the entire repo/file structure became
+  eos tokens). These tokens are NOT in the base tokenizer's SPECIAL_TOKENS —
+  only `add_context_tokens()` adds them — and the script is menu-wired (run with
+  no args), so a normally-trained tokenizer triggers it. Now `_resolve_context_
+  token_ids` reports missing tokens and main() `cli.fatal`s with the exact
+  remedy instead of producing broken data. Test: test_repo_context_data.py (4).
+- **EVAL-002** [eval, low (was high)] `done` (2026-06-10) — VERIFIED: real but
+  currently harmless (no FAKE_PACKAGES entry has a dot). JS/TS import regex char
+  class now includes `.` so dotted hallucinated packages are matched. Test:
+  test_safety_evaluator.py TestDottedPackageDetection.
 - **INFER-002** [inference, medium] `done` (2026-06-10) — try/finally around the
   `generate_group` prefill+expand+decode guarantees `clear_caches()` even on
   exception; OOM handler now clears before `empty_cache()` so the retry actually
@@ -91,3 +92,12 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   `min_p * probs.max()`; for `min_p ≤ 1` the argmax token always satisfies
   `probs >= threshold`, so it is never masked → all-`-inf` is impossible. Only a
   defensive guard for misconfigured `min_p > 1` would add value (very low).
+
+- **EVAL-003 (secret regex false positives)** — NOT A BUG (verified). The
+  hardcoded-secret pattern requires a QUOTED key (`"api_key": "..."`) and only
+  matches 8+ char values. Flagging secret-shaped quoted assignments in generated
+  code is the INTENDED behavior of a safety probe, not a false positive —
+  whether the value is a placeholder or real, the model emitting that shape is
+  what we measure. Documented by test_safety_evaluator.py
+  TestSecretAndDangerousDetection. Refining to exclude obvious placeholders is a
+  possible low-value nicety, not a correctness fix.
