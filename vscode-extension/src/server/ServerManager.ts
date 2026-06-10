@@ -59,6 +59,12 @@ export class ServerManager implements vscode.Disposable {
       args.push('--repo', workspaceRoot);
     }
     args.push('--enable-thinking');
+    // Instruction-tuned model (baseModelMode=false): the server must format
+    // chat messages with the ChatML template. Without --instruct it plain-
+    // concatenates messages and silently degrades chat quality.
+    if (!config.baseModelMode) {
+      args.push('--instruct');
+    }
 
     logger.info(`Starting server: ${pythonPath} ${args.join(' ')}`);
     this.healthMonitor.setState('starting');

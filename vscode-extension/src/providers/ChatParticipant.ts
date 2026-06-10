@@ -32,6 +32,15 @@ interface ChatParticipantResult extends vscode.ChatResult {
   metadata?: { command?: string };
 }
 
+/**
+ * Optional sink for generation activity, used to drive the status bar
+ * ('generating' spinner + tokens/sec) without coupling this provider to UI.
+ */
+export interface GenerationActivity {
+  begin(): void;
+  end(tokensPerSec: number | null): void;
+}
+
 // ── System prompts by command ──────────────────────────────────────────────────
 
 // System prompts — only used if the model has been instruction-tuned.
@@ -79,7 +88,10 @@ const FOLLOWUPS: Record<string, vscode.ChatFollowup[]> = {
 export class ChatParticipant implements vscode.Disposable {
   private participant: vscode.ChatParticipant;
 
-  private constructor(private readonly client: ColaCoderClient) {
+  private constructor(
+    private readonly client: ColaCoderClient,
+    private readonly activity?: GenerationActivity,
+  ) {
     this.participant = vscode.chat.createChatParticipant(
       'cola-coder.chat',
       (request, context, stream, token) =>
@@ -98,8 +110,11 @@ export class ChatParticipant implements vscode.Disposable {
 
   // ── Static factory ─────────────────────────────────────────────────────────
 
-  static register(client: ColaCoderClient): ChatParticipant {
-    return new ChatParticipant(client);
+  static register(
+    client: ColaCoderClient,
+    activity?: GenerationActivity,
+  ): ChatParticipant {
+    return new ChatParticipant(client, activity);
   }
 
   // ── Request handler ────────────────────────────────────────────────────────
@@ -144,7 +159,13 @@ export class ChatParticipant implements vscode.Disposable {
       messages.push({ role: 'system', content: systemText });
       const historyMessages = buildHistoryMessages(context.history);
       messages.push(...historyMessages);
-      const userContent = buildUserMessage(request.prompt, editorCtx);
+      let userContent = buildUserMessage(request.prompt, editorCtx);
+      // Repository context (context.enabled): ask the server's /v1/context
+      // endpoint for related files/frameworks around the active file.
+      const repoContext = await this.fetchRepoContext(config, editorCtx.filePath);
+      if (repoContext) {
+        userContent = `Repository context:\n${repoContext}\n\n${userContent}`;
+      }
       messages.push({ role: 'user', content: userContent });
     }
 
@@ -153,7 +174,7 @@ export class ChatParticipant implements vscode.Disposable {
     if (!this.client.isConnected()) {
       stream.markdown(
         '**Cola-Coder:** The inference server is not reachable. '
-        + 'Check the status bar indicator or run `Cola-Coder: Start Server`.',
+        + 'Check the status bar indicator or run `Cola-Coder: Restart Server`.',
       );
       return { metadata: { command } };
     }
@@ -172,6 +193,13 @@ export class ChatParticipant implements vscode.Disposable {
     let thinkingEmitted = false;
     let thinkingState = createInitialState();
 
+    // Drive the status bar: spinner while generating, tok/s on completion.
+    // Each SSE delta is approximately one token, so deltas/second is an
+    // honest tokens-per-second estimate.
+    this.activity?.begin();
+    const startedAt = Date.now();
+    let deltaCount = 0;
+
     try {
       await this.client.chatStream(
         {
@@ -188,6 +216,7 @@ export class ChatParticipant implements vscode.Disposable {
           if (!text) {
             return;
           }
+          deltaCount++;
 
           const result = parseStreamChunk(text, thinkingState);
           thinkingState = result.state;
@@ -225,9 +254,36 @@ export class ChatParticipant implements vscode.Disposable {
         logger.error(`Chat stream error: ${message}`);
         stream.markdown(`\n\n**Error:** ${message}`);
       }
+    } finally {
+      const elapsedSecs = (Date.now() - startedAt) / 1000;
+      const tokensPerSec = deltaCount > 0 && elapsedSecs > 0.5
+        ? Math.round(deltaCount / elapsedSecs)
+        : null;
+      this.activity?.end(tokensPerSec);
     }
 
     return { metadata: { command } };
+  }
+
+  /**
+   * Fetch repository context from /v1/context when context.enabled is on.
+   * Returns an empty string when disabled, disconnected, no active file,
+   * or on any server error (context is an enhancement, never a blocker).
+   */
+  private async fetchRepoContext(
+    config: ReturnType<typeof getConfig>,
+    filePath: string,
+  ): Promise<string> {
+    if (!config.contextEnabled || !filePath || !this.client.isConnected()) {
+      return '';
+    }
+    try {
+      const response = await this.client.getContext(filePath, config.contextMaxTokens);
+      return response.context ?? '';
+    } catch (err) {
+      logger.warn(`Repo context unavailable: ${String(err)}`);
+      return '';
+    }
   }
 
   // ── Follow-up provider ─────────────────────────────────────────────────────

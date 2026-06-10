@@ -83,6 +83,28 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
     }
 
     const config = getConfig();
+
+    // Honor inline.debounceMs: wait before issuing the request. Rapid
+    // keystrokes cancel the previous call's token, so only the call that
+    // survives the delay actually reaches the (single-GPU) server.
+    if (config.inlineDebounceMs > 0) {
+      const cancelled = await new Promise<boolean>((resolve) => {
+        let sub: vscode.Disposable | undefined;
+        const timer = setTimeout(() => {
+          sub?.dispose();
+          resolve(false);
+        }, config.inlineDebounceMs);
+        sub = token.onCancellationRequested(() => {
+          clearTimeout(timer);
+          sub?.dispose();
+          resolve(true);
+        });
+      });
+      if (cancelled) {
+        return undefined;
+      }
+    }
+
     const fimContext = extractFimContext(document, position);
 
     // Link VS Code's cancellation token to an AbortController so the

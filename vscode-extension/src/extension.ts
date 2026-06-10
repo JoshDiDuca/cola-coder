@@ -58,7 +58,21 @@ export async function activate(
 
   // Chat participant (@cola-coder)
   try {
-    const chatParticipant = ChatParticipant.register(client);
+    // Generation activity → status bar: HealthMonitor owns the state machine
+    // (its poll loop already refuses to overwrite 'generating'), and the
+    // tok/s figure is rendered by the status bar on completion.
+    const chatParticipant = ChatParticipant.register(client, {
+      begin: () => {
+        statusBar.setTokensPerSec(null);
+        healthMonitor.setState('generating');
+      },
+      end: (tokensPerSec) => {
+        statusBar.setTokensPerSec(tokensPerSec);
+        if (healthMonitor.state === 'generating') {
+          healthMonitor.setState('ready');
+        }
+      },
+    });
     context.subscriptions.push(chatParticipant);
     logger.info('Chat participant @cola-coder registered');
   } catch (err) {

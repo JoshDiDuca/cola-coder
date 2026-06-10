@@ -30,11 +30,26 @@ export function createInitialState(): ThinkingState {
  *
  * Returns any complete thinking blocks and content text to render.
  */
+/** Length of the longest tag prefix found at the END of `text`, or 0. */
+function partialTagSuffix(text: string, tag: string): number {
+  let match = 0;
+  for (let i = 1; i < tag.length && i <= text.length; i++) {
+    if (text.endsWith(tag.slice(0, i))) {
+      match = i;
+    }
+  }
+  return match;
+}
+
 export function parseStreamChunk(chunk: string, state: ThinkingState): ParseResult {
-  let remaining = chunk;
+  // Prepend any partial tag carried over from the previous chunk so a tag
+  // split across chunks (e.g. '<thi' + 'nk>') is reassembled before
+  // matching. Without this the buffered fragment used to be flushed as
+  // visible content and the tag never matched.
+  let remaining = state.contentBuffer + chunk;
   let thinkingText: string | null = null;
   let contentText: string | null = null;
-  const newState = { ...state };
+  const newState = { ...state, contentBuffer: '' };
 
   while (remaining.length > 0) {
     if (newState.inThinking) {
@@ -48,8 +63,11 @@ export function parseStreamChunk(chunk: string, state: ThinkingState): ParseResu
         newState.inThinking = false;
         remaining = remaining.slice(closeIdx + '</think>'.length);
       } else {
-        // Still in thinking, accumulate
-        newState.thinkingBuffer += remaining;
+        // Still in thinking. Hold back a partial '</think>' at the end of
+        // the chunk (it completes in the next chunk via the carry above).
+        const partial = partialTagSuffix(remaining, '</think>');
+        newState.thinkingBuffer += remaining.slice(0, remaining.length - partial);
+        newState.contentBuffer = remaining.slice(remaining.length - partial);
         remaining = '';
       }
     } else {
@@ -66,28 +84,12 @@ export function parseStreamChunk(chunk: string, state: ThinkingState): ParseResu
       } else {
         // Check for partial <think> at end of chunk
         // (e.g., chunk ends with "<thi" — don't emit yet)
-        let partialMatch = 0;
-        const tag = '<think>';
-        for (let i = 1; i < tag.length && i <= remaining.length; i++) {
-          if (remaining.endsWith(tag.slice(0, i))) {
-            partialMatch = i;
-          }
+        const partial = partialTagSuffix(remaining, '<think>');
+        const safe = remaining.slice(0, remaining.length - partial);
+        if (safe) {
+          contentText = (contentText ?? '') + safe;
         }
-
-        if (partialMatch > 0) {
-          const safe = remaining.slice(0, remaining.length - partialMatch);
-          if (safe) {
-            contentText = (contentText ?? '') + safe;
-          }
-          newState.contentBuffer = remaining.slice(remaining.length - partialMatch);
-        } else {
-          // Flush any buffered partial match + current content
-          if (newState.contentBuffer) {
-            contentText = (contentText ?? '') + newState.contentBuffer;
-            newState.contentBuffer = '';
-          }
-          contentText = (contentText ?? '') + remaining;
-        }
+        newState.contentBuffer = remaining.slice(remaining.length - partial);
         remaining = '';
       }
     }
