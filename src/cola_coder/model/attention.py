@@ -62,7 +62,8 @@ class GroupedQueryAttention(nn.Module):
         self.v_proj = nn.Linear(dim, n_kv_heads * self.head_dim, bias=False)
         self.out_proj = nn.Linear(n_heads * self.head_dim, dim, bias=False)
 
-        self.attn_dropout = nn.Dropout(dropout)
+        # Attention dropout is applied inside scaled_dot_product_attention
+        # via dropout_p — no separate nn.Dropout module needed.
         self.dropout_p = dropout
 
         # KV-cache: pre-allocated tensors for inference efficiency

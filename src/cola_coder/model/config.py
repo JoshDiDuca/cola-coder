@@ -14,14 +14,14 @@ import yaml
 
 @dataclass
 class MoEConfig:
-    """Mixture of Experts configuration.
+    """Mixture of Experts configuration (experimental).
 
-    Controls whether transformer FFN layers are replaced with MoE FFN layers.
-    When enabled, each layer gets num_experts routed experts plus num_shared_experts
-    always-active experts (DeepSeek-MoE style).
-
-    TS analogy: think of this like a feature-flag object — enabled=False means
-    the dense FFN path is taken; enabled=True routes tokens through specialists.
+    NOTE: the core ``Transformer`` does NOT read this config — its FFN layers
+    are always dense. MoE currently lives in the experimental
+    ``features/moe_layer.py`` path used by ``scripts/upcycle_to_moe.py``
+    (pipeline stage 7, auto-skipped unless explicitly enabled). These fields
+    parameterize that upcycling flow: num_experts routed experts plus
+    num_shared_experts always-active experts (DeepSeek-MoE style).
     """
 
     enabled: bool = False
