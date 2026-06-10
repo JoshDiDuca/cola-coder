@@ -161,6 +161,26 @@ class TestStrictTiedLoad:
         _load_state_dict_tied(model, state)  # must not raise
 
 
+class TestCurriculumShuffleGuard:
+    """Regression: the trainer hardcoded shuffle=True, silently undoing
+    curriculum ordering (easy→hard) produced by score_data.py --curriculum."""
+
+    def test_shuffles_plain_data(self, tmp_path):
+        from cola_coder.training.trainer import _should_shuffle
+
+        data = tmp_path / "train_data.npy"
+        data.write_bytes(b"")
+        assert _should_shuffle(str(data)) is True
+
+    def test_preserves_curriculum_order(self, tmp_path):
+        from cola_coder.training.trainer import _should_shuffle
+
+        data = tmp_path / "train_data.npy"
+        data.write_bytes(b"")
+        (tmp_path / "train_data.curriculum.json").write_text("{}")
+        assert _should_shuffle(str(data)) is False
+
+
 class TestCompiledPathUsed:
     def test_direct_call_compiles_compute_loss_does_not(self):
         """Documents WHY the trainer calls model(x) + language_modeling_loss:

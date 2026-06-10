@@ -39,6 +39,17 @@ from .early_stopping import EarlyStopping
 from .auto_eval import AutoEvaluator
 
 
+def _should_shuffle(data_path: str) -> bool:
+    """Shuffle unless the data was curriculum-ordered.
+
+    Curriculum ordering (score_data.py --curriculum) writes a
+    ``.curriculum.json`` schedule next to the data file. Shuffling such data
+    would silently undo the easy→hard ordering — the entire point of the
+    feature — so the dataloader must preserve file order.
+    """
+    return not Path(data_path).with_suffix(".curriculum.json").exists()
+
+
 def _setup_cuda_optimizations():
     """Enable all CUDA performance knobs for maximum training speed."""
     if not torch.cuda.is_available():
@@ -203,10 +214,15 @@ class Trainer:
         tokenizer_path: str | None = str(_tok_candidate) if _tok_candidate.exists() else None
 
         weights_path = str(Path(data_path).with_suffix(".weights.npy"))
+        shuffle = _should_shuffle(data_path)
+        if not shuffle:
+            cli.info(
+                "Curriculum", "schedule detected — dataloader shuffling disabled",
+            )
         dataloader = create_dataloader(
             data_path,
             batch_size=cfg.batch_size,
-            shuffle=True,
+            shuffle=shuffle,
             num_workers=self.config.data.num_workers,
             max_seq_len=self.config.model.max_seq_len,
             weights_path=weights_path,
