@@ -336,6 +336,10 @@ class CodeGenerator:
                 batch_size=batch_size,
             )
         except torch.cuda.OutOfMemoryError:
+            # Clear the (possibly expanded) KV-cache BEFORE empty_cache, or the
+            # still-referenced cache tensors can't be freed and the retry runs
+            # with the same VRAM pressure that caused the OOM.
+            self.model.clear_caches()
             torch.cuda.empty_cache()
             new_batch = max(1, batch_size // 2)
             logger.warning(
@@ -421,60 +425,63 @@ class CodeGenerator:
 
         self.model.clear_caches()
 
-        # --- Phase 2: prefill (batch=1) ---
-        with autocast(device_type="cuda", dtype=torch.bfloat16, enabled=self.device == "cuda"):
-            logits = self.model(input_ids, start_pos=0, use_cache=True)
-
-        # logits for the last prompt token → first generation step
-        # Expand from (1, vocab) to (batch_size, vocab)
-        next_logits = logits[:, -1, :].expand(batch_size, -1).clone()
-
-        # --- Phase 3: expand KV-cache to batch_size ---
-        self.model.expand_caches(batch_size)
-
-        # Per-sequence token buffers (start with the prompt tokens)
-        # Shape: (batch_size, dynamic_len) — stored as a list of lists for flexibility
+        # The KV-cache is expanded to batch_size below; a try/finally guarantees
+        # it's cleared even if prefill or decode raises (OOM, etc.). Otherwise an
+        # exception leaves the cache in expanded (batch>1) state, wasting VRAM
+        # until the next request and risking a shape mismatch on a serial call.
         seq_tokens: list[list[int]] = [list(token_ids) for _ in range(batch_size)]
-        finished = [False] * batch_size
-
-        # --- Phase 4: autoregressive decode ---
-        for step in range(max_new_tokens):
-            # Sample next tokens for all sequences in one vectorised call
-            sampled = sample_next_tokens_batch(
-                next_logits.clone(),
-                temperature=temperature,
-                top_k=top_k,
-                top_p=top_p,
-                min_p=min_p,
-            )  # (batch_size,)
-
-            # Check EOS and append tokens
-            all_done = True
-            for i in range(batch_size):
-                if finished[i]:
-                    continue
-                tok = sampled[i].item()
-                if tok == eos_id:
-                    finished[i] = True
-                else:
-                    seq_tokens[i].append(tok)
-                    all_done = False
-
-            if all_done:
-                break
-
-            # Build next input: (batch_size, 1) — use EOS as a dummy token
-            # for already-finished sequences (their logits are discarded).
-            next_token_ids = sampled.unsqueeze(1)  # (batch_size, 1)
-
-            start_pos = prompt_len + step
-
+        try:
+            # --- Phase 2: prefill (batch=1) ---
             with autocast(device_type="cuda", dtype=torch.bfloat16, enabled=self.device == "cuda"):
-                logits = self.model(next_token_ids, start_pos=start_pos, use_cache=True)
+                logits = self.model(input_ids, start_pos=0, use_cache=True)
 
-            next_logits = logits[:, -1, :]  # (batch_size, vocab)
+            # logits for the last prompt token → first generation step
+            # Expand from (1, vocab) to (batch_size, vocab)
+            next_logits = logits[:, -1, :].expand(batch_size, -1).clone()
 
-        self.model.clear_caches()
+            # --- Phase 3: expand KV-cache to batch_size ---
+            self.model.expand_caches(batch_size)
+
+            finished = [False] * batch_size
+
+            # --- Phase 4: autoregressive decode ---
+            for step in range(max_new_tokens):
+                # Sample next tokens for all sequences in one vectorised call
+                sampled = sample_next_tokens_batch(
+                    next_logits.clone(),
+                    temperature=temperature,
+                    top_k=top_k,
+                    top_p=top_p,
+                    min_p=min_p,
+                )  # (batch_size,)
+
+                # Check EOS and append tokens
+                all_done = True
+                for i in range(batch_size):
+                    if finished[i]:
+                        continue
+                    tok = sampled[i].item()
+                    if tok == eos_id:
+                        finished[i] = True
+                    else:
+                        seq_tokens[i].append(tok)
+                        all_done = False
+
+                if all_done:
+                    break
+
+                # Build next input: (batch_size, 1) — use EOS as a dummy token
+                # for already-finished sequences (their logits are discarded).
+                next_token_ids = sampled.unsqueeze(1)  # (batch_size, 1)
+
+                start_pos = prompt_len + step
+
+                with autocast(device_type="cuda", dtype=torch.bfloat16, enabled=self.device == "cuda"):
+                    logits = self.model(next_token_ids, start_pos=start_pos, use_cache=True)
+
+                next_logits = logits[:, -1, :]  # (batch_size, vocab)
+        finally:
+            self.model.clear_caches()
 
         # Decode each sequence
         return [self.tokenizer.decode(toks) for toks in seq_tokens]

@@ -253,8 +253,10 @@ class AutoEvaluator:
         # 5. Compute pass@k
         k_values = [k for k in [1, 5] if k <= self.num_samples]
         metrics = compute_pass_at_k(problem_results, k_values=k_values)
-        pass_1 = metrics.get("pass@1", 0.0)
-        pass_5 = metrics.get("pass@5", 0.0)
+        # `or 0.0` also coerces a present-but-None value (metric not estimable)
+        # to 0.0, since .get(key, default) returns None when the key exists.
+        pass_1 = metrics.get("pass@1") or 0.0
+        pass_5 = metrics.get("pass@5") or 0.0
 
         avg_gen_time = sum(gen_times) / max(len(gen_times), 1)
 

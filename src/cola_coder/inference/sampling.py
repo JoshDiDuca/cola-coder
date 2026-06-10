@@ -53,7 +53,7 @@ def sample_next_token(
     """
     # Apply repetition penalty
     if repetition_penalty != 1.0 and generated_ids:
-        _apply_repetition_penalty(logits, generated_ids, repetition_penalty)
+        logits = _apply_repetition_penalty(logits, generated_ids, repetition_penalty)
 
     # Temperature scaling
     if temperature == 0:
@@ -214,12 +214,16 @@ def _apply_repetition_penalty(
     logits: torch.Tensor,
     generated_ids: list[int],
     penalty: float,
-):
+) -> torch.Tensor:
     """Reduce probability of previously generated tokens.
 
     For each token that has already appeared, divide its logit by the penalty
     if it's positive, or multiply if it's negative. This shifts its probability
     downward relative to other tokens.
+
+    Mutates ``logits`` in place AND returns it, so callers can use it like the
+    other filters (which all return the modified tensor) without relying on the
+    in-place side effect.
     """
     # Get unique token IDs that have been generated
     unique_ids = list(set(generated_ids))
@@ -228,6 +232,7 @@ def _apply_repetition_penalty(
             logits[token_id] /= penalty
         else:
             logits[token_id] *= penalty
+    return logits
 
 
 def _top_k_filter(logits: torch.Tensor, k: int) -> torch.Tensor:

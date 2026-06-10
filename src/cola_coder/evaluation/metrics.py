@@ -16,7 +16,10 @@ where n = total samples, c = correct samples, C = combinations.
 This avoids bias from naively computing "fraction with at least one correct."
 """
 
+import logging
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -64,27 +67,52 @@ def pass_at_k(n: int, c: int, k: int) -> float:
 def compute_pass_at_k(
     results: list[ProblemResult],
     k_values: list[int] = [1, 5, 10],
-) -> dict[str, float]:
+) -> dict[str, float | None]:
     """Compute pass@k for multiple k values across all problems.
+
+    Only problems with at least k samples contribute to pass@k — the unbiased
+    estimator is undefined for n < k (and `pass_at_k` would return a spurious
+    1.0 there). Two consequences are surfaced rather than hidden:
+
+    - If NO problem has n >= k, the metric is ``None`` ("not estimable with this
+      many samples"), NOT ``0.0`` — reporting 0.0 falsely reads as total failure
+      when the real cause is too few samples. Callers/formatters must handle None.
+    - If SOME problems are excluded (mixed sample counts), a warning is logged
+      because the average is then over an easier subset.
 
     Args:
         results: List of per-problem results.
         k_values: Which k values to compute (e.g., [1, 5, 10]).
 
     Returns:
-        Dictionary mapping "pass@k" to the score (0.0 to 1.0).
+        Dictionary mapping "pass@k" to the score (0.0-1.0), or None when the
+        metric cannot be estimated (no problem had >= k samples).
     """
-    metrics = {}
+    metrics: dict[str, float | None] = {}
 
     for k in k_values:
-        scores = []
-        for r in results:
-            if r.num_samples >= k:
-                scores.append(pass_at_k(r.num_samples, r.num_correct, k))
-        if scores:
-            metrics[f"pass@{k}"] = sum(scores) / len(scores)
+        scores = [
+            pass_at_k(r.num_samples, r.num_correct, k)
+            for r in results
+            if r.num_samples >= k
+        ]
+        excluded = len(results) - len(scores)
+
+        if not scores:
+            metrics[f"pass@{k}"] = None
+            logger.warning(
+                "pass@%d not estimable: no problem has >= %d samples "
+                "(generate at least %d samples per problem to report it).",
+                k, k, k,
+            )
         else:
-            metrics[f"pass@{k}"] = 0.0
+            metrics[f"pass@{k}"] = sum(scores) / len(scores)
+            if excluded:
+                logger.warning(
+                    "pass@%d averages %d/%d problems — %d excluded for having "
+                    "< %d samples; the score is biased toward the easier subset.",
+                    k, len(scores), len(results), excluded, k,
+                )
 
     return metrics
 
@@ -113,7 +141,10 @@ def format_results(
 
     # Overall metrics
     for key, value in metrics.items():
-        lines.append(f"  {key}: {value:.1%}")
+        if value is None:
+            lines.append(f"  {key}: n/a (need more samples)")
+        else:
+            lines.append(f"  {key}: {value:.1%}")
 
     lines.append("")
     lines.append("-" * 60)
