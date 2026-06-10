@@ -178,12 +178,14 @@ def main() -> None:
             print("  (dry_run = detect tests only, no execution)")
         print()
 
-    # Create runner and score
+    # Create runner and score. Choosing --mode subprocess on the CLI is the
+    # explicit opt-in to host execution (the constructor refuses otherwise).
     runner = TestRunner(
         mode=args.mode,
         timeout=args.timeout,
         install_timeout=args.install_timeout,
         cache_dir=args.cache_dir,
+        allow_host_execution=(args.mode == "subprocess"),
     )
 
     use_cache = not args.no_cache

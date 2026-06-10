@@ -35,6 +35,52 @@ from cola_coder.tokenizer.tokenizer_utils import CodeTokenizer
 
 # ── Malware scanning ─────────────────────────────────────────────────────
 
+def _load_scan_config() -> dict:
+    """Load the scoring.security section from configs/scoring.yaml."""
+    scoring_path = Path("configs/scoring.yaml")
+    if not scoring_path.exists():
+        return {}
+    with open(scoring_path, encoding="utf-8") as f:
+        scoring_cfg = yaml.safe_load(f) or {}
+    return scoring_cfg.get("scoring", {}).get("security", {})
+
+
+def _scan_text_stream(iterator, label: str, stats: dict):
+    """Yield text records, dropping any whose CONTENT matches threat rules.
+
+    This must run BEFORE tokenization: the post-collection directory scan
+    only sees tokenized .npy output, where pattern scanners can match
+    nothing. Uses the YARA scanner's in-memory text API (regex fallback
+    when yara-python is missing), so it works on streamed HF records
+    without writing them to disk.
+    """
+    from cola_coder.security.yara_scanner import YaraScanner
+
+    scanner = YaraScanner()
+    for i, text in enumerate(iterator):
+        threats = scanner.scan_text(text, identifier=f"{label}#{i}")
+        if threats:
+            stats["dropped"] = stats.get("dropped", 0) + 1
+            for t in threats:
+                logger.warning(
+                    "MALWARE pattern in streamed %s record %d [%s/%s]: %s — record dropped",
+                    label, i, t.scanner, t.severity, t.name,
+                )
+            continue
+        stats["clean"] = stats.get("clean", 0) + 1
+        yield text
+
+
+def _maybe_scan_stream(iterator, label: str, scan_config: dict, stats: dict):
+    """Wrap *iterator* with in-stream threat scanning unless disabled."""
+    malware_cfg = scan_config.get("malware_scan", {})
+    if not malware_cfg.get("enabled", True):
+        return iterator
+    if not malware_cfg.get("in_stream", True):
+        return iterator
+    return _scan_text_stream(iterator, label, stats)
+
+
 def _scan_downloaded_data(
     raw_dir: Path,
     config: dict,
@@ -178,6 +224,11 @@ def main() -> None:
 
     cli.header("Multi-Source Data Collection", f"Config: {args.config}")
 
+    # Security config loaded up front: in-stream scanning happens DURING
+    # collection (content-level), not just on the tokenized output after.
+    scan_config = _load_scan_config()
+    scan_stats: dict[str, int] = {}
+
     collected: list[DatasetInput] = []
 
     # ── Code ──────────────────────────────────────────────────────────
@@ -196,6 +247,7 @@ def main() -> None:
         code_iter = stream_code_data(
             dataset, languages=languages, max_samples=args.max_samples,
         )
+        code_iter = _maybe_scan_stream(code_iter, "code", scan_config, scan_stats)
         output_path = tokenize_and_chunk(
             code_iter, tokenizer, chunk_size=seq_len,
             output_dir=output_dir, output_name="code_data",
@@ -217,6 +269,7 @@ def main() -> None:
             dataset, min_length=min_len, max_length=max_len,
             max_samples=args.max_samples,
         )
+        text_iter = _maybe_scan_stream(text_iter, "text", scan_config, scan_stats)
         output_path = tokenize_and_chunk(
             text_iter, tokenizer, chunk_size=seq_len,
             output_dir=output_dir, output_name="text_data",
@@ -238,6 +291,7 @@ def main() -> None:
             dataset, min_length=min_len, max_length=max_len,
             max_samples=args.max_samples,
         )
+        math_iter = _maybe_scan_stream(math_iter, "math", scan_config, scan_stats)
         output_path = tokenize_and_chunk(
             math_iter, tokenizer, chunk_size=seq_len,
             output_dir=output_dir, output_name="math_data",
@@ -245,16 +299,22 @@ def main() -> None:
         collected.append(DatasetInput(path=output_path, weight=weight, name="math"))
         cli.success(f"Math data saved: {output_path}")
 
-    # ── Malware scan ─────────────────────────────────────────────────
+    # ── Malware scan summary ─────────────────────────────────────────
     if collected:
-        # Load scoring config for malware_scan settings
-        scoring_path = Path("configs/scoring.yaml")
-        scan_config: dict = {}
-        if scoring_path.exists():
-            with open(scoring_path, encoding="utf-8") as f:
-                scoring_cfg = yaml.safe_load(f) or {}
-            scan_config = scoring_cfg.get("scoring", {}).get("security", {})
+        # In-stream scan stats (content-level, ran during collection above)
+        if scan_stats:
+            dropped = scan_stats.get("dropped", 0)
+            clean = scan_stats.get("clean", 0)
+            if dropped:
+                cli.warn(
+                    f"In-stream scan: dropped {dropped} record(s) matching "
+                    f"threat patterns ({clean} clean)"
+                )
+            else:
+                cli.success(f"In-stream scan: {clean} records clean")
 
+        # Backstop directory scan for any real files in the output dir
+        # (the .npy token arrays themselves can't carry textual patterns)
         scan_ok = _scan_downloaded_data(
             Path(output_dir), scan_config, step_num=4, total_steps=4,
         )

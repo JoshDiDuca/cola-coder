@@ -534,6 +534,7 @@ class TestRunnerIntegration:
         """
         runner = TestRunner(
             mode="subprocess",
+            allow_host_execution=True,  # trusted local fixture repos
             timeout=30,
             install_timeout=30,
             cache_dir=pytest_repo / ".cache",
@@ -549,6 +550,7 @@ class TestRunnerIntegration:
         cache_dir = pytest_repo / ".cache"
         runner = TestRunner(
             mode="subprocess",
+            allow_host_execution=True,  # trusted local fixture repos
             timeout=30,
             install_timeout=10,
             cache_dir=cache_dir,
@@ -564,6 +566,16 @@ class TestRunnerIntegration:
         """Invalid mode should raise ValueError."""
         with pytest.raises(ValueError, match="Invalid mode"):
             TestRunner(mode="invalid_mode")
+
+    def test_default_mode_is_safe_dry_run(self) -> None:
+        """The default must never execute untrusted code."""
+        runner = TestRunner()
+        assert runner.mode == "dry_run"
+
+    def test_subprocess_requires_explicit_opt_in(self) -> None:
+        """Host execution of repo scripts needs allow_host_execution=True."""
+        with pytest.raises(ValueError, match="allow_host_execution"):
+            TestRunner(mode="subprocess")
 
 
 # ---------------------------------------------------------------------------
@@ -590,6 +602,7 @@ class TestTimeoutHandling:
 
         runner = TestRunner(
             mode="subprocess",
+            allow_host_execution=True,  # trusted local fixture repos
             timeout=2,  # 2 seconds
             install_timeout=2,
             cache_dir=tmp_path / ".cache",
@@ -628,6 +641,7 @@ class TestTimeoutHandling:
 
         runner = TestRunner(
             mode="subprocess",
+            allow_host_execution=True,  # trusted local fixture repos
             timeout=2,
             install_timeout=2,
             cache_dir=tmp_path / ".cache",

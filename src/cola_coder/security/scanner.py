@@ -27,6 +27,13 @@ class MalwareScanResult:
     threats: list[ThreatFinding] = field(default_factory=list)
     files_scanned: int = 0
     scan_duration_ms: float = 0.0
+    scan_errors: list[str] = field(default_factory=list)
+    """Scanners that crashed or timed out. A result with scan_errors is NOT a
+    verified-clean result — it means those scanners produced no verdict."""
+
+    @property
+    def had_errors(self) -> bool:
+        return bool(self.scan_errors)
 
     def merge(self, other: MalwareScanResult) -> MalwareScanResult:
         """Merge two scan results."""
@@ -35,6 +42,7 @@ class MalwareScanResult:
             threats=self.threats + other.threats,
             files_scanned=max(self.files_scanned, other.files_scanned),
             scan_duration_ms=self.scan_duration_ms + other.scan_duration_ms,
+            scan_errors=self.scan_errors + other.scan_errors,
         )
 
 
@@ -100,21 +108,16 @@ class CompositeMalwareScanner:
             try:
                 sub = scanner.scan_file(path)
                 result = result.merge(sub)
-            except Exception:
-                pass
-        if not result.is_clean:
-            for t in result.threats:
+            except Exception as e:
+                # Do NOT fail open silently: a crashed scanner produced no
+                # verdict. Record it so callers can distinguish "verified
+                # clean" from "scan incomplete".
+                result.scan_errors.append(f"{scanner.name}: {e}")
                 logger.warning(
-                    "MALWARE DETECTED [%s/%s]: %s in %s",
-                    t.scanner, t.severity, t.name, t.file_path,
+                    "Malware scanner %r FAILED on %s (no verdict): %s",
+                    scanner.name, path, e,
                 )
-            if self._audit_logger:
-                for t in result.threats:
-                    self._audit_logger.log_security_event(
-                        f"malware_detected:{t.scanner}:{t.name}",
-                        scorer=t.scanner,
-                        file_hash=t.file_path,
-                    )
+        self._report(result)
         return result
 
     def scan_directory(self, path: Path) -> MalwareScanResult:
@@ -123,22 +126,30 @@ class CompositeMalwareScanner:
             try:
                 sub = scanner.scan_directory(path)
                 result = result.merge(sub)
-            except Exception:
-                pass
-        if not result.is_clean:
-            for t in result.threats:
+            except Exception as e:
+                result.scan_errors.append(f"{scanner.name}: {e}")
                 logger.warning(
-                    "MALWARE DETECTED [%s/%s]: %s in %s",
-                    t.scanner, t.severity, t.name, t.file_path,
+                    "Malware scanner %r FAILED on %s (no verdict): %s",
+                    scanner.name, path, e,
                 )
-            if self._audit_logger:
-                for t in result.threats:
-                    self._audit_logger.log_security_event(
-                        f"malware_detected:{t.scanner}:{t.name}",
-                        scorer=t.scanner,
-                        file_hash=t.file_path,
-                    )
+        self._report(result)
         return result
+
+    def _report(self, result: MalwareScanResult) -> None:
+        """Log threats and audit-log security events for a finished scan."""
+        if result.is_clean:
+            return
+        for t in result.threats:
+            logger.warning(
+                "MALWARE DETECTED [%s/%s]: %s in %s",
+                t.scanner, t.severity, t.name, t.file_path,
+            )
+            if self._audit_logger:
+                self._audit_logger.log_security_event(
+                    f"malware_detected:{t.scanner}:{t.name}",
+                    scorer=t.scanner,
+                    file_hash=t.file_path,
+                )
 
     @property
     def available_scanners(self) -> list[str]:

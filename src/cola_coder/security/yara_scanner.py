@@ -187,6 +187,31 @@ class YaraScanner:
             scan_duration_ms=duration,
         )
 
+    def scan_text(
+        self,
+        content: str,
+        identifier: str = "<stream>",
+    ) -> list[ThreatFinding]:
+        """Scan in-memory text for threats (no file needed).
+
+        This is the right entry point for streamed data (HuggingFace
+        records) BEFORE tokenization — scanning tokenized .npy output is
+        useless because token IDs carry none of the textual patterns the
+        rules match on.
+
+        Args:
+            content: The raw text/code to scan.
+            identifier: Label used in findings instead of a file path
+                (e.g. "code#1042").
+
+        Returns:
+            List of threats found (empty = clean).
+        """
+        pseudo_path = Path(identifier)
+        if self._rules is not None:
+            return self._scan_with_yara(pseudo_path, content)
+        return self._scan_with_regex(pseudo_path, content)
+
     def _scan_file_content(self, path: Path) -> list[ThreatFinding]:
         """Scan a single file's content."""
         try:

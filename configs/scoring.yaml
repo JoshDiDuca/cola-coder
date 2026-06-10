@@ -23,6 +23,9 @@ scoring:
       tmpfs_size_mb: 64
     malware_scan:
       enabled: true
+      in_stream: true            # Scan streamed record CONTENT during collection
+                                 # (before tokenization — .npy output can't be
+                                 # pattern-scanned). Clones are always scanned.
       on_threat: "quarantine"          # warn | quarantine | abort
       scanners:
         defender: true           # Windows Defender (auto-detected)
@@ -85,3 +88,4 @@ curriculum:
   enabled: false
   strategy: "easy_to_hard"    # easy_to_hard, hard_to_easy, staged
   num_phases: 3               # For staged strategy
+

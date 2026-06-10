@@ -607,3 +607,78 @@ class TestDataRecord:
         assert record.metadata.get("repo_url", "") == ""
         assert record.metadata.get("license", "") == ""
         assert record.metadata.get("file_size", 0) == 0
+
+
+# ---------------------------------------------------------------------------
+# Malware scanning on clone (regression: the default search path used to
+# extract files from clones without ever scanning them)
+# ---------------------------------------------------------------------------
+
+
+class TestGitHubSourceMalwareScan:
+    def _source(self, **kwargs):
+        from cola_coder.data.sources.github import GitHubSource
+        with patch.dict(os.environ, {"GITHUB_TOKEN": "fake"}):
+            return GitHubSource(**kwargs)
+
+    def test_scan_enabled_by_default(self):
+        source = self._source()
+        assert source.malware_scan is True
+
+    def test_scan_clone_skips_when_disabled(self):
+        source = self._source(malware_scan=False)
+        assert source._scan_clone(Path("/nonexistent"), "owner/repo") is True
+        assert source._scanner is None  # never constructed
+
+    def test_scan_clone_rejects_threats(self, tmp_path):
+        from cola_coder.security.scanner import (
+            MalwareScanResult, ThreatFinding,
+        )
+        source = self._source()
+        scanner = MagicMock()
+        scanner.available_scanners = ["yara"]
+        scanner.scan_directory.return_value = MalwareScanResult(
+            is_clean=False,
+            threats=[ThreatFinding(
+                name="CryptoMiner", severity="high",
+                file_path=str(tmp_path / "evil.js"), scanner="yara",
+            )],
+        )
+        source._scanner = scanner
+        assert source._scan_clone(tmp_path, "owner/repo") is False
+
+    def test_scan_clone_accepts_clean(self, tmp_path):
+        from cola_coder.security.scanner import MalwareScanResult
+        source = self._source()
+        scanner = MagicMock()
+        scanner.available_scanners = ["yara"]
+        scanner.scan_directory.return_value = MalwareScanResult(is_clean=True)
+        source._scanner = scanner
+        assert source._scan_clone(tmp_path, "owner/repo") is True
+
+
+class TestScannerFailClosed:
+    """Regression: scanner crashes used to be silently swallowed, reporting
+    'clean' with no record that any scanner failed."""
+
+    def test_scan_errors_recorded_on_crash(self, tmp_path):
+        from cola_coder.security.scanner import CompositeMalwareScanner
+
+        broken = MagicMock()
+        broken.name = "broken"
+        broken.is_available.return_value = True
+        broken.scan_directory.side_effect = RuntimeError("scanner exploded")
+
+        composite = CompositeMalwareScanner(scanners=[broken])
+        result = composite.scan_directory(tmp_path)
+        assert result.had_errors
+        assert any("broken" in e for e in result.scan_errors)
+
+    def test_scan_errors_survive_merge(self):
+        from cola_coder.security.scanner import MalwareScanResult
+
+        a = MalwareScanResult(scan_errors=["yara: boom"])
+        b = MalwareScanResult()
+        merged = a.merge(b)
+        assert merged.scan_errors == ["yara: boom"]
+        assert merged.had_errors
