@@ -39,8 +39,8 @@ src/cola_coder/
   tools/              Tool registry, agent executor
   memory/             Long-context memory management
   cli.py              Shared CLI styling (rich + questionary arrow-key menus, multi_select, weight_editor)
-scripts/              57 CLI entry points — all use `from cola_coder.cli import cli`, never direct Rich
-tests/                127 test files (~2800 tests)
+scripts/              60 CLI entry points — all use `from cola_coder.cli import cli`, never direct Rich
+tests/                148 test files (~3350 tests)
 docs/                 Educational guides (01-06) + deep-dives/
 vscode-extension/     TypeScript VS Code extension (see below)
 ```
@@ -54,7 +54,7 @@ vscode-extension/
   src/providers/        InlineCompletion, ChatParticipant, CodeAction, LanguageModel
   src/server/           ServerManager (process lifecycle) + HealthMonitor
   src/ui/               StatusBar + ThinkingRenderer (collapsible <think> blocks)
-  src/utils/            config, logger, debounce
+  src/utils/            config, logger
   src/context/          ContextAssembler, FimFormatter
   src/extension.ts      Activation, provider registration, commands
   package.json          Extension manifest (chatParticipants, commands, settings)
