@@ -115,6 +115,10 @@
       {
         "command": "cola-coder.refactorSelection",
         "title": "Cola-Coder: Refactor Selection"
+      },
+      {
+        "command": "cola-coder.generateVerified",
+        "title": "Cola-Coder: Generate at Cursor (Verified Best-of-N)"
       }
     ],
     "menus": {
@@ -132,6 +136,11 @@
         {
           "command": "cola-coder.refactorSelection",
           "when": "editorHasSelection",
+          "group": "cola-coder"
+        },
+        {
+          "command": "cola-coder.generateVerified",
+          "when": "editorTextFocus",
           "group": "cola-coder"
         }
       ]
@@ -236,6 +245,16 @@
           "type": "number",
           "default": 2048,
           "description": "Max tokens for repository context"
+        },
+        "cola-coder.verified.candidates": {
+          "type": "number",
+          "default": 4,
+          "description": "Verified generation: number of candidates to generate and verify (best-of-N)"
+        },
+        "cola-coder.verified.maxTokens": {
+          "type": "number",
+          "default": 256,
+          "description": "Verified generation: max new tokens per candidate"
         }
       }
     }

@@ -32,6 +32,10 @@ export interface ColaCoderConfig {
   // Context
   contextEnabled: boolean;
   contextMaxTokens: number;
+
+  // Verified generation (best-of-N)
+  verifiedCandidates: number;
+  verifiedMaxTokens: number;
 }
 
 export function getConfig(): ColaCoderConfig {
@@ -60,5 +64,8 @@ export function getConfig(): ColaCoderConfig {
 
     contextEnabled: cfg.get<boolean>('context.enabled', true),
     contextMaxTokens: cfg.get<number>('context.maxTokens', 2048),
+
+    verifiedCandidates: cfg.get<number>('verified.candidates', 4),
+    verifiedMaxTokens: cfg.get<number>('verified.maxTokens', 256),
   };
 }

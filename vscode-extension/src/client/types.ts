@@ -71,9 +71,15 @@ export interface CompletionRequest {
   temperature?: number;
   top_p?: number;
   top_k?: number;
+  min_p?: number;
   repetition_penalty?: number;
   stop?: string[] | null;
   stream?: boolean;
+  /** Best-of-N with sandboxed verification (server picks the best candidate).
+   *  Non-streaming only — the server rejects best_of > 1 with stream=true. */
+  best_of?: number;
+  /** Verifier language for best_of: 'auto' | 'python' | 'typescript'. */
+  verify_language?: string;
 }
 
 export interface CompletionResponse {

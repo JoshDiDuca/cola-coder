@@ -25,6 +25,15 @@ let healthMonitor: HealthMonitor;
 let statusBar: StatusBar;
 let inlineProvider: InlineCompletionProvider | undefined;
 
+/** Map VS Code languageIds onto the server's best-of-N verifier languages. */
+const VERIFY_LANGUAGE_MAP: Record<string, string> = {
+  typescript: 'typescript',
+  typescriptreact: 'typescript',
+  javascript: 'typescript', // tsc type-checks plain JS in a .ts file
+  javascriptreact: 'typescript',
+  python: 'python',
+};
+
 export async function activate(
   context: vscode.ExtensionContext,
 ): Promise<void> {
@@ -148,6 +157,81 @@ export async function activate(
         'workbench.action.chat.open',
         { query: '@cola-coder /refactor' },
       );
+    }),
+
+    vscode.commands.registerCommand('cola-coder.generateVerified', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showWarningMessage('Cola-Coder: no active editor.');
+        return;
+      }
+      if (!client.isConnected()) {
+        vscode.window.showWarningMessage(
+          'Cola-Coder: server not connected. Start it with --cors first.',
+        );
+        return;
+      }
+
+      const cfg = getConfig();
+      const doc = editor.document;
+      const cursor = editor.selection.active;
+
+      // Prompt = everything before the cursor, trimmed to a tail window so
+      // huge files don't blow the model's context.
+      const prefix = doc.getText(
+        new vscode.Range(new vscode.Position(0, 0), cursor),
+      );
+      const prompt = prefix.slice(-4000);
+      if (!prompt.trim()) {
+        vscode.window.showWarningMessage(
+          'Cola-Coder: nothing before the cursor to complete.',
+        );
+        return;
+      }
+
+      const verifyLanguage = VERIFY_LANGUAGE_MAP[doc.languageId] ?? 'auto';
+
+      statusBar.setTokensPerSec(null);
+      healthMonitor.setState('generating');
+      try {
+        const response = await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title:
+              `Cola-Coder: verifying ${cfg.verifiedCandidates} candidates`
+              + ` (${verifyLanguage})...`,
+          },
+          () => client.complete({
+            prompt,
+            max_tokens: cfg.verifiedMaxTokens,
+            temperature: cfg.chatTemperature,
+            best_of: cfg.verifiedCandidates,
+            verify_language: verifyLanguage,
+          }),
+        );
+
+        const text = response.choices[0]?.text ?? '';
+        if (!text) {
+          vscode.window.showInformationMessage(
+            'Cola-Coder: model returned an empty completion.',
+          );
+          return;
+        }
+        await editor.edit(edit => edit.insert(cursor, text));
+        logger.info(
+          `Verified generation inserted ${text.length} chars `
+          + `(best of ${cfg.verifiedCandidates}, ${verifyLanguage})`,
+        );
+      } catch (err) {
+        logger.error(`Verified generation failed: ${err}`);
+        vscode.window.showErrorMessage(
+          `Cola-Coder: verified generation failed — ${err}`,
+        );
+      } finally {
+        if (healthMonitor.state === 'generating') {
+          healthMonitor.setState('ready');
+        }
+      }
     }),
   );
 
