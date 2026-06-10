@@ -99,7 +99,7 @@ class TransformerBlock(nn.Module):
     (syntax, common tokens), later blocks learn complex patterns (logic, semantics).
     """
 
-    def __init__(self, config: ModelConfig):
+    def __init__(self, config: ModelConfig, layer_idx: int = 0, is_moe: bool = False):
         super().__init__()
         # Pre-normalization (applied BEFORE each sub-layer)
         self.attn_norm = RMSNorm(config.dim)
@@ -114,11 +114,33 @@ class TransformerBlock(nn.Module):
             dropout=config.dropout,
             qk_norm=getattr(config, "qk_norm", False),
         )
-        self.ffn = SwiGLUFFN(
-            dim=config.dim,
-            hidden_dim=config.ffn_hidden_dim,
-            dropout=config.dropout,
-        )
+
+        # FFN: dense SwiGLU by default, or a Mixture-of-Experts FFN when this
+        # layer is MoE-enabled. MoEFFN is a drop-in replacement (same call
+        # signature, same residual usage below). The expert/router submodule
+        # names match exactly what scripts/upcycle_to_moe.py writes, so an
+        # upcycled checkpoint loads into this module without remapping.
+        self.is_moe = is_moe
+        if is_moe:
+            from ..features.moe_layer import MoEFFN
+
+            moe = config.moe
+            self.ffn = MoEFFN(
+                dim=config.dim,
+                hidden_dim=config.ffn_hidden_dim,
+                num_experts=moe.num_experts,
+                top_k=moe.top_k,
+                dropout=config.dropout,
+                capacity_factor=moe.capacity_factor,
+                num_shared_experts=moe.num_shared_experts,
+                aux_loss_weight=moe.aux_loss_weight,
+            )
+        else:
+            self.ffn = SwiGLUFFN(
+                dim=config.dim,
+                hidden_dim=config.ffn_hidden_dim,
+                dropout=config.dropout,
+            )
 
     def forward(
         self,
@@ -168,10 +190,22 @@ class Transformer(nn.Module):
         # Dropout on embeddings (regularization)
         self.dropout = nn.Dropout(config.dropout)
 
+        # Resolve which blocks (if any) use a Mixture-of-Experts FFN.
+        # MoE is off unless config.moe.enabled — the dense path is unchanged.
+        moe_cfg = getattr(config, "moe", None)
+        if moe_cfg is not None and getattr(moe_cfg, "enabled", False):
+            from ..features.moe_layer import resolve_moe_layers
+
+            self._moe_layer_set = resolve_moe_layers(moe_cfg.moe_layers, config.n_layers)
+        else:
+            self._moe_layer_set = set()
+        self.is_moe = bool(self._moe_layer_set)
+
         # Stack of transformer blocks
         # nn.ModuleList is like an array of layers that PyTorch tracks
         self.blocks = nn.ModuleList([
-            TransformerBlock(config) for _ in range(config.n_layers)
+            TransformerBlock(config, layer_idx=i, is_moe=i in self._moe_layer_set)
+            for i in range(config.n_layers)
         ])
 
         # Final normalization before output
@@ -348,7 +382,23 @@ class Transformer(nn.Module):
         model directly for logits and applying language_modeling_loss() — this
         method on a compiled model runs the original, uncompiled module.
         """
-        return language_modeling_loss(self.forward(token_ids), token_ids, sample_weights)
+        loss = language_modeling_loss(self.forward(token_ids), token_ids, sample_weights)
+        return loss + self.moe_aux_loss()
+
+    def moe_aux_loss(self) -> torch.Tensor:
+        """Sum the load-balancing auxiliary loss across all MoE blocks.
+
+        Each MoEFFN stores its aux loss as a side effect of the most recent
+        forward pass (and returns 0 in eval mode). Add this to the main loss
+        during MoE fine-tuning so the router learns to spread tokens evenly
+        across experts instead of collapsing onto a few. Returns a 0 scalar
+        for dense models, so callers can add it unconditionally.
+        """
+        total = torch.zeros((), device=self.tok_emb.weight.device)
+        for block in self.blocks:
+            if getattr(block, "is_moe", False):
+                total = total + block.ffn.aux_loss.to(total.device)
+        return total
 
     def clear_caches(self):
         """Clear all KV-caches (call between generation requests)."""

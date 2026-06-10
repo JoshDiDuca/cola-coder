@@ -15,6 +15,21 @@ match: "**/checkpoint*.py,**/transformer.py,**/config.py,configs/*.yaml"
   where ONLY the tied `output.weight` may be missing. Never call
   `load_state_dict(strict=False)` directly: it silently ignores every mismatch
 
+## MoE Checkpoints Are Auto-Detected on Load
+`scripts/upcycle_to_moe.py` (stage 7) writes per-layer expert weights
+(`blocks.N.ffn.experts.E.*`, `shared_experts.E.*`, `router.gate.weight`) plus a
+`moe_config.json` sidecar. The submodule names match `MoEFFN` exactly, so an
+upcycled checkpoint loads into a MoE-configured `Transformer` with no remapping.
+
+`Transformer` builds `MoEFFN` blocks only when `config.model.moe.enabled`. So
+before loading a MoE checkpoint into a base-config model you MUST flip the
+config first: call `apply_moe_config_from_checkpoint(config, checkpoint)`
+(`inference/loading.py`) — it reads the sidecar (or infers from weight keys) and
+sets enabled + expert counts + `moe_layers="all"`. `load_generator` and the
+generate/serve/smoke_test/evaluate scripts all do this. Loading a MoE checkpoint
+into a dense model is a hard `_load_state_dict_tied` failure (`experts.*` keys
+have nowhere to go).
+
 ## Vocab Expansion After Reasoning Training
 Reasoning training calls `_resize_embeddings` to add thinking tokens (`<think>`/`</think>`),
 expanding vocab from e.g. 32768 → 32770. The expanded `tok_emb.weight` is saved to disk.

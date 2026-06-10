@@ -161,6 +161,15 @@ def main():
             cli.dim(f"  Checkpoint vocab: {ckpt_vocab_size} (config: {config.model.vocab_size})")
             config.model.vocab_size = ckpt_vocab_size
 
+        # Upcycled MoE checkpoints need the config switched to MoE before the
+        # model is built, or the expert weights have nowhere to load.
+        from cola_coder.inference.loading import apply_moe_config_from_checkpoint
+        if apply_moe_config_from_checkpoint(config, args.checkpoint):
+            cli.dim(
+                f"  MoE checkpoint: {config.model.moe.num_experts} experts "
+                f"+ {config.model.moe.num_shared_experts} shared, top-{config.model.moe.top_k}"
+            )
+
         cli.info("Model", f"{config.model.total_params_human} parameters")
 
         tokenizer = CodeTokenizer(args.tokenizer)

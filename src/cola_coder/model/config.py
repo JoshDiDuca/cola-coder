@@ -14,13 +14,14 @@ import yaml
 
 @dataclass
 class MoEConfig:
-    """Mixture of Experts configuration (experimental).
+    """Mixture of Experts configuration.
 
-    NOTE: the core ``Transformer`` does NOT read this config — its FFN layers
-    are always dense. MoE currently lives in the experimental
-    ``features/moe_layer.py`` path used by ``scripts/upcycle_to_moe.py``
-    (pipeline stage 7, auto-skipped unless explicitly enabled). These fields
-    parameterize that upcycling flow: num_experts routed experts plus
+    When ``enabled`` is True, ``Transformer`` builds a ``MoEFFN`` (from
+    ``features/moe_layer.py``) in place of the dense SwiGLU FFN for the blocks
+    selected by ``moe_layers``. ``scripts/upcycle_to_moe.py`` (pipeline stage 7)
+    produces matching checkpoints, and inference auto-detects them
+    (``apply_moe_config_from_checkpoint``) so the config need not be edited by
+    hand to run an upcycled model. num_experts routed experts plus
     num_shared_experts always-active experts (DeepSeek-MoE style).
     """
 

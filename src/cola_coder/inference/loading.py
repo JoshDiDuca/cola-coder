@@ -43,6 +43,31 @@ def resolve_tokenizer_path(
     return get_storage_config().tokenizer_path
 
 
+def apply_moe_config_from_checkpoint(config, checkpoint: str | Path) -> bool:
+    """Flip a config to MoE when the checkpoint is an upcycled MoE model.
+
+    Mutates ``config.model.moe`` (enabled + expert counts) in place so the
+    Transformer constructed from it builds expert FFNs matching the
+    checkpoint's weights. No-op for dense checkpoints.
+
+    Returns:
+        True if the config was switched to MoE, else False.
+    """
+    from cola_coder.features.moe_layer import detect_moe_checkpoint
+
+    detected = detect_moe_checkpoint(checkpoint)
+    if not detected:
+        return False
+    moe = config.model.moe
+    moe.enabled = True
+    moe.num_experts = detected["num_experts"]
+    moe.num_shared_experts = detected["num_shared_experts"]
+    moe.top_k = detected["top_k"]
+    # Upcycling converts every FFN block, so the whole stack is MoE.
+    moe.moe_layers = "all"
+    return True
+
+
 def load_generator(
     checkpoint: str | Path,
     config_path: str | Path,
@@ -91,6 +116,11 @@ def load_generator(
                 config.model.vocab_size = f.get_tensor("tok_emb.weight").shape[0]
     except Exception:
         pass
+
+    # Upcycled MoE checkpoints carry per-layer experts. Detect them (sidecar
+    # or weight keys) and switch the config to MoE so Transformer builds the
+    # matching expert FFNs, otherwise load_state_dict sees keys it can't place.
+    apply_moe_config_from_checkpoint(config, checkpoint)
 
     tokenizer = CodeTokenizer(str(tokenizer_path))
     model = Transformer(config.model).to(device)

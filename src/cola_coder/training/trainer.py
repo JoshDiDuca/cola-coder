@@ -322,6 +322,12 @@ class Trainer:
                             z_loss=getattr(cfg, "z_loss", 0.0),
                         )
 
+                        # MoE load-balancing aux loss (0 for dense models).
+                        # OptimizedModule forwards attribute access to the
+                        # underlying module, so this works under torch.compile.
+                        if getattr(self.model, "is_moe", False):
+                            loss = loss + self.model.moe_aux_loss()
+
                         scaled_loss = loss * inv_accum
 
                     # Backward pass (compute gradients)

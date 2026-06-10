@@ -17,6 +17,9 @@ request to the most relevant service. MoE does the same thing with neural
 network "sub-modules" — each expert specializes in different patterns.
 """
 
+import json
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -26,6 +29,89 @@ FEATURE_ENABLED = True
 
 def is_enabled() -> bool:
     return FEATURE_ENABLED
+
+
+def resolve_moe_layers(moe_layers: str, n_layers: int) -> set[int]:
+    """Resolve the ``moe_layers`` config string to a set of layer indices.
+
+    Args:
+        moe_layers: "all" (every block), "alternate" (every other block,
+            starting at index 1), or a comma-separated list of indices
+            (e.g. "0,2,4").
+        n_layers: Total number of transformer blocks.
+
+    Returns:
+        Set of block indices that should use a MoE FFN.
+
+    Note: ``scripts/upcycle_to_moe.py`` converts EVERY FFN block, so an
+    upcycled checkpoint round-trips correctly only with moe_layers="all".
+    """
+    spec = (moe_layers or "all").strip().lower()
+    if spec == "all":
+        return set(range(n_layers))
+    if spec == "alternate":
+        return {i for i in range(n_layers) if i % 2 == 1}
+    indices: set[int] = set()
+    for part in spec.split(","):
+        part = part.strip()
+        if part.isdigit():
+            idx = int(part)
+            if 0 <= idx < n_layers:
+                indices.add(idx)
+    return indices
+
+
+def detect_moe_checkpoint(checkpoint_dir: str | Path) -> dict | None:
+    """Detect whether a checkpoint directory holds an upcycled MoE model.
+
+    Reads the ``moe_config.json`` sidecar written by upcycle_to_moe.py when
+    present; otherwise inspects the safetensors keys for ``.ffn.experts.``
+    and infers the expert/shared counts from them.
+
+    Returns:
+        A dict with num_experts / num_shared_experts / top_k when the
+        checkpoint is MoE, else None.
+    """
+    ckpt = Path(checkpoint_dir)
+
+    sidecar = ckpt / "moe_config.json"
+    if sidecar.exists():
+        try:
+            cfg = json.loads(sidecar.read_text(encoding="utf-8"))
+            return {
+                "num_experts": int(cfg.get("num_experts", 8)),
+                "num_shared_experts": int(cfg.get("num_shared_experts", 1)),
+                "top_k": int(cfg.get("top_k", 2)),
+            }
+        except (json.JSONDecodeError, OSError, ValueError, TypeError):
+            pass
+
+    # Fallback: infer from the safetensors weight keys.
+    model_file = ckpt / "model.safetensors"
+    if not model_file.exists():
+        return None
+    try:
+        from safetensors import safe_open
+
+        with safe_open(str(model_file), framework="pt") as f:
+            keys = list(f.keys())
+    except Exception:
+        return None
+
+    if not any(".ffn.experts." in k for k in keys):
+        return None
+
+    expert_ids, shared_ids = set(), set()
+    for k in keys:
+        if ".ffn.experts." in k:
+            expert_ids.add(k.split(".ffn.experts.")[1].split(".")[0])
+        elif ".ffn.shared_experts." in k:
+            shared_ids.add(k.split(".ffn.shared_experts.")[1].split(".")[0])
+    return {
+        "num_experts": len(expert_ids),
+        "num_shared_experts": len(shared_ids),
+        "top_k": 2,
+    }
 
 
 class ExpertRouter(nn.Module):
@@ -77,6 +163,7 @@ class MoEFFN(nn.Module):
         dropout: float = 0.0,
         capacity_factor: float = 1.25,
         num_shared_experts: int = 1,
+        aux_loss_weight: float = 0.01,
     ):
         """
         Args:
@@ -89,6 +176,7 @@ class MoEFFN(nn.Module):
                              (1.0 = even split, >1.0 = allow some imbalance)
             num_shared_experts: Number of always-active shared experts
                                 (DeepSeek-MoE style). 0 = disabled.
+            aux_loss_weight: Weight for the load-balancing auxiliary loss.
         """
         super().__init__()
         self.dim = dim
@@ -118,7 +206,7 @@ class MoEFFN(nn.Module):
             self.shared_experts = nn.ModuleList()
 
         # Auxiliary loss weight for load balancing
-        self.aux_loss_weight = 0.01
+        self.aux_loss_weight = aux_loss_weight
         self._aux_loss = torch.tensor(0.0)
 
     @property
