@@ -64,6 +64,12 @@ def main():
         default=50,
         help="Top-k sampling threshold (default: 50).",
     )
+    parser.add_argument(
+        "--repo",
+        type=str,
+        default=None,
+        help="Repository directory for context-aware generation (optional).",
+    )
     args = parser.parse_args()
 
     if args.tokenizer is None:
@@ -152,6 +158,16 @@ def main():
         cli.info("Device", device)
 
         generator = CodeGenerator(model=model, tokenizer=tokenizer, device=device)
+
+        # Optional: wrap with repo context (same pattern as serve.py --repo)
+        if args.repo:
+            from cola_coder.inference.context_generator import ContextAwareGenerator
+
+            repo_root = Path(args.repo)
+            if not repo_root.is_dir():
+                cli.fatal(f"Repo directory not found: {repo_root}")
+            generator = ContextAwareGenerator(generator, repo_root, eager_scan=True)
+            cli.info("Repo context", str(repo_root))
     except Exception as e:
         cli.fatal(f"Loading model: {e}")
 

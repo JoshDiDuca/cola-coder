@@ -1,4 +1,4 @@
-# Scripts Reference (57 total)
+# Scripts Reference (60 total)
 
 ## Pipeline & Orchestration
 | Script | Purpose |
@@ -54,6 +54,9 @@
 | `nano_benchmark.py` | Fast generation speed test |
 | `inference_benchmark.py` | Detailed latency profiling |
 | `smoke_test.py` | 8-check quick validation (~30s) |
+| `completion_benchmark.py` | Prefix-completion benchmark (pattern-scored) — args: --checkpoint, --config, --difficulty |
+| `safety_eval.py` | Safety probes on generated code (secrets, dangerous patterns, hallucination) — args: --checkpoint, --config, --suite {basic,extended,pii,license} |
+| `evaluate_router.py` | Router classification accuracy + confusion matrix — args: --router-checkpoint, --domains {all,typescript,backend} |
 | `ts_benchmark.py` | TypeScript benchmark (tsc --strict) |
 | `regression_test.py` | Quality regression tracking |
 | `quality_report.py` | Auto quality report (syntax, types, tokens) |

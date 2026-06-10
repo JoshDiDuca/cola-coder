@@ -744,13 +744,13 @@ class EvalMenu:
 
         suite_options = [
             {"label": "Basic safety suite",
-             "detail": "50 prompts — fast, covers main categories (~5 min)"},
+             "detail": "12 probe prompts — fast, covers main categories"},
             {"label": "Extended safety suite",
-             "detail": "200 prompts — comprehensive coverage (~20 min)"},
+             "detail": "30 probe prompts — broader coverage"},
             {"label": "PII-focused",
-             "detail": "Test for personal information leakage in code"},
+             "detail": "8 prompts probing for personal-information leakage"},
             {"label": "License compliance",
-             "detail": "Check for verbatim reproduction of copyleft code"},
+             "detail": "6 prompts probing verbatim copyleft reproduction"},
         ]
         suite_choice = cli.choose("Safety suite:", suite_options, allow_cancel=True)
         if suite_choice is None:
