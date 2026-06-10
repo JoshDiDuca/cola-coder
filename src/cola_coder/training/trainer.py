@@ -30,7 +30,7 @@ from tqdm import tqdm
 
 from ..cli import cli
 from ..model.config import Config
-from ..model.transformer import Transformer
+from ..model.transformer import Transformer, language_modeling_loss
 from ..data.dataset import create_dataloader
 from .checkpoint import save_checkpoint, load_checkpoint
 from .metrics import TrainingMetrics
@@ -284,17 +284,20 @@ class Trainer:
                 weights = batch.get("weights")
 
                 try:
-                    # Forward pass with mixed precision
+                    # Forward pass with mixed precision.
+                    # Call the model directly (not .compute_loss) so the
+                    # torch.compile-d graph is actually used — OptimizedModule
+                    # only compiles __call__; method calls run uncompiled.
                     with autocast(
                         device_type=self.device,
                         dtype=amp_dtype,
                         enabled=use_amp,
                     ):
-                        loss = self.model.compute_loss(input_ids)
+                        logits = self.model(input_ids)
 
                         if weights is not None:
                             weights = weights.to(self.device, non_blocking=True)
-                            loss = loss * weights.mean()
+                        loss = language_modeling_loss(logits, input_ids, weights)
 
                         scaled_loss = loss * inv_accum
 
@@ -323,12 +326,19 @@ class Trainer:
             self.scaler.unscale_(self.optimizer)
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), cfg.grad_clip)
 
-            # Optimizer step (update weights)
+            # Optimizer step (update weights).
+            # fp16 only: GradScaler skips the optimizer step when it finds
+            # inf/NaN gradients (and shrinks its scale). The LR schedule must
+            # not advance on skipped steps, or fp16 runs drift ahead of the
+            # cosine schedule relative to actual weight updates.
+            scale_before = self.scaler.get_scale()
             self.scaler.step(self.optimizer)
             self.scaler.update()
+            step_skipped = self.scaler.get_scale() < scale_before
 
             # Learning rate schedule step
-            self.scheduler.step()
+            if not step_skipped:
+                self.scheduler.step()
 
             # Track metrics
             avg_loss = step_loss * inv_accum
@@ -441,8 +451,13 @@ class Trainer:
             if self._step_callback is not None:
                 self._step_callback(step, avg_loss)
 
-        # Final checkpoint (skip if no steps actually ran, e.g. resumed at max_steps)
-        if step > self.start_step or self.start_step == 0:
+        # Final checkpoint (skip if no steps actually ran, e.g. resumed at
+        # max_steps). Compare max_steps to start_step rather than the loop
+        # variable: when resuming with exactly one step remaining, the loop
+        # runs once with step == start_step, so `step > start_step` would
+        # wrongly skip the save (and `step` alone can't distinguish "ran one
+        # step" from "ran zero steps").
+        if cfg.max_steps > self.start_step:
             loss_history[f"step_{cfg.max_steps}"] = round(avg_loss, 4)
             epochs = (
                 total_tokens_seen / total_data_tokens
@@ -459,6 +474,7 @@ class Trainer:
                 output_dir=self.config.checkpoint.output_dir,
                 max_checkpoints=self.config.checkpoint.max_checkpoints,
                 data_path=data_path,
+                tokenizer_path=tokenizer_path,
                 manifest_info={
                     "model_config": vars(self.config.model),
                     "training_config": vars(self.config.training),
@@ -502,7 +518,8 @@ class Trainer:
                     dtype=amp_dtype,
                     enabled=use_amp,
                 ):
-                    loss = self.model.compute_loss(input_ids)
+                    logits = self.model(input_ids)
+                    loss = language_modeling_loss(logits, input_ids)
                 total_loss += loss.item()
                 num_batches += 1
 

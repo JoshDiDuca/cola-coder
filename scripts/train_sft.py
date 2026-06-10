@@ -26,7 +26,7 @@ import sys
 from pathlib import Path
 
 import torch
-from torch.amp import autocast
+from torch.amp import GradScaler, autocast
 from torch.utils.data import DataLoader
 
 from cola_coder.cli import cli
@@ -36,6 +36,7 @@ from cola_coder.model.transformer import Transformer
 from cola_coder.tokenizer.chat_template import add_chat_tokens
 from cola_coder.tokenizer.tokenizer_utils import CodeTokenizer
 from cola_coder.training.checkpoint import load_model_only, save_checkpoint
+from cola_coder.training.optimizer import create_optimizer
 
 
 def main() -> None:
@@ -98,6 +99,15 @@ def main() -> None:
         type=float,
         default=0.1,
         help="Fraction of steps used for LR warmup (default: 0.1).",
+    )
+    parser.add_argument(
+        "--weight-decay",
+        type=float,
+        default=0.01,
+        help=(
+            "Weight decay (default: 0.01 — standard SFT value, lower than "
+            "pretraining to limit drift from the base model)."
+        ),
     )
     parser.add_argument(
         "--max-seq-len",
@@ -210,11 +220,12 @@ def main() -> None:
     # ---- Step 4: Optimizer & scheduler ----
     cli.step(4, 5, "Setting up optimizer and scheduler")
 
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=args.lr,
-        betas=(0.9, 0.95),
-        weight_decay=0.01,
+    # Shared optimizer factory: biases and norm weights are excluded from
+    # weight decay, same as pretraining.
+    optimizer = create_optimizer(
+        model,
+        learning_rate=args.lr,
+        weight_decay=args.weight_decay,
     )
 
     effective_batch = args.batch_size * args.gradient_accumulation
@@ -223,8 +234,10 @@ def main() -> None:
     warmup_steps = int(total_steps * args.warmup_ratio)
 
     def lr_lambda(current_step: int) -> float:
+        # (current_step + 1): step/warmup would return 0 at step 0,
+        # wasting the first optimizer update at LR=0.
         if current_step < warmup_steps:
-            return current_step / max(warmup_steps, 1)
+            return (current_step + 1) / max(warmup_steps, 1)
         progress = (current_step - warmup_steps) / max(
             total_steps - warmup_steps, 1
         )
@@ -274,8 +287,17 @@ def main() -> None:
     # ---- Step 5: Training loop ----
     cli.step(5, 5, "Training")
 
-    use_bf16 = device == "cuda"
-    amp_dtype = torch.bfloat16
+    # Precision from config — bf16 (RTX 4080+, no scaler), fp16 (RTX 3080,
+    # needs GradScaler against underflow), or full fp32 on CPU. Previously
+    # hardcoded to bf16, which silently ignored `precision: fp16` configs.
+    precision = getattr(config.training, "precision", "bf16")
+    use_bf16 = device == "cuda" and precision == "bf16"
+    use_fp16 = device == "cuda" and precision == "fp16"
+    use_amp = use_bf16 or use_fp16
+    amp_dtype = torch.bfloat16 if use_bf16 else torch.float16
+    scaler = GradScaler("cuda", enabled=use_fp16)
+    grad_clip = getattr(config.training, "grad_clip", 1.0)
+    cli.info("Precision", precision if device == "cuda" else "fp32 (CPU)")
     loss_fn = torch.nn.CrossEntropyLoss(ignore_index=-100)
 
     model.train()
@@ -298,7 +320,7 @@ def main() -> None:
                     with autocast(
                         device_type=device,
                         dtype=amp_dtype,
-                        enabled=use_bf16,
+                        enabled=use_amp,
                     ):
                         # Forward pass: get logits from model
                         logits = model(input_ids)
@@ -314,7 +336,7 @@ def main() -> None:
                         )
                         scaled_loss = loss / args.gradient_accumulation
 
-                    scaled_loss.backward()
+                    scaler.scale(scaled_loss).backward()
 
                 except RuntimeError as e:
                     if "out of memory" in str(e).lower():
@@ -333,11 +355,17 @@ def main() -> None:
                 if (batch_idx + 1) % args.gradient_accumulation == 0 or (
                     batch_idx + 1
                 ) == len(dataloader):
+                    scaler.unscale_(optimizer)
                     torch.nn.utils.clip_grad_norm_(
-                        model.parameters(), max_norm=1.0
+                        model.parameters(), max_norm=grad_clip
                     )
-                    optimizer.step()
-                    scheduler.step()
+                    # fp16 only: don't advance the LR schedule when the
+                    # GradScaler skips the optimizer step on inf/NaN grads.
+                    scale_before = scaler.get_scale()
+                    scaler.step(optimizer)
+                    scaler.update()
+                    if scaler.get_scale() >= scale_before:
+                        scheduler.step()
                     optimizer.zero_grad(set_to_none=True)
                     global_step += 1
 

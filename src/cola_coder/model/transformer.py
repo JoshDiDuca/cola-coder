@@ -18,12 +18,61 @@ trainable. Without them, gradients would vanish in early layers.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.utils.checkpoint
 
 from .attention import GroupedQueryAttention
 from .config import ModelConfig
 from .feedforward import SwiGLUFFN
 from .normalization import RMSNorm
-from .rope import precompute_rope_freqs
+from .rope import get_rope_freqs
+
+
+def language_modeling_loss(
+    logits: torch.Tensor,
+    token_ids: torch.Tensor,
+    sample_weights: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Next-token cross-entropy loss over a batch of sequences.
+
+    Free function (not a method) so the trainer can compute logits through a
+    torch.compile-d model call and apply the loss outside the compiled graph:
+    OptimizedModule only compiles __call__/forward — calling a method like
+    model.compute_loss() on a compiled model silently runs the original,
+    uncompiled module.
+
+    Args:
+        logits: Model output, shape (batch, seq_len, vocab_size).
+        token_ids: Input tokens, shape (batch, seq_len). Targets are derived
+            by shifting: logits[:, i] predicts token_ids[:, i + 1].
+        sample_weights: Optional per-sample quality weights, shape (batch,).
+            When provided, each sequence's loss contributes proportionally to
+            its weight (weighted mean), so high-quality samples influence the
+            gradient more than low-quality ones WITHIN the same batch.
+
+    Returns:
+        Scalar loss value.
+    """
+    shift_logits = logits[:, :-1, :].contiguous()
+    shift_labels = token_ids[:, 1:].contiguous()
+
+    if sample_weights is None:
+        return F.cross_entropy(
+            shift_logits.view(-1, shift_logits.size(-1)),
+            shift_labels.view(-1),
+        )
+
+    # Per-sample weighting: compute per-token loss, average per sequence,
+    # then take the weighted mean across the batch. A plain
+    # `mean_loss * weights.mean()` would only rescale the whole batch —
+    # it could not differentiate samples within it.
+    per_token = F.cross_entropy(
+        shift_logits.view(-1, shift_logits.size(-1)),
+        shift_labels.view(-1),
+        reduction="none",
+    ).view(shift_labels.shape)  # (batch, seq_len - 1)
+    per_sample = per_token.mean(dim=1)  # (batch,)
+    weights = sample_weights.to(per_sample.dtype)
+    return (per_sample * weights).sum() / weights.sum().clamp_min(1e-8)
 
 
 class TransformerBlock(nn.Module):
@@ -127,11 +176,31 @@ class Transformer(nn.Module):
         # cases where data chunks are larger than the model's configured
         # max_seq_len (the model will still only see max_seq_len at a time,
         # but having extra frequencies avoids index-out-of-range crashes).
-        rope_freqs = precompute_rope_freqs(
+        #
+        # theta and rope_scaling come from the config: theta controls the
+        # base wavelength (500K for long-context configs like 4080_max),
+        # and rope_scaling (YaRN/NTK/linear) extends a trained model's
+        # context window (Stage 4). With scaling, the freq table covers the
+        # extended length (max_seq_len * factor).
+        scaling = getattr(config, "rope_scaling", None)
+        scaling_type = getattr(scaling, "type", "none") if scaling is not None else "none"
+        scaling_factor = getattr(scaling, "factor", 1.0) if scaling is not None else 1.0
+        if scaling_type == "none" or scaling_factor <= 1.0:
+            scaling_type, scaling_factor = "none", 1.0
+        rope_len = int(config.max_seq_len * max(scaling_factor, 1.0))
+        rope_freqs = get_rope_freqs(
             dim=config.head_dim,
-            max_seq_len=config.max_seq_len * 2,
+            max_seq_len=rope_len * 2,
+            theta=getattr(config, "rope_theta", 10000.0),
+            scaling_type=scaling_type,
+            scaling_factor=scaling_factor,
+            original_max_seq_len=config.max_seq_len,
         )
         self.register_buffer("rope_freqs", rope_freqs, persistent=False)
+
+        # Gradient checkpointing flag — read in forward(); set via
+        # enable_gradient_checkpointing()
+        self.gradient_checkpointing = False
 
         # Precompute causal mask
         # This is a matrix of -inf values above the diagonal, 0 on and below
@@ -193,14 +262,30 @@ class Transformer(nn.Module):
             mask = None
 
         # Step 3: Pass through all transformer blocks
+        # With gradient checkpointing (training only — recomputation is
+        # incompatible with the KV-cache), activations inside each block are
+        # discarded after the forward pass and recomputed during backward,
+        # cutting activation VRAM by ~60% at ~30% extra compute.
+        use_ckpt = self.gradient_checkpointing and self.training and not use_cache
         for block in self.blocks:
-            h = block(
-                h,
-                rope_freqs=self.rope_freqs,
-                start_pos=start_pos,
-                use_cache=use_cache,
-                mask=mask,
-            )
+            if use_ckpt:
+                h = torch.utils.checkpoint.checkpoint(
+                    block,
+                    h,
+                    self.rope_freqs,
+                    start_pos,
+                    use_cache,
+                    mask,
+                    use_reentrant=False,
+                )
+            else:
+                h = block(
+                    h,
+                    rope_freqs=self.rope_freqs,
+                    start_pos=start_pos,
+                    use_cache=use_cache,
+                    mask=mask,
+                )
 
         # Step 4: Final normalization
         h = self.final_norm(h)
@@ -213,6 +298,7 @@ class Transformer(nn.Module):
     def compute_loss(
         self,
         token_ids: torch.Tensor,
+        sample_weights: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute cross-entropy loss for language modeling.
 
@@ -221,26 +307,20 @@ class Transformer(nn.Module):
 
         Args:
             token_ids: Shape (batch_size, seq_len). The training sequence.
+            sample_weights: Optional per-sample quality weights, shape
+                (batch_size,). When provided, each sequence's loss contributes
+                proportionally to its weight (weighted mean), so high-quality
+                samples influence the gradient more than low-quality ones
+                WITHIN the same batch.
 
         Returns:
             Scalar loss value. Lower = better predictions.
+
+        Note: when the model is wrapped by torch.compile, prefer calling the
+        model directly for logits and applying language_modeling_loss() — this
+        method on a compiled model runs the original, uncompiled module.
         """
-        # Get logits for all positions
-        logits = self.forward(token_ids)
-
-        # Shift: logits[:-1] predicts token_ids[1:]
-        # "Given everything up to position i, predict position i+1"
-        shift_logits = logits[:, :-1, :].contiguous()
-        shift_labels = token_ids[:, 1:].contiguous()
-
-        # Cross-entropy loss
-        # Reshaping to (batch * seq_len, vocab_size) and (batch * seq_len,)
-        # because F.cross_entropy expects 2D logits and 1D targets
-        loss = F.cross_entropy(
-            shift_logits.view(-1, shift_logits.size(-1)),
-            shift_labels.view(-1),
-        )
-        return loss
+        return language_modeling_loss(self.forward(token_ids), token_ids, sample_weights)
 
     def clear_caches(self):
         """Clear all KV-caches (call between generation requests)."""

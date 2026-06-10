@@ -412,12 +412,14 @@ def create_app(
                     torch.cuda.memory_allocated(0) / (1024**3), 2
                 )
                 vram_total_gb = round(
-                    torch.cuda.get_device_properties(0).total_mem
+                    torch.cuda.get_device_properties(0).total_memory
                     / (1024**3),
                     2,
                 )
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError) as e:
+            # Narrow except: a bare `except Exception: pass` here hid a
+            # .total_mem typo for months, leaving vram_total_gb always null.
+            logger.debug("GPU stats unavailable for /health: %s", e)
 
         return HealthResponse(
             status="ok",

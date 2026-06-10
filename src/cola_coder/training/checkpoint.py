@@ -22,6 +22,8 @@ from typing import Any
 import torch
 from safetensors.torch import save_file, load_file
 
+from ..manifest import write_training_manifest
+
 
 def _maybe_resize_vocab(model: torch.nn.Module, state_dict: dict) -> None:
     """Resize model embeddings to match checkpoint vocab size.
@@ -52,6 +54,30 @@ def _maybe_resize_vocab(model: torch.nn.Module, state_dict: dict) -> None:
     inner.config.vocab_size = ckpt_vocab
 
 
+def _load_state_dict_tied(model: torch.nn.Module, state_dict: dict) -> None:
+    """load_state_dict with strict validation, allowing only the tied output head.
+
+    Checkpoints intentionally omit ``output.weight`` (it shares its tensor
+    with ``tok_emb.weight``), so plain ``strict=True`` would always fail.
+    But a blanket ``strict=False`` silently ignores EVERY mismatch — a
+    renamed or corrupted key would leave parts of the model randomly
+    initialized with no error. This helper accepts exactly the expected
+    missing key and raises on anything else.
+    """
+    result = model.load_state_dict(state_dict, strict=False)
+
+    allowed_missing = {"output.weight", "_orig_mod.output.weight"}
+    unexpected_missing = [k for k in result.missing_keys if k not in allowed_missing]
+    if unexpected_missing or result.unexpected_keys:
+        raise RuntimeError(
+            f"Checkpoint does not match model architecture.\n"
+            f"  Missing from checkpoint: {unexpected_missing}\n"
+            f"  Unexpected in checkpoint: {list(result.unexpected_keys)}\n"
+            f"  Use the config that matches this checkpoint, or pick a "
+            f"compatible checkpoint directory."
+        )
+
+
 class _ConfigEncoder(json.JSONEncoder):
     """JSON encoder that handles dataclass objects and other non-serializable types."""
 
@@ -61,8 +87,6 @@ class _ConfigEncoder(json.JSONEncoder):
         if isinstance(o, Path):
             return str(o)
         return super().default(o)
-
-from ..manifest import write_training_manifest
 
 
 def save_checkpoint(
@@ -253,7 +277,7 @@ def load_checkpoint(
     if hasattr(model, "_orig_mod"):
         state_dict = {f"_orig_mod.{k}": v for k, v in state_dict.items()}
 
-    model.load_state_dict(state_dict, strict=False)
+    _load_state_dict_tied(model, state_dict)
 
     step = 0
 
@@ -310,13 +334,13 @@ def load_model_only(
     if ckpt_dir.name == "latest" and ckpt_dir.is_file():
         ckpt_dir = Path(ckpt_dir.read_text().strip())
 
-    # strict=False because output.weight is tied to tok_emb.weight and not saved separately
     state_dict = load_file(str(ckpt_dir / "model.safetensors"), device=device)
     # Expand embeddings if checkpoint vocab differs (e.g. thinking tokens added in reasoning stage)
     _maybe_resize_vocab(model, state_dict)
     if hasattr(model, "_orig_mod"):
         state_dict = {f"_orig_mod.{k}": v for k, v in state_dict.items()}
-    model.load_state_dict(state_dict, strict=False)
+    # Validated load — only the tied output.weight may be absent
+    _load_state_dict_tied(model, state_dict)
     model.eval()  # Set to evaluation mode (disables dropout)
     return model
 
@@ -384,39 +408,31 @@ def detect_latest_checkpoint(
     best_info: dict = {}
     best_step: int = -1
 
-    # First pass: scan for "latest" pointer files
-    found_latest = False
+    # Per the project checkpoint rules: resolve by scanning step_* dirs
+    # directly — the "latest" pointer file can go stale (e.g. training
+    # restarted from scratch in a dir whose old high-step checkpoints were
+    # pruned). The pointer is only consulted when a size dir has no step_*
+    # dirs at all.
     for size_dir in base.iterdir():
         if not size_dir.is_dir():
             continue
-        latest_file = size_dir / "latest"
-        if latest_file.is_file():
-            found_latest = True
-            info = get_checkpoint_info(str(latest_file))
-            if info and _matches_arch(info) and info.get("step", -1) > best_step:
-                best_step = info["step"]
-                best_path = info["checkpoint_dir"]
-                best_info = info
 
-    if found_latest:
-        return (best_path, best_info) if best_path is not None else None
-
-    # Fallback: scan for step_* dirs directly if no "latest" files exist
-    for size_dir in base.iterdir():
-        if not size_dir.is_dir():
-            continue
         step_dirs = sorted(
-            size_dir.glob("step_*"),
+            (d for d in size_dir.glob("step_*") if d.is_dir()),
             key=lambda d: int(d.name.split("_")[1]),
         )
-        if not step_dirs:
-            continue
-        # Take the highest step dir for this size
-        highest = step_dirs[-1]
-        info = get_checkpoint_info(str(highest))
+        if step_dirs:
+            candidate = str(step_dirs[-1])
+        else:
+            latest_file = size_dir / "latest"
+            if not latest_file.is_file():
+                continue
+            candidate = str(latest_file)
+
+        info = get_checkpoint_info(candidate)
         if info and _matches_arch(info) and info.get("step", -1) > best_step:
             best_step = info["step"]
-            best_path = str(highest)
+            best_path = info.get("checkpoint_dir", candidate)
             best_info = info
 
     return (best_path, best_info) if best_path is not None else None

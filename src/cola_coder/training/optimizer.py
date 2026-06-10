@@ -42,6 +42,9 @@ def create_optimizer(
     This is a common pattern in transformer training that prevents
     regularization from interfering with normalization layers.
 
+    The token embedding (tok_emb.weight, tied to the output head) IS decayed,
+    following the GPT-2/nanoGPT convention of decaying all 2D matmul weights.
+
     Args:
         model: The transformer model.
         learning_rate: Peak learning rate.
@@ -60,7 +63,7 @@ def create_optimizer(
     for name, param in model.named_parameters():
         if not param.requires_grad:
             continue
-        # Don't decay 1D params (biases, norm weights) or embedding
+        # Don't decay 1D params (biases, norm weights)
         if param.dim() <= 1 or "norm" in name:
             no_decay_params.append(param)
         else:
@@ -121,9 +124,12 @@ def create_scheduler(
 
     def lr_lambda(step: int) -> float:
         """Compute the LR multiplier for a given step."""
-        # Phase 1: Linear warmup
+        # Phase 1: Linear warmup.
+        # (step + 1) so the very first optimizer step uses a small nonzero
+        # LR — step/warmup would return 0 at step 0, wasting the first
+        # update entirely.
         if step < warmup_steps:
-            return step / max(1, warmup_steps)
+            return (step + 1) / max(1, warmup_steps)
 
         # Phase 2: Cosine decay
         progress = (step - warmup_steps) / max(1, max_steps - warmup_steps)

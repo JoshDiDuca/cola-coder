@@ -145,6 +145,106 @@ class TestTransformerInference:
         assert isinstance(num_params, int)
 
 
+class TestRoPEWiring:
+    """Verify config.rope_theta and rope_scaling actually reach the model.
+
+    Regression tests: previously the model always built its RoPE table with
+    the default theta=10000 and ignored rope_scaling entirely, silently
+    breaking long-context configs (4080_max theta=500K) and Stage 4 YaRN.
+    """
+
+    def test_rope_theta_reaches_model(self):
+        from cola_coder.model.rope import get_rope_freqs
+
+        config = make_tiny_config()
+        config.rope_theta = 500000.0
+        model = Transformer(config)
+
+        expected = get_rope_freqs(
+            dim=config.head_dim,
+            max_seq_len=config.max_seq_len * 2,
+            theta=500000.0,
+        )
+        torch.testing.assert_close(model.rope_freqs, expected)
+
+    def test_different_theta_produces_different_freqs(self):
+        config_a = make_tiny_config()
+        config_b = make_tiny_config()
+        config_b.rope_theta = 500000.0
+        freqs_a = Transformer(config_a).rope_freqs
+        freqs_b = Transformer(config_b).rope_freqs
+        assert not torch.allclose(freqs_a, freqs_b)
+
+    def test_yarn_scaling_extends_freq_table(self):
+        from cola_coder.model.config import RoPEScalingConfig
+
+        config = make_tiny_config()
+        config.rope_scaling = RoPEScalingConfig(type="yarn", factor=2.0)
+        model = Transformer(config)
+        # Table must cover the extended context (factor x) plus the 2x buffer
+        assert model.rope_freqs.shape[0] == config.max_seq_len * 2 * 2
+
+    def test_scaling_none_or_factor_1_is_identity(self):
+        from cola_coder.model.config import RoPEScalingConfig
+
+        base = Transformer(make_tiny_config()).rope_freqs
+        config = make_tiny_config()
+        config.rope_scaling = RoPEScalingConfig(type="yarn", factor=1.0)
+        scaled = Transformer(config).rope_freqs
+        torch.testing.assert_close(base, scaled)
+
+
+class TestGradientCheckpointing:
+    """Verify gradient checkpointing actually runs and matches plain backprop.
+
+    Regression tests: previously enable_gradient_checkpointing() set a flag
+    that nothing read — the forward pass never recomputed activations, so the
+    documented ~60% VRAM saving (REQUIRED for 4080_max) silently never
+    happened.
+    """
+
+    def _models(self):
+        torch.manual_seed(0)
+        config = make_tiny_config()
+        plain = Transformer(config)
+        ckpt = Transformer(config)
+        ckpt.load_state_dict(plain.state_dict())
+        ckpt.enable_gradient_checkpointing()
+        return plain, ckpt
+
+    def test_loss_identical(self):
+        plain, ckpt = self._models()
+        plain.train(), ckpt.train()
+        token_ids = torch.randint(0, 256, (2, 32))
+        torch.testing.assert_close(
+            plain.compute_loss(token_ids), ckpt.compute_loss(token_ids),
+        )
+
+    def test_gradients_identical(self):
+        plain, ckpt = self._models()
+        plain.train(), ckpt.train()
+        token_ids = torch.randint(0, 256, (2, 32))
+        plain.compute_loss(token_ids).backward()
+        ckpt.compute_loss(token_ids).backward()
+        for (name, p_plain), (_, p_ckpt) in zip(
+            plain.named_parameters(), ckpt.named_parameters()
+        ):
+            assert p_ckpt.grad is not None, f"No gradient for {name} with checkpointing"
+            torch.testing.assert_close(
+                p_plain.grad, p_ckpt.grad, rtol=1e-5, atol=1e-6,
+                msg=lambda m: f"Gradient mismatch for {name}: {m}",
+            )
+
+    def test_kv_cache_inference_bypasses_checkpointing(self):
+        _, ckpt = self._models()
+        ckpt.eval()
+        token_ids = torch.randint(0, 256, (1, 8))
+        with torch.no_grad():
+            logits = ckpt(token_ids, start_pos=0, use_cache=True)
+        ckpt.clear_caches()
+        assert logits.shape == (1, 8, 256)
+
+
 class TestModelConfig:
     """Verify configuration loading and validation."""
 
