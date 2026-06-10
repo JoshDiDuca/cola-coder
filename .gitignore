@@ -240,3 +240,5 @@ CLAUDE.md
 
 pipeline_runs
 logs
+# Machine-generated hardware-tuned configs (Full Auto Pipeline)
+configs/auto/

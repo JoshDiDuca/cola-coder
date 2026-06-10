@@ -97,6 +97,10 @@ def main() -> int:
     cmd = [str(venv_python), "scripts/full_pipeline.py", "--config", str(auto_config)]
     if args.stages:
         cmd.extend(["--stages", args.stages])
+    elif args.smoke:
+        # Smoke skips GRPO reasoning (stage 9) as well as the optional
+        # stages — far too slow for a wiring check (matches the menu path).
+        cmd.extend(["--stages", "1,2,3,5,6,8,10"])
     else:
         cmd.append("--skip-optional")
     if args.dry_run:
