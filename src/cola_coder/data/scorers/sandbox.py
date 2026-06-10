@@ -135,6 +135,8 @@ class SandboxedRunner:
         capture_output: bool = True,
         label: str = "",
         file_hash: str = "",
+        env: dict[str, str] | None = None,
+        timeout: int | None = None,
     ) -> subprocess.CompletedProcess[str]:
         """Run a command in the sandbox.
 
@@ -144,6 +146,10 @@ class SandboxedRunner:
             capture_output: Capture stdout/stderr.
             label: Scorer name for audit logging.
             file_hash: File content hash for audit logging.
+            env: Restricted environment for native mode (Docker mode already
+                isolates the environment inside the container).
+            timeout: Per-call timeout override in seconds (defaults to the
+                runner's configured timeout).
 
         Returns:
             CompletedProcess with stdout/stderr.
@@ -151,7 +157,7 @@ class SandboxedRunner:
         import time
 
         start = time.perf_counter()
-        result = self._do_run(cmd, cwd, capture_output)
+        result = self._do_run(cmd, cwd, capture_output, env=env, timeout=timeout)
         duration_ms = (time.perf_counter() - start) * 1000
 
         if hasattr(self, '_audit_logger') and self._audit_logger:
@@ -173,17 +179,22 @@ class SandboxedRunner:
         cmd: list[str],
         cwd: str | Path,
         capture_output: bool = True,
+        env: dict[str, str] | None = None,
+        timeout: int | None = None,
     ) -> subprocess.CompletedProcess[str]:
         """Internal run dispatcher."""
         cwd = str(Path(cwd).resolve())
         self._total_runs += 1
+        effective_timeout = timeout if timeout is not None else self.timeout
 
         if self.use_docker:
             self._docker_runs += 1
-            result = self._run_docker(cmd, cwd, capture_output)
+            result = self._run_docker(cmd, cwd, capture_output, timeout=effective_timeout)
         else:
             self._native_runs += 1
-            result = self._run_native(cmd, cwd, capture_output)
+            result = self._run_native(
+                cmd, cwd, capture_output, env=env, timeout=effective_timeout,
+            )
 
         if result.returncode < 0:
             self._errors += 1
@@ -195,17 +206,22 @@ class SandboxedRunner:
         cmd: list[str],
         cwd: str,
         capture_output: bool,
+        env: dict[str, str] | None = None,
+        timeout: int | None = None,
     ) -> subprocess.CompletedProcess[str]:
         """Run with timeout and isolated working directory."""
+        effective_timeout = timeout if timeout is not None else self.timeout
         try:
             kwargs: dict[str, Any] = {
                 "cwd": cwd,
                 "capture_output": capture_output,
                 "text": True,
-                "timeout": self.timeout,
+                "timeout": effective_timeout,
                 # No shell=True -- prevents injection
                 # Isolated cwd -- no access to parent dirs
             }
+            if env is not None:
+                kwargs["env"] = env
             if sys.platform == "win32":
                 kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
 
@@ -215,7 +231,7 @@ class SandboxedRunner:
                 _kill_process_tree(cmd[0] if cmd else "")
             return subprocess.CompletedProcess(
                 args=cmd, returncode=-1,
-                stdout="", stderr=f"Timeout after {self.timeout}s",
+                stdout="", stderr=f"Timeout after {effective_timeout}s",
             )
         except FileNotFoundError:
             return subprocess.CompletedProcess(
@@ -228,8 +244,10 @@ class SandboxedRunner:
         cmd: list[str],
         cwd: str,
         capture_output: bool,
+        timeout: int | None = None,
     ) -> subprocess.CompletedProcess[str]:
         """Run inside a Docker container with no network and memory limits."""
+        effective_timeout = timeout if timeout is not None else self.timeout
         # Get docker config if available
         docker_cfg = None
         if hasattr(self, '_config'):
@@ -255,7 +273,7 @@ class SandboxedRunner:
             kwargs: dict[str, Any] = {
                 "capture_output": capture_output,
                 "text": True,
-                "timeout": self.timeout + 10,  # Extra time for Docker overhead
+                "timeout": effective_timeout + 10,  # Extra time for Docker overhead
             }
             if sys.platform == "win32":
                 kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
@@ -266,7 +284,7 @@ class SandboxedRunner:
                 _kill_process_tree("docker")
             return subprocess.CompletedProcess(
                 args=cmd, returncode=-1,
-                stdout="", stderr=f"Docker timeout after {self.timeout + 10}s",
+                stdout="", stderr=f"Docker timeout after {effective_timeout + 10}s",
             )
         except FileNotFoundError:
             return subprocess.CompletedProcess(
