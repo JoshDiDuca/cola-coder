@@ -23,6 +23,7 @@ dependencies = [
 dev = ["pytest>=7.0", "ruff>=0.2.0"]
 logging = ["wandb>=0.16.0"]
 scraping = ["requests>=2.31.0", "beautifulsoup4>=4.12.0"]
+dedup = ["datasketch>=1.6.0"]  # MinHash near-duplicate dedup (prepare_data --dedup minhash)
 
 [tool.setuptools.packages.find]
 where = ["src"]

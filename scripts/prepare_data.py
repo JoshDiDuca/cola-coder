@@ -211,14 +211,22 @@ def main():
     )
     parser.add_argument(
         "--dedup",
-        choices=["none", "exact"],
+        choices=["none", "exact", "minhash"],
         default="exact",
-        help="Exact (SHA-256) deduplication of tokenized chunks, applied after "
-             "tokenization and before scoring. 'exact' (default) removes "
-             "byte-identical chunks — raw code corpora are typically 25-40%% "
-             "duplicates, which waste training compute. 'none' disables it. For "
-             "cross-dataset near-duplicate (MinHash) dedup, use "
-             "scripts/combine_datasets.py.",
+        help="Deduplication of tokenized chunks, applied after tokenization and "
+             "before scoring. 'exact' (default) removes byte-identical chunks via "
+             "SHA-256. 'minhash' additionally removes NEAR-duplicates (Jaccard "
+             ">= --dedup-threshold) — code corpora are typically 25-40%% exact "
+             "plus 20-30%% near-duplicates, all wasted training compute. "
+             "'minhash' needs the 'datasketch' package (pip install -e '.[dedup]'); "
+             "without it, it falls back to exact with a warning. 'none' disables.",
+    )
+    parser.add_argument(
+        "--dedup-threshold",
+        type=float,
+        default=0.8,
+        help="Jaccard similarity threshold for --dedup minhash (default: 0.8). "
+             "Higher = stricter (only very similar chunks removed).",
     )
     parser.add_argument(
         "--no-dedup",
@@ -402,33 +410,34 @@ def main():
     except Exception as e:
         cli.fatal(f"Error processing data: {e}")
 
-    # ---- Deduplication (exact, on tokenized chunks) ----
+    # ---- Deduplication (on tokenized chunks) ----
     # Runs BEFORE scoring so the .weights.npy aligns with the deduped data and
     # we don't waste time scoring chunks that are about to be dropped.
     dedup_mode = "none" if args.no_dedup else args.dedup
     if dedup_mode != "none":
         cli.rule("Deduplication")
         try:
-            from cola_coder.data.dedup import ExactDeduplicator
+            from cola_coder.data.dedup import _HAS_DATASKETCH, dedup_npy_file
 
-            # mmap: the deduplicator hashes row-by-row and only materializes the
-            # kept rows, so we never hold the full dataset in RAM twice.
-            data = np.load(output_file, mmap_mode="r")
-            before = len(data)
-            deduped, removed = ExactDeduplicator().deduplicate_array(data)
-            if removed > 0:
-                # Atomic re-save: write a temp file then replace the original.
-                tmp = Path(output_file).with_suffix(".dedup_tmp.npy")
-                np.save(tmp, deduped)
-                os.replace(tmp, output_file)
+            if dedup_mode == "minhash" and not _HAS_DATASKETCH:
+                cli.warn(
+                    "--dedup minhash requested but 'datasketch' is not installed "
+                    "— falling back to EXACT dedup (near-dups will pass through). "
+                    "Install it: pip install -e '.[dedup]'"
+                )
+
+            result = dedup_npy_file(
+                output_file, mode=dedup_mode, threshold=args.dedup_threshold
+            )
             cli.kv_table({
-                "Mode": "exact (SHA-256)",
-                "Before": f"{before:,} chunks",
-                "After": f"{len(deduped):,} chunks",
-                "Removed": f"{removed:,} ({removed / max(before, 1) * 100:.1f}%)",
+                "Mode": result.mode,
+                "Before": f"{result.before:,} chunks",
+                "After": f"{result.after:,} chunks",
+                "Removed": f"{result.removed:,} "
+                           f"({result.removed / max(result.before, 1) * 100:.1f}%)",
             }, title="Deduplication")
-            if removed > 0:
-                cli.success(f"Removed {removed:,} exact-duplicate chunks")
+            if result.removed > 0:
+                cli.success(f"Removed {result.removed:,} duplicate chunks")
             else:
                 cli.info("Duplicates", "none found — data was already unique")
         except Exception as e:

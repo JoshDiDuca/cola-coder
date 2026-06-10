@@ -613,10 +613,20 @@ class DataMenu:
                 "Enables quality-weighted loss during training."
             )
 
-        # Deduplication (exact, on by default — raw code is 25-40% duplicates)
-        dedup = cli.confirm(
-            "Remove exact-duplicate chunks after tokenization?", default=True
+        # Deduplication (raw code is 25-40% exact + 20-30% near-duplicates)
+        dedup_choice = cli.choose(
+            "Deduplicate chunks after tokenization?",
+            [
+                {"label": "Exact (recommended)",
+                 "detail": "Remove byte-identical chunks (SHA-256, fast)"},
+                {"label": "Near-duplicate (MinHash)",
+                 "detail": "Also remove similar chunks; needs 'datasketch' (pip install -e '.[dedup]')"},
+                {"label": "None",
+                 "detail": "Keep all chunks, including exact duplicates"},
+            ],
+            allow_cancel=False,
         )
+        dedup_mode = ["exact", "minhash", "none"][dedup_choice or 0]
 
         # Step 6/7 — Performance
         cli.step(6, 7, "Performance settings")
@@ -687,8 +697,8 @@ class DataMenu:
             args.append("--filter-strict")
         if score:
             args.append("--score")
-        if not dedup:
-            args.append("--no-dedup")
+        if dedup_mode != "exact":  # exact is the script default
+            args += ["--dedup", dedup_mode]
         if workers:
             args += ["--workers", str(workers)]
         if batch_size:

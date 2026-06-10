@@ -30,12 +30,6 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 - **INFER-005** [inference, low] `open` — `generate_batch` doesn't accept/forward
   `min_p` (silently uses 0.0). `generator.py` ~471-508. API inconsistency.
 
-- **DATA-001** [data-quality, medium] `open` — within-file near-duplicate
-  (MinHash) dedup not available; only exact (within-file, just wired) and
-  cross-dataset MinHash (combine_datasets.py) exist. Near-dups (20-30% of code)
-  pass through prepare_data. Opportunity: self-MinHash in prepare_data --dedup
-  minhash.
-
 - **DATA-002** [data-quality, low] `open` — `MixedDataset` (data/dataset.py) is
   dead code — never constructed anywhere. Either integrate into the data path or
   remove. (mix_temperature config already removed.)
@@ -60,6 +54,22 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-004** [data-quality, high] `done` (2026-06-11) — DISCOVERED while
+  validating DATA-001: exact+minhash dedup SILENTLY NO-OP'd ON WINDOWS. The
+  cycle-1 mmap optimization (`np.load(output_file, mmap_mode="r")`) kept the
+  file locked, so `os.replace(tmp, output_file)` raised PermissionError that the
+  `except Exception` swallowed as "Deduplication failed. Keeping all chunks." —
+  on the user's primary platform. The cycle-1 smoke missed it by using a full
+  load, not mmap. Fix: extracted `dedup_npy_file()` in data/dedup.py that closes
+  the memmap handle BEFORE os.replace; prepare_data calls it. Tests:
+  test_dedup.py TestDedupNpyFile (real mmap+replace roundtrip on a temp file).
+- **DATA-001** [data-quality, medium] `done` (2026-06-11) — within-file
+  near-duplicate (MinHash) dedup wired: `CrossDatasetDeduplicator.
+  deduplicate_self_array` + `prepare_data --dedup minhash --dedup-threshold`,
+  menu 3-way choice, `[dedup]` extra (datasketch). Falls back to exact + loud
+  warning when datasketch absent. Validated real near-dup removal with
+  datasketch 1.10 installed (1-token-diff chunk dropped, distinct kept). Tests:
+  test_dedup.py TestSelfMinHashDedup + TestDedupNpyFile.
 - **DATA-003** [data-quality, high] `done` (2026-06-10) — `prepare_repo_context_data.py`
   silently fell back to `eos_id` for missing `<|repo|>/<|/repo|>/<|file|>/<|/file|>`
   tokens, emitting POISON training data (the entire repo/file structure became
