@@ -151,6 +151,22 @@ export async function activate(
     }),
   );
 
+  // React to runtime settings changes: serverUrl previously required a
+  // window reload to take effect (silently ignored otherwise).
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('cola-coder.serverUrl')) {
+        const updated = getConfig();
+        if (updated.mode === 'external') {
+          logger.info(`serverUrl changed → ${updated.serverUrl}`);
+          client.setBaseUrl(updated.serverUrl);
+          healthMonitor.setState('disconnected');
+          healthMonitor.start(); // immediate re-poll against the new URL
+        }
+      }
+    }),
+  );
+
   // ── Push disposables ────────────────────────────────────────────────
   context.subscriptions.push(
     healthMonitor,

@@ -33,6 +33,11 @@ from starlette.responses import StreamingResponse
 
 logger = logging.getLogger(__name__)
 
+# Sentinel returned by next(stream_iter, _STREAM_END) when a sync token
+# generator is exhausted — lets us pull blocking GPU steps through
+# asyncio.to_thread without catching StopIteration across threads.
+_STREAM_END = object()
+
 # ── Server start time (for uptime tracking) ──────────────────────────────────
 
 _SERVER_START_TIME: float = time.time()
@@ -176,7 +181,7 @@ class FimRequest(BaseModel):
     temperature: float = 0.2
     top_p: float = 0.9
     top_k: int = 50
-    language: str | None = None
+    language: str | None = None  # Metadata only — reserved for language-specific stops
     file_path: str | None = None
 
 
@@ -526,12 +531,17 @@ def create_app(
                 stop_tokens=request.stop,
             )
 
-            # The sync generator runs on the main thread via the lock;
-            # yield chunks through to_thread one token at a time.
+            # Each next() runs a full GPU decode step — pull it through
+            # to_thread so the event loop stays responsive (a bare
+            # `for chunk in stream_iter` would block /health and every
+            # other request for the duration of each token).
             prompt_text = prompt
             first_chunk = True
 
-            for chunk in stream_iter:
+            while True:
+                chunk = await asyncio.to_thread(next, stream_iter, _STREAM_END)
+                if chunk is _STREAM_END:
+                    break
                 # Check for client disconnect
                 if await raw_request.is_disconnected():
                     break
@@ -672,7 +682,10 @@ def create_app(
             prompt_text = prompt
             first_chunk = True
 
-            for chunk in stream_iter:
+            while True:
+                chunk = await asyncio.to_thread(next, stream_iter, _STREAM_END)
+                if chunk is _STREAM_END:
+                    break
                 if await raw_request.is_disconnected():
                     break
 
@@ -722,7 +735,7 @@ def create_app(
     # ══════════════════════════════════════════════════════════════════════
 
     @app.post("/v1/fim", response_model=FimResponse)
-    async def fim(request: FimRequest):
+    async def fim(request: FimRequest, raw_request: Request):
         """Fill-in-the-middle completion (cola-coder specific).
 
         Uses the FIM token format to generate code that fits between
@@ -755,6 +768,21 @@ def create_app(
         )
 
         async with _gen_lock:
+            # Inline completions are aborted on every keystroke; requests
+            # often queue behind the GPU lock and are already dead by the
+            # time it's their turn. Skip generation for those instead of
+            # burning a full decode on a response nobody will read.
+            if await raw_request.is_disconnected():
+                return FimResponse(
+                    id=_fim_id(),
+                    infill="",
+                    finish_reason="abort",
+                    usage=UsageStats(
+                        prompt_tokens=prompt_token_count,
+                        completion_tokens=0,
+                        total_tokens=prompt_token_count,
+                    ),
+                )
             result = await asyncio.to_thread(
                 base_gen.generate,
                 prompt=fim_prompt,
@@ -807,6 +835,13 @@ def create_app(
         try:
             context_str = generator.scanner.get_context_for_file(
                 request.file_path, max_tokens=request.max_tokens
+            )
+        except (FileNotFoundError, ValueError, KeyError) as exc:
+            # Bad input from the client (nonexistent/invalid path) is a 4xx,
+            # not a server error.
+            raise HTTPException(
+                status_code=404,
+                detail=f"No context for {request.file_path!r}: {exc}",
             )
         except Exception as exc:
             raise HTTPException(

@@ -13,6 +13,10 @@ export class ServerManager implements vscode.Disposable {
   private port = 0;
   private restartCount = 0;
   private maxRestarts = 3;
+  /** True while stop() is killing the process on purpose — the exit
+   *  handler must not treat that as a crash (on Windows a SIGTERM-killed
+   *  process reports a non-zero exit code). */
+  private stopping = false;
 
   constructor(
     private client: ColaCoderClient,
@@ -88,7 +92,7 @@ export class ServerManager implements vscode.Disposable {
     this.process.on('exit', (code) => {
       logger.info(`Server process exited with code ${code}`);
       this.process = null;
-      if (code !== 0 && code !== null) {
+      if (!this.stopping && code !== 0 && code !== null) {
         this._handleCrash();
       } else {
         this.healthMonitor.setState('disconnected');
@@ -114,18 +118,23 @@ export class ServerManager implements vscode.Disposable {
     logger.info('Stopping server...');
     const proc = this.process;
     this.process = null;
+    this.stopping = true;
 
-    // Try graceful shutdown first (SIGTERM)
-    proc.kill('SIGTERM');
+    try {
+      // Try graceful shutdown first (SIGTERM)
+      proc.kill('SIGTERM');
 
-    // Wait up to 5 seconds, then force kill
-    await new Promise<void>((resolve) => {
-      const timeout = setTimeout(() => {
-        if (!proc.killed) proc.kill('SIGKILL');
-        resolve();
-      }, 5000);
-      proc.on('exit', () => { clearTimeout(timeout); resolve(); });
-    });
+      // Wait up to 5 seconds, then force kill
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(() => {
+          if (!proc.killed) proc.kill('SIGKILL');
+          resolve();
+        }, 5000);
+        proc.on('exit', () => { clearTimeout(timeout); resolve(); });
+      });
+    } finally {
+      this.stopping = false;
+    }
 
     this.healthMonitor.setState('disconnected');
   }
