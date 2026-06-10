@@ -39,7 +39,7 @@ src/cola_coder/
   tools/              Tool registry, agent executor
   memory/             Long-context memory management
   cli.py              Shared CLI styling (rich + questionary arrow-key menus, multi_select, weight_editor)
-scripts/              55 CLI entry points — all use `from cola_coder.cli import cli`, never direct Rich
+scripts/              57 CLI entry points — all use `from cola_coder.cli import cli`, never direct Rich
 tests/                127 test files (~2800 tests)
 docs/                 Educational guides (01-06) + deep-dives/
 vscode-extension/     TypeScript VS Code extension (see below)
@@ -189,6 +189,12 @@ Feature scanning functions stay in master_menu.py — ToolsMenu imports them fro
 - 10-stage state machine: pending → running → completed / failed / skipped
 - Artifact chain resolution: stage override → previous artifact → filesystem auto-detect
 - `PipelineRunManager` in `src/cola_coder/pipeline/run_manager.py`
+- **Full Auto Pipeline** (first option; also a top-level master-menu entry):
+  detects hardware via `features/hardware_profiler.py`, recommends the largest
+  config that fits VRAM (estimator-validated), writes a derived config to
+  `configs/auto/`, creates a named run (`auto-{config}[-smoke]`) and executes it.
+  Modes: Smoke (30 steps, skips stage 9, isolated `_smoke` checkpoint dirs),
+  Full, Dry-run (delegates to `scripts/auto_pipeline.py --dry-run`)
 
 ### Data Sources
 All data sources (GitHub, HuggingFace, SWH, Local) emit `pipeline.DataRecord(content=..., metadata={...})`. The `metadata` dict carries source-specific fields (e.g. `"source": "github"`, `"repo_name"`, `"file_path"`). Access via `record.metadata.get("field_name", "")`.

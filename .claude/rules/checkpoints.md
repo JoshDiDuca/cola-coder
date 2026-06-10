@@ -11,6 +11,9 @@ match: "**/checkpoint*.py,**/transformer.py,**/config.py,configs/*.yaml"
 - Checkpoints use safetensors format, never pickle
 - Saves are atomic: write to temp file, then rename
 - Never interrupt an active training run — checkpoint corruption loses days of GPU time
+- Loads go through `_load_state_dict_tied(model, state_dict)` — strict validation
+  where ONLY the tied `output.weight` may be missing. Never call
+  `load_state_dict(strict=False)` directly: it silently ignores every mismatch
 
 ## Vocab Expansion After Reasoning Training
 Reasoning training calls `_resize_embeddings` to add thinking tokens (`<think>`/`</think>`),

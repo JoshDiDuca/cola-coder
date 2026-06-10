@@ -282,6 +282,30 @@ python -m venv .venv
 .venv/Scripts/python scripts/evaluate.py --checkpoint checkpoints/small/latest --config configs/small.yaml
 ```
 
+### Quickstart: Full Auto Pipeline
+
+One choice does everything: detect your hardware, pick the largest config
+that safely fits VRAM, pull data, score it, train, and evaluate.
+
+```bash
+# From the menu (recommended): Master Menu → "Full Auto Pipeline"
+.venv/Scripts/python scripts/menu.py
+
+# Or non-interactive:
+.venv/Scripts/python scripts/auto_pipeline.py --profile-only   # just show hardware + recommendation
+.venv/Scripts/python scripts/auto_pipeline.py --dry-run        # show the plan, run nothing
+.venv/Scripts/python scripts/auto_pipeline.py --smoke --yes    # ~minutes: validate all stages wire up
+.venv/Scripts/python scripts/auto_pipeline.py --yes            # real full-scale run (hours-days)
+```
+
+The profiler maps VRAM to a config tier (tiny → small → medium → 4080_max → large),
+picks bf16 vs fp16 from GPU compute capability, validates the choice against the
+VRAM estimator, and writes a derived config to `configs/auto/` — it steps down
+batch size (doubling gradient accumulation) or the whole tier if the estimate
+doesn't fit. **Smoke mode** (30 training steps, isolated `_smoke` checkpoint
+dirs) verifies every stage runs end-to-end; switch to a full run by re-running
+without `--smoke`. In the menu, the same option offers Smoke / Full / Dry-run.
+
 ### Data Prep Flags
 
 ```bash

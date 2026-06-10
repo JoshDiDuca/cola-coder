@@ -1,4 +1,4 @@
-# Scripts Reference (55 total)
+# Scripts Reference (57 total)
 
 ## Pipeline & Orchestration
 | Script | Purpose |
@@ -6,6 +6,7 @@
 | `menu.py` | Master arrow-key menu |
 | `full_pipeline.py` | Run all 10 pipeline stages end-to-end |
 | `run_pipeline.py` | Flexible multi-stage pipeline runner |
+| `auto_pipeline.py` | Full Auto Pipeline: detect hardware → best config → run all stages — flags: --profile-only, --smoke, --dry-run, --yes |
 
 ## Training & Tokenizer
 | Script | Purpose |
@@ -15,6 +16,7 @@
 | `train_sft.py` | Supervised fine-tuning on instruction pairs (stage 6) — args: --data, --config, --checkpoint, --epochs, --lr |
 | `train_reasoning.py` | SFT warmup + GRPO reasoning — args: --config, --sft-warmup, --reward {python_exec,typescript,combined}, --problems {builtin,all,curriculum} |
 | `train_quality_classifier.py` | Train ML-based quality scorer |
+| `train_judge_classifier.py` | Distill LLM-judge scores into a local TF-IDF classifier |
 | `train_router.py` | Train semantic domain router (MLP or Transformer) |
 | `find_lr.py` | LR range finder |
 | `background_train.py` | Overnight training with GPU throttling |
@@ -32,6 +34,7 @@
 | `combine_datasets.py` | Merge datasets with weighted mixing |
 | `scrape_github.py` | GitHub API scraper (stars, language, license, owner filters) |
 | `scrape_docs.py` | Framework documentation scraper |
+| `score_data.py` | Score data quality → .weights.npy for weighted training — args: --data/--jsonl, --tokenizer, --scorers, --curriculum |
 
 ## Inference & Generation
 | Script | Purpose |
