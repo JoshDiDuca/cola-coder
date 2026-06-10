@@ -46,7 +46,7 @@ _FEATURE_CATEGORIES: dict[str, list[str]] = {
         "streaming_generation", "beam_search", "batch_inference",
         "generation_constraints", "multi_turn_chat", "prompt_templates",
         "speculative_decoding", "multi_token_prediction", "thinking_budget",
-        "multi_step_reasoning",
+        "multi_step_reasoning", "best_of_n_verification",
     ],
     "Evaluation": [
         "nano_benchmark", "smoke_test", "fim_benchmark", "typescript_benchmark",
@@ -1016,6 +1016,8 @@ class MasterMenu:
                  "detail": "scripts/run.py — auto-detects latest checkpoint + config"},
                 {"label": "Interactive Generation",
                  "detail": "scripts/generate.py — select checkpoint manually"},
+                {"label": "Verified Generation (best-of-N)",
+                 "detail": "scripts/generate.py --best-of N — N candidates, sandbox-verified, best wins"},
                 {"label": "Context-Aware Generation",
                  "detail": "scripts/generate.py --repo <dir> — uses repo context for generation"},
                 {"label": "Serve API",
@@ -1034,10 +1036,12 @@ class MasterMenu:
             elif choice == 1:
                 self._interactive_generate()
             elif choice == 2:
-                self._context_aware_generate()
+                self._best_of_n_generate()
             elif choice == 3:
-                self._serve_api()
+                self._context_aware_generate()
             elif choice == 4:
+                self._serve_api()
+            elif choice == 5:
                 self._nano_benchmark()
 
     def _interactive_generate(self) -> None:
@@ -1050,6 +1054,51 @@ class MasterMenu:
 
         config = self._config_for_checkpoint(ckpt_path)
         self._run_script("generate.py", ["--checkpoint", ckpt_path, "--config", config])
+        self._pause()
+
+    def _best_of_n_generate(self) -> None:
+        """Best-of-N generation with sandboxed verification."""
+        _print_section_header(
+            "Verified Generation", "N candidates, sandbox-verified, best wins"
+        )
+
+        ckpt_path = self._pick_checkpoint("Select checkpoint for generation:")
+        if ckpt_path is None:
+            return
+
+        n_choice = cli.choose(
+            "How many candidates per prompt?",
+            [
+                {"label": "2", "detail": "Fastest — one extra candidate"},
+                {"label": "4", "detail": "Good balance (recommended)"},
+                {"label": "8", "detail": "Most thorough — highest VRAM during decode"},
+            ],
+            allow_cancel=True,
+        )
+        if n_choice is None:
+            return
+        best_of = ["2", "4", "8"][n_choice]
+
+        lang_choice = cli.choose(
+            "Verifier language:",
+            [
+                {"label": "auto", "detail": "Detect from prompt (TS-looking → tsc, else Python)"},
+                {"label": "typescript", "detail": "tsc --noEmit --strict in sandbox"},
+                {"label": "python", "detail": "Syntax check (static, never executes)"},
+            ],
+            allow_cancel=True,
+        )
+        if lang_choice is None:
+            return
+        language = ["auto", "typescript", "python"][lang_choice]
+
+        config = self._config_for_checkpoint(ckpt_path)
+        self._run_script("generate.py", [
+            "--checkpoint", ckpt_path,
+            "--config", config,
+            "--best-of", best_of,
+            "--language", language,
+        ])
         self._pause()
 
     def _serve_api(self) -> None:

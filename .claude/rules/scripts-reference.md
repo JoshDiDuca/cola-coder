@@ -40,7 +40,7 @@
 | Script | Purpose |
 |--------|---------|
 | `run.py` | Interactive REPL |
-| `generate.py` | One-shot code generation |
+| `generate.py` | Interactive code generation — `--best-of N` (sandbox-verified best-of-N), `--language {auto,python,typescript}`, `--repo` (context-aware) |
 | `generate_instructions.py` | Instruction pairs from code (template/LLM/self-instruct modes) |
 | `generate_sft_data.py` | Generate instruction-following pairs |
 | `generate_router_data.py` | Router domain classifier training data |

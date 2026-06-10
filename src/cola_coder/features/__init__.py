@@ -243,7 +243,7 @@ def get_feature_status() -> dict[str, bool]:
     Returns
     -------
     dict[str, bool]
-        ``{module_name: FEATURE_ENABLED}``, covering all 81 feature files.
+        ``{module_name: FEATURE_ENABLED}``, covering every feature file.
     """
     status: dict[str, bool] = {}
     for name in _iter_feature_names():

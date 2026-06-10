@@ -46,6 +46,7 @@ features:
   parallel_generation: true   # Batched GRPO generation (prefill once, decode N in parallel)
   adaptive_computation: true
   beam_search: true
+  best_of_n_verification: true  # Generate N candidates, verify in sandbox (tsc/exec), return best
   byte_level_fallback: true
   ensemble_generation: true
   generation_constraints: true

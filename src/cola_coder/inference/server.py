@@ -114,6 +114,10 @@ class ChatCompletionRequest(BaseModel):
     min_p: float = 0.0
     repetition_penalty: float = 1.1
     stop: list[str] | None = None
+    # Best-of-N with sandboxed verification (non-streaming only):
+    # generate N candidates, verify (tsc / Python syntax), return the best.
+    best_of: int = 1
+    verify_language: str = "auto"
 
 
 class ChatChoice(BaseModel):
@@ -151,6 +155,10 @@ class CompletionRequest(BaseModel):
     repetition_penalty: float = 1.1
     stop: list[str] | None = None
     stream: bool = False
+    # Best-of-N with sandboxed verification (non-streaming only):
+    # generate N candidates, verify (tsc / Python syntax), return the best.
+    best_of: int = 1
+    verify_language: str = "auto"
 
 
 class CompletionChoice(BaseModel):
@@ -357,6 +365,40 @@ def create_app(
     # Get the base CodeGenerator for direct calls
     base_gen = _get_base_generator(generator)
 
+    async def _best_of_generate(
+        prompt: str,
+        *,
+        best_of: int,
+        verify_language: str,
+        max_tokens: int,
+        temperature: float,
+        top_k: int,
+        top_p: float,
+        min_p: float,
+    ) -> str:
+        """Best-of-N generation + verification, serialized behind the GPU lock.
+
+        Verification (tsc / syntax check) also runs inside the lock — it's
+        CPU-only and takes seconds, an acceptable cost for keeping one code
+        path. Returns the best candidate's full text (prompt + completion).
+        """
+        from .best_of_n import generate_best_of_n
+
+        async with _gen_lock:
+            result = await asyncio.to_thread(
+                generate_best_of_n,
+                base_gen,
+                prompt,
+                num_candidates=best_of,
+                language=verify_language,
+                max_new_tokens=max_tokens,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+                min_p=min_p,
+            )
+        return result.best.text
+
     # ══════════════════════════════════════════════════════════════════════
     # Original endpoints (backward compat)
     # ══════════════════════════════════════════════════════════════════════
@@ -459,6 +501,13 @@ def create_app(
             base_gen.tokenizer.encode(prompt, add_bos=False)
         )
 
+        if request.best_of > 1 and request.stream:
+            raise HTTPException(
+                status_code=400,
+                detail="best_of > 1 requires stream=false "
+                "(candidates must be verified before one can be returned)",
+            )
+
         if request.stream:
             return StreamingResponse(
                 _stream_chat(
@@ -475,18 +524,30 @@ def create_app(
             )
 
         # Non-streaming
-        async with _gen_lock:
-            result = await asyncio.to_thread(
-                base_gen.generate,
-                prompt=prompt,
-                max_new_tokens=request.max_tokens,
+        if request.best_of > 1:
+            result = await _best_of_generate(
+                prompt,
+                best_of=request.best_of,
+                verify_language=request.verify_language,
+                max_tokens=request.max_tokens,
                 temperature=request.temperature,
                 top_k=request.top_k,
                 top_p=request.top_p,
                 min_p=request.min_p,
-                repetition_penalty=request.repetition_penalty,
-                stop_tokens=request.stop,
             )
+        else:
+            async with _gen_lock:
+                result = await asyncio.to_thread(
+                    base_gen.generate,
+                    prompt=prompt,
+                    max_new_tokens=request.max_tokens,
+                    temperature=request.temperature,
+                    top_k=request.top_k,
+                    top_p=request.top_p,
+                    min_p=request.min_p,
+                    repetition_penalty=request.repetition_penalty,
+                    stop_tokens=request.stop,
+                )
 
         # Strip the prompt from the output to get only the completion
         completion_text = result[len(prompt):] if result.startswith(
@@ -611,6 +672,13 @@ def create_app(
             base_gen.tokenizer.encode(request.prompt, add_bos=False)
         )
 
+        if request.best_of > 1 and request.stream:
+            raise HTTPException(
+                status_code=400,
+                detail="best_of > 1 requires stream=false "
+                "(candidates must be verified before one can be returned)",
+            )
+
         if request.stream:
             return StreamingResponse(
                 _stream_completion(
@@ -627,18 +695,30 @@ def create_app(
             )
 
         # Non-streaming
-        async with _gen_lock:
-            result = await asyncio.to_thread(
-                base_gen.generate,
-                prompt=request.prompt,
-                max_new_tokens=request.max_tokens,
+        if request.best_of > 1:
+            result = await _best_of_generate(
+                request.prompt,
+                best_of=request.best_of,
+                verify_language=request.verify_language,
+                max_tokens=request.max_tokens,
                 temperature=request.temperature,
                 top_k=request.top_k,
                 top_p=request.top_p,
                 min_p=request.min_p,
-                repetition_penalty=request.repetition_penalty,
-                stop_tokens=request.stop,
             )
+        else:
+            async with _gen_lock:
+                result = await asyncio.to_thread(
+                    base_gen.generate,
+                    prompt=request.prompt,
+                    max_new_tokens=request.max_tokens,
+                    temperature=request.temperature,
+                    top_k=request.top_k,
+                    top_p=request.top_p,
+                    min_p=request.min_p,
+                    repetition_penalty=request.repetition_penalty,
+                    stop_tokens=request.stop,
+                )
 
         # Strip prompt — return only new tokens
         completion_text = result[len(request.prompt):] if result.startswith(

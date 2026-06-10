@@ -254,6 +254,7 @@ class CodeGenerator:
         temperature: float = 0.8,
         top_k: int = 50,
         top_p: float = 0.9,
+        min_p: float = 0.0,
     ) -> list[str]:
         """Generate multiple completions for the SAME prompt in a single batched pass.
 
@@ -276,6 +277,7 @@ class CodeGenerator:
             temperature: Sampling temperature (0 = greedy).
             top_k: Top-k filtering (0 = disabled).
             top_p: Nucleus sampling threshold.
+            min_p: Confidence-scaled floor (0 = disabled).
 
         Returns:
             List of num_completions decoded strings (prompt + generated tokens).
@@ -288,6 +290,7 @@ class CodeGenerator:
             temperature=temperature,
             top_k=top_k,
             top_p=top_p,
+            min_p=min_p,
             batch_size=num_completions,
         )
 
@@ -300,6 +303,7 @@ class CodeGenerator:
         top_k: int,
         top_p: float,
         batch_size: int,
+        min_p: float = 0.0,
     ) -> list[str]:
         """Internal helper — attempts batched generation, retries with smaller batches on OOM."""
         if batch_size <= 1:
@@ -315,6 +319,7 @@ class CodeGenerator:
                     temperature=temperature,
                     top_k=top_k,
                     top_p=top_p,
+                    min_p=min_p,
                 )
                 for _ in range(num_completions)
             ]
@@ -327,6 +332,7 @@ class CodeGenerator:
                 temperature=temperature,
                 top_k=top_k,
                 top_p=top_p,
+                min_p=min_p,
                 batch_size=batch_size,
             )
         except torch.cuda.OutOfMemoryError:
@@ -344,6 +350,7 @@ class CodeGenerator:
                 temperature=temperature,
                 top_k=top_k,
                 top_p=top_p,
+                min_p=min_p,
                 batch_size=new_batch,
             )
 
@@ -357,6 +364,7 @@ class CodeGenerator:
         top_k: int,
         top_p: float,
         batch_size: int,
+        min_p: float = 0.0,
     ) -> list[str]:
         """Core batched generation logic.
 
@@ -375,6 +383,7 @@ class CodeGenerator:
                 temperature=temperature,
                 top_k=top_k,
                 top_p=top_p,
+                min_p=min_p,
             )
             results.extend(batch_results)
             remaining -= current_batch
@@ -390,6 +399,7 @@ class CodeGenerator:
         temperature: float,
         top_k: int,
         top_p: float,
+        min_p: float = 0.0,
     ) -> list[str]:
         """Generate a single mini-batch of completions for the same prompt.
 
@@ -435,6 +445,7 @@ class CodeGenerator:
                 temperature=temperature,
                 top_k=top_k,
                 top_p=top_p,
+                min_p=min_p,
             )  # (batch_size,)
 
             # Check EOS and append tokens

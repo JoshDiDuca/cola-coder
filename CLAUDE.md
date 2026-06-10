@@ -29,7 +29,7 @@ src/cola_coder/
     sources/          Data sources (HuggingFace, GitHub, SWH, local, docs, mixed)
     curation/         Test execution scoring + Docker sandbox
   training/           Trainer loop, optimizer, checkpoint, metrics, early stopping, SFT
-  inference/          KV-cache generator, sampling, batched generation, FastAPI server
+  inference/          KV-cache generator, sampling, batched generation, best-of-N verification, FastAPI server
   evaluation/         HumanEval (62 problems), completion benchmark, pass@k, smoke tests
   reasoning/          CoT thinking tokens, GRPO, SFT warmup, reward registry, curriculum
   pipeline/           Pipeline run manager: named runs, state persistence, artifact chains

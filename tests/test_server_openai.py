@@ -297,3 +297,59 @@ class TestCors:
         )
         # CORS header should NOT be present when enable_cors=False
         assert "access-control-allow-origin" not in resp.headers
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Best-of-N verified generation
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestBestOfN:
+    def test_completions_best_of_returns_choice(self, client: TestClient) -> None:
+        resp = client.post(
+            "/v1/completions",
+            json={"prompt": "def add", "best_of": 2, "verify_language": "python"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["choices"]) == 1
+        assert "generated text" in data["choices"][0]["text"]
+
+    def test_chat_best_of_returns_choice(self, client: TestClient) -> None:
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "messages": [{"role": "user", "content": "write add"}],
+                "best_of": 2,
+                "verify_language": "python",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["choices"][0]["message"]["content"]
+
+    def test_best_of_with_stream_rejected(self, client: TestClient) -> None:
+        resp = client.post(
+            "/v1/completions",
+            json={"prompt": "def add", "best_of": 2, "stream": True},
+        )
+        assert resp.status_code == 400
+        assert "stream" in resp.json()["detail"]
+
+    def test_chat_best_of_with_stream_rejected(self, client: TestClient) -> None:
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "messages": [{"role": "user", "content": "hi"}],
+                "best_of": 2,
+                "stream": True,
+            },
+        )
+        assert resp.status_code == 400
+
+    def test_best_of_one_uses_normal_path(self, client: TestClient) -> None:
+        resp = client.post(
+            "/v1/completions",
+            json={"prompt": "def add", "best_of": 1},
+        )
+        assert resp.status_code == 200
