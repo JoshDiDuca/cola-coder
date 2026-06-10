@@ -41,8 +41,11 @@ def main():
     parser.add_argument(
         "--base-checkpoint",
         type=str,
-        required=True,
-        help="Path to base model checkpoint directory (required).",
+        default=None,
+        help=(
+            "Path to base model checkpoint directory "
+            "(default: reasoning.base_checkpoint from config)."
+        ),
     )
     parser.add_argument(
         "--tokenizer",
@@ -59,8 +62,32 @@ def main():
     parser.add_argument(
         "--group-size",
         type=int,
-        default=8,
-        help="Number of solutions to generate per problem per step (default: 8).",
+        default=None,
+        help=(
+            "Number of solutions to generate per problem per step "
+            "(default: reasoning.group_size from config, or 8)."
+        ),
+    )
+    parser.add_argument(
+        "--advantage-norm",
+        type=str,
+        choices=["std", "mean"],
+        default=None,
+        help=(
+            "Advantage normalization: 'std' (original GRPO) or 'mean' "
+            "(Dr. GRPO — avoids over-weighting all-pass/all-fail groups). "
+            "Default: reasoning.advantage_norm from config, or 'std'."
+        ),
+    )
+    parser.add_argument(
+        "--clip-epsilon-high",
+        type=float,
+        default=None,
+        help=(
+            "DAPO clip-higher: separate UPPER PPO clip bound (e.g. 0.28 with "
+            "lower bound 0.2) to fight entropy collapse. "
+            "Default: reasoning.clip_epsilon_high from config, or symmetric."
+        ),
     )
     parser.add_argument(
         "--reward",
@@ -116,14 +143,15 @@ def main():
     parser.add_argument(
         "--problems",
         type=str,
-        default="builtin",
+        default=None,
         choices=["builtin", "extended", "all", "curriculum", "jsonl"],
         help=(
             "Problem set to use for training. "
             "'builtin' = original 20 problems (backward compat), "
             "'extended' / 'all' = all 62 built-in problems, "
             "'curriculum' = all 62 problems sorted easy→medium→hard, "
-            "'jsonl' = load from --problems-jsonl path."
+            "'jsonl' = load from --problems-jsonl path. "
+            "Default: problem_set.source from config, or 'builtin'."
         ),
     )
     parser.add_argument(
@@ -131,20 +159,29 @@ def main():
         type=str,
         default=None,
         metavar="PATH",
-        help="Path to a JSONL file of custom problems (required when --problems jsonl).",
+        help=(
+            "Path to a JSONL file of custom problems (required when --problems "
+            "jsonl; default: problem_set.jsonl_path from config)."
+        ),
     )
     parser.add_argument(
         "--max-problems",
         type=int,
-        default=0,
-        help="Cap the problem set to N problems selected randomly (0 = use all).",
+        default=None,
+        help=(
+            "Cap the problem set to N problems selected randomly (0 = use all; "
+            "default: problem_set.max_problems from config, or 0)."
+        ),
     )
     parser.add_argument(
         "--problem-difficulty",
         type=str,
-        default="all",
+        default=None,
         choices=["all", "easy", "medium", "hard"],
-        help="Filter problems by difficulty before training (default: all).",
+        help=(
+            "Filter problems by difficulty before training "
+            "(default: problem_set.difficulty from config, or 'all')."
+        ),
     )
     parser.add_argument(
         "--language",
@@ -175,12 +212,8 @@ def main():
     cli.header("Cola-Coder", "Reasoning Training (GRPO)")
 
     # ---- Validate inputs ----
-    if not Path(args.base_checkpoint).exists():
-        cli.fatal(
-            f"Base checkpoint not found: {args.base_checkpoint}",
-            hint="Check the path and try again.",
-        )
-
+    # (base checkpoint is validated after config load — it can come from
+    # reasoning.base_checkpoint in the YAML when --base-checkpoint is omitted)
     if not Path(args.tokenizer).exists():
         cli.fatal(
             f"Tokenizer file not found: {args.tokenizer}",
@@ -220,6 +253,22 @@ def main():
         cli.info("Model", f"{config.model.total_params_human} parameters")
     except Exception as e:
         cli.fatal(f"Loading config: {e}")
+
+    # Resolve base checkpoint: CLI flag > reasoning.base_checkpoint in config
+    if args.base_checkpoint is None:
+        cfg_reasoning = getattr(config, "reasoning", None)
+        cfg_ckpt = getattr(cfg_reasoning, "base_checkpoint", None) if cfg_reasoning else None
+        if not cfg_ckpt:
+            cli.fatal(
+                "--base-checkpoint is required "
+                "(or set reasoning.base_checkpoint in the config).",
+            )
+        args.base_checkpoint = str(cfg_ckpt)
+    if not Path(args.base_checkpoint).exists():
+        cli.fatal(
+            f"Base checkpoint not found: {args.base_checkpoint}",
+            hint="Check the path and try again.",
+        )
 
     try:
         tokenizer = CodeTokenizer(args.tokenizer)
@@ -324,23 +373,43 @@ def main():
     # ---- Step 4: Prepare training problems ----
     cli.step(4, 5, "Preparing training problems")
 
+    # Resolve problem-set settings: CLI flag > problem_set section in
+    # reasoning.yaml > default. (This section was once read by nothing.)
+    ps_cfg = getattr(config, "problem_set", None) if hasattr(config, "problem_set") else None
+
+    def _ps_cfg(name: str, default):
+        value = getattr(ps_cfg, name, None) if ps_cfg else None
+        return default if value in (None, "") else value
+
+    problems_source = args.problems or str(_ps_cfg("source", "builtin"))
+    problems_jsonl = args.problems_jsonl or str(_ps_cfg("jsonl_path", "")) or None
+    problem_difficulty = args.problem_difficulty or str(_ps_cfg("difficulty", "all"))
+    max_problems = (
+        args.max_problems if args.max_problems is not None
+        else int(_ps_cfg("max_problems", 0))
+    )
+
     # Validate jsonl requirement
-    if args.problems == "jsonl" and not args.problems_jsonl:
+    if problems_source == "jsonl" and not problems_jsonl:
         cli.fatal(
             "--problems-jsonl PATH is required when --problems jsonl",
             hint="Provide a path to your JSONL problem file.",
         )
 
-    # Build problem set from CLI flags
-    use_curriculum = args.problems == "curriculum"
-    source = "extended" if args.problems in ("curriculum", "all", "extended") else args.problems
+    use_curriculum = (
+        problems_source == "curriculum" or bool(_ps_cfg("curriculum_learning", False))
+    )
+    source = (
+        "extended" if problems_source in ("curriculum", "all", "extended")
+        else problems_source
+    )
 
     cli.info("Language", args.language)
 
     try:
         ps = ProblemSet()
         if source == "jsonl":
-            ps.add_from_jsonl(args.problems_jsonl)
+            ps.add_from_jsonl(problems_jsonl)
         elif args.language == "typescript":
             # TypeScript mode: use TS-specific problems (ignores --problems builtin/extended/all)
             ps.add_typescript()
@@ -349,14 +418,14 @@ def main():
         else:
             ps.add_builtin(extended=True)
 
-        if args.problem_difficulty != "all":
-            ps = ps.filter_by_difficulty(args.problem_difficulty)
+        if problem_difficulty != "all":
+            ps = ps.filter_by_difficulty(problem_difficulty)
 
         if use_curriculum:
             ps = ps.curriculum()
 
-        if args.max_problems > 0 and len(ps) > args.max_problems:
-            sampled = ps.get_batch(args.max_problems, seed=42)
+        if max_problems > 0 and len(ps) > max_problems:
+            sampled = ps.get_batch(max_problems, seed=42)
             ps = ProblemSet(sampled)
 
         cli.info("Problems loaded", len(ps))
@@ -366,8 +435,49 @@ def main():
 
     # ---- Step 5: Run GRPO training ----
     cli.step(5, 5, "Starting GRPO training")
+
+    # Resolve GRPO hyperparameters: CLI flag > reasoning.yaml > trainer default.
+    # Every reasoning.yaml knob MUST reach the trainer — config values that are
+    # read nowhere are silent no-ops (this script once ignored
+    # parallel_generation/max_thinking_tokens entirely).
+    reasoning_cfg = getattr(config, "reasoning", None)
+
+    def _cfg(name: str, default):
+        value = getattr(reasoning_cfg, name, None) if reasoning_cfg else None
+        return default if value is None else value
+
+    group_size = (
+        args.group_size if args.group_size is not None else int(_cfg("group_size", 8))
+    )
+    advantage_norm = args.advantage_norm or str(_cfg("advantage_norm", "std"))
+    clip_epsilon = float(_cfg("clip_epsilon", 0.2))
+    cfg_clip_high = _cfg("clip_epsilon_high", None)
+    clip_epsilon_high = (
+        args.clip_epsilon_high
+        if args.clip_epsilon_high is not None
+        else (float(cfg_clip_high) if cfg_clip_high is not None else None)
+    )
+    max_thinking_tokens = int(_cfg("max_thinking_tokens", 256))
+    parallel_generation = bool(_cfg("parallel_generation", False))
+    parallel_rewards = bool(_cfg("parallel_rewards", False))
+    reward_workers = int(_cfg("reward_workers", 4))
+    grpo_lr = (
+        float(getattr(config.training, "learning_rate", 1e-5))
+        if hasattr(config, "training")
+        else 1e-5
+    )
+
     cli.info("Epochs", args.epochs)
-    cli.info("Group size", args.group_size)
+    cli.info("Group size", group_size)
+    cli.info("Learning rate", grpo_lr)
+    cli.info("Advantage norm", advantage_norm)
+    cli.info(
+        "PPO clip",
+        f"{clip_epsilon}"
+        + (f" / {clip_epsilon_high} (clip-higher)" if clip_epsilon_high else " (symmetric)"),
+    )
+    cli.info("Parallel generation", parallel_generation)
+    cli.info("Parallel rewards", f"{parallel_rewards} (workers: {reward_workers})")
     cli.info("Device", device)
     cli.info("Curriculum", use_curriculum)
 
@@ -376,7 +486,6 @@ def main():
     # Language default: typescript → tsc reward, python → python_exec.
     language_default = "typescript" if args.language == "typescript" else "python_exec"
     reward_name: str = args.reward or language_default
-    reasoning_cfg = getattr(config, "reasoning", None)
     if args.reward is None and reasoning_cfg is not None:
         cfg_reward = getattr(reasoning_cfg, "reward_function", None)
         if cfg_reward:
@@ -387,9 +496,17 @@ def main():
         grpo_trainer = GRPOTrainer(
             model=model,
             tokenizer=tokenizer,
-            group_size=args.group_size,
+            learning_rate=grpo_lr,
+            group_size=group_size,
+            clip_epsilon=clip_epsilon,
+            clip_epsilon_high=clip_epsilon_high,
+            advantage_norm=advantage_norm,
+            max_thinking_tokens=max_thinking_tokens,
             device=device,
             reward_fn=reward_name,
+            parallel_generation=parallel_generation,
+            parallel_rewards=parallel_rewards,
+            reward_workers=reward_workers,
         )
 
         grpo_trainer.train(

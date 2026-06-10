@@ -12,6 +12,12 @@ match: "**/reasoning/**,scripts/train_reasoning.py,configs/reasoning.yaml"
 - Parallel generation: batched same-prompt forward pass with KV-cache expansion
 - Curriculum learning: easy → medium → hard with per-difficulty temperature scaling
 - Problem set: 62 built-in + JSONL custom problems
-- Config: `configs/reasoning.yaml`
+- Config: `configs/reasoning.yaml` — EVERY key in its `reasoning`/`problem_set`/`sft_warmup`
+  sections must be read by train_reasoning.py (CLI flag > config > default);
+  enforced by tests/test_reasoning_config_wiring.py. No phantom knobs: kl_coeff
+  was removed because no KL term exists (DAPO/Dr. GRPO drop it deliberately).
+- GRPO defaults in reasoning.yaml: advantage_norm "mean" (Dr. GRPO),
+  clip_epsilon 0.2 / clip_epsilon_high 0.28 (DAPO clip-higher),
+  parallel_generation + parallel_rewards enabled
 - CLI flags: `--sft-warmup`, `--reward {python_exec,typescript,combined}`, `--problems {builtin,extended,all,curriculum}`
 - Feature toggles: `sft_warmup`, `typescript_rewards`, `expanded_problems`, `parallel_generation` in features.yaml
