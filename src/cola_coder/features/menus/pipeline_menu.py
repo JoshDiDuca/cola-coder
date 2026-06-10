@@ -58,6 +58,8 @@ class PipelineMenu:
                 cli.dim(f"  {len(runs)} saved run(s)")
 
             options = [
+                {"label": "Full Auto Pipeline",
+                 "detail": "Detect hardware, pick best config, pull data, score, train, evaluate"},
                 {"label": "New Pipeline Run",
                  "detail": "Create a named run, select config and stages, then start"},
                 {"label": "Resume Pipeline Run",
@@ -79,19 +81,110 @@ class PipelineMenu:
                 return
 
             if choice == 0:
-                self._create_run()
+                self._full_auto()
             elif choice == 1:
-                self._resume_run()
+                self._create_run()
             elif choice == 2:
-                self._view_runs()
+                self._resume_run()
             elif choice == 3:
-                self._run_single_stage()
+                self._view_runs()
             elif choice == 4:
-                self._reset_to_stage()
+                self._run_single_stage()
             elif choice == 5:
-                self._delete_run()
+                self._reset_to_stage()
             elif choice == 6:
+                self._delete_run()
+            elif choice == 7:
                 self._legacy_pipeline()
+
+    # ── Full Auto Pipeline ────────────────────────────────────────────
+
+    def _full_auto(self) -> None:
+        """One-shot pipeline: detect hardware → best config → run all stages.
+
+        Profiles the machine, recommends the largest config that safely fits
+        VRAM, writes a derived auto-config with hardware-tuned overrides, and
+        executes the standard 10-stage pipeline as a named run.
+        """
+        from cola_coder.features.hardware_profiler import (
+            generate_auto_config,
+            print_hardware_profile,
+            print_recommendation,
+            profile_hardware,
+            recommend_config,
+        )
+
+        _print_section_header(
+            "Full Auto Pipeline",
+            "Detect hardware → pick best config → pull data → score → train → evaluate",
+        )
+
+        profile = profile_hardware()
+        print_hardware_profile(profile)
+        rec = recommend_config(profile)
+        print_recommendation(rec)
+
+        mode_options = [
+            {"label": "Smoke test (validate wiring, ~minutes)",
+             "detail": "30 training steps on the recommended config — checks every stage runs"},
+            {"label": "Full run (real training)",
+             "detail": f"Complete pipeline on '{rec.config_name}' — hours to days of GPU time"},
+            {"label": "Dry run (show plan only)",
+             "detail": "Print what each stage would do without executing anything"},
+        ]
+        mode = cli.choose("Mode:", mode_options, allow_cancel=True)
+        if mode is None:
+            return
+
+        if mode == 2:
+            self._master._run_script("auto_pipeline.py", ["--dry-run", "--yes"])
+            self._master._pause()
+            return
+
+        smoke = mode == 0
+        auto_config = generate_auto_config(rec, smoke=smoke)
+        cli.info("Auto config", str(auto_config))
+        if smoke:
+            cli.warn(
+                "Smoke mode validates pipeline wiring only — "
+                "the resulting checkpoint is not a usable model."
+            )
+
+        # Optional stages (4: context extension, 7: MoE) auto-skip anyway;
+        # smoke mode also skips GRPO (9) — far too slow for a wiring check.
+        skip = set(OPTIONAL_STAGES)
+        if smoke:
+            skip.add(9)
+
+        name = self._unique_run_name(f"auto-{rec.config_name}{'-smoke' if smoke else ''}")
+        cli.kv_table({
+            "Run name": name,
+            "Config": str(auto_config),
+            "Stages": ", ".join(
+                str(n) for n in ALL_STAGE_NUMS if n not in skip
+            ),
+            "Skipped": ", ".join(str(n) for n in sorted(skip)),
+        }, title="Pipeline Run")
+
+        if not cli.confirm("Start the Full Auto Pipeline now?", default=True):
+            return
+
+        run = self._mgr.create(name, str(auto_config), skip_stages=skip)
+        run.notes = (
+            f"Full Auto Pipeline ({'smoke' if smoke else 'full'}) — "
+            f"hardware: {rec.gpu.name if rec.gpu else 'CPU only'}"
+        )
+        self._mgr.save(run)
+        self._execute_from(run, 1)
+
+    def _unique_run_name(self, base: str) -> str:
+        """Return *base*, or base-2, base-3, ... if already taken."""
+        if not self._mgr.exists(base):
+            return base
+        n = 2
+        while self._mgr.exists(f"{base}-{n}"):
+            n += 1
+        return f"{base}-{n}"
 
     # ── Create ────────────────────────────────────────────────────────
 

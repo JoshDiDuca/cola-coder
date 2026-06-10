@@ -55,7 +55,7 @@ _FEATURE_CATEGORIES: dict[str, list[str]] = {
         "thinking_quality_scorer", "hallucination_detector", "self_verification",
     ],
     "Infrastructure": [
-        "config_validator", "vram_estimator", "gpu_status_panel",
+        "config_validator", "vram_estimator", "gpu_status_panel", "hardware_profiler",
         "experiment_tracker", "data_versioning", "dataset_inspector",
         "model_card_generator", "onnx_export", "quantization",
         "knowledge_distillation", "lora_qlora",
@@ -536,6 +536,8 @@ class MasterMenu:
             options = [
                 {"label": "Quick Start Pipeline",
                  "detail": "One-click: tokenizer -> data -> train (auto-detect what's needed)"},
+                {"label": "Full Auto Pipeline",
+                 "detail": "Detect hardware, pick best config, pull data, score, train, evaluate"},
                 {"label": "Data Pipeline",
                  "detail": "Download, filter, score, prepare training data"},
                 {"label": "Training",
@@ -568,6 +570,7 @@ class MasterMenu:
 
             handlers = [
                 self.quick_start_menu,
+                self.full_auto_pipeline,
                 self._data.menu,
                 self._training.menu,
                 self.instruction_tuning_menu,
@@ -582,6 +585,10 @@ class MasterMenu:
             ]
 
             handlers[choice]()
+
+    def full_auto_pipeline(self) -> None:
+        """Top-level shortcut to the Pipeline Manager's Full Auto Pipeline."""
+        self._training._get_pipeline_menu()._full_auto()
 
     # ── Retrieval & Search ────────────────────────────────────────────────
 
