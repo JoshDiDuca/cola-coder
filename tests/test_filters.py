@@ -257,13 +257,26 @@ class TestDeduplicationFilter:
         reason="datasketch not installed",
     )
     def test_detects_near_duplicates(self):
-        original = "def hello():\n    print('hello world')\n    return 42\n" * 10
+        # Realistic, NON-repetitive content so the unique-shingle set is large
+        # (~700 shingles). A single-token change then leaves Jaccard ~0.99,
+        # well above the 0.8 threshold, so MinHash-LSH reliably detects it.
+        # (A `block * 10` doc collapses to ~50 unique shingles where a tiny
+        # change lands right at the threshold and MinHash under-estimates it —
+        # the original degenerate test data, which had never run because
+        # datasketch was never installed.)
+        original = "\n".join(
+            f"def func_{i}(x_{i}, y_{i}):\n"
+            f"    result_{i} = x_{i} * {i} + y_{i}\n"
+            f"    return result_{i}\n"
+            for i in range(20)
+        )
         record1 = FakeRecord(content=original, metadata={})
         keep1, _ = self.f.check(record1)
         assert keep1 is True  # First file always passes
 
-        # Near-duplicate: same content with minor change
-        duplicate = original.replace("42", "43")
+        # Near-duplicate: one token changed in one place
+        duplicate = original.replace("result_5 = x_5 * 5", "result_5 = x_5 * 6")
+        assert duplicate != original
         record2 = FakeRecord(content=duplicate, metadata={})
         keep2, reason = self.f.check(record2)
         assert keep2 is False

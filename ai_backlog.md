@@ -54,6 +54,16 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-005** [test-quality, low] `done` (2026-06-11) — DISCOVERED when installing
+  datasketch unskipped `test_filters.py::test_detects_near_duplicates`, which
+  then FAILED. Root cause: degenerate test data — a `block * 10` doc collapses
+  to ~50 unique 5-gram shingles, so a `42->43` change lands at exact Jaccard
+  0.818 (just over the 0.8 threshold) but MinHash(128) under-estimates it to
+  0.734, below threshold → not detected. The DeduplicationFilter is CORRECT
+  (verified: realistic 713-shingle content with a 1-token change → Jaccard 0.993
+  → reliably caught; distinct content kept). Fixed the test to use
+  non-repetitive content. Lesson: datasketch-gated tests had never run because
+  the dep was never installed — installing it surfaced latent test-data rot.
 - **DATA-004** [data-quality, high] `done` (2026-06-11) — DISCOVERED while
   validating DATA-001: exact+minhash dedup SILENTLY NO-OP'd ON WINDOWS. The
   cycle-1 mmap optimization (`np.load(output_file, mmap_mode="r")`) kept the
