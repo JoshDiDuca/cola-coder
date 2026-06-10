@@ -130,6 +130,16 @@ MAX_REPOS_OPTIONS = [
 # Custom filter builder
 # ---------------------------------------------------------------------------
 
+def _default_min_stars() -> int:
+    """Default minimum stars from configs/data_sources.yaml (github.min_stars)."""
+    config_path = Path(__file__).resolve().parent.parent / "configs" / "data_sources.yaml"
+    try:
+        cfg = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        return int((cfg.get("github") or {}).get("min_stars", 50))
+    except (OSError, ValueError, TypeError):
+        return 50
+
+
 def build_custom_filter():
     """Walk the user through building a custom RepoFilter."""
     from cola_coder.data.sources.github import RepoFilter
@@ -149,11 +159,12 @@ def build_custom_filter():
     else:
         primary_language = None
 
-    # Stars
+    # Stars (default from configs/data_sources.yaml github.min_stars)
+    default_stars = _default_min_stars()
     while True:
         try:
-            raw = input("  Minimum stars? [50]: ").strip()
-            min_stars = int(raw) if raw else 50
+            raw = input(f"  Minimum stars? [{default_stars}]: ").strip()
+            min_stars = int(raw) if raw else default_stars
             break
         except ValueError:
             cli.print("  [red]Please enter a number.[/red]")

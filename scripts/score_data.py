@@ -45,6 +45,22 @@ def main() -> None:
         cli.error("Specify --data (for .npy) or --jsonl (for JSONL)")
         sys.exit(1)
 
+    # Curriculum: CLI flag > curriculum section in scoring.yaml > off.
+    # (The yaml section was once read by nothing — keep it wired.)
+    args.curriculum_phases = 3
+    try:
+        import yaml
+
+        scoring_cfg = yaml.safe_load(
+            Path(args.config).read_text(encoding="utf-8")
+        ) or {}
+        curriculum_cfg = scoring_cfg.get("curriculum") or {}
+        if args.curriculum is None and curriculum_cfg.get("enabled"):
+            args.curriculum = str(curriculum_cfg.get("strategy", "easy_to_hard"))
+        args.curriculum_phases = int(curriculum_cfg.get("num_phases", 3))
+    except (OSError, ValueError):
+        pass
+
     cli.header("Cola-Coder", "Data Quality Scoring")
 
     # Show available scorers
@@ -232,7 +248,10 @@ def _score_npy(args, composite) -> None:
         from cola_coder.data.scorers.curriculum import CurriculumOrderer, CurriculumStrategy
         cli.step(3, 3, f"Applying curriculum: {args.curriculum}")
         strategy = CurriculumStrategy(args.curriculum)
-        orderer = CurriculumOrderer(strategy=strategy)
+        orderer = CurriculumOrderer(
+            strategy=strategy,
+            num_phases=getattr(args, "curriculum_phases", 3),
+        )
         weights_path = Path(args.data).with_suffix(".weights.npy")
         schedule = orderer.reorder(data_path, weights_path)
         cli.info("Curriculum", f"{schedule.strategy} — {len(schedule.phases)} phases")

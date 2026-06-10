@@ -20,4 +20,6 @@ match: "**/reasoning/**,scripts/train_reasoning.py,configs/reasoning.yaml"
   clip_epsilon 0.2 / clip_epsilon_high 0.28 (DAPO clip-higher),
   parallel_generation + parallel_rewards enabled
 - CLI flags: `--sft-warmup`, `--reward {python_exec,typescript,combined}`, `--problems {builtin,extended,all,curriculum}`
-- Feature toggles: `sft_warmup`, `typescript_rewards`, `expanded_problems`, `parallel_generation` in features.yaml
+- Reasoning behavior is controlled by configs/reasoning.yaml + CLI flags, NOT features.yaml
+  (the old sft_warmup/typescript_rewards/expanded_problems/parallel_generation feature keys
+  were phantoms — no module backed them — and were removed 2026-06-10)
