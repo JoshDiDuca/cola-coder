@@ -353,3 +353,50 @@ class TestBestOfN:
             json={"prompt": "def add", "best_of": 1},
         )
         assert resp.status_code == 200
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Prompt-echo strip robustness (INFER-001)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class _DriftGenerator(MockGenerator):
+    """generate() returns text that does NOT start with the raw prompt.
+
+    Simulates BPE decode(encode(prompt)) drift: the last prompt char differs,
+    so a naive `result.startswith(prompt)` is False and the OLD code would
+    return the whole prompt echo. The completion marker lets us assert the
+    prompt body was stripped anyway.
+    """
+
+    def generate(self, prompt: str, **kwargs) -> str:
+        drifted = prompt[:-1] + "~" if prompt else ""
+        return drifted + "COMPLETION_MARKER"
+
+
+@pytest.fixture()
+def drift_client() -> TestClient:
+    return TestClient(create_app(_DriftGenerator()))
+
+
+class TestPromptStripRobustness:
+    _prompt = "def calculate_total(items):"
+
+    def test_completions_no_prompt_leak_on_drift(self, drift_client: TestClient) -> None:
+        resp = drift_client.post(
+            "/v1/completions", json={"prompt": self._prompt, "max_tokens": 8}
+        )
+        assert resp.status_code == 200
+        text = resp.json()["choices"][0]["text"]
+        assert "COMPLETION_MARKER" in text
+        # The prompt body must NOT be echoed back despite the startswith miss.
+        assert "calculate_total" not in text
+
+    def test_chat_no_prompt_leak_on_drift(self, drift_client: TestClient) -> None:
+        resp = drift_client.post(
+            "/v1/chat/completions",
+            json={"messages": [{"role": "user", "content": "x"}], "max_tokens": 8},
+        )
+        assert resp.status_code == 200
+        content = resp.json()["choices"][0]["message"]["content"]
+        assert "COMPLETION_MARKER" in content

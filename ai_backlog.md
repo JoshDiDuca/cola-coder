@@ -11,13 +11,6 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
-- **INFER-001** [inference, medium] `open` — Server SSE streaming strips the
-  prompt echo with `chunk.startswith(prompt_text)` on the raw string, but
-  `decode(encode(prompt))` is not guaranteed byte-identical (BPE), so the echo
-  strip can fail and leak the prompt into the stream. `server.py` ~557, ~702.
-  `generate_stream` itself handles this correctly via prev_decoded_len; the
-  server re-implements it more fragilely. Fix: strip by tokenized prompt length.
-
 - **INFER-004** [inference, low] `open` — Streaming `completion_tokens` is
   incremented per SSE chunk, not per token, so OpenAI-compatible usage stats are
   wrong for streamed responses. `server.py` ~565, ~626. Fix: count via
@@ -54,6 +47,18 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **INFER-001** [inference, medium] `done` (2026-06-11) — Prompt-echo leak.
+  CORRECTED diagnosis: the STREAMING path is actually safe (`generate_stream`
+  yields only incremental new text via prev_decoded_len; the server's
+  `startswith` check there is harmless dead code). The real leak is the
+  NON-STREAMING chat + completion endpoints: `generate()` returns
+  `decode(prompt_tokens + new_tokens)` and `result.startswith(prompt)` returns
+  the WHOLE prompt echo on any BPE round-trip mismatch (BOS render, whitespace,
+  boundary merge). Fix: shared `inference/text_utils.strip_prompt_prefix`
+  (longest-common-prefix strip — never returns the full prompt on mismatch),
+  used by both non-streaming endpoints; best_of_n._strip_prompt now aliases it
+  (DRY). Tests: test_text_utils.py (6) + test_server_openai TestPromptStripRobustness
+  (drift generator proves no leak).
 - **DATA-005** [test-quality, low] `done` (2026-06-11) — DISCOVERED when installing
   datasketch unskipped `test_filters.py::test_detects_near_duplicates`, which
   then FAILED. Root cause: degenerate test data — a `block * 10` doc collapses

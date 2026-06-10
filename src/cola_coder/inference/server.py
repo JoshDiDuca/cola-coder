@@ -31,6 +31,8 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
 
+from .text_utils import strip_prompt_prefix
+
 logger = logging.getLogger(__name__)
 
 # Sentinel returned by next(stream_iter, _STREAM_END) when a sync token
@@ -549,10 +551,10 @@ def create_app(
                     stop_tokens=request.stop,
                 )
 
-        # Strip the prompt from the output to get only the completion
-        completion_text = result[len(prompt):] if result.startswith(
-            prompt
-        ) else result
+        # Strip the prompt echo robustly (BPE decode(encode(prompt)) is not
+        # always byte-identical, so a raw startswith can fail and leak the
+        # whole prompt — see text_utils.strip_prompt_prefix).
+        completion_text = strip_prompt_prefix(result, prompt)
         completion_tokens = len(
             base_gen.tokenizer.encode(completion_text, add_bos=False)
         )
@@ -720,10 +722,8 @@ def create_app(
                     stop_tokens=request.stop,
                 )
 
-        # Strip prompt — return only new tokens
-        completion_text = result[len(request.prompt):] if result.startswith(
-            request.prompt
-        ) else result
+        # Strip prompt echo robustly (see text_utils.strip_prompt_prefix).
+        completion_text = strip_prompt_prefix(result, request.prompt)
         completion_tokens = len(
             base_gen.tokenizer.encode(completion_text, add_bos=False)
         )

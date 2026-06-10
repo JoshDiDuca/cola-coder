@@ -34,6 +34,8 @@ from typing import Callable
 
 from ..data.scorers.language_detect import is_js_ts, is_typescript
 from ..data.scorers.utils import ScoreMapper
+# Shared with the FastAPI server's non-streaming strip — see text_utils.
+from .text_utils import strip_prompt_prefix as _strip_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -204,23 +206,6 @@ def _generate_candidates(
         )
         for _ in range(num_candidates)
     ]
-
-
-def _strip_prompt(text: str, prompt: str) -> str:
-    """Return only the generated part of a decoded candidate.
-
-    BPE decode(encode(prompt)) is not always byte-identical to the prompt, so
-    fall back to stripping the longest common prefix when the exact prefix
-    doesn't match.
-    """
-    if text.startswith(prompt):
-        return text[len(prompt):]
-    common = 0
-    for a, b in zip(text, prompt):
-        if a != b:
-            break
-        common += 1
-    return text[common:]
 
 
 # ---------------------------------------------------------------------------
