@@ -17,7 +17,6 @@ from cola_coder.data.scorers.llm_judge import (
 )
 from cola_coder.data.scorers.classifier import (
     ClassifierScorer,
-    QualityClassifier,
     QualityClassifierTrainer,
 )
 from cola_coder.data.scorers.protocol import ScorerProtocol, ScorerResult
@@ -161,7 +160,7 @@ class TestLlmJudge:
             judge.annotate_batch(["code1", "code2"], output_path=str(out))
 
         # Second run: same 2 samples should be skipped
-        with patch.object(judge._backend, "score_code", return_value=(5, "Great")) as mock:
+        with patch.object(judge._backend, "score_code", return_value=(5, "Great")):
             judge.annotate_batch(["code1", "code2", "code3"], output_path=str(out))
 
         # Only code3 should have been newly scored

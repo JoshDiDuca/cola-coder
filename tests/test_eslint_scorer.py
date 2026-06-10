@@ -6,11 +6,10 @@ import json
 import subprocess
 from unittest.mock import MagicMock
 
-import pytest
 
 from cola_coder.data.scorers.eslint_scorer import EslintScorer
 from cola_coder.data.scorers.language_detect import detect_extension
-from cola_coder.data.scorers.protocol import ScorerProtocol, ScorerResult
+from cola_coder.data.scorers.protocol import ScorerProtocol
 
 
 def _mock_eslint_output(files: list[dict]) -> str:

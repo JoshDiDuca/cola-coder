@@ -5,9 +5,7 @@ from __future__ import annotations
 import pytest
 
 from cola_coder.data.scorers.credential_scanner import (
-    CredentialFinding,
     CredentialScanner,
-    ScanResult,
 )
 
 

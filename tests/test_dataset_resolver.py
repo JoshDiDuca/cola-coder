@@ -14,7 +14,6 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 import yaml
 
 from cola_coder.data.dataset_resolver import DatasetResolver

@@ -4,7 +4,6 @@ Uses FastAPI's TestClient with a mock generator so no real model
 or GPU is needed.
 """
 
-import json
 import sys
 from pathlib import Path
 

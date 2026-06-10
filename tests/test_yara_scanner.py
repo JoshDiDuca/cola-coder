@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 from cola_coder.security.yara_scanner import YaraScanner
 

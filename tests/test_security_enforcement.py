@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cola_coder.data.scorers.protocol import CompositeScorer, ScorerResult
 from cola_coder.data.scorers.sandbox import SandboxedRunner
 from cola_coder.data.scorers.tsc_scorer import TscScorer
 from cola_coder.data.scorers.eslint_scorer import EslintScorer
@@ -189,7 +187,7 @@ class TestSecurityConfigLoading:
         assert config.credential_scan_mode == "reject"
 
     def test_require_docker(self) -> None:
-        from cola_coder.data.scorers.security import SecurityConfig, SecurityError
+        from cola_coder.data.scorers.security import SecurityConfig
         config = SecurityConfig.from_dict({"security": {"require_docker": True}})
         assert config.require_docker is True
 
@@ -205,7 +203,7 @@ class TestLlmJudgeCredentialScanning:
         judge = LlmJudge(provider="ollama", credential_scanner=scanner)
 
         with patch.object(judge._backend, "score_code", return_value=(3, "OK")) as mock:
-            result = judge.score('const key = "AKIAIOSFODNN7EXAMPLE1";')
+            judge.score('const key = "AKIAIOSFODNN7EXAMPLE1";')
             # Verify the code sent to backend has been redacted
             called_code = mock.call_args[0][0]
             assert "AKIA" not in called_code

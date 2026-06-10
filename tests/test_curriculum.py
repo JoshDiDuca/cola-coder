@@ -84,7 +84,6 @@ class TestCurriculumOrderer:
 
     def test_output_path_preserves_original(self, scored_data: tuple[Path, Path], tmp_path: Path) -> None:
         data_path, weights_path = scored_data
-        original_weights = np.load(str(weights_path)).copy()
         output = tmp_path / "reordered.npy"
         orderer = CurriculumOrderer(strategy=CurriculumStrategy.EASY_TO_HARD)
         orderer.reorder(data_path, weights_path, output_path=output)

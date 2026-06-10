@@ -14,11 +14,10 @@ Covers every bug class encountered in the pipeline menu system:
 from __future__ import annotations
 
 import inspect
-import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -583,9 +582,7 @@ class TestResolveCheckpoint:
     def test_falls_back_to_sft_checkpoint(self, tmp_path: Path) -> None:
         from cola_coder.features.menus.pipeline_menu import PipelineMenu
 
-        # No valid input_path, but SFT checkpoint exists
-        sft_dir = Path("checkpoints/tiny_sft")
-        sft_latest = sft_dir / "latest"
+        # No valid input_path — falls back toward checkpoints/tiny_sft.
         # We can't easily test real FS fallback without CWD control,
         # so just verify the method doesn't crash with empty input
         run = _make_run(config_path="configs/tiny.yaml")

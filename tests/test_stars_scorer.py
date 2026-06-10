@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from cola_coder.data.scorers.protocol import ScorerProtocol, ScorerResult
+from cola_coder.data.scorers.protocol import ScorerProtocol
 from cola_coder.data.scorers.stars_scorer import StarsScorer
 
 

@@ -19,9 +19,14 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+from typing import TYPE_CHECKING
+
 from cola_coder.cli import cli
 from cola_coder.data.scorers.protocol import CompositeScorer
 from cola_coder.data.scorers.registry import build_composite_scorer, list_available_scorers
+
+if TYPE_CHECKING:
+    from cola_coder.data.scorers.sandbox import SandboxedRunner
 
 
 def main() -> None:
