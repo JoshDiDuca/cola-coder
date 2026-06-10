@@ -239,7 +239,11 @@ Quality score: 0.0 ──────────────── 1.0
 
 ## Malware Scanning
 
-Untrusted code is scanned for malware before it enters the training pipeline. Scans run after HuggingFace downloads **and** after GitHub clones.
+Untrusted code is scanned for malware before it enters the training pipeline, at three points:
+
+1. **In-stream during collection** (`collect_data.py`): every streamed HuggingFace record's *content* is scanned with `YaraScanner.scan_text()` before tokenization; matching records are dropped and counted. This is the layer that actually sees the text — the tokenized `.npy` output is opaque to pattern scanners. Toggle: `malware_scan.in_stream` (default on).
+2. **On every GitHub clone** (`GitHubSource.stream()` and scrape single/import modes): the clone directory is scanned before any file extraction; on threat the repo is skipped and the clone deleted immediately. Enabled by default for *all* clone paths, including the recommended search mode.
+3. **Backstop directory scan** after collection (covers any stray real files in the output dir).
 
 | Scanner | Coverage | Availability |
 |---------|----------|-------------|
@@ -248,6 +252,8 @@ Untrusted code is scanned for malware before it enters the training pipeline. Sc
 | **ClamAV** | `clamd` daemon client | Opt-in (`clamav: true`) |
 
 Threat response: `warn` (log and continue), `quarantine` (isolate), or `abort` (stop pipeline). Configure in `configs/scoring.yaml` under `security.malware_scan`.
+
+**Fail-closed reporting:** a scanner that crashes or times out is recorded in `MalwareScanResult.scan_errors` and logged — a result with scan errors is *not* a verified-clean result, and callers can distinguish the two.
 
 ---
 
@@ -262,6 +268,27 @@ All code scoring and tool execution runs inside a security sandbox. Three modes:
 | **docker** | `--network none`, `--read-only`, `--cap-drop ALL`, `--pids-limit 64`, `--memory 512m`, `--user nobody` | Docker |
 
 The **SandboxedRunner** is the single entry point for all tsc/eslint execution on untrusted code. The **TscRunner** handles all TypeScript compiler invocations with a hardened `tsconfig.json` that blocks compiler plugin execution (`plugins: []`, `types: []`, `typeRoots: []`).
+
+### Running Untrusted Code Safely — The Execution Surface Map
+
+What is and is not executed, and where:
+
+| Surface | What runs | Isolation | Default |
+|---------|-----------|-----------|---------|
+| **Ingestion** (collect, scrape, HF download) | Nothing. Static analysis + content scanning only. Clones are shallow with git hooks disabled; install scripts are never run at ingest time. | n/a | Always static |
+| **Quality scoring** (tsc, eslint) | Trusted *analyzer tools* over untrusted code — the untrusted code itself is never executed. | SandboxedRunner: native (temp dir + timeout) or docker (`security.mode`) | native |
+| **Curation test execution** (`TestRunner`) | Scraped repos' own install + test scripts — full arbitrary code execution. | `dry_run` detects frameworks without executing; `docker` runs in the hardened DockerSandbox (cap-drop ALL, no-new-privileges, memory/cpu/pids limits); `subprocess` runs on the host and **requires `allow_host_execution=True`** | **dry_run** |
+| **GRPO rewards / HumanEval** (`execute_code`) | Model-generated Python. | SandboxedRunner: native (temp dir, empty PATH, timeout — limits accidents, not attackers) or docker (`python:3.12-alpine`, network none, read-only, nobody) via `scoring.security.mode: docker` | native |
+| **Inference server / extension** | Nothing — generated code is returned as text, never executed. | n/a | Always static |
+
+To get maximum isolation everywhere, set in `configs/scoring.yaml`:
+
+```yaml
+scoring:
+  security:
+    mode: "docker"        # scoring + model-generated code execution in containers
+    require_docker: true  # refuse to run if Docker is unavailable
+```
 
 ### Additional Security Layers
 
