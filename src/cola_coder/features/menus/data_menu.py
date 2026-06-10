@@ -613,6 +613,11 @@ class DataMenu:
                 "Enables quality-weighted loss during training."
             )
 
+        # Deduplication (exact, on by default — raw code is 25-40% duplicates)
+        dedup = cli.confirm(
+            "Remove exact-duplicate chunks after tokenization?", default=True
+        )
+
         # Step 6/7 — Performance
         cli.step(6, 7, "Performance settings")
         cli.dim("Press Enter to accept defaults.")
@@ -682,6 +687,8 @@ class DataMenu:
             args.append("--filter-strict")
         if score:
             args.append("--score")
+        if not dedup:
+            args.append("--no-dedup")
         if workers:
             args += ["--workers", str(workers)]
         if batch_size:

@@ -12,8 +12,8 @@ match: "**/training/**,**/trainer.py,configs/*.yaml,scripts/train*.py"
 - Flash Attention: `F.scaled_dot_product_attention` with `is_causal=True`
 - Gradient checkpointing: required for 4080_max (455M), optional for medium (299M)
 - VRAM activation memory dominated by FFN hidden_dim, not model dim
-- Data prep: `--workers N` (parallel filters), `--score` (quality weights), `--no-filter`, `--filter-strict`
-- Prepared data reusable — only re-prepare if tokenizer/seq_len/dataset/languages/filter changes
+- Data prep: `--workers N` (parallel filters), `--score` (quality weights), `--no-filter`, `--filter-strict`, `--dedup {none,exact}` (exact SHA-256 chunk dedup, ON by default — raw code is 25-40% dups; `--no-dedup` to keep all). Cross-dataset near-dup (MinHash) lives in `combine_datasets.py`.
+- Prepared data reusable — only re-prepare if tokenizer/seq_len/dataset/languages/filter/dedup changes
 - HuggingFace dataset gated: needs `HF_TOKEN` env var
 
 ## torch.compile — call the model, not its methods

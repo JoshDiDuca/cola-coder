@@ -209,6 +209,22 @@ def main():
              "quality-weighted loss (high-quality code contributes more). "
              "Adds ~30%% to preprocessing time.",
     )
+    parser.add_argument(
+        "--dedup",
+        choices=["none", "exact"],
+        default="exact",
+        help="Exact (SHA-256) deduplication of tokenized chunks, applied after "
+             "tokenization and before scoring. 'exact' (default) removes "
+             "byte-identical chunks — raw code corpora are typically 25-40%% "
+             "duplicates, which waste training compute. 'none' disables it. For "
+             "cross-dataset near-duplicate (MinHash) dedup, use "
+             "scripts/combine_datasets.py.",
+    )
+    parser.add_argument(
+        "--no-dedup",
+        action="store_true",
+        help="Shortcut for --dedup none (keep all chunks, including exact duplicates).",
+    )
     filter_group = parser.add_mutually_exclusive_group()
     filter_group.add_argument(
         "--no-filter",
@@ -386,6 +402,38 @@ def main():
     except Exception as e:
         cli.fatal(f"Error processing data: {e}")
 
+    # ---- Deduplication (exact, on tokenized chunks) ----
+    # Runs BEFORE scoring so the .weights.npy aligns with the deduped data and
+    # we don't waste time scoring chunks that are about to be dropped.
+    dedup_mode = "none" if args.no_dedup else args.dedup
+    if dedup_mode != "none":
+        cli.rule("Deduplication")
+        try:
+            from cola_coder.data.dedup import ExactDeduplicator
+
+            # mmap: the deduplicator hashes row-by-row and only materializes the
+            # kept rows, so we never hold the full dataset in RAM twice.
+            data = np.load(output_file, mmap_mode="r")
+            before = len(data)
+            deduped, removed = ExactDeduplicator().deduplicate_array(data)
+            if removed > 0:
+                # Atomic re-save: write a temp file then replace the original.
+                tmp = Path(output_file).with_suffix(".dedup_tmp.npy")
+                np.save(tmp, deduped)
+                os.replace(tmp, output_file)
+            cli.kv_table({
+                "Mode": "exact (SHA-256)",
+                "Before": f"{before:,} chunks",
+                "After": f"{len(deduped):,} chunks",
+                "Removed": f"{removed:,} ({removed / max(before, 1) * 100:.1f}%)",
+            }, title="Deduplication")
+            if removed > 0:
+                cli.success(f"Removed {removed:,} exact-duplicate chunks")
+            else:
+                cli.info("Duplicates", "none found — data was already unique")
+        except Exception as e:
+            cli.warn(f"Deduplication failed: {e}. Keeping all chunks.")
+
     # ---- Quality scoring (optional) ----
     if args.score:
         cli.rule("Quality Scoring")
@@ -452,6 +500,16 @@ def main():
         if Path(weights_path).exists():
             extras["Weights"] = weights_path
             extras["Note"] = "Training will auto-detect weights and use quality-weighted loss"
+        else:
+            # --score was requested but no weights file was produced (scorer
+            # disabled/unavailable/errored). Make the silent fallback loud so
+            # the user doesn't believe quality-weighted training is active.
+            extras["Weights"] = "NOT CREATED — training will use UNIFORM weights"
+            cli.warn(
+                "--score was requested but no .weights.npy was produced. "
+                "Quality-weighted training will NOT be active. Check that the "
+                "code_scorer feature is enabled in configs/features.yaml."
+            )
     cli.done("Data preprocessing complete!", extras=extras)
 
 
