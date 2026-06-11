@@ -41,6 +41,16 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **BUG-108** [reasoning/bug, medium] `done` (2026-06-11) — `SelfPlayTrainer.
+  train_episode` (reasoning/self_play.py, menu-wired, previously ZERO tests)
+  fine-tuned on a PASSING solution TWICE: when `best_reward > 0.9` it called
+  `_update_on_solution` and `break`, then the post-loop "final update"
+  (`if best_solution and best_reward > 0.3`) fired AGAIN (0.9 > 0.3) on the same
+  solution — double the gradient steps, over-weighting passing solutions. Fixed
+  with an `updated` flag so the post-loop update is skipped when the in-loop
+  >0.9 update already ran (exactly-once semantics). Verifiable without training
+  by counting `_update_on_solution` calls. Tests: test_self_play_update.py (3):
+  passing→1 update, partial (0.3<r≤0.9)→1, none (r≤0.3)→0.
 - **DATA-012** [capability/training, medium] `done` (2026-06-11) — Wired dynamic
   (train-time) Fill-in-the-Middle end-to-end (StarCoder2-style per-epoch FIM
   split variety), the optional follow-up to DATA-011. Added `DataConfig.fim_rate`

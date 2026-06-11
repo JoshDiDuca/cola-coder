@@ -114,6 +114,7 @@ class SelfPlayTrainer:
         total_candidates = 0
         solutions_found = 0
         improved = False
+        updated = False  # guard: fine-tune on the best solution exactly once
 
         current_prompt = prompt
         temperature = self.config.temperature
@@ -145,6 +146,7 @@ class SelfPlayTrainer:
             # If we found a passing solution, update model and stop
             if best_reward > 0.9:
                 self._update_on_solution(prompt, best_solution)
+                updated = True
                 break
 
             # Build error context for next iteration
@@ -158,8 +160,10 @@ class SelfPlayTrainer:
             # Decay temperature (more focused on later iterations)
             temperature *= self.config.temperature_decay
 
-        # Final update if we found any solution
-        if best_solution and best_reward > 0.3:
+        # Final update if we found a decent solution but didn't already update
+        # in-loop on a passing one (otherwise the >0.9 break path would
+        # fine-tune on the same solution TWICE — over-weighting it).
+        if best_solution and best_reward > 0.3 and not updated:
             self._update_on_solution(prompt, best_solution)
 
         return SelfPlayResult(
