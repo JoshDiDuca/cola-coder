@@ -137,6 +137,11 @@ def extract_thinking(text: str) -> tuple[str, str]:
     start = text.index(THINK_OPEN) + len(THINK_OPEN)
     end = text.index(THINK_CLOSE)
     thinking = text[start:end].strip()
-    code = text[end + len(THINK_CLOSE):].strip()
+    # Strip ALL thinking blocks from the code, not just the first. A model that
+    # emits several reasoning blocks (<think>..</think>code<think>..</think>code)
+    # would otherwise leave later blocks embedded in `code`, breaking execution
+    # and giving GRPO a wrong (always-fail) reward. strip_thinking loops over
+    # every block, so the returned code is always clean and executable.
+    code = strip_thinking(text)
 
     return thinking, code

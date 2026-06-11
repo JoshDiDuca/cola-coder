@@ -27,6 +27,25 @@ class CodeTokenizer:
         self.fim_middle_id = self.tokenizer.token_to_id("<|fim_middle|>")
         self.fim_suffix_id = self.tokenizer.token_to_id("<|fim_suffix|>")
 
+        # Fail loud on a mismatched tokenizer. The core tokens are required —
+        # encode() does `[self.bos_id] + ids`, so a None id would silently
+        # corrupt every sequence with a None token (crash or garbage logits)
+        # instead of erroring here. (FIM tokens are optional — only encode_fim
+        # needs them, and it checks separately.)
+        missing = [
+            name for name, tid in (
+                ("<|pad|>", self.pad_id), ("<|bos|>", self.bos_id),
+                ("<|eos|>", self.eos_id), ("<|unk|>", self.unk_id),
+            ) if tid is None
+        ]
+        if missing:
+            raise ValueError(
+                f"Tokenizer at {tokenizer_path} is missing required special "
+                f"tokens {missing}. It was not trained with cola-coder's "
+                f"SPECIAL_TOKENS (see tokenizer/train_tokenizer.py). Retrain it "
+                f"or point at the correct tokenizer.json."
+            )
+
     @property
     def vocab_size(self) -> int:
         return self.tokenizer.get_vocab_size()

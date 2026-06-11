@@ -29,6 +29,14 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 - **MODEL-002** [model, low] `open` — `ModelConfig.total_params` reports the dense
   FFN count for MoE configs (display only; undercounts expert params).
 
+- **MODEL-004** [model, low] `open` — GRPO sequence log-prob (grpo.py:230-241,
+  297-308) includes PROMPT tokens, not just completion tokens. VERIFIED this is
+  currently harmless: advantages are mean-centered (Σaᵢ=0), the prompt is shared
+  across the group, and the trainer does one step per group with ratios≈1, so
+  the shared prompt-token gradients cancel exactly (only bf16-precision noise
+  remains). Masking prompt tokens would match standard GRPO and be robust to
+  future multi-step/non-centered changes — a cleanup, NOT a bug. Low priority.
+
 - **OPS-001** [tooling, low] `open` (deferred for user) — storage split-brain:
   configs/storage.yaml → E:/cola-coder-data vs config.checkpoint.output_dir →
   ./checkpoints. Needs the user's decision; do not unilaterally resolve.
@@ -37,6 +45,21 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **REASON-001** [reasoning, medium] `done` (2026-06-11) — `extract_thinking`
+  (thinking_tokens.py:124) used `.index()` for the FIRST `</think>` only, so a
+  model emitting multiple reasoning blocks left later `<think>..</think>` blocks
+  embedded in the extracted `code`. reward.py:63 then runs that code → invalid
+  syntax → always-fail reward, giving GRPO a WRONG (penalizing) signal for
+  legitimate multi-step reasoning. Fixed: `code = strip_thinking(text)` (loops
+  over all blocks, like the existing strip_thinking). Tests:
+  test_tokenizer_reasoning_fixes TestExtractThinkingMultiBlock (incl. ast.parse).
+- **TOK-001** [tokenizer, medium] `done` (2026-06-11) — CodeTokenizer cached
+  pad/bos/eos/unk ids from token_to_id() without checking None; a mismatched
+  tokenizer (missing these) made `encode` produce `[None, ...]`, silently
+  corrupting every sequence. Now `__init__` fails loud (ValueError listing the
+  missing core tokens) — converts silent corruption into a clear, actionable
+  error (cf. DATA-003). FIM tokens stay optional. Tests:
+  test_tokenizer_reasoning_fixes TestTokenizerCoreTokenGuard.
 - **INFER-004** [inference, low] `done` (2026-06-11) — Streaming `completion_tokens`
   was counted per SSE chunk but NEVER emitted (dead variable; no usage in the
   stream at all). Implemented OpenAI `stream_options.include_usage`: both stream
@@ -163,6 +186,13 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Not a bug (verified)
+
+- **chat_template offset off-by-one** (claimed format_chat_training mis-masks
+  assistant spans) — FALSE POSITIVE. `offset += len(segment) + 1` is read at the
+  START of each iteration, so it exactly equals that segment's start in the
+  `"\n".join(parts)` output; the trailing +1 after the last segment is never
+  used. Worked a 2-message example: assistant content lands at offset 52 and
+  `text[52:54] == "yo"`. The spans are correct.
 
 - **BUG-004 (min_p NaN)** — FALSE POSITIVE. `_min_p_filter` threshold =
   `min_p * probs.max()`; for `min_p ≤ 1` the argmax token always satisfies
