@@ -43,6 +43,18 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **EVAL-005** [eval/capability, medium] `done` (2026-06-11) — Benchmark
+  decontamination wired end-to-end. `DataLeakageDetector` (MinHash) was a
+  COMPLETE, tested, but UNWIRED feature module. (1) Added a `containment` metric
+  (|A∩B|/|A|) — Jaccard misses a short eval problem embedded in a larger
+  training file (the common contamination case); containment catches it (1.0 vs
+  0). (2) Wired it into `scripts/check_contamination.py` (eval problem set vs a
+  JSONL text corpus or decoded .npy chunks; exits 1 on contamination to gate a
+  pipeline) + an Eval-menu entry. Validated end-to-end: a corpus embedding a
+  built-in problem's prompt is flagged (exit 1), a clean corpus passes (exit 0).
+  Smoke caught a real dilution bug — eval docs must be the prompt (and solution)
+  as SEPARATE units, not prompt+test_code concatenated. Tests:
+  test_data_leakage_detector.py TestContainmentMetric + TestContaminationScriptWiring.
 - **TOOL-003** [tooling/export, low-medium] `done` (2026-06-11) — GGUF export
   hardcoded `llama.attention.layer_norm_rms_epsilon = 1e-5` in BOTH the builtin
   writer (gguf_export.py:497) and the gguf-package path (:565), but the model's

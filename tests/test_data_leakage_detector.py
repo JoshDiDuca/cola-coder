@@ -157,3 +157,93 @@ def test_match_summary_format():
     assert "eval[3]" in s
     assert "train[7]" in s
     assert "similarity=0.950" in s
+
+
+# ---------------------------------------------------------------------------
+# Containment metric (catches an eval problem embedded in a larger train doc)
+# ---------------------------------------------------------------------------
+
+
+class TestContainmentMetric:
+    def test_containment_catches_embedded_problem(self):
+        problem = "def is_prime(n):\n    return all(n % i for i in range(2, n))\n"
+        big = "import os\n" * 200 + problem + "\nclass Foo:\n    pass\n" * 200
+        d = DataLeakageDetector(similarity_threshold=0.8)
+        d.index_train([big, "totally unrelated code\n" * 50])
+
+        # jaccard misses the embedded problem (|small| / |large| is tiny)...
+        assert d.check_eval([problem], metric="jaccard").num_contaminated == 0
+        # ...containment catches it.
+        report = d.check_eval([problem], metric="containment")
+        assert report.num_contaminated == 1
+        assert report.matches[0].similarity >= 0.8
+
+    def test_containment_clean_when_absent(self):
+        d = DataLeakageDetector(similarity_threshold=0.8)
+        d.index_train(["def foo():\n    return 1\n" * 50])
+        report = d.check_eval(
+            ["def completely_different_xyz():\n    return 999\n"],
+            metric="containment",
+        )
+        assert report.num_contaminated == 0
+
+    def test_invalid_metric_raises(self):
+        d = DataLeakageDetector()
+        d.index_train(["x"])
+        import pytest
+        with pytest.raises(ValueError, match="metric must be"):
+            d.check_eval(["y"], metric="cosine")
+
+    def test_jaccard_still_default(self):
+        # Backward-compat: default metric is jaccard (existing callers unchanged).
+        a = "shared text aaaa bbbb cccc dddd"
+        d = DataLeakageDetector(similarity_threshold=0.5)
+        d.index_train([a])
+        assert d.check_eval([a]).num_contaminated == 1  # exact dup, jaccard ~1
+
+
+# ---------------------------------------------------------------------------
+# Script wiring (check_contamination.py)
+# ---------------------------------------------------------------------------
+
+
+class TestContaminationScriptWiring:
+    def test_script_exists_and_uses_detector(self):
+        from pathlib import Path
+        text = (Path(__file__).parent.parent / "scripts"
+                / "check_contamination.py").read_text(encoding="utf-8")
+        assert "DataLeakageDetector" in text
+        assert 'metric="' in text or "args.metric" in text
+        assert "--train-jsonl" in text and "--train-npy" in text
+
+    def test_menu_wires_script(self):
+        from pathlib import Path
+        text = (Path(__file__).parent.parent / "src" / "cola_coder" / "features"
+                / "menus" / "eval_menu.py").read_text(encoding="utf-8")
+        assert "_contamination_menu" in text
+        assert "check_contamination.py" in text
+
+    def test_eval_docs_are_undiluted_prompts(self):
+        # Regression: eval docs must be the prompt (and solution) as SEPARATE
+        # units, NOT prompt+test_code concatenated — concatenation diluted the
+        # containment signal so a leaked prompt scored below threshold.
+        import importlib.util
+        from pathlib import Path
+
+        spec = importlib.util.spec_from_file_location(
+            "check_contamination",
+            Path(__file__).parent.parent / "scripts" / "check_contamination.py",
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        from cola_coder.evaluation.problem_loader import ProblemSet
+
+        ps = ProblemSet()
+        ps.add_builtin(extended=True)
+        args = type("A", (), {"eval": "all", "eval_jsonl": None})()
+        docs = mod._load_eval_docs(args)
+        assert len(docs) >= len(ps._problems)
+        # The first problem's prompt appears verbatim as one of the docs
+        # (not concatenated with its hidden tests).
+        assert ps._problems[0].prompt in docs

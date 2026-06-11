@@ -130,6 +130,19 @@ def _jaccard_from_minhash(sig_a: List[int], sig_b: List[int]) -> float:
     return matches / len(sig_a)
 
 
+def _containment(eval_shingles: Set[str], train_shingles: Set[str]) -> float:
+    """Exact containment of `eval` in `train`: |A ∩ B| / |A|.
+
+    Unlike Jaccard, containment stays high when a SHORT eval document is fully
+    embedded in a LARGE training document — the most important contamination
+    case (an eval problem buried in a big scraped file). Jaccard collapses there
+    (|small| / |large| ≈ 0); containment correctly reports ≈ 1.0.
+    """
+    if not eval_shingles:
+        return 0.0
+    return len(eval_shingles & train_shingles) / len(eval_shingles)
+
+
 # ---------------------------------------------------------------------------
 # Core detector
 # ---------------------------------------------------------------------------
@@ -166,9 +179,10 @@ class DataLeakageDetector:
         self.shingle_size = shingle_size
         self._train_docs: List[str] = []
         self._train_sigs: List[List[int]] = []
+        self._train_shingles: List[Set[str]] = []
 
     def index_train(self, documents: Sequence[str]) -> None:
-        """Build MinHash signatures for training documents.
+        """Build MinHash signatures (and shingle sets) for training documents.
 
         Args:
             documents: Training corpus documents.
@@ -176,22 +190,31 @@ class DataLeakageDetector:
         if not FEATURE_ENABLED:
             return
         self._train_docs = list(documents)
+        self._train_shingles = [
+            _shingles(doc, self.shingle_size) for doc in documents
+        ]
         self._train_sigs = [
-            _minhash(_shingles(doc, self.shingle_size), self.num_hashes)
-            for doc in documents
+            _minhash(sh, self.num_hashes) for sh in self._train_shingles
         ]
 
     def check_eval(
-        self, eval_documents: Sequence[str]
+        self, eval_documents: Sequence[str], metric: str = "jaccard"
     ) -> LeakageReport:
         """Check evaluation documents against indexed training data.
 
         Args:
             eval_documents: Evaluation/test corpus documents.
+            metric: "jaccard" (MinHash near-duplicate of similar-size docs) or
+                "containment" (exact |A∩B|/|A| — detects a short eval doc
+                embedded in a LARGER training doc; recommended for
+                eval-problem-vs-scraped-corpus checks).
 
         Returns:
             LeakageReport listing suspected contamination matches.
         """
+        if metric not in ("jaccard", "containment"):
+            raise ValueError(f"metric must be 'jaccard' or 'containment', got {metric!r}")
+
         if not FEATURE_ENABLED:
             return LeakageReport(
                 num_eval_docs=len(eval_documents),
@@ -205,12 +228,16 @@ class DataLeakageDetector:
         )
 
         for eval_idx, eval_doc in enumerate(eval_documents):
-            eval_sig = _minhash(_shingles(eval_doc, self.shingle_size), self.num_hashes)
+            eval_shingles = _shingles(eval_doc, self.shingle_size)
+            eval_sig = _minhash(eval_shingles, self.num_hashes)
             best_sim = 0.0
             best_train_idx = -1
 
             for train_idx, train_sig in enumerate(self._train_sigs):
-                sim = _jaccard_from_minhash(eval_sig, train_sig)
+                if metric == "containment":
+                    sim = _containment(eval_shingles, self._train_shingles[train_idx])
+                else:
+                    sim = _jaccard_from_minhash(eval_sig, train_sig)
                 if sim > best_sim:
                     best_sim = sim
                     best_train_idx = train_idx

@@ -39,6 +39,8 @@ class EvalMenu:
                  "detail": "Harmful output rate, refusal accuracy, PII, license"},
                 {"label": "Routing Accuracy",
                  "detail": "Test semantic router classification accuracy across domains"},
+                {"label": "Data Contamination",
+                 "detail": "Check eval problems for leakage into the training corpus"},
             ]
 
             choice = cli.choose("Select category:", options, allow_cancel=True)
@@ -53,6 +55,7 @@ class EvalMenu:
                 self._master._tools.training_status_menu,
                 self._safety_eval_menu,
                 self._routing_accuracy_menu,
+                self._contamination_menu,
             ]
             handlers[choice]()
 
@@ -777,6 +780,56 @@ class EvalMenu:
             "--suite", suite,
         ]
         self._master._run_script("safety_eval.py", args)
+        self._master._pause()
+
+    def _contamination_menu(self) -> None:
+        """Check eval problems for leakage into the training corpus."""
+        _print_section_header(
+            "Data Contamination",
+            "Detect eval problems leaking into training data",
+        )
+
+        cli.print(
+            "  Contaminated benchmarks inflate pass@k. This checks whether the\n"
+            "  eval problems appear in your training corpus (containment match).\n"
+        )
+
+        from pathlib import Path
+
+        eval_options = [
+            {"label": "All built-in (62)", "detail": "Full HumanEval-style set"},
+            {"label": "Built-in (20)", "detail": "Original core set"},
+            {"label": "TypeScript", "detail": "TypeScript problem set"},
+        ]
+        eval_choice = cli.choose("Eval problem set:", eval_options, allow_cancel=True)
+        if eval_choice is None:
+            return
+        eval_arg = ["all", "builtin", "typescript"][eval_choice]
+
+        try:
+            corpus = input(
+                "  Training corpus path (.jsonl text corpus, or .npy + tokenizer): "
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            cli.warn("Cancelled.")
+            return
+        if not corpus or not Path(corpus).exists():
+            cli.error("Corpus path not found.")
+            self._master._pause()
+            return
+
+        args = ["--eval", eval_arg]
+        if corpus.endswith(".npy"):
+            try:
+                from cola_coder.data.dataset_resolver import DatasetResolver
+                tok = str(DatasetResolver.get_tokenizer_path())
+            except Exception:
+                tok = self._master.storage.tokenizer_path
+            args += ["--train-npy", corpus, "--tokenizer", tok]
+        else:
+            args += ["--train-jsonl", corpus]
+
+        self._master._run_script("check_contamination.py", args)
         self._master._pause()
 
     def _routing_accuracy_menu(self) -> None:
