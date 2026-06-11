@@ -11,6 +11,17 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+- **MODEL-005** [model/capability, low] `open` — YaRN context extension
+  (`precompute_rope_freqs_yarn`, rope.py) scales RoPE frequencies but omits
+  YaRN's attention temperature factor `mscale = 0.1*ln(factor)+1.0`, which the
+  paper applies to the attention logits (scores *= mscale) to keep them
+  calibrated at extended context. Without it, extended-context attention is
+  slightly mis-scaled (under-performs vs. reference YaRN). Tractable but
+  cross-module: the scale would have to flow from the rope/config layer into
+  `GroupedQueryAttention`'s SDPA `scale=` (attention.py), and only matters when
+  rope_scaling.type=="yarn" (stage 4, optional/auto-skipped). Validate at
+  extended context before/after. Found in this cycle's rope.py audit. Low pri.
+
 - **DATA-021** [data-quality/architecture, medium] `open` — The modular
   FilterPlugin + `DataPipeline` system (data/pipeline.py + data/filters/, registry
   in data/registry.py) is built and now fully registered (DATA-020), but is NOT
@@ -76,6 +87,19 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **MODEL-006** [model/moe/perf, low] `done` (2026-06-11) — Vectorized the MoE
+  load-balancing loss (`MoEFFN._load_balancing_loss`, features/moe_layer.py). It
+  counted per-expert top-k assignments with an O(top_k * num_experts) Python
+  double-loop of per-expert `.sum()` kernels — run on EVERY training step (it's
+  the aux-loss hot path; gated to training). Replaced with a single
+  `torch.bincount(top_k_indices.reshape(-1), minlength=num_experts)` — bit-exact
+  equivalent (verified empirically + by test against the original loop as oracle),
+  far fewer kernel launches. Correctness-preserving cleanup of a real
+  inefficiency in the MoE-training path (now more relevant after BUG-112 made MoE
+  inference actually work). Tests: test_moe_aux_loss.py (3): matches the
+  double-loop reference across 5 seeds, handles zero-token experts (minlength),
+  stays 0 in eval. Model-core audit this cycle (attention/rope/RMSNorm/batched
+  GRPO generation) otherwise CLEAN; logged the YaRN mscale gap as MODEL-005.
 - **BUG-112** [model/moe, high] `done` (2026-06-11) — MoE inference collapse.
   `MoEFFN.forward` (features/moe_layer.py) applied capacity-based token dropping
   UNCONDITIONALLY with `capacity = int(capacity_factor * num_tokens /

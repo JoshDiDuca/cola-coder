@@ -312,12 +312,16 @@ class MoEFFN(nn.Module):
         if not self.training:
             return torch.tensor(0.0, device=router_logits.device)
 
-        # f_i: fraction of tokens routed to each expert
-        # Count how many times each expert appears in top-k selections
-        expert_counts = torch.zeros(self.num_experts, device=router_logits.device)
-        for k in range(self.top_k):
-            for expert_id in range(self.num_experts):
-                expert_counts[expert_id] += (top_k_indices[:, k] == expert_id).float().sum()
+        # f_i: fraction of tokens routed to each expert. Count how many times
+        # each expert appears across all top-k selections. This is a single
+        # bincount over the flattened (num_tokens * top_k) assignments —
+        # equivalent to, but far cheaper than, the previous O(top_k *
+        # num_experts) Python double-loop of per-expert .sum() kernels (it ran
+        # every training step). minlength guarantees length num_experts even
+        # when an expert receives zero tokens this batch.
+        expert_counts = torch.bincount(
+            top_k_indices.reshape(-1), minlength=self.num_experts,
+        ).float()
         fraction_per_expert = expert_counts / (num_tokens * self.top_k)
 
         # P_i: mean routing probability per expert
