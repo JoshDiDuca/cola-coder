@@ -38,16 +38,23 @@ class ToolExecutor:
         project_root: str | Path = ".",
         timeout: int = 30,
         max_output_chars: int = 5000,
+        tests_subdir: str = "tests",
     ):
         """
         Args:
             project_root: Root directory for relative paths
             timeout: Max execution time per tool call (seconds)
             max_output_chars: Truncate output beyond this
+            tests_subdir: The ONLY directory under which the agent's run_tests
+                tool may invoke pytest. pytest imports/executes conftest.py and
+                test_*.py at collection, so confining the target to the project's
+                own test tree (not the whole repo) prevents pytest from being
+                steered at in-tree untrusted code (e.g. a gitignored data/ dir).
         """
         self.project_root = Path(project_root).resolve()
         self.timeout = timeout
         self.max_output_chars = max_output_chars
+        self.tests_root = (self.project_root / tests_subdir).resolve()
 
         # Built-in handlers
         self._handlers: dict[str, Any] = {
@@ -146,13 +153,27 @@ class ToolExecutor:
     # --- Tool handlers ---
 
     def _handle_run_tests(self, args: dict) -> str:
-        """Run pytest on specified path."""
+        """Run pytest on a path UNDER the project's tests/ tree only.
+
+        pytest imports and executes conftest.py + test modules at collection
+        time, so this is a code-execution primitive. We confine the target to
+        ``self.tests_root`` (not just the project root) so a model-supplied path
+        can't steer pytest at in-tree untrusted code (e.g. a gitignored data/
+        dir holding scraped sources). The agent's legitimate use — validating
+        its own changes against the project suite — is fully covered.
+        """
         test_path = args.get("test_path", "tests/")
         verbose = args.get("verbose", False)
 
-        self._validate_path(test_path)
+        resolved = self._validate_path(test_path)
+        if resolved != self.tests_root and not resolved.is_relative_to(self.tests_root):
+            return (
+                f"Error: run_tests is restricted to the '{self.tests_root.name}/' "
+                f"tree (got '{test_path}'). pytest executes conftest/test modules "
+                "at collection, so it must not run outside the project test suite."
+            )
 
-        cmd = [str(self.project_root / ".venv" / "Scripts" / "pytest"), test_path]
+        cmd = [str(self.project_root / ".venv" / "Scripts" / "pytest"), str(resolved)]
         if verbose:
             cmd.append("-v")
         cmd.extend(["--tb=short", "--no-header", "-q"])

@@ -108,6 +108,26 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **SEC-007** [security/sandbox, medium] `done` (2026-06-12) — The agent tool
+  executor's `run_tests` handler (tools/executor.py `_handle_run_tests`) ran pytest
+  on any model-supplied path, validating only that it stayed inside the project
+  ROOT. But pytest IMPORTS AND EXECUTES `conftest.py` + `test_*.py` at collection,
+  so this is an unsandboxed code-execution primitive — pointed at an in-tree dir
+  holding untrusted code (e.g. a gitignored `data/` of scraped sources, or a
+  planted `conftest.py`), it would run that code on the host. Discovered as the
+  follow-up thread flagged after SEC-006's executor scan. Fixed: confine the target
+  to the project's `tests/` tree (new `tests_subdir="tests"` constructor param →
+  `self.tests_root`); a path resolving outside it returns a clear error BEFORE any
+  subprocess, and traversal outside the root still raises via `_validate_path`. The
+  agent's legitimate use (validating its own changes against the project suite) is
+  fully covered. Also tightened the handler to pass the RESOLVED path to pytest
+  rather than the raw string. Tests: test_tool_executor.py +5 (outside-tests
+  rejected, traversal rejected, inside-tests passes gate, default path allowed,
+  custom tests_subdir honored). checkpoint suite green; full-tree ruff clean.
+  (Fresh-scan note this cycle: VERIFIED the "within-file near-dup MinHash" thread
+  is ALREADY resolved — `dedup.py` `deduplicate_self_array` is wired into
+  `prepare_data.py --dedup minhash`; no new item needed.)
+
 - **SEC-006** [security/sandbox-consistency, medium] `done` (2026-06-12) — The agent
   tool executor's `typecheck` handler (tools/executor.py `_handle_typecheck`) ran
   tsc on UNTRUSTED model-generated code via raw `npx tsc --noEmit <tempfile>`

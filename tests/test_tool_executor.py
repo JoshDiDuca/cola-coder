@@ -106,6 +106,47 @@ class TestReadFileMissing:
         assert "not found" in res.output.lower()
 
 
+class TestRunTestsConfinement:
+    """run_tests executes pytest (which imports conftest/test modules), so it
+    must be confined to the project's tests/ tree — not the whole repo, where a
+    gitignored data/ dir could hold untrusted code."""
+
+    def test_path_outside_tests_tree_rejected(self, project):
+        # 'src/' is inside the project root but NOT under tests/ → rejected
+        # BEFORE any subprocess runs.
+        ex = ToolExecutor(project_root=str(project))
+        res = ex.execute("run_tests", {"test_path": "src/"})
+        assert "restricted" in res.output.lower()
+
+    def test_traversal_outside_root_rejected(self, project):
+        ex = ToolExecutor(project_root=str(project))
+        res = ex.execute("run_tests", {"test_path": "../proj-secrets"})
+        assert res.success is False
+        assert "traversal" in res.error.lower()
+
+    def test_path_inside_tests_tree_passes_gate(self, project):
+        # Create a tests/ dir so the path is allowed; pytest itself can't run
+        # (no .venv in the fixture), but we only assert the gate let it through.
+        (project / "tests").mkdir()
+        ex = ToolExecutor(project_root=str(project))
+        res = ex.execute("run_tests", {"test_path": "tests/"})
+        assert "restricted" not in res.output.lower()
+
+    def test_default_path_is_allowed(self, project):
+        (project / "tests").mkdir()
+        ex = ToolExecutor(project_root=str(project))
+        res = ex.execute("run_tests", {})  # defaults to tests/
+        assert "restricted" not in res.output.lower()
+
+    def test_custom_tests_subdir_honored(self, project):
+        (project / "spec").mkdir()
+        ex = ToolExecutor(project_root=str(project), tests_subdir="spec")
+        allowed = ex.execute("run_tests", {"test_path": "spec/"})
+        assert "restricted" not in allowed.output.lower()
+        rejected = ex.execute("run_tests", {"test_path": "src/"})
+        assert "restricted" in rejected.output.lower()
+
+
 class _FakeTscRunner:
     """Stand-in for TscRunner so typecheck tests don't need tsc on PATH."""
 
