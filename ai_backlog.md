@@ -53,6 +53,27 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **INFER-006** [inference/bug, high] `done` (2026-06-11) — Multi-token stop
+  sequences were reduced to their FIRST token. `generate`/`generate_stream`
+  (generator.py) built `stop_ids` via `stop_ids.add(encoded[0])`, so a stop like
+  `";\n"` (tokens `[";", "\n"]`) halted at the first `;` — truncating code after
+  one statement — and `"\n\n"` halted at the first single newline. This is on
+  the standard OpenAI `stop` path (server forwards `request.stop` verbatim) and
+  the built-in prompt_templates ship exactly such multi-char stops
+  (`["\n\n", "\nfunction ", "\nclass "]`, `[";\n"]`, `["\n});"]`, ...), plus
+  multi_turn_chat passes a multi-token user-prefix stop. Fixed with a HYBRID
+  matcher (`_partition_stops`): EOS + any stop that encodes to ONE token (incl.
+  special tokens like `<|im_end|>`/`<|fim_suffix|>`, which the decoder strips so
+  they can't be matched as text) stay exact token-level; multi-token stops are
+  matched at the STRING level on the decoded completion (`_earliest_stop_index`,
+  searching only past the prompt so a stop in the prompt never truncates). The
+  streaming path holds back the last `max_stop_len-1` chars before yielding (so
+  `"\n\n"` can't leak its first `"\n"`) and flushes the tail on normal end —
+  matching vLLM/TGI. Single-token behavior is byte-for-byte unchanged (no
+  regression). Tests: test_generator_stop_tokens.py (14): double-newline /
+  semicolon / word stops not truncated early, single-token + EOS still exact,
+  stop-in-prompt ignored, streaming stop + held-back-tail flush + no-stop
+  passthrough, partition + helper units.
 - **DATA-011** [data-quality/bug, medium] `done` (2026-06-11) — `FIMCollator`
   (data/collator.py), the dynamic train-time Fill-in-the-Middle collator, was
   UNREACHABLE (only referenced in docs — `create_dataloader` hardcodes

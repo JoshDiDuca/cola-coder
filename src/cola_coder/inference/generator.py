@@ -33,6 +33,23 @@ from .sampling import sample_next_token, sample_next_tokens_batch
 logger = logging.getLogger(__name__)
 
 
+def _earliest_stop_index(text: str, stop_strings: list[str], start: int = 0) -> int | None:
+    """Return the earliest index at/after ``start`` where any stop string begins.
+
+    Used for STRING-level stop detection (multi-token stop sequences). ``start``
+    is the character length of the decoded prompt so a stop string only halts
+    generation when it begins in the completion, never inside the prompt.
+    """
+    earliest: int | None = None
+    for s in stop_strings:
+        if not s:
+            continue
+        i = text.find(s, start)
+        if i != -1 and (earliest is None or i < earliest):
+            earliest = i
+    return earliest
+
+
 class CodeGenerator:
     """Generate code using a trained transformer model."""
 
@@ -52,6 +69,29 @@ class CodeGenerator:
         self.tokenizer = tokenizer
         self.device = device
         self.model.eval()  # Disable dropout for deterministic inference
+
+    def _partition_stops(self, stop_tokens: list[str] | None) -> tuple[set[int], list[str]]:
+        """Split requested stops into token-level and string-level matchers.
+
+        EOS and any stop that encodes to exactly ONE token (this covers special
+        tokens such as ``<|im_end|>`` / ``<|fim_suffix|>``, which the decoder
+        strips and so cannot be matched as text) are returned as a set of token
+        IDs for exact, fast matching. Stops that encode to MULTIPLE tokens are
+        returned as strings for substring matching on the decoded output —
+        reducing them to their first token (the old behavior) stopped generation
+        far too early (e.g. ``";\\n"`` halted at the first ``;``).
+        """
+        single_stop_ids: set[int] = {self.tokenizer.eos_id}
+        string_stops: list[str] = []
+        for st in stop_tokens or []:
+            if not st:
+                continue
+            encoded = self.tokenizer.encode(st, add_bos=False)
+            if len(encoded) == 1:
+                single_stop_ids.add(encoded[0])
+            elif encoded:
+                string_stops.append(st)
+        return single_stop_ids, string_stops
 
     @torch.no_grad()  # Disable gradient computation (saves memory, faster)
     def generate(
@@ -85,19 +125,19 @@ class CodeGenerator:
         token_ids = self.tokenizer.encode(prompt, add_bos=True)
         input_ids = torch.tensor([token_ids], dtype=torch.long, device=self.device)
 
-        # Get stop token IDs
-        stop_ids = set()
-        stop_ids.add(self.tokenizer.eos_id)
-        if stop_tokens:
-            for st in stop_tokens:
-                encoded = self.tokenizer.encode(st, add_bos=False)
-                if encoded:
-                    stop_ids.add(encoded[0])
+        # Partition stops: single-token stops (EOS + special tokens like
+        # <|im_end|>/<|fim_suffix|>) match exactly at the token level; multi-token
+        # stops ("\nclass ", ";\n", ...) match at the STRING level on the decoded
+        # text. The old code reduced every stop to its FIRST token, so ";\n"
+        # halted at the first ";" — truncating code after a single statement.
+        single_stop_ids, string_stops = self._partition_stops(stop_tokens)
 
         # Clear any existing cache
         self.model.clear_caches()
 
         generated_ids = list(token_ids)
+        # Char length of the decoded prompt → string stops only fire in completion
+        prompt_char_len = len(self.tokenizer.decode(token_ids)) if string_stops else 0
 
         # Phase 1: Process the prompt (prefill)
         # Feed the entire prompt at once to populate the KV-cache
@@ -121,11 +161,20 @@ class CodeGenerator:
                 generated_ids=generated_ids,
             )
 
-            # Check stop condition
-            if next_token in stop_ids:
+            # Token-level stop (EOS / single-token stops) — exclude from output
+            if next_token in single_stop_ids:
                 break
 
             generated_ids.append(next_token)
+
+            # String-level stop: if a multi-token stop string appears in the
+            # completion, truncate there and finish (the stop text is excluded).
+            if string_stops:
+                full = self.tokenizer.decode(generated_ids)
+                idx = _earliest_stop_index(full, string_stops, prompt_char_len)
+                if idx is not None:
+                    self.model.clear_caches()
+                    return full[:idx]
 
             # Feed the new token through the model (with KV-cache)
             next_input = torch.tensor([[next_token]], dtype=torch.long, device=self.device)
@@ -176,21 +225,25 @@ class CodeGenerator:
         token_ids = self.tokenizer.encode(prompt, add_bos=True)
         input_ids = torch.tensor([token_ids], dtype=torch.long, device=self.device)
 
-        # Get stop token IDs
-        stop_ids = set()
-        stop_ids.add(self.tokenizer.eos_id)
-        if stop_tokens:
-            for st in stop_tokens:
-                encoded = self.tokenizer.encode(st, add_bos=False)
-                if encoded:
-                    stop_ids.add(encoded[0])
+        # Partition stops (see generate() for why): single-token stops match at
+        # the token level, multi-token stops at the string level on decoded text.
+        single_stop_ids, string_stops = self._partition_stops(stop_tokens)
 
         # Clear any existing cache
         self.model.clear_caches()
 
         generated_ids = list(token_ids)
-        # Track what we've already yielded so we can compute the incremental diff
+        # Track what we've already yielded so we can compute the incremental diff.
+        # This also marks where the completion begins, so string stops only fire
+        # in completion text, never inside the prompt.
         prev_decoded_len = len(self.tokenizer.decode(generated_ids))
+        prompt_char_len = prev_decoded_len
+        # When string stops are active we must hold back the last (max_stop_len-1)
+        # decoded chars before yielding: they might be the START of a stop
+        # sequence that completes on a later token. Without this, "\n\n" would
+        # leak its first "\n" before the stop fires. (vLLM/TGI do the same.)
+        max_stop_len = max((len(s) for s in string_stops), default=0)
+        current_decoded = self.tokenizer.decode(generated_ids)
 
         try:
             # Phase 1: Process the prompt (prefill)
@@ -215,8 +268,8 @@ class CodeGenerator:
                     generated_ids=generated_ids,
                 )
 
-                # Check stop condition
-                if next_token in stop_ids:
+                # Token-level stop (EOS / single-token stops)
+                if next_token in single_stop_ids:
                     break
 
                 generated_ids.append(next_token)
@@ -226,10 +279,25 @@ class CodeGenerator:
                 # decode differently depending on surrounding context, and
                 # multi-byte UTF-8 sequences that may span token boundaries.
                 current_decoded = self.tokenizer.decode(generated_ids)
-                new_text = current_decoded[prev_decoded_len:]
-                if new_text:
-                    yield new_text
-                prev_decoded_len = len(current_decoded)
+
+                if string_stops:
+                    # String-level stop: emit up to the stop string, then finish
+                    # (the stop text itself is not emitted).
+                    idx = _earliest_stop_index(current_decoded, string_stops, prompt_char_len)
+                    if idx is not None:
+                        if idx > prev_decoded_len:
+                            yield current_decoded[prev_decoded_len:idx]
+                        return
+                    # Only emit text that can't be the prefix of a future stop.
+                    safe_len = len(current_decoded) - (max_stop_len - 1)
+                    if safe_len > prev_decoded_len:
+                        yield current_decoded[prev_decoded_len:safe_len]
+                        prev_decoded_len = safe_len
+                else:
+                    new_text = current_decoded[prev_decoded_len:]
+                    if new_text:
+                        yield new_text
+                    prev_decoded_len = len(current_decoded)
 
                 # Feed the new token through the model (with KV-cache)
                 next_input = torch.tensor([[next_token]], dtype=torch.long, device=self.device)
@@ -240,6 +308,11 @@ class CodeGenerator:
                     logits = self.model(next_input, start_pos=start_pos, use_cache=True)
 
                 next_logits = logits[0, -1, :]
+
+            # Flush any held-back tail (generation ended via EOS / max tokens
+            # without hitting a string stop).
+            if string_stops and len(current_decoded) > prev_decoded_len:
+                yield current_decoded[prev_decoded_len:]
 
         finally:
             # Always clear the KV cache, even if generation was interrupted
