@@ -46,26 +46,15 @@ def resolve_tokenizer_path(
 def apply_moe_config_from_checkpoint(config, checkpoint: str | Path) -> bool:
     """Flip a config to MoE when the checkpoint is an upcycled MoE model.
 
-    Mutates ``config.model.moe`` (enabled + expert counts) in place so the
-    Transformer constructed from it builds expert FFNs matching the
-    checkpoint's weights. No-op for dense checkpoints.
-
-    Returns:
-        True if the config was switched to MoE, else False.
+    Thin lazy passthrough to the canonical implementation in
+    features/moe_layer (kept here so existing importers and the lazy-import
+    design — no torch at module load — both keep working).
     """
-    from cola_coder.features.moe_layer import detect_moe_checkpoint
+    from cola_coder.features.moe_layer import (
+        apply_moe_config_from_checkpoint as _impl,
+    )
 
-    detected = detect_moe_checkpoint(checkpoint)
-    if not detected:
-        return False
-    moe = config.model.moe
-    moe.enabled = True
-    moe.num_experts = detected["num_experts"]
-    moe.num_shared_experts = detected["num_shared_experts"]
-    moe.top_k = detected["top_k"]
-    # Upcycling converts every FFN block, so the whole stack is MoE.
-    moe.moe_layers = "all"
-    return True
+    return _impl(config, checkpoint)
 
 
 def load_generator(

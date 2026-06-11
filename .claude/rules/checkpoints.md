@@ -24,11 +24,19 @@ upcycled checkpoint loads into a MoE-configured `Transformer` with no remapping.
 `Transformer` builds `MoEFFN` blocks only when `config.model.moe.enabled`. So
 before loading a MoE checkpoint into a base-config model you MUST flip the
 config first: call `apply_moe_config_from_checkpoint(config, checkpoint)`
-(`inference/loading.py`) — it reads the sidecar (or infers from weight keys) and
-sets enabled + expert counts + `moe_layers="all"`. `load_generator` and the
-generate/serve/smoke_test/evaluate scripts all do this. Loading a MoE checkpoint
-into a dense model is a hard `_load_state_dict_tied` failure (`experts.*` keys
-have nowhere to go).
+(canonical in `features/moe_layer.py`, re-exported from `inference/loading.py`) —
+it reads the sidecar (or infers from weight keys) and sets enabled + expert
+counts + `moe_layers="all"`. BOTH the inference load path (`load_generator` +
+the generate/serve/smoke_test/evaluate scripts) AND the training resume path
+(`Trainer.__init__`) call it. Loading a MoE checkpoint into a dense model is a
+hard `_load_state_dict_tied` failure (`experts.*` keys have nowhere to go).
+
+**Fine-tuning an upcycled MoE checkpoint** (the 10-20% post-upcycle training
+that differentiates the experts): `Trainer` auto-detects MoE from `resume_from`,
+so `train.py --resume checkpoints/<moe_dir> --config <config>` just works. The
+upcycle output has no `training_state.pt`, so the optimizer/scheduler start
+fresh at step 0 (a fine-tune, not a mid-run resume). The MoE load-balancing aux
+loss is already wired into the trainer's loss (0 for dense models).
 
 ## Vocab Expansion After Reasoning Training
 Reasoning training calls `_resize_embeddings` to add thinking tokens (`<think>`/`</think>`),

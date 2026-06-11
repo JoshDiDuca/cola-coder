@@ -89,6 +89,21 @@ class Trainer:
         # Enable all CUDA performance knobs before building anything
         _setup_cuda_optimizations()
 
+        # If resuming from an upcycled MoE checkpoint, switch the config to MoE
+        # BEFORE building the model so the expert FFNs exist and the weights
+        # load. Without this, fine-tuning an upcycled checkpoint would fail
+        # (dense model can't accept the experts.* keys). Mirrors the inference
+        # load path's auto-detect — see features/moe_layer.
+        if resume_from:
+            from cola_coder.features.moe_layer import apply_moe_config_from_checkpoint
+
+            if apply_moe_config_from_checkpoint(config, resume_from):
+                print(
+                    f"Resuming from MoE checkpoint: building "
+                    f"{config.model.moe.num_experts}+"
+                    f"{config.model.moe.num_shared_experts} experts per layer"
+                )
+
         # Build model
         print(f"\n{'='*60}")
         print("Building model...")

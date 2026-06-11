@@ -9,6 +9,8 @@ generate, plus the unit pieces it relies on.
 
 import importlib.util
 import json
+
+import pytest
 from pathlib import Path
 
 import torch
@@ -265,3 +267,80 @@ class TestUpcycleRoundTrip:
         # Not identical (MoE adds shared + routed paths), but finite and same shape
         assert moe_logits.shape == dense_logits.shape
         assert torch.isfinite(moe_logits).all()
+
+
+class TestMoEResumeFineTune:
+    """MODEL-001: the TRAINING resume path must auto-detect MoE checkpoints.
+
+    Before the fix, Trainer built Transformer(config.model) straight from the
+    (dense) config, so resuming from an upcycled MoE checkpoint to fine-tune it
+    failed — the dense model can't accept the experts.* keys. These tests
+    exercise the exact apply -> build -> load_checkpoint path the trainer uses.
+    """
+
+    def _make_upcycled(self, tmp_path):
+        from cola_coder.training.checkpoint import save_checkpoint
+        from cola_coder.training.optimizer import create_optimizer, create_scheduler
+
+        config_yaml = tmp_path / "cfg.yaml"
+        _write_tiny_config_yaml(config_yaml)
+        dense_cfg = Config.from_yaml(str(config_yaml))
+        dense = Transformer(dense_cfg.model)
+        opt = create_optimizer(dense, learning_rate=1e-3, weight_decay=0.1)
+        sched = create_scheduler(opt, warmup_steps=2, max_steps=10)
+        dense_dir = tmp_path / "dense"
+        save_checkpoint(dense, opt, sched, step=1, loss=2.0,
+                        config={}, output_dir=str(dense_dir))
+        dense_ckpt = next(dense_dir.glob("step_*"))
+        moe_dir = tmp_path / "moe"
+        _load_upcycle()(
+            checkpoint_dir=str(dense_ckpt), config_path=str(config_yaml),
+            num_experts=4, num_shared_experts=1, top_k=2, output_dir=str(moe_dir),
+        )
+        return config_yaml, moe_dir
+
+    def test_resume_path_loads_moe_checkpoint(self, tmp_path):
+        from cola_coder.features.moe_layer import apply_moe_config_from_checkpoint
+        from cola_coder.training.checkpoint import load_checkpoint
+        from cola_coder.training.optimizer import create_optimizer, create_scheduler
+
+        config_yaml, moe_dir = self._make_upcycled(tmp_path)
+
+        # Mirror Trainer.__init__: apply MoE config from the resume checkpoint,
+        # THEN build the model, THEN load via the resume loader (with optimizer).
+        cfg = Config.from_yaml(str(config_yaml))
+        assert apply_moe_config_from_checkpoint(cfg, moe_dir) is True
+        model = Transformer(cfg.model)
+        assert model.is_moe
+        opt = create_optimizer(model, learning_rate=1e-5, weight_decay=0.01)
+        sched = create_scheduler(opt, warmup_steps=2, max_steps=10)
+
+        # Upcycle output has no training_state.pt -> fresh optimizer, step 0.
+        step = load_checkpoint(str(moe_dir), model, opt, sched, device="cpu")
+        assert step == 0
+        # The fine-tune model trains: forward + backward + aux loss all work.
+        model.train()
+        loss = model.compute_loss(torch.randint(0, 256, (2, 16)))
+        loss.backward()
+        assert torch.isfinite(loss)
+
+    def test_resume_without_moe_detect_fails(self, tmp_path):
+        # Proves the fix is necessary: building a DENSE model (skipping the
+        # auto-detect) and loading the MoE checkpoint must fail.
+        from cola_coder.training.checkpoint import load_checkpoint
+
+        config_yaml, moe_dir = self._make_upcycled(tmp_path)
+        dense_cfg = Config.from_yaml(str(config_yaml))  # moe NOT enabled
+        dense_model = Transformer(dense_cfg.model)
+        assert not dense_model.is_moe
+        with pytest.raises(Exception):
+            load_checkpoint(str(moe_dir), dense_model, device="cpu")
+
+    def test_trainer_wires_moe_autodetect_before_build(self):
+        # Source guard: the auto-detect must run BEFORE the model is built.
+        text = (Path(__file__).parent.parent / "src" / "cola_coder"
+                / "training" / "trainer.py").read_text(encoding="utf-8")
+        apply_idx = text.find("apply_moe_config_from_checkpoint(config, resume_from)")
+        build_idx = text.find("self.model = Transformer(config.model)")
+        assert apply_idx != -1 and build_idx != -1
+        assert apply_idx < build_idx

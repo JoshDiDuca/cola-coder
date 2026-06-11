@@ -31,10 +31,10 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   in-stream scanning can't be silently disabled into an unsafe state; document
   the safe defaults. (From a prior audit; verify current defaults.)
 
-- **MODEL-001** [model, medium] `open` — MoE is now loadable/runnable but upcycle
-  only INITIALIZES experts; there is no pipeline stage to FINE-TUNE the upcycled
-  MoE (needs ~10-20% training compute to differentiate experts). Opportunity:
-  add stage 7.5.
+- **MODEL-003** [model, low] `open` — Follow-up to MODEL-001: fine-tuning an
+  upcycled MoE now works via `train.py --resume <moe_dir> --config <cfg>`, but
+  there is no DEDICATED pipeline stage 7.5 / menu entry / auto-config (low LR,
+  fraction of steps) to orchestrate it. Optional convenience wrapper.
 
 - **MODEL-002** [model, low] `open` — `ModelConfig.total_params` reports the dense
   FFN count for MoE configs (display only; undercounts expert params).
@@ -47,6 +47,19 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **MODEL-001** [model, medium] `done` (2026-06-11) — Upcycled MoE checkpoints
+  could be loaded for INFERENCE but NOT fine-tuned: `Trainer.__init__` built
+  `Transformer(config.model)` straight from the (dense) config, so resuming from
+  a MoE checkpoint failed (`experts.*` keys have nowhere to go) unless you
+  hand-edited the config. Fix: `apply_moe_config_from_checkpoint` moved to its
+  canonical home `features/moe_layer.py` (re-exported from inference/loading for
+  existing importers) and called in `Trainer.__init__` before the model is
+  built, mirroring the inference auto-detect. `load_checkpoint` already tolerates
+  the model-only upcycle output (fresh optimizer, step 0). Now `train.py
+  --resume <moe_dir>` fine-tunes the upcycled model. Validated: apply -> build ->
+  load_checkpoint -> forward+backward+aux-loss (test_moe_integration.py
+  TestMoEResumeFineTune, incl. proof a dense model fails). Remaining dedicated
+  stage 7.5 split to MODEL-003. Doc: checkpoints rule.
 - **INFER-001** [inference, medium] `done` (2026-06-11) — Prompt-echo leak.
   CORRECTED diagnosis: the STREAMING path is actually safe (`generate_stream`
   yields only incremental new text via prev_decoded_len; the server's

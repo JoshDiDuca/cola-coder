@@ -114,6 +114,33 @@ def detect_moe_checkpoint(checkpoint_dir: str | Path) -> dict | None:
     }
 
 
+def apply_moe_config_from_checkpoint(config, checkpoint: str | Path) -> bool:
+    """Flip a config to MoE when the checkpoint is an upcycled MoE model.
+
+    Mutates ``config.model.moe`` (enabled + expert counts) in place so the
+    Transformer constructed from it builds expert FFNs matching the
+    checkpoint's weights. No-op for dense checkpoints.
+
+    Used by BOTH the inference load path (generate/serve/evaluate) and the
+    training resume path (Trainer), so an upcycled MoE checkpoint can be loaded
+    and fine-tuned without hand-editing the config.
+
+    Returns:
+        True if the config was switched to MoE, else False.
+    """
+    detected = detect_moe_checkpoint(checkpoint)
+    if not detected:
+        return False
+    moe = config.model.moe
+    moe.enabled = True
+    moe.num_experts = detected["num_experts"]
+    moe.num_shared_experts = detected["num_shared_experts"]
+    moe.top_k = detected["top_k"]
+    # Upcycling converts every FFN block, so the whole stack is MoE.
+    moe.moe_layers = "all"
+    return True
+
+
 class ExpertRouter(nn.Module):
     """Learned router that assigns tokens to experts.
 
