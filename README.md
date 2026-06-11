@@ -43,11 +43,13 @@ Cola-Coder uses the same architecture as the models powering LLaMA 3, Mistral, D
 | **Attention** | Grouped Query Attention (GQA) | 3-4x smaller KV-cache than standard MHA — critical for consumer GPU inference |
 | **Activation** | SwiGLU (Sigmoid Linear Unit + Gated Linear Unit) | Outperforms GELU/ReLU in every published ablation study |
 | **Normalization** | RMSNorm (pre-norm) | Simpler and faster than LayerNorm, no centering bias, equally effective |
-| **Optimizer** | AdamW with cosine LR schedule + linear warmup | The battle-tested recipe from GPT-2 through LLaMA 3 |
+| **Optimizer** | Muon (hidden weight matrices) + AdamW (embeddings/norms), WSD or cosine LR + warmup | Muon's orthogonalized updates train faster per step than pure AdamW (Keller Jordan 2024, adopted by Kimi/Moonshot) |
+| **Training stability** | QK-Norm + PaLM-style z-loss + residual-scaled init | Bounds attention logits and softmax-Z so deep models train at higher LR without loss spikes (Gemma 2 / OLMo 2 / Qwen3) |
 | **Precision** | bf16 / fp16 mixed precision | Half the VRAM, 2x throughput, zero quality loss |
-| **Tokenizer** | Byte-Pair Encoding (BPE) via HuggingFace Tokenizers | Rust-backed, handles any encoding, code-aware pre-tokenization |
+| **Tokenizer** | Byte-level BPE (HuggingFace Tokenizers) with **digit splitting** | Rust-backed; one-token-per-digit (LLaMA 3 / Qwen2.5-Coder) markedly improves numeric handling for the math data mix |
+| **Sampling** | min-p + top-p/top-k + repetition penalty | min-p's confidence-scaled floor beats top-p at higher temperatures, especially for small models (Nguyen et al. 2024) |
 | **Checkpoints** | Safetensors format | No arbitrary code execution on load (unlike pickle) |
-| **Reasoning** | Chain-of-thought + GRPO reinforcement learning | Same approach as DeepSeek-R1 — verifiable rewards from code execution |
+| **Reasoning** | Chain-of-thought + GRPO (Dr. GRPO advantage + DAPO clip-higher) | DeepSeek-R1-style verifiable rewards; Dr. GRPO removes the std-norm bias and DAPO's looser upper clip counters entropy collapse |
 | **MoE** (optional) | Mixture of Experts upcycling | Convert any dense checkpoint to sparse MoE — more params, same compute |
 | **FIM** | Fill-in-the-Middle training (PSM + SPM) | Enables IDE autocomplete at arbitrary cursor positions |
 | **Performance** | torch.compile + Flash Attention + TF32 | 2-4x combined speedup from GPU kernel optimizations |
@@ -57,11 +59,13 @@ Cola-Coder uses the same architecture as the models powering LLaMA 3, Mistral, D
 
 | Config | Parameters | Layers | Dim | Heads (Q/KV) | FFN Hidden | Max Seq | VRAM (train) |
 |--------|-----------|--------|-----|-------------|-----------|---------|-------------|
-| **Tiny** | ~50M | 8 | 512 | 8 / 4 | 896 | 1024 | ~3.6 GB |
-| **Small** | ~125M | 12 | 768 | 12 / 4 | 1344 | 2048 | ~6.5 GB |
-| **Medium** | ~299M | 18 | 1024 | 16 / 4 | 1792 | 2048 | ~8.2 GB |
+| **Tiny** | ~50M | 8 | 512 | 8 / 4 | 1536 | 1024 | ~3.6 GB |
+| **Small** | ~125M | 12 | 768 | 12 / 4 | 2048 | 2048 | ~6.5 GB |
+| **Medium** | ~299M | 24 | 1024 | 16 / 4 | 2752 | 2048 | ~8.2 GB |
 | **4080 Max** | ~455M | 24 | 1280 | 20 / 4 | 3456 | 4096 | ~14.1 GB |
-| **Large** | ~1B+ | 32 | 2048 | 32 / 8 | 3584 | 4096 | ~24 GB |
+| **Large** | ~1.5B | 32 | 2048 | 32 / 8 | 5504 | 4096 | ~24 GB |
+
+All configs use **head_dim = 64** (GPU-optimal) and GQA with 4–8 KV heads. Every config is validated for divisibility (`dim % n_heads`, `n_heads % n_kv_heads`) and even head_dim (RoPE).
 
 The **4080 Max** config is tuned to squeeze every GB from a 16GB GPU: wider model (dim=1280), double the context length (4096), RoPE theta=500K for long-range position encoding, and zero dropout (regularized by data quality instead).
 
@@ -81,6 +85,20 @@ Full technical deep-dive: [**docs/ARCHITECTURE.md**](docs/ARCHITECTURE.md)
 - **GRPO reasoning** — generate, execute, reinforce (62 built-in problems, pluggable reward functions)
 - **Performance stack** — torch.compile + Flash Attention + TF32 + fused ops (~2-4x combined)
 - **VS Code extension** — inline completions, chat participant, code actions
+
+---
+
+## Recent Improvements
+
+Ongoing hardening of the model, data pipeline, and orchestration:
+
+- **Modern training recipe** — Muon optimizer, QK-Norm, PaLM z-loss, residual-scaled init, WSD schedule, min-p sampling, and Dr. GRPO + DAPO clip-higher for reasoning.
+- **Digit-splitting tokenizer** — one token per digit (LLaMA 3 / Qwen style) for better numeric handling on the math mix.
+- **Correct multi-source data mixing** — round-robin language streaming (no single-language starvation under a sample/token cap) and exact 70/20/10 ratio in the combiner.
+- **MoE inference fix** — routed experts no longer dropped during single-token decode (capacity limiting is training-only); load-balancing loss vectorized.
+- **Inference correctness** — FIM ghost-text, stop-token, and prompt-echo handling hardened across the server, batched generation, and exports (GGUF/Ollama vocab + ChatML).
+- **Pipeline reliability** — the end-to-end runner no longer hangs on the instruction-gen stage and builds the right-sized model for GRPO across all configs; SFT/GRPO hyperparameters scale with model size.
+- **Windows robustness** — memory-mapped `.npy` rewrites release their handles before replace (no more `PermissionError` mid data-prep); the sandbox kills runaway processes by PID tree, not image name.
 
 ---
 
@@ -145,8 +163,8 @@ Multi-stage reasoning pipeline inspired by DeepSeek-R1:
 
 1. **Thinking tokens** — `<think>` / `</think>` brackets for chain-of-thought reasoning
 2. **SFT warmup** (optional) — supervised fine-tuning on curated reasoning examples before RL
-3. **GRPO** — Group Relative Policy Optimization: generate G solutions per problem, execute tests, reinforce the correct ones
-4. **Pluggable rewards** — `python_exec` (test execution), `typescript` (tsc --strict compiler), `combined` (multi-signal)
+3. **GRPO** — Group Relative Policy Optimization: generate G solutions per problem, execute tests, reinforce the correct ones. Uses **Dr. GRPO** advantages (mean-centered, no std-norm bias) and **DAPO clip-higher** (looser upper PPO clip to counter entropy collapse); the policy log-prob is masked to completion tokens only
+4. **Pluggable rewards** — `python_exec` (test execution), `typescript` (tsc --strict compiler), `combined` (multi-signal). The reward, problem set, and CoT examples all derive from the config's `data.languages`, so GRPO reinforces what the model was pretrained on; rewards strip `<think>` traces before scoring
 5. **Parallel generation** — batched forward pass with KV-cache expansion for efficiency
 6. **Curriculum learning** — easy → medium → hard problem progression with per-difficulty temperature scaling
 7. **62 built-in problems** — easy/medium/hard, plus custom JSONL problem sets
@@ -343,7 +361,6 @@ cola-coder/
 │   ├── features.yaml             # 175 feature module toggles
 │   ├── reasoning.yaml            # GRPO + thinking token config
 │   └── storage.yaml              # Alternate data/checkpoint paths
-├── configs/                      # YAML configs (model, training, features, storage, reasoning, scoring)
 ├── docs/                         # 6 guides + 16 deep-dives
 │   └── deep-dives/               # FIM, MoE, RoPE, torch.compile, quality, checkpoints, security, ...
 ├── pipeline_runs/                # Named pipeline run state files (JSON)
@@ -368,8 +385,8 @@ cola-coder/
 │   ├── memory/                   # Long-context memory management
 │   ├── session_log.py            # Session logging — tee all output to timestamped log files
 │   └── cli.py                    # Rich CLI + questionary arrow menus
-├── scripts/                      # 57 CLI entry points
-├── tests/                        # 135+ test files
+├── scripts/                      # 61 CLI entry points
+├── tests/                        # 200 test files (~3,600 tests)
 └── vscode-extension/             # TypeScript VS Code extension
     └── src/
         ├── client/               # HTTP + SSE client to FastAPI server
@@ -386,7 +403,7 @@ cola-coder/
 
 | Doc | What It Covers |
 |-----|---------------|
-| [**ARCHITECTURE.md**](docs/ARCHITECTURE.md) | Full technical reference — all 57 scripts, data flow, security model, pipeline stages |
+| [**ARCHITECTURE.md**](docs/ARCHITECTURE.md) | Full technical reference — all 61 scripts, data flow, security model, pipeline stages |
 | [**INDEX.md**](docs/INDEX.md) | Complete documentation index with reading times and categories |
 | [Python for TS Devs](docs/01_python_for_ts_devs.md) | Python fundamentals mapped to TypeScript concepts |
 | [How Transformers Work](docs/02_how_transformers_work.md) | Transformer architecture from scratch |
@@ -454,6 +471,12 @@ Tested on RTX 4080 Super (16GB, bf16) and RTX 3080 (10GB, fp16 + GradScaler). Th
 - 70% code: Python, TypeScript, JavaScript, Java, Go, Rust
 - 20% text: [FineWeb-Edu](https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu) (educational web text)
 - 10% math: [OpenWebMath](https://huggingface.co/datasets/open-web-math/open-web-math) (mathematical reasoning)
+
+Languages are streamed **round-robin** (so a sample/token cap yields a balanced
+mix, never just the first language), and the combiner hits the 70/20/10 ratio
+**exactly** by sub-sampling over-represented sources rather than letting the
+largest one dominate. Data is exact + MinHash near-duplicate deduplicated, then
+optionally quality-weighted (per-sample loss weights) and curriculum-ordered.
 
 The dataset is gated. Set `HF_TOKEN` in your environment and accept the terms before running data prep.
 
