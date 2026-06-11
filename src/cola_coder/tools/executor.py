@@ -8,9 +8,7 @@ SECURITY: Never executes arbitrary shell commands. Only registered
 tools with specific handlers are allowed.
 """
 
-import os
 import subprocess
-import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -175,27 +173,46 @@ class ToolExecutor:
         return self._run_subprocess(cmd)
 
     def _handle_typecheck(self, args: dict) -> str:
-        """Run TypeScript type checking on code string."""
+        """Type-check model-generated TypeScript via the sandboxed TscRunner.
+
+        The `code` here is UNTRUSTED model output, so tsc must run through the
+        project's canonical TscRunner — never ad-hoc `npx tsc` (TOOL-004 class).
+        TscRunner gives us: a hardened tsconfig (plugins=[], types=[],
+        typeRoots=[]) so a stray tsconfig/plugin in scope can't load arbitrary
+        code, execution via SandboxedRunner (resource limits, no network — `npx`
+        could otherwise fetch tsc over the wire), and correct Windows `.CMD`
+        resolution. Strictness flows from `args["strict"]` into a per-strictness
+        cached runner.
+        """
         code = args.get("code", "")
-        strict = args.get("strict", True)
+        strict = bool(args.get("strict", True))
 
         if not code:
             return "Error: no code provided"
 
-        # Write to temp file and run tsc
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".ts", delete=False, encoding="utf-8"
-        ) as f:
-            f.write(code)
-            temp_path = f.name
+        runner = self._get_tsc_runner(strict)
+        if not runner.is_available():
+            return "Error: tsc not available (install TypeScript: npm i -g typescript)"
 
-        try:
-            cmd = ["npx", "tsc", "--noEmit", temp_path]
-            if strict:
-                cmd.insert(2, "--strict")
-            return self._run_subprocess(cmd)
-        finally:
-            os.unlink(temp_path)
+        errors = [e for e in runner.check(code) if e.severity == "error"]
+        if not errors:
+            return "OK: no type errors"
+        lines = [f"{len(errors)} type error(s):"]
+        lines.extend(
+            f"  ({e.line},{e.col}) {e.code}: {e.message}" for e in errors
+        )
+        return "\n".join(lines)
+
+    def _get_tsc_runner(self, strict: bool):
+        """Lazily build + cache a TscRunner per strictness setting."""
+        cache = self.__dict__.setdefault("_tsc_runners", {})
+        runner = cache.get(strict)
+        if runner is None:
+            from cola_coder.reasoning.rewards.tsc_runner import TscRunner
+
+            runner = TscRunner(strict=strict, timeout=self.timeout)
+            cache[strict] = runner
+        return runner
 
     def _handle_read_file(self, args: dict) -> str:
         """Read a file's contents."""

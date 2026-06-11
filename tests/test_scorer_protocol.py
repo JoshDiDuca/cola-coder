@@ -166,3 +166,31 @@ class TestCompositeResult:
         r = CompositeResult(overall=0.75, per_scorer={}, weight=1.5)
         assert r.overall == 0.75
         assert r.weight == 1.5
+
+
+# -- DATA-031: score_batch must equal score(), even with name collisions -------
+
+
+class TestScoreBatchEqualsScore:
+    def test_batch_matches_single_for_each_item(self) -> None:
+        s1 = MockScorer("a", 0.9)
+        s2 = MockScorer("b", 0.3)
+        composite = CompositeScorer([(s1, 0.5), (s2, 0.5)])
+        items = [("code1", None), ("code2", {"language": "python"})]
+        batch = composite.score_batch(items)
+        singles = [composite.score(c, m) for c, m in items]
+        for b, s in zip(batch, singles):
+            assert b.overall == pytest.approx(s.overall)
+            assert b.weight == s.weight
+
+    def test_colliding_scorer_names_dont_corrupt_batch(self) -> None:
+        # Two scorers sharing a name: keying batch results by name (the old bug)
+        # made both read the second's score. With position keying, each scorer's
+        # distinct score is used and score_batch matches score().
+        s1 = MockScorer("dup", 0.0)
+        s2 = MockScorer("dup", 1.0)
+        composite = CompositeScorer([(s1, 0.5), (s2, 0.5)])
+        single = composite.score("x")
+        batch = composite.score_batch([("x", None)])
+        assert single.overall == pytest.approx(0.5)  # 0.5*0 + 0.5*1
+        assert batch[0].overall == pytest.approx(single.overall)

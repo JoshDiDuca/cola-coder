@@ -11,17 +11,6 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
-- **DATA-031** [data-quality/robustness, low] `open` — `CompositeScorer.score_batch`
-  (data/scorers/protocol.py) keys per-scorer batch results by `scorer.name`
-  (`all_results[scorer.name] = scorer.score_batch(items)`), so if two registered
-  scorers share a `.name` the second OVERWRITES the first and BOTH read the
-  second's scores — the weighted overall diverges from the single-item `score()`
-  (which iterates scorers directly). Not reachable with the built-in registry
-  (tsc/eslint/stars/heuristic/llm_judge all unique), but a custom scorer with a
-  colliding name silently mis-weights. Fix: key by scorer POSITION (zip the
-  per-scorer batches with `self._scorers`) so `score_batch == score` regardless
-  of names. Found this cycle auditing the scoring pipeline.
-
 - **TOOL-011** [tooling/pipeline, low-medium] `open` (deferred — design decision)
   — Remaining `full_pipeline.py` divergence after TOOL-012: Stage 1
   `_stage_collect_data` runs `prepare_data.py` (code-only), NOT `collect_data.py
@@ -118,6 +107,38 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Done
+
+- **SEC-006** [security/sandbox-consistency, medium] `done` (2026-06-12) — The agent
+  tool executor's `typecheck` handler (tools/executor.py `_handle_typecheck`) ran
+  tsc on UNTRUSTED model-generated code via raw `npx tsc --noEmit <tempfile>`
+  through `_run_subprocess` — bypassing the project's canonical `TscRunner`. Three
+  problems, all the TOOL-004 class but on the live agent path: (1) no hardened
+  tsconfig, so a stray `tsconfig.json`/plugin in temp-dir scope could make tsc load
+  arbitrary code; (2) `npx` can fetch tsc OVER THE NETWORK, violating the
+  no-outbound-network sandbox rule; (3) on Windows tsc is a `.CMD`, so the bare
+  `npx tsc` path is also the fragile invocation TscRunner already solved. Fixed:
+  `_handle_typecheck` now routes through a lazily-built, per-strictness-cached
+  `TscRunner` (hardened tsconfig plugins=[]/types=[]/typeRoots=[], SandboxedRunner
+  execution, resolved tsc path), returns "OK" / a formatted error list / a graceful
+  "tsc not available" message, and counts only `severity == "error"`. Removed the
+  now-unused `os`/`tempfile` imports. Tests: test_tool_executor.py +6 (no-code,
+  clean=OK, errors formatted, warnings ignored, unavailable handled, strict flag
+  selects distinct runner) via an injected fake runner so they pass without tsc on
+  PATH. Found this cycle fresh-scanning the agent tool-execution surface (the
+  security-sensitive path per the standing untrusted-code constraint).
+
+- **DATA-031** [data-quality/robustness, low] `done` (2026-06-12) —
+  `CompositeScorer.score_batch` (data/scorers/protocol.py) keyed per-scorer batch
+  results by `scorer.name`, so if two registered scorers shared a `.name` the
+  second OVERWROTE the first and BOTH read the second's scores — the weighted
+  overall diverged from the single-item `score()` (which iterates scorers
+  directly). Not reachable with the built-in registry (tsc/eslint/stars/heuristic/
+  llm_judge all unique), but a custom scorer with a colliding name silently
+  mis-weighted. Fixed: key by scorer POSITION (zip the per-scorer batches with
+  `self._scorers`) so `score_batch == score` regardless of names. Tests:
+  test_scorer_protocol.py +2 (batch matches single per item; two colliding-name
+  scorers weight 0.5/0.5 → overall 0.5, batch == score). 20 passed. Found auditing
+  the scoring pipeline (logged during the DATA-030 cycle).
 
 - **DATA-030** [data-quality/bug, medium] `done` (2026-06-12) — `prepare_fim_data.py`
   (static FIM dataset prep) called `setup_fim_tokenizer`, which ADDS the

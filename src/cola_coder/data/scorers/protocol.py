@@ -70,17 +70,19 @@ class CompositeScorer:
         )
 
     def score_batch(self, items: list[tuple[str, dict[str, object] | None]]) -> list[CompositeResult]:
-        # Collect per-scorer batch results
-        all_results: dict[str, list[ScorerResult]] = {}
-        for scorer, _ in self._scorers:
-            all_results[scorer.name] = scorer.score_batch(items)
+        # Collect per-scorer batch results indexed by scorer POSITION, not name
+        # (DATA-031): keying by name meant two scorers sharing a `.name` collided
+        # — the second's batch overwrote the first's and both read the second's
+        # scores, so score_batch() diverged from the single-item score(). Zipping
+        # the parallel lists guarantees score_batch == score regardless of names.
+        per_scorer_batches = [scorer.score_batch(items) for scorer, _ in self._scorers]
 
         results: list[CompositeResult] = []
         for i in range(len(items)):
             per_scorer: dict[str, ScorerResult] = {}
             overall = 0.0
-            for scorer, weight in self._scorers:
-                result = all_results[scorer.name][i]
+            for (scorer, weight), batch in zip(self._scorers, per_scorer_batches):
+                result = batch[i]
                 per_scorer[result.scorer_name] = result
                 overall += result.score * weight
             overall = max(0.0, min(1.0, overall))

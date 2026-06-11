@@ -104,3 +104,80 @@ class TestReadFileMissing:
         res = ex.execute("read_file", {"path": "does_not_exist.txt"})
         # Path is valid (inside root) but file absent.
         assert "not found" in res.output.lower()
+
+
+class _FakeTscRunner:
+    """Stand-in for TscRunner so typecheck tests don't need tsc on PATH."""
+
+    def __init__(self, errors, available=True):
+        self._errors = errors
+        self._available = available
+        self.seen = []
+
+    def is_available(self):
+        return self._available
+
+    def check(self, code):
+        self.seen.append(code)
+        return list(self._errors)
+
+
+class TestTypecheckRoutesThroughTscRunner:
+    """typecheck runs UNTRUSTED model code, so it must go through the sandboxed
+    TscRunner (hardened tsconfig, no network) — never ad-hoc `npx tsc`."""
+
+    def test_no_code_returns_error(self, project):
+        ex = ToolExecutor(project_root=str(project))
+        res = ex.execute("typecheck", {"code": ""})
+        assert "no code" in res.output.lower()
+
+    def test_clean_code_reports_ok(self, project):
+        from cola_coder.reasoning.rewards.tsc_runner import TscError
+
+        ex = ToolExecutor(project_root=str(project))
+        fake = _FakeTscRunner(errors=[])
+        ex.__dict__["_tsc_runners"] = {True: fake}
+        res = ex.execute("typecheck", {"code": "const x: number = 1;\n"})
+        assert res.success is True
+        assert "OK" in res.output
+        assert fake.seen == ["const x: number = 1;\n"]  # routed through runner
+        assert TscError  # symbol exists for the error path below
+
+    def test_type_errors_are_formatted(self, project):
+        from cola_coder.reasoning.rewards.tsc_runner import TscError
+
+        ex = ToolExecutor(project_root=str(project))
+        err = TscError(
+            file="check.ts", line=1, col=7, severity="error",
+            code="TS2322", message="Type 'string' is not assignable to 'number'.",
+        )
+        ex.__dict__["_tsc_runners"] = {True: _FakeTscRunner(errors=[err])}
+        res = ex.execute("typecheck", {"code": "const x: number = 'a';\n"})
+        assert "TS2322" in res.output
+        assert "(1,7)" in res.output
+
+    def test_warnings_are_ignored(self, project):
+        from cola_coder.reasoning.rewards.tsc_runner import TscError
+
+        ex = ToolExecutor(project_root=str(project))
+        warn = TscError(
+            file="check.ts", line=2, col=1, severity="warning",
+            code="TS6133", message="'y' is declared but never used.",
+        )
+        ex.__dict__["_tsc_runners"] = {True: _FakeTscRunner(errors=[warn])}
+        res = ex.execute("typecheck", {"code": "const y = 1;\n"})
+        assert "OK" in res.output  # only severity == "error" counts
+
+    def test_unavailable_tsc_reports_gracefully(self, project):
+        ex = ToolExecutor(project_root=str(project))
+        ex.__dict__["_tsc_runners"] = {True: _FakeTscRunner(errors=[], available=False)}
+        res = ex.execute("typecheck", {"code": "const x = 1;\n"})
+        assert "not available" in res.output.lower()
+
+    def test_strict_flag_selects_distinct_runner(self, project):
+        ex = ToolExecutor(project_root=str(project))
+        strict_runner = _FakeTscRunner(errors=[])
+        loose_runner = _FakeTscRunner(errors=[])
+        ex.__dict__["_tsc_runners"] = {True: strict_runner, False: loose_runner}
+        ex.execute("typecheck", {"code": "a", "strict": False})
+        assert loose_runner.seen == ["a"] and strict_runner.seen == []
