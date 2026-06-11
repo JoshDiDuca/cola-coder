@@ -16,11 +16,7 @@ Each TSProblem is one test case; TSBenchmark runs them all and reports pass@1.
 from __future__ import annotations
 
 import re
-import shutil
-import subprocess
-import tempfile
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -1708,34 +1704,45 @@ def _pattern_check(solution: str, problem: TSProblem) -> bool:
     return True
 
 
+# Shared, cached tsc engine. Reused across solutions so the TscRunner's
+# hash-keyed cache is effective. Lazily built so importing this static
+# benchmark never pulls the sandbox/reasoning stack unless tsc actually runs.
+_TSC_RUNNER = None
+
+
+def _get_tsc_runner():
+    """Return a process-wide TscRunner (the canonical sandboxed tsc engine)."""
+    global _TSC_RUNNER
+    if _TSC_RUNNER is None:
+        from ..reasoning.rewards.tsc_runner import TscRunner
+
+        _TSC_RUNNER = TscRunner(strict=True)
+    return _TSC_RUNNER
+
+
 def _tsc_check(solution: str, problem: TSProblem) -> bool | None:
-    """Attempt tsc type-check if tsc is available.  Returns None if tsc not found."""
-    if shutil.which("tsc") is None:
+    """Attempt a tsc type-check if tsc is available. Returns None if not found.
+
+    Routes through the shared, sandboxed ``TscRunner`` (hardened tsconfig:
+    plugins/types/typeRoots disabled, run via SandboxedRunner) instead of an
+    ad-hoc ``subprocess.run(["tsc", ...])`` — the project mandates that ALL tsc
+    execution and ALL execution-based scoring of model-generated code go
+    through that engine. This also makes the benchmark's type-check consistent
+    with how TS quality is judged elsewhere (TscScorer / TypeCheckReward).
+    """
+    from ..reasoning.rewards.tsc_runner import TscRunner
+
+    if not TscRunner.is_available():
         return None
 
-    # Write a minimal .ts file combining prompt + solution
+    # Combine prompt + solution into one checkable unit.
     code = problem.prompt + "\n" + solution
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        suffix=".ts",
-        delete=False,
-        encoding="utf-8",
-    ) as f:
-        f.write(code)
-        tmp_path = Path(f.name)
-
     try:
-        result = subprocess.run(
-            ["tsc", "--noEmit", "--strict", "--target", "ESNext", str(tmp_path)],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        return result.returncode == 0
-    except (subprocess.TimeoutExpired, OSError):
+        errors = _get_tsc_runner().check(code)
+    except Exception:
+        # tsc failed to run (not a type error) — treat as "no signal".
         return None
-    finally:
-        tmp_path.unlink(missing_ok=True)
+    return not any(e.severity == "error" for e in errors)
 
 
 # ---------------------------------------------------------------------------

@@ -53,6 +53,23 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **TOOL-004** [tooling/security-consistency, medium] `done` (2026-06-11) —
+  `TSBenchmark._tsc_check` (evaluation/ts_benchmark.py) ran `tsc` on MODEL-
+  GENERATED TypeScript via a raw `subprocess.run(["tsc", "--noEmit", ...])` on a
+  bare temp file — bypassing the project's canonical `TscRunner` and its
+  hardened tsconfig (`plugins=[]`/`types=[]`/`typeRoots=[]`, executed through
+  `SandboxedRunner`). This violates two standing rules: "no ad-hoc tsc
+  subprocess calls — use TscRunner" (DRY) and "execution-based scoring of
+  generated code must be sandboxed by default." It also judged TS validity
+  differently from the rest of the stack (TscScorer / TypeCheckReward), which
+  all use the hardened config. Fixed: `_tsc_check` now routes through a shared,
+  cached `TscRunner` (lazily built so importing this static benchmark doesn't
+  pull the sandbox stack); a solution passes when `check()` reports no
+  severity=="error" diagnostics (warnings don't fail). Removed the now-unused
+  `subprocess`/`tempfile`/`shutil`/`Path` imports. Tests:
+  test_ts_benchmark_tsc.py (8): routing (none-when-unavailable, true/false on
+  errors, warnings don't fail, none on runner exception), the ad-hoc imports
+  are gone (regression guard), and evaluate_solution tier-4 integration.
 - **INFER-006** [inference/bug, high] `done` (2026-06-11) — Multi-token stop
   sequences were reduced to their FIRST token. `generate`/`generate_stream`
   (generator.py) built `stop_ids` via `stop_ids.add(encoded[0])`, so a stop like
