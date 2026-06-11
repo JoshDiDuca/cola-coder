@@ -11,6 +11,20 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+- **DATA-021** [data-quality/architecture, medium] `open` — The modular
+  FilterPlugin + `DataPipeline` system (data/pipeline.py + data/filters/, registry
+  in data/registry.py) is built and now fully registered (DATA-020), but is NOT
+  wired into any LIVE entry point: `collect_data.py` filters via
+  `stream_code_data`/`tokenize_and_chunk` + the monolithic `quality_filter.py`,
+  not `DataPipeline`; `DataPipeline(` is constructed nowhere outside pipeline.py
+  itself (self_align.py only mentions it in docstrings). So the privacy (pii),
+  license, content, syntax, dedup filters — though now selectable by name — have
+  no config that actually invokes them in the real collection path. DECISION
+  NEEDED (larger, staged refactor): either (a) route collect_data/prepare_data
+  through DataPipeline with a `filters:` section in data_sources.yaml, or (b)
+  consolidate onto quality_filter.py and retire the unused DataPipeline filter
+  path. Don't do blindly — pick a single filtering architecture. Found this cycle.
+
 - **EVAL-007** [eval/capability, low] `open` — Follow-up to EVAL-006: to actually
   EVALUATE TypeScript HumanEval problems (TYPESCRIPT_PROBLEMS, ~40 in
   humaneval.py) rather than just guard them out, the pipeline needs (1) a TS
@@ -62,6 +76,29 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-020** [data-quality/wiring+bug, medium] `done` (2026-06-11) — Two coupled
+  fixes in the modular filter system. (1) WIRING: 5 of 8 FilterPlugins (`pii`,
+  `content`, `license`, `syntax`, `deduplication`) conformed to the interface and
+  were exported + documented as "composable filter plugins," but were NEVER
+  registered via `@register_filter` — and the registry is the ONLY way the
+  config-driven `DataPipeline` instantiates filters by name (verified: none are
+  constructed directly anywhere in src/scripts). So the privacy (PII) and license
+  filters were orphaned/unreachable by config. Added `@register_filter(name)` to
+  all 5 (registry now: content/deduplication/length/license/pii/quality/
+  quality_classifier/syntax). Purely additive — only used when a config names
+  them. (2) BUG: PIIFilter's `password_assignment` regex matched the bare `pass`
+  keyword inside unrelated identifiers — `bypass`/`compass`/`surpass` (verified
+  empirically) were false-flagged as PII and the whole file dropped (DATA-015-class
+  over-rejection shrinking the corpus). Restricted the bare `pass` alternative
+  with a `(?<![A-Za-z])` lookbehind so it matches standalone `pass`/snake_case
+  `db_pass` but not letter-prefixed suffixes; `password`/`passwd`/`pwd` keep
+  matching after `_`/word starts (snake_case secrets still caught). Verified real
+  secrets (password/db_pass/pass/PASSWORD/aws/PEM) still detected. Also removed 2
+  pre-existing dead imports (math, torch) in quality_classifier.py while in the
+  package. The dormant DataPipeline-not-in-live-path issue logged as DATA-021.
+  Tests: test_filter_registry_and_pii.py (8): all 5 registered + constructible +
+  setup, pii setup applies config, identifiers-ending-in-pass kept, real password
+  assignments still flagged, other patterns (aws/PEM) unaffected.
 - **EVAL-006** [eval/correctness, medium] `done` (2026-06-11) — `evaluate_solution`
   (evaluation/runner.py) executes Python (execute_code → `python main.py`) but
   ignored `problem.language`, so a `language="typescript"` `CodingProblem`
