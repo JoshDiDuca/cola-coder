@@ -53,6 +53,20 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-013** [data-quality/bug, medium] `done` (2026-06-11) — `prepare_docs_data.py`
+  wrapped each doc in `<|doc|>...<|/doc|>` then `tokenizer.encode`d it, but
+  `<|doc|>`/`<|/doc|>` are NOT in the base tokenizer's SPECIAL_TOKENS — they're
+  `CONTEXT_TOKENS` added only by `add_context_tokens()`. With a normally-trained
+  tokenizer, encode() FRAGMENTS those markers into ordinary punctuation tokens
+  instead of single structural markers, silently producing degraded docs
+  training data (the model never learns a clean `<|doc|>` boundary) — the same
+  class as DATA-003. (`<|eos|>` IS a base special token, so that part was fine.)
+  Fixed by mirroring DATA-003: a testable `_missing_doc_tokens()` helper +
+  `cli.fatal` with the exact remedy (add_context_tokens + re-save, or retrain
+  including CONTEXT_TOKENS) before any tokenization. Also switched
+  `_build_doc_text` to the canonical `wrap_doc()` (DRY). Script had ZERO test
+  coverage; added test_docs_data.py (6): missing/present/partial token
+  detection, wrap markers + eos, header parsing.
 - **BUG-105** [bug/cli, medium] `done` (2026-06-11) — `_run_weighted_mix`
   (combine_datasets.py, the non-interactive `--datasets a:0.8 b:0.2` path) had
   three defects in an untested CLI function: (1) non-2D inputs were

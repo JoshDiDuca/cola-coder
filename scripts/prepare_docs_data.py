@@ -21,6 +21,20 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from cola_coder.cli import cli
+from cola_coder.tokenizer.special_tokens import wrap_doc
+
+# The structural markers this script encodes. They are NOT part of the base
+# tokenizer's SPECIAL_TOKENS — they live in special_tokens.CONTEXT_TOKENS and are
+# added only by add_context_tokens(). If they're absent, tokenizer.encode would
+# silently FRAGMENT "<|doc|>"/"<|/doc|>" into ordinary punctuation tokens instead
+# of single structural markers, producing degraded docs data (the same class of
+# bug as DATA-003 in prepare_repo_context_data.py).
+_DOC_TOKENS = ("<|doc|>", "<|/doc|>")
+
+
+def _missing_doc_tokens(tokenizer) -> list[str]:
+    """Return the doc structural tokens absent from the tokenizer's vocab."""
+    return [t for t in _DOC_TOKENS if tokenizer.tokenizer.token_to_id(t) is None]
 
 
 def _format_size(size_bytes: int) -> str:
@@ -64,7 +78,7 @@ def _build_doc_text(framework_version: str, page_title: str, body: str) -> str:
         {body}
         <|eos|>
     """
-    header = f"<|doc|>{framework_version} - {page_title}<|/doc|>"
+    header = wrap_doc(f"{framework_version} - {page_title}")
     return f"{header}\n{body.strip()}\n<|eos|>"
 
 
@@ -234,6 +248,26 @@ def main() -> None:
         cli.info("Vocabulary size", tokenizer.vocab_size)
     except Exception as exc:
         cli.fatal(f"Error loading tokenizer: {exc}")
+
+    # Validate the doc structural tokens exist. Without them, encode() fragments
+    # "<|doc|>"/"<|/doc|>" into ordinary tokens, silently defeating the purpose
+    # of this dataset (teaching the model the doc-context format). Fail loudly
+    # with the remedy instead (cf. DATA-003).
+    missing = _missing_doc_tokens(tokenizer)
+    if missing:
+        cli.fatal(
+            f"Tokenizer is missing doc context tokens: {', '.join(missing)}. "
+            "Docs would be tokenized with fragmented markers, not structural tokens.",
+            hint=(
+                "Add them and re-save the tokenizer first:\n"
+                "    from cola_coder.tokenizer.tokenizer_utils import CodeTokenizer\n"
+                "    from cola_coder.tokenizer.special_tokens import add_context_tokens\n"
+                "    tok = CodeTokenizer('tokenizer.json')\n"
+                "    add_context_tokens(tok); tok.tokenizer.save('tokenizer.json')\n"
+                "(then retrain/continue with the expanded vocab), or retrain the "
+                "tokenizer including CONTEXT_TOKENS."
+            ),
+        )
 
     # ---- Step 2: Scan docs ----
     cli.step(2, 3, "Scanning docs directory")
