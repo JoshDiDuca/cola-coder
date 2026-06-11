@@ -53,6 +53,22 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **BUG-103** [bug/curation, medium] `done` (2026-06-11) — `score_repos_parallel`
+  was BROKEN in subprocess mode. `_score_repo_worker` (test_runner.py)
+  reconstructed `TestRunner(mode=mode, ...)` in each worker process WITHOUT
+  forwarding `allow_host_execution`, but `TestRunner.__init__` raises
+  ValueError for `mode="subprocess"` unless that flag is True (a safety gate
+  added by a prior change). So every worker raised, was caught by the
+  `as_completed` handler, and every repo was silently scored 0.2 with an error
+  — i.e. `scripts/score_repos.py --mode subprocess` (which sets
+  `allow_host_execution=True` on the parent then calls the parallel scorer)
+  produced all-garbage rankings. The worker also hardcoded `cache_dir`,
+  ignoring the caller's. The existing parallel test only used `dry_run` (no
+  gate), so it never caught this. Fixed: store `_allow_host_execution` /
+  `_cache_dir` on the runner and forward both into `_score_repo_worker`. Tests:
+  test_curation.py TestParallelSubprocessGate (3): worker builds with the flag
+  (no-framework repo → no execution), gate still raises without it, end-to-end
+  parallel subprocess scoring returns a real (non-error) score.
 - **BUG-102** [reasoning/reward-quality, low] `done` (2026-06-11) — The
   indentation-consistency sub-check in `_check_style` (reasoning/rewards/
   combined.py — the `combined` GRPO reward's style signal) was a no-op that

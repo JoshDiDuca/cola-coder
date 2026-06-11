@@ -26,6 +26,7 @@ from cola_coder.data.curation.test_runner import (
     _parse_jest_output,
     _parse_pytest_output,
     _parse_go_test_output,
+    _score_repo_worker,
 )
 from cola_coder.data.curation.test_scorer import RepoScore, TestResult, TestScorer
 
@@ -695,3 +696,52 @@ class TestParallelScoring:
         assert results[jest_dir].tests_detected
         assert results[pytest_dir].tests_detected
         assert not results[empty_dir].tests_detected
+
+
+class TestParallelSubprocessGate:
+    """BUG-103: score_repos_parallel must propagate allow_host_execution to the
+    worker processes. Without it, subprocess-mode workers re-trip the __init__
+    safety gate and every repo is silently scored as an error (0.2)."""
+
+    def test_worker_subprocess_requires_flag_propagation(self, tmp_path):
+        # No test framework → score_repo returns without executing anything, so
+        # this is safe even in subprocess mode. The point is construction: with
+        # the flag the worker builds; without it, __init__ raises.
+        empty = tmp_path / "norepo"
+        empty.mkdir()
+        (empty / "README.md").write_text("# nothing\n", encoding="utf-8")
+
+        # Old signature couldn't even accept the flag; new one must.
+        score = _score_repo_worker(
+            empty, "subprocess", 5, 5,
+            allow_host_execution=True,
+            cache_dir=tmp_path / ".cache",
+        )
+        assert score.tests_detected is False
+        # NOT the exception path — details must not carry the safety-gate error.
+        assert "allow_host_execution" not in str(score.details)
+
+    def test_worker_without_flag_still_gated(self, tmp_path):
+        # The safety gate itself must remain intact when the flag is absent.
+        empty = tmp_path / "norepo2"
+        empty.mkdir()
+        with pytest.raises(ValueError, match="allow_host_execution"):
+            _score_repo_worker(empty, "subprocess", 5, 5)
+
+    def test_parallel_subprocess_no_framework_not_errored(self, tmp_path):
+        # End-to-end: a no-framework repo scored via the parallel path in
+        # subprocess mode must come back as a real (non-error) score, proving
+        # the workers constructed successfully.
+        empty = tmp_path / "empty-sub"
+        empty.mkdir()
+        (empty / "README.md").write_text("# nothing\n", encoding="utf-8")
+
+        runner = TestRunner(
+            mode="subprocess",
+            allow_host_execution=True,  # trusted empty fixture
+            cache_dir=tmp_path / ".cache",
+        )
+        results = runner.score_repos_parallel([empty], max_workers=1, use_cache=False)
+        assert empty in results
+        assert "allow_host_execution" not in str(results[empty].details)
+        assert results[empty].tests_detected is False
