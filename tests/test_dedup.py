@@ -195,3 +195,42 @@ class TestDedupNpyFile:
         result = dedup_npy_file(p, mode="minhash", threshold=0.6)
         assert result.removed == 1
         assert len(np.load(p)) == 2
+
+
+class TestDeduplicatePairInPlace:
+    """DATA-024: deduplicate_pair's default output_path overwrites secondary;
+    on Windows np.save over a still-mmapped file raised PermissionError/OSError
+    (the DATA-004 class). The secondary mmap must be released before the save.
+    """
+
+    def test_default_output_overwrites_secondary_no_crash(self, tmp_path):
+        prim = tmp_path / "p.npy"
+        sec = tmp_path / "s.npy"
+        np.save(prim, np.array([[1, 2, 3, 4], [5, 6, 7, 8]], dtype=np.uint16))
+        # row 0 of secondary duplicates primary row 0; row 1 is unique.
+        np.save(sec, np.array([[1, 2, 3, 4], [9, 9, 9, 9]], dtype=np.uint16))
+
+        dd = CrossDatasetDeduplicator(method="exact")
+        # output_path defaults to secondary_path -> in-place overwrite (the
+        # path that crashed on Windows before the mmap release).
+        result = dd.deduplicate_pair(str(prim), str(sec))
+
+        assert result.duplicates_removed == 1
+        assert result.output_chunks == 1
+        reloaded = np.load(sec)
+        assert len(reloaded) == 1
+        assert list(reloaded[0]) == [9, 9, 9, 9]  # the non-dup row survived
+
+    def test_distinct_output_path_keeps_secondary(self, tmp_path):
+        prim = tmp_path / "p.npy"
+        sec = tmp_path / "s.npy"
+        out = tmp_path / "out.npy"
+        np.save(prim, np.array([[1, 2], [3, 4]], dtype=np.uint16))
+        np.save(sec, np.array([[1, 2], [7, 8]], dtype=np.uint16))
+
+        dd = CrossDatasetDeduplicator(method="exact")
+        result = dd.deduplicate_pair(str(prim), str(sec), output_path=str(out))
+        assert result.duplicates_removed == 1
+        # Secondary untouched; output written separately.
+        assert len(np.load(sec)) == 2
+        assert len(np.load(out)) == 1

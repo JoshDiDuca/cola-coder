@@ -11,6 +11,20 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+- **DATA-025** [data-quality/dead-code, low] `open` (integrate or remove — user
+  decision) — `data/fim_dataset.py` (`FIMDataset` + `create_fim_dataloader`) is a
+  redundant SECOND dynamic-FIM implementation, not wired into any live path. The
+  trainer uses DATA-012's `create_dataloader(fim_rate=...)` + `FIMTrainingCollator`
+  (the weight-preserving, tested, collator-based path); `FIMDataset` does the same
+  thing via a per-`__getitem__` dataset wrapper. Only `prepare_fim_data.py`
+  DOCSTRINGS mention it (no actual call). It IS tested in isolation, so unlike
+  MixedDataset (DATA-002, deleted) I did NOT unilaterally remove it. Same
+  "integrate or remove" pattern as DATA-021. If kept, it should at least document
+  that `create_dataloader(fim_rate=...)` is the canonical trainer path (avoid a
+  future dev wiring both → double-FIM). Found this cycle. (Also noted: fim.py's
+  `truncate_or_pad=False` docstring says output is "shorter by up to 3" but it's
+  actually LONGER by 3 — trivial doc nit, not fixed.)
+
 - **MODEL-005** [model/capability, low] `open` — YaRN context extension
   (`precompute_rope_freqs_yarn`, rope.py) scales RoPE frequencies but omits
   YaRN's attention temperature factor `mscale = 0.1*ln(factor)+1.0`, which the
@@ -87,6 +101,22 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-024** [data-quality/bug, medium] `done` (2026-06-11) — `CrossDatasetDeduplicator.
+  deduplicate_pair` (data/dedup.py) `np.save`d the deduped output while the
+  `secondary` source was still open via `np.load(..., mmap_mode="r")`. Its
+  `output_path` DEFAULTS to `secondary_path` (documented "overwrites
+  secondary_path"), so the default in-place mode wrote over a still-mmapped file
+  → `PermissionError`/`OSError [Errno 22]` on Windows (the primary platform) —
+  the SAME class as DATA-004/DATA-019, which the sibling `dedup_npy_file`
+  already guards but `deduplicate_pair` did not. Verified empirically: default
+  `deduplicate_pair(prim, sec)` crashed before, succeeds after. NOT currently
+  live-triggered (the one caller, combine_datasets.py:279, passes a distinct
+  `output_path`), but the documented default behavior was broken and it also
+  leaked the secondary mmap handle. Fixed with the DATA-004 idiom: release the
+  `secondary` mmap (`_mmap.close()` + del) before `np.save` (`deduped` is already
+  an in-RAM `np.array` copy). Tests: test_dedup.py TestDeduplicatePairInPlace (2):
+  default overwrite no-crash + correct surviving row; distinct output_path keeps
+  secondary. Found in this cycle's dedup.py fresh scan.
 - **MODEL-007** [model/tokenizer/capability, medium] `done` (2026-06-11) — Adopted
   digit-splitting in the BPE tokenizer (train_tokenizer.create_tokenizer): the
   pre-tokenizer is now `Sequence([Digits(individual_digits=True),

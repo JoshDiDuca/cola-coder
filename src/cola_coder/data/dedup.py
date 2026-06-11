@@ -459,6 +459,17 @@ class CrossDatasetDeduplicator:
         else:
             deduped = np.array(secondary)
 
+        # Release the secondary mmap BEFORE writing. When output_path ==
+        # secondary_path (the documented default = overwrite), np.save would
+        # otherwise open a file that is still memory-mapped and raise
+        # PermissionError/OSError on Windows — the DATA-004 mmap-handle-release
+        # class. `deduped` is already an independent in-RAM copy (np.array), so
+        # closing the source mmap here is safe.
+        mm = getattr(secondary, "_mmap", None)
+        del secondary
+        if mm is not None:
+            mm.close()
+
         np.save(output_path, deduped)
 
         result = DeduplicationResult(
