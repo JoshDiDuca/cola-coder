@@ -14,7 +14,7 @@ Josh is an experienced TypeScript developer learning ML — frame explanations i
 
 ## Architecture
 
-Decoder-only transformer (LLaMA 3 / Mistral / DeepSeek-Coder): RoPE, GQA, SwiGLU, RMSNorm, AdamW/Muon, cosine/WSD LR. Optional MoE FFN (config.model.moe.enabled; upcycled via stage 7, auto-detected on load). Safetensors checkpoints. HuggingFace BPE tokenizer. YaRN context extension (optional).
+Decoder-only transformer (LLaMA 3 / Mistral / DeepSeek-Coder): RoPE, GQA, SwiGLU, RMSNorm, AdamW/Muon, cosine/WSD LR. Optional MoE FFN (config.model.moe.enabled; upcycled via stage 7, auto-detected on load). Safetensors checkpoints. HuggingFace byte-level BPE tokenizer with **digit splitting** (`Digits(individual_digits=True)` — one token per digit, LLaMA-3/Qwen style, for numeric handling; affects freshly-trained tokenizers only). YaRN context extension (optional).
 
 ## Project Layout
 
