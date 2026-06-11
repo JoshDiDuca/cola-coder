@@ -101,6 +101,23 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-026** [data-quality/bug, high] `done` (2026-06-11) — `stream_code_data`
+  (data/download.py) — the live HuggingFace ingestion that feeds ALL training
+  data — starved later languages under a sample cap. The language loop yielded
+  the ENTIRE first language, only stopping at `max_samples` total, so a
+  multi-language request with a cap returned `max_samples` of the FIRST language
+  and ZERO of the rest (verified: `languages=["typescript","python"],
+  max_samples=10` → 10 ts, 0 py). This is LIVE: `collect_data.py:266` passes the
+  full multi-language config list + `--max-samples` to it, so
+  `collect_data --config medium.yaml --max-samples N` (medium is multi-language)
+  produced a corpus of only the first language — a silent, severe language
+  imbalance in the training set. Fixed: each language now gets an even share of
+  the REMAINING budget (`ceil((max_samples-count)/remaining_langs)`), so the cap
+  is split fairly AND an under-full language rolls its leftover forward to later
+  ones (total still reaches `max_samples`). Single-language and no-cap requests
+  are byte-for-byte unchanged. Tests: test_download_balance.py (5): 2-lang 5/5,
+  3-lang balanced, under-full rolls forward (2/8), single-lang unchanged, no-cap
+  yields all. Found in this cycle's download.py fresh scan.
 - **DATA-024** [data-quality/bug, medium] `done` (2026-06-11) — `CrossDatasetDeduplicator.
   deduplicate_pair` (data/dedup.py) `np.save`d the deduped output while the
   `secondary` source was still open via `np.load(..., mmap_mode="r")`. Its

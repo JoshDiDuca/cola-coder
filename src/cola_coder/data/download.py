@@ -262,7 +262,22 @@ def stream_code_data(
             print("Download complete. Reading from local cache.")
 
     count = 0
-    for lang in languages:
+    n_langs = len(languages)
+    for li, lang in enumerate(languages):
+        # Per-language budget so a MULTI-language request with max_samples is
+        # BALANCED rather than yielding the entire first language and starving
+        # the rest (e.g. languages=["typescript","python"], max_samples=N would
+        # otherwise return N typescript and 0 python). Each language gets an even
+        # share of the REMAINING budget, so an under-full language rolls its
+        # leftover forward to later ones and the total still reaches max_samples.
+        # Single-language or no-cap requests behave exactly like before.
+        if max_samples is not None:
+            remaining_langs = n_langs - li
+            lang_quota = (max_samples - count + remaining_langs - 1) // remaining_langs
+        else:
+            lang_quota = None
+
+        lang_count = 0
         try:
             if streaming:
                 source = _iter_hf_streaming(dataset_name, lang, split)
@@ -272,10 +287,13 @@ def stream_code_data(
             for content in source:
                 yield content
                 count += 1
+                lang_count += 1
 
                 if max_samples is not None and count >= max_samples:
                     print(f"  Reached sample limit: {max_samples:,}")
                     return
+                if lang_quota is not None and lang_count >= lang_quota:
+                    break  # this language hit its fair share — move to the next
 
         except Exception as e:
             print(f"  Warning: Error loading {lang}: {e}")
