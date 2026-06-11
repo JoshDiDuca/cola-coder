@@ -43,6 +43,18 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-009** [data-quality, medium] `done` (2026-06-11) — `SelfAlignSource.
+  _build_inner_source` built `HuggingFaceSource(dataset=...)` for the HF path
+  WITHOUT passing `languages`. HuggingFaceSource defaults to `["python"]`, so a
+  `language: typescript` (or any non-Python) self-align config would download
+  PYTHON code while the pipeline extracts TYPESCRIPT seeds from it — yielding
+  few/no seeds and empty/garbage SFT data. This is the exact "always pass
+  explicit languages to HuggingFaceSource" footgun the project has a feedback
+  rule for; a prior agent missed it here. Fixed: pass `languages=[self._language]`.
+  (The local path already maps extensions by language correctly.) Also removed
+  dead code in `_analyze_seed` (`lines`/`first_line` assigned-never-used) and
+  two E741 nits while in the file. Tests: test_self_align.py
+  test_hf_inner_source_uses_configured_language (+ python variant).
 - **DATA-007** [data-quality, medium] `done` (2026-06-11) — The local and
   software_heritage file sources emitted metadata key `"path"`, but the language
   detectors (scorers/language_detect.py) and the github source use the canonical

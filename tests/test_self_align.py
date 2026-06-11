@@ -444,6 +444,28 @@ class TestSelfAlignSource:
         records = list(source.stream())
         assert len(records) == 0
 
+    def test_hf_inner_source_uses_configured_language(self):
+        # Regression (DATA-009): the HuggingFace inner source MUST be built with
+        # the configured language. HuggingFaceSource defaults to ["python"], so
+        # without this a `language: typescript` self-align would download Python
+        # code while extracting TypeScript seeds — empty/garbage SFT data.
+        source = SelfAlignSource(
+            mode="template",
+            language="typescript",
+            source_type="huggingface",
+            source_dataset="bigcode/the-stack-v2",
+        )
+        inner = source._build_inner_source()
+        assert inner is not None
+        assert inner._languages == ["typescript"]
+
+    def test_hf_inner_source_python_language(self):
+        source = SelfAlignSource(
+            language="python", source_type="huggingface", source_dataset="d",
+        )
+        inner = source._build_inner_source()
+        assert inner._languages == ["python"]
+
     def test_stream_with_local_source(self):
         """With a local source pointing to temp files, stream yields records."""
         with tempfile.TemporaryDirectory() as tmpdir:
