@@ -267,17 +267,31 @@ class InteractiveChat:
                 stop_tokens=[self.session.user_prefix.strip()],
             )
 
-            # Extract just the assistant's response (after the last assistant prefix)
-            assistant_text = response
-            prefix = self.session.assistant_prefix
-            if prefix in response:
-                # Get text after the LAST occurrence of assistant prefix
-                parts = response.rsplit(prefix, 1)
-                if len(parts) > 1:
-                    assistant_text = parts[1].strip()
+            # Extract just the assistant's reply.
+            assistant_text = self._extract_reply(response, prompt)
 
             self.session.add_assistant_message(assistant_text)
             print(f"\nAssistant> {assistant_text}\n")
+
+    def _extract_reply(self, response: str, prompt: str) -> str:
+        """Return just the assistant's reply from generate()'s output.
+
+        ``generate()`` returns ``decode(prompt_tokens + new_tokens)`` — the full
+        prompt rendering plus the completion. The completion IS the reply, so we
+        strip the prompt prefix via the canonical longest-common-prefix helper
+        (DRY with the server / batch inference). This is more robust than the old
+        rsplit-on-"### Assistant:" approach: it can't echo the WHOLE prompt back
+        on a BPE round-trip mismatch, and it doesn't drop the reply's start if
+        the model happens to emit an assistant marker itself.
+        """
+        from cola_coder.inference.text_utils import strip_prompt_prefix
+
+        reply = strip_prompt_prefix(response, prompt).strip()
+        # Defensive: drop a trailing user/assistant prefix the model may run into.
+        for marker in (self.session.user_prefix.strip(), self.session.assistant_prefix.strip()):
+            if marker and marker in reply:
+                reply = reply.split(marker, 1)[0].strip()
+        return reply
 
     def _cmd_clear(self, args: str) -> None:
         self.session.clear()

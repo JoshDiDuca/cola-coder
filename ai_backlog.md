@@ -11,6 +11,18 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+- **INFER-011** [inference/consistency, medium] `open` — `multi_turn_chat`'s
+  `ChatSession` formats prompts in ALPACA style (`### User:` / `### Assistant:`),
+  but the model is SFT-trained on CHATML (`<|im_start|>{role}\n…<|im_end|>`, per
+  `tokenizer/chat_template.py`, used by `train_sft.py`). So an interactive chat
+  against the SFT model feeds it an unfamiliar format → degraded responses
+  (same family as TOOL-006's Ollama template). NOT safely fixable yet: ChatML
+  markers are special tokens that `decode` STRIPS, which breaks string-based
+  reply extraction (both rsplit AND strip_prompt_prefix) — a correct ChatML
+  chat needs the generator to expose completion-only decoded text (decode of
+  the new token ids alone), plus validation against a real SFT model. Reuse
+  `chat_template.format_chat` for the prompt to guarantee format parity.
+
 
 
 
@@ -41,6 +53,20 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **INFER-010** [inference/bug, medium] `done` (2026-06-11) — `InteractiveChat`
+  (features/multi_turn_chat.py, menu-wired, untested) extracted the assistant
+  reply via `rsplit("### Assistant:", 1)` with a fallback of
+  `assistant_text = response` — the WHOLE prompt+completion — when the marker
+  wasn't found, and would also DROP the reply's start if the model emitted an
+  assistant marker itself (rsplit takes after the LAST one). Refactored the
+  inline logic into a testable `_extract_reply` using the canonical
+  `strip_prompt_prefix` (the completion IS the reply; longest-common-prefix
+  strip never echoes the whole prompt and is decode-trap-safe; DRY with the
+  server / batch inference), plus a defensive truncation at a model-emitted
+  user/assistant marker. Tests: test_multi_turn_chat_extract.py (4): clean
+  completion, drift no-full-echo, truncation at a run-on user marker, no echo
+  when the marker is absent. Discovered INFER-011 (the underlying ChatML format
+  mismatch) during this — logged as open.
 - **INFER-009** [inference/bug, medium] `done` (2026-06-11) — `BatchInference.run`
   (features/batch_inference.py, menu-wired, untested) stripped the prompt with
   the naive `output[len(prompt):] if output.startswith(prompt) else output` —
