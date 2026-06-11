@@ -39,19 +39,44 @@ class AddMetadata(Transform):
             content.encode("utf-8")
         ).hexdigest()[:16]
 
-        # Language detection (simple heuristic)
+        # Language detection. Prefer the file EXTENSION when the source provided
+        # one (local/github sources set `extension`/`file_path`) — it's far more
+        # reliable than content heuristics, which can tie between TS/JS or miss
+        # short files. Fall back to the content heuristic only when no extension
+        # signal is available.
         if "estimated_language" not in metadata:
-            metadata["estimated_language"] = _guess_language(content)
+            ext = str(metadata.get("extension") or "")
+            if not ext:
+                fp = str(metadata.get("file_path") or metadata.get("path") or "")
+                if "." in fp:
+                    ext = "." + fp.rsplit(".", 1)[-1]
+            metadata["estimated_language"] = _guess_language(content, extension=ext or None)
 
         return DataRecord(content=content, metadata=metadata)
 
 
-def _guess_language(content: str) -> str:
-    """Simple heuristic language detection from content.
+# Extension → language map. The JS/TS sets mirror
+# scorers/language_detect.{TYPESCRIPT,JAVASCRIPT}_EXTENSIONS; the rest cover the
+# same languages the content heuristic below can detect.
+_EXT_LANG: dict[str, str] = {
+    ".py": "python", ".pyi": "python",
+    ".ts": "typescript", ".tsx": "typescript", ".mts": "typescript", ".cts": "typescript",
+    ".js": "javascript", ".jsx": "javascript", ".mjs": "javascript", ".cjs": "javascript",
+    ".go": "go", ".rs": "rust", ".java": "java",
+}
 
-    Not meant to be accurate for all cases — just a best-effort guess
-    based on common patterns in the first 2000 characters.
+
+def _guess_language(content: str, extension: str | None = None) -> str:
+    """Best-effort language detection.
+
+    Uses the file extension first (authoritative when available), then falls
+    back to a content heuristic over the first 2000 characters.
     """
+    if extension:
+        lang = _EXT_LANG.get(extension.lower())
+        if lang:
+            return lang
+
     header = content[:2000]
 
     # Check for strong signals

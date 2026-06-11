@@ -87,6 +87,25 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-023** [data-quality, low] `done` (2026-06-11) — `AddMetadata._guess_language`
+  (data/transforms/metadata.py) tagged each record's `estimated_language` from a
+  CONTENT heuristic only, ignoring the file EXTENSION that the local/github
+  sources already put in metadata (`extension`/`file_path`). Extension is far
+  more reliable (content heuristics tie between TS/JS and miss short files), and
+  the project's DRY rules mandate extension-based detection. Made `_guess_language`
+  extension-first (new `_EXT_LANG` map mirroring language_detect's TS/JS ext sets
+  + python/go/rust/java) with the content heuristic as fallback; `apply` now
+  derives the extension from `extension` or `file_path`/`path`. Backward-compatible:
+  no-extension records still use the content heuristic, and the
+  existing-value guard is unchanged. `_guess_language` previously had ZERO
+  direct tests. Tests: test_pipeline.py TestAddMetadata (+3): .ts extension beats
+  Python-looking content, extension derived from file_path (.rs→rust), unknown
+  extension falls back to content. NOTE: AddMetadata is part of the DataPipeline
+  system that DATA-021 has not yet wired into the live collector — this is
+  correct-when-used, found in this cycle's audit of the TOOL-008 modules. The
+  rest of that audit (transforms/whitespace, sources/local/huggingface/mixed,
+  github clone security [hooks disabled, no submodule recurse, no shell],
+  language_detect) was CLEAN.
 - **TOOL-009** [tooling/lint-hygiene, low-medium] `done` (2026-06-11) — The
   documented lint gate (`ruff check src/ scripts/ tests/`, per CLAUDE.md) was
   BROKEN: 21 pre-existing errors, all in `src/cola_coder/data/`. They went

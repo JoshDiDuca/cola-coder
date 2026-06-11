@@ -302,6 +302,35 @@ class TestAddMetadata:
         result = t.apply(record)
         assert result.metadata["estimated_language"] == "custom"
 
+    def test_extension_metadata_overrides_content_heuristic(self):
+        # DATA-023: a .ts file whose content looks Pythonic must be tagged
+        # typescript from its extension, not misclassified by content.
+        from cola_coder.data.transforms.metadata import AddMetadata
+
+        t = AddMetadata()
+        # Content has Python-ish signals (def/self.) but the extension is .ts.
+        code = "def hello():\n    self.x = 1\n    return self.x\n"
+        result = t.apply(DataRecord(content=code, metadata={"extension": ".ts"}))
+        assert result.metadata["estimated_language"] == "typescript"
+
+    def test_extension_derived_from_file_path(self):
+        from cola_coder.data.transforms.metadata import AddMetadata
+
+        t = AddMetadata()
+        result = t.apply(DataRecord(
+            content="x = 1\n", metadata={"file_path": "pkg/mod.rs"},
+        ))
+        assert result.metadata["estimated_language"] == "rust"
+
+    def test_unknown_extension_falls_back_to_content(self):
+        # No usable extension → content heuristic still applies (python signals).
+        from cola_coder.data.transforms.metadata import AddMetadata
+
+        t = AddMetadata()
+        code = "def hello():\n    self.x = 1\n    import os\n"
+        result = t.apply(DataRecord(content=code, metadata={"extension": ".dat"}))
+        assert result.metadata["estimated_language"] == "python"
+
 
 # ---------------------------------------------------------------------------
 # Pipeline composition tests
