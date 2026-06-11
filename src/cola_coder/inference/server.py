@@ -935,10 +935,21 @@ def create_app(
                 stop_tokens=stop_tokens,
             )
 
-        # Extract only the infilled text (after <|fim_middle|>)
-        infill = result[len(fim_prompt):] if result.startswith(
-            fim_prompt
-        ) else result
+        # Extract only the infilled text (after <|fim_middle|>). generate()
+        # returns decode(prompt_ids + new_ids), and decode() STRIPS the FIM
+        # special tokens — so `result` never starts with the marker-form
+        # `fim_prompt`. The old `startswith(fim_prompt)` check therefore ALWAYS
+        # failed and returned the whole prefix+suffix+infill as the "infill"
+        # (BUG-111; the INFER-001/009 prompt-echo class — this broke the VS Code
+        # ghost-text feature even after INFER-007 fixed the prompt itself).
+        # Strip the DECODED prompt instead (markers gone, same form as result's
+        # prefix): re-encoding+decoding fim_prompt yields exactly the prompt
+        # content the model saw minus markers, so the longest-common-prefix
+        # helper removes the prefix+suffix and leaves only the generated middle.
+        decoded_prompt = tokenizer.decode(
+            tokenizer.encode(fim_prompt, add_bos=False)
+        )
+        infill = strip_prompt_prefix(result, decoded_prompt)
         infill_tokens = len(
             tokenizer.encode(infill, add_bos=False)
         ) if infill else 0

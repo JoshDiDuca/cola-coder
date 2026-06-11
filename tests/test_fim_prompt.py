@@ -95,3 +95,64 @@ class TestServerFimUsesMarkers:
         assert gen.captured_prompt is not None
         assert "<|fim_prefix|>" in gen.captured_prompt
         assert "<|fim_middle|>" in gen.captured_prompt
+
+
+# --------------------------------------------------------------------------
+# BUG-111: the /v1/fim infill must EXCLUDE the prefix+suffix. The real
+# generate() returns decode(prompt_ids + new_ids), and decode() strips the FIM
+# special tokens — so `result` never starts with the marker-form fim_prompt,
+# and the old `result.startswith(fim_prompt)` check ALWAYS failed, returning the
+# whole prefix+suffix+infill as the "infill" (it would re-insert the surrounding
+# code into the VS Code ghost text). This generator faithfully reproduces that
+# decode behaviour using the REAL tokenizer.
+# --------------------------------------------------------------------------
+
+class _FaithfulGenerator:
+    """generate() == decode(prompt_ids + new_ids), exactly like the real one."""
+
+    def __init__(self, tokenizer: CodeTokenizer):
+        self.tokenizer = tokenizer
+        self.device = "cpu"
+        self._infill_ids = tokenizer.encode("return 1", add_bos=False)
+
+        class _M:
+            num_parameters = 1000
+            config = ModelConfig(vocab_size=tokenizer.vocab_size, max_seq_len=128)
+
+        self.model = _M()
+
+    def generate(self, prompt, **kwargs):
+        ids = self.tokenizer.encode(prompt, add_bos=True)
+        return self.tokenizer.decode(ids + self._infill_ids)
+
+
+class TestServerFimInfillExcludesPrompt:
+    def test_infill_does_not_echo_prefix_suffix(self, tmp_path):
+        from cola_coder.inference.text_utils import strip_prompt_prefix
+
+        tok = _tokenizer(tmp_path)
+        gen = _FaithfulGenerator(tok)
+        client = TestClient(create_app(gen))
+
+        prefix, suffix = "const x =", ";"
+        resp = client.post("/v1/fim", json={"prefix": prefix, "suffix": suffix})
+        assert resp.status_code == 200
+        infill = resp.json()["infill"]
+
+        # Reconstruct the expected infill the same way the endpoint must.
+        fim_prompt = tok.fim_prompt(prefix, suffix)
+        full = tok.decode(
+            tok.encode(fim_prompt, add_bos=True) + tok.encode("return 1", add_bos=False)
+        )
+        decoded_prompt = tok.decode(tok.encode(fim_prompt, add_bos=False))
+        expected = strip_prompt_prefix(full, decoded_prompt)
+
+        # decode() stripped the markers, so the old startswith(fim_prompt) check
+        # could never have matched — this is exactly why it leaked the whole text.
+        assert not full.startswith(fim_prompt)
+
+        assert infill == expected
+        # The fix must have stripped SOMETHING (the old code returned all of `full`).
+        assert infill != full
+        # And it must not echo the prefix content back into the completion.
+        assert "const" not in infill

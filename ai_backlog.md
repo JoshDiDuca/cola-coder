@@ -69,6 +69,29 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **BUG-111** [inference/bug, high] `done` (2026-06-11) — The `/v1/fim` endpoint
+  (server.py) — which powers the VS Code extension's inline ghost-text
+  completions — returned the prefix+suffix code PREPENDED to the actual infill on
+  EVERY request. `generate()` returns `decode(prompt_ids + new_ids)` and decode()
+  STRIPS special tokens, so `result` never contained the FIM markers; the infill
+  extraction `result[len(fim_prompt):] if result.startswith(fim_prompt) else
+  result` checked against the MARKER-form `fim_prompt` (`<|fim_prefix|>…`), whose
+  startswith could NEVER match the markers-stripped `result` → it ALWAYS hit the
+  `else` and returned the WHOLE prefix+suffix+infill. So ghost text re-inserted
+  the surrounding code — the INFER-001/009 prompt-echo class, still live after
+  INFER-007 fixed the prompt CONSTRUCTION (this is the OUTPUT extraction).
+  NOTE: a naive `strip_prompt_prefix(result, fim_prompt)` would ALSO fail here
+  (common prefix 0 — result starts with code, fim_prompt with `<`). Fixed by
+  stripping the DECODED prompt: `strip_prompt_prefix(result,
+  decode(encode(fim_prompt)))` — re-encode+decode yields the exact markers-
+  stripped prompt content, so the longest-common-prefix helper removes
+  prefix+suffix and leaves only the generated middle. Found in this cycle's fresh
+  scan of server.py. Tests: test_fim_prompt.py TestServerFimInfillExcludesPrompt
+  (a _FaithfulGenerator reproducing the real decode(prompt+new) behaviour with
+  the real tokenizer): infill == expected strip, != full result, no `const`
+  prefix-echo, and asserts `not full.startswith(fim_prompt)` documenting why the
+  old check always failed. (The same scan's flagged "streaming startswith leak"
+  in _stream_chat/_stream_completion is a VERIFIED FALSE POSITIVE — see Not-a-bug.)
 - **BUG-110** [reasoning/reward, high] `done` (2026-06-11) — The `typescript` and
   `combined` GRPO rewards (reward_registry `_typescript_reward`/`_combined_reward`)
   scored the RAW generation — `<think>reasoning</think>code` — INCLUDING the
@@ -795,6 +818,18 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Not a bug (verified)
+
+- **Streaming prompt-echo via `chunk.startswith(prompt_text)`** (server.py
+  _stream_chat:628, _stream_completion analog) — FALSE POSITIVE (re-confirmed
+  2026-06-11 while fixing BUG-111). `generate_stream` yields ONLY incremental
+  completion deltas: it seeds `prev_decoded_len = len(decode(prompt_ids))` and
+  every yield is `current_decoded[prev_decoded_len:]` — i.e. text strictly AFTER
+  the prompt. The first streamed chunk is the first generated character(s), never
+  the prompt, so `chunk.startswith(prompt_text)` (prompt is long; the delta is a
+  few chars) is essentially never true — harmless dead code, not a leak (matches
+  the original INFER-001 analysis). Unlike the NON-streaming path (`generate()`
+  returns the full prompt+completion → needs strip_prompt_prefix) and the FIM
+  endpoint (BUG-111), the streaming path needs no stripping. Do not re-flag.
 
 - **check_character_diversity denominator cap (quality_filter.py:297)** — FALSE
   POSITIVE (a scan flagged the `min(total_chars, 1000)` cap as letting large
