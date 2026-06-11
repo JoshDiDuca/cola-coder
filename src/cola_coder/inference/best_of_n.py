@@ -144,7 +144,7 @@ def generate_best_of_n(
 
     candidates: list[CandidateResult] = []
     for text, (verified, hard_score, details) in zip(texts, verdicts):
-        heuristic = _heuristic_confidence(text)
+        heuristic = _heuristic_confidence(text, lang)
         details["heuristic_confidence"] = round(heuristic, 3)
         candidates.append(
             CandidateResult(
@@ -228,7 +228,7 @@ def _run_hard_verifier(
         if verdicts is not None:
             return "tsc", verdicts
         logger.warning("tsc unavailable — best-of-N falling back to heuristics")
-        return "heuristic", _verify_heuristic(texts)
+        return "heuristic", _verify_heuristic(texts, language)
 
     if language == "python":
         if tests:
@@ -238,7 +238,7 @@ def _run_hard_verifier(
         return "python_syntax", _verify_python_syntax(texts)
 
     logger.warning("unknown language %r — best-of-N using heuristics", language)
-    return "heuristic", _verify_heuristic(texts)
+    return "heuristic", _verify_heuristic(texts, language)
 
 
 def _verify_typescript(
@@ -308,14 +308,14 @@ def _verify_python_syntax(texts: list[str]) -> list[_Verdict]:
     return verdicts
 
 
-def _verify_heuristic(texts: list[str]) -> list[_Verdict]:
+def _verify_heuristic(texts: list[str], language: str | None = None) -> list[_Verdict]:
     """SelfVerifier-only verdicts when no tool-based verifier exists."""
     from ..features.self_verification import SelfVerifier
 
     verifier = SelfVerifier()
     verdicts: list[_Verdict] = []
     for text in texts:
-        result = verifier.verify_code(text)
+        result = verifier.verify_code(text, language=language)
         verdicts.append(
             (result.passed, result.confidence, {"heuristic_only": True,
                                                 "issues": result.issues[:3]})
@@ -323,7 +323,7 @@ def _verify_heuristic(texts: list[str]) -> list[_Verdict]:
     return verdicts
 
 
-def _heuristic_confidence(code: str) -> float:
+def _heuristic_confidence(code: str, language: str | None = None) -> float:
     from ..features.self_verification import SelfVerifier
 
-    return SelfVerifier().verify_code(code).confidence
+    return SelfVerifier().verify_code(code, language=language).confidence

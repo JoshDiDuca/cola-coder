@@ -213,12 +213,23 @@ class SelfVerifier:
 
     # ------------------------------------------------------------------
 
-    def verify_no_hallucination(self, code: str) -> list[str]:
+    @staticmethod
+    def _is_js_ts(code: str, language: str | None) -> bool:
+        """True if the snippet is JavaScript/TypeScript (explicit hint or content)."""
+        from cola_coder.data.scorers.language_detect import is_js_ts
+
+        meta = {"language": language} if language else None
+        return is_js_ts(code, meta)
+
+    def verify_no_hallucination(self, code: str, language: str | None = None) -> list[str]:
         """
         Check for suspicious patterns that suggest hallucinated code.
 
         Returns a (possibly empty) list of issue strings.  Each entry
-        describes a specific suspicious pattern found.
+        describes a specific suspicious pattern found. ``language`` is an
+        optional hint ("python"/"typescript"/...); the JS-ism checks below only
+        fire for Python (this is a TS-primary project — console.log / var /
+        undefined are perfectly valid TS, not hallucinations).
         """
         issues: list[str] = []
 
@@ -248,28 +259,33 @@ class SelfVerifier:
                         else f"Repeated line detected {count}x (possible degenerate generation): '{line}'"
                     )
 
-        # 4. Undefined references (very basic: usage of names never defined or imported)
-        #    Only flag obvious cases to avoid false positives
-        undefined_patterns = [
-            (r"\bundefined\b", "Use of 'undefined' (Python doesn't have this — did you mean None?)"),
-            (r"\bconsole\.log\b", "Use of console.log (JavaScript-ism in Python code)"),
-            (r"\bvar\s+\w+\s*=", "Use of 'var' keyword (JavaScript-ism in Python code)"),
-        ]
-        for pattern, message in undefined_patterns:
-            if re.search(pattern, code):
-                issues.append(message)
+        # 4. Language-confusion markers. These ONLY indicate a hallucination in
+        #    PYTHON code (the model leaking JS). In TS/JS — and this project is
+        #    TS-primary — console.log / var / undefined are valid, so skip them
+        #    when the snippet is JS/TS. (Previously these always fired, penalising
+        #    correct TS candidates in the best-of-N self-verify fallback.)
+        if not self._is_js_ts(code, language):
+            undefined_patterns = [
+                (r"\bundefined\b", "Use of 'undefined' (Python doesn't have this — did you mean None?)"),
+                (r"\bconsole\.log\b", "Use of console.log (JavaScript-ism in Python code)"),
+                (r"\bvar\s+\w+\s*=", "Use of 'var' keyword (JavaScript-ism in Python code)"),
+            ]
+            for pattern, message in undefined_patterns:
+                if re.search(pattern, code):
+                    issues.append(message)
 
         return issues
 
     # ------------------------------------------------------------------
 
-    def verify_code(self, code: str) -> VerificationResult:
+    def verify_code(self, code: str, language: str | None = None) -> VerificationResult:
         """
         Full single-pass verification of `code`.
 
         Runs syntax check, completeness estimate (prompt-free = 0.5 base),
         and hallucination detection.  Returns a VerificationResult with an
-        aggregated confidence score and any issues found.
+        aggregated confidence score and any issues found. ``language`` is an
+        optional hint so JS-ism checks aren't applied to valid TS/JS.
         """
         issues: list[str] = []
         suggestions: list[str] = []
@@ -285,7 +301,7 @@ class SelfVerifier:
         completeness_score = self.verify_completeness(code, prompt="")
 
         # --- Hallucination ---
-        hallucination_issues = self.verify_no_hallucination(code)
+        hallucination_issues = self.verify_no_hallucination(code, language=language)
         hallucination_score = max(0.0, 1.0 - len(hallucination_issues) * 0.20)
         issues.extend(hallucination_issues)
         if hallucination_issues:

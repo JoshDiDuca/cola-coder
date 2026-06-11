@@ -108,6 +108,26 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **INFER-012** [inference/data-quality, medium] `done` (2026-06-11) — `SelfVerifier`
+  (features/self_verification.py — the heuristic verifier wired into best-of-N as
+  the fallback/tie-breaker when no tsc verifier exists, ZERO prior tests)
+  penalised valid TypeScript. `verify_no_hallucination` ALWAYS flagged
+  `console.log` / `var` / `undefined` as "JavaScript-isms in Python code" — but
+  this is a TS-PRIMARY project where those are VALID TS, not hallucinations. So
+  on the `generate --best-of N` fallback path (TS model, no tsc installed), the
+  self-verifier ranked correct TS candidates LOWER (each JS-ism docks 0.20 off
+  the 0.25-weighted hallucination score) — the DATA-010/DATA-022 Python-centric
+  class. Fixed: `verify_no_hallucination(code, language=None)` and
+  `verify_code(code, language=None)` are now language-aware — the JS-ism checks
+  fire only when the code is NOT JS/TS (canonical `language_detect.is_js_ts`,
+  using an explicit hint when given). Threaded the resolved `language` from
+  best_of_n through `_verify_heuristic`/`_heuristic_confidence` so it's explicit,
+  not just content-detected. Language-agnostic checks (fabricated
+  modules/methods, degenerate repetition) still fire. Tests:
+  test_self_verification.py (10, the module's first): python console.log flagged,
+  TS console.log NOT flagged (content + explicit hint), explicit python flags JS,
+  TS verify_code unpenalised, suspicious-module/repetition still fire, syntax +
+  empty-completeness. Found scanning the features/ modules wired into the core.
 - **BUG-113** [loaders/bug, high] `done` (2026-06-11) — Closed the EXPORT-009 bug
   CLASS: a sweep of every checkpoint-loading site found EIGHT more that build a
   `Transformer(...)` and `load_model_only`/`load_checkpoint` WITHOUT first calling
