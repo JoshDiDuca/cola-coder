@@ -11,6 +11,17 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+- **DATA-031** [data-quality/robustness, low] `open` — `CompositeScorer.score_batch`
+  (data/scorers/protocol.py) keys per-scorer batch results by `scorer.name`
+  (`all_results[scorer.name] = scorer.score_batch(items)`), so if two registered
+  scorers share a `.name` the second OVERWRITES the first and BOTH read the
+  second's scores — the weighted overall diverges from the single-item `score()`
+  (which iterates scorers directly). Not reachable with the built-in registry
+  (tsc/eslint/stars/heuristic/llm_judge all unique), but a custom scorer with a
+  colliding name silently mis-weights. Fix: key by scorer POSITION (zip the
+  per-scorer batches with `self._scorers`) so `score_batch == score` regardless
+  of names. Found this cycle auditing the scoring pipeline.
+
 - **TOOL-011** [tooling/pipeline, low-medium] `open` (deferred — design decision)
   — Remaining `full_pipeline.py` divergence after TOOL-012: Stage 1
   `_stage_collect_data` runs `prepare_data.py` (code-only), NOT `collect_data.py
@@ -108,6 +119,26 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-030** [data-quality/bug, medium] `done` (2026-06-12) — `prepare_fim_data.py`
+  (static FIM dataset prep) called `setup_fim_tokenizer`, which ADDS the
+  `<|fim_*|>` special tokens to the in-memory tokenizer when they're missing —
+  but NEVER re-saves tokenizer.json. So if run with a tokenizer lacking FIM
+  tokens, the FIM marker ids baked into the output `.npy` would be OUT OF VOCAB
+  for the model at training time → silently corrupted FIM training data (the
+  DATA-003/013 "silent token poison" class). Every tokenizer trained by
+  train_tokenizer.py has these tokens (they're in SPECIAL_TOKENS), so it's a
+  latent footgun, but the script should never silently poison. Fixed: added a
+  read-only `_resolve_fim_ids(tokenizer)` that caches the existing ids on the
+  tokenizer (where FIMTransform.apply reads them) and raises `_MissingFimTokens`
+  if any are absent; main() fails loud with the exact remedy (retrain the
+  tokenizer / use data.fim_rate) instead of producing broken data. Mirrors
+  DATA-012's `_resolve_fim_ids` (reads, never adds) and DATA-013's fail-loud.
+  (Also noted but NOT fixed: `--input X --output X` would hit the DATA-004 mmap
+  lock — but output defaults to a distinct path, much lower probability than
+  DATA-024. Scoring-pipeline robustness gap logged as DATA-031.) Tests:
+  test_prepare_fim_data.py (3): real tokenizer resolves+caches, all-missing
+  raises with full list, partial-missing lists only the absent token. Found
+  this cycle auditing the FIM prep stage.
 - **INFER-012** [inference/data-quality, medium] `done` (2026-06-11) — `SelfVerifier`
   (features/self_verification.py — the heuristic verifier wired into best-of-N as
   the fallback/tie-breaker when no tsc verifier exists, ZERO prior tests)

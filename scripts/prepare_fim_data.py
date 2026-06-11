@@ -33,6 +33,45 @@ from pathlib import Path
 import numpy as np
 from tqdm import tqdm
 
+# Canonical FIM special-token strings (must match the tokenizer's SPECIAL_TOKENS).
+_FIM_TOKENS = {
+    "fim_prefix": "<|fim_prefix|>",
+    "fim_suffix": "<|fim_suffix|>",
+    "fim_middle": "<|fim_middle|>",
+}
+
+
+class _MissingFimTokens(Exception):
+    """Raised when the tokenizer lacks one or more FIM special tokens."""
+
+    def __init__(self, missing: list[str]) -> None:
+        self.missing = missing
+        super().__init__(f"missing FIM tokens: {', '.join(missing)}")
+
+
+def _resolve_fim_ids(tokenizer) -> dict[str, int]:
+    """Read the FIM token ids from an EXISTING tokenizer and cache them on it.
+
+    Unlike setup_fim_tokenizer (which ADDS missing tokens), this NEVER mutates
+    the tokenizer. Adding tokens here would expand the in-memory vocab without
+    re-saving tokenizer.json, so the FIM marker ids baked into the output .npy
+    would be OUT OF VOCAB for the model at training time — silent poison data
+    (the DATA-003/013 class). Raise _MissingFimTokens so the caller fails loud
+    instead. (Every tokenizer trained by train_tokenizer.py has these tokens.)
+    """
+    ids: dict[str, int] = {}
+    missing: list[str] = []
+    for name, tok in _FIM_TOKENS.items():
+        tid = tokenizer.tokenizer.token_to_id(tok)
+        if tid is None:
+            missing.append(tok)
+            continue
+        setattr(tokenizer, f"{name}_id", tid)  # FIMTransform.apply reads these
+        ids[name] = tid
+    if missing:
+        raise _MissingFimTokens(missing)
+    return ids
+
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
@@ -90,10 +129,23 @@ def main() -> None:
     # --- Load tokenizer ---
     print(f"Loading tokenizer from {tokenizer_path} ...")
     from cola_coder.tokenizer.tokenizer_utils import CodeTokenizer
-    from cola_coder.data.fim import FIMTransform, setup_fim_tokenizer
+    from cola_coder.data.fim import FIMTransform
 
     tokenizer = CodeTokenizer(str(tokenizer_path))
-    fim_ids = setup_fim_tokenizer(tokenizer)
+    try:
+        fim_ids = _resolve_fim_ids(tokenizer)
+    except _MissingFimTokens as exc:
+        print(
+            f"ERROR: tokenizer {tokenizer_path} is missing FIM special tokens: "
+            f"{', '.join(exc.missing)}.\n"
+            "  Retrain the tokenizer (train_tokenizer.py already includes "
+            "<|fim_*|> in SPECIAL_TOKENS).\n"
+            "  prepare_fim_data must NOT add them itself — that would bake ids the "
+            "model's vocab\n  doesn't have into the dataset (silent poison). For "
+            "dynamic train-time FIM, set\n  data.fim_rate in the config instead.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     print(f"  FIM token IDs: {fim_ids}")
 
     # --- Load input data ---
