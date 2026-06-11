@@ -184,3 +184,30 @@ class TestSandboxedRunnerSecurity:
         data = json.loads(log_path.read_text().strip())
         assert data["scorer"] == "test_scorer"
         assert data["file_hash"] == "abc123"
+
+
+class TestTimeoutKillIsPidScoped:
+    """SEC-005: a timeout must kill the runaway process by PID tree, never by
+    image name (which would terminate every same-named process on the box)."""
+
+    def test_timeout_kills_by_pid_not_image_name(self, tmp_path: Path, monkeypatch) -> None:
+        import cola_coder.data.scorers.sandbox as sb
+
+        calls: list[object] = []
+        monkeypatch.setattr(sb, "_kill_proc_tree", lambda pid: calls.append(pid))
+
+        runner = SandboxedRunner(use_docker=False, timeout=1)
+        result = runner.run(
+            ["python", "-c", "import time; time.sleep(10)"], cwd=tmp_path,
+        )
+        assert result.returncode == -1
+        assert "Timeout" in result.stderr
+        # The kill must be scoped to the child's PID (an int), not an image name.
+        assert len(calls) == 1
+        assert isinstance(calls[0], int)
+
+    def test_kill_proc_tree_handles_dead_pid(self) -> None:
+        from cola_coder.data.scorers.sandbox import _kill_proc_tree
+
+        # An absurd / already-dead PID must never raise.
+        _kill_proc_tree(2**31 - 1)

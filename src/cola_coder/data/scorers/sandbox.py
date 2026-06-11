@@ -14,23 +14,70 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from cola_coder.data.scorers.audit import ScoringAuditLogger
+    from cola_coder.data.scorers.security import SecurityConfig
 
 logger = logging.getLogger(__name__)
 
 
-def _kill_process_tree(name: str) -> None:
-    """Kill a process and its children on Windows."""
-    if sys.platform != "win32":
-        return
+def _kill_proc_tree(pid: int) -> None:
+    """Kill a process AND its descendants, scoped to a single PID tree.
+
+    NEVER kill by image name: `taskkill /IM <name>` (Windows) / killall (POSIX)
+    terminate EVERY process sharing the name — e.g. all `node` processes on the
+    box, including the VS Code extension host or unrelated work. Scoping to the
+    pid's tree kills only the runaway sandboxed process and what it spawned.
+
+    Windows: `taskkill /F /T /PID` walks the child tree. POSIX: the child is
+    started in its own session (start_new_session=True) so its pid is the
+    process-group id, and killpg reaps the whole group.
+    """
+    if sys.platform == "win32":
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True, timeout=5,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            pass
+    else:
+        import signal
+
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+
+
+def _finish_proc(
+    proc: "subprocess.Popen[str]",
+    cmd: list[str],
+    timeout_s: float,
+    timeout_msg: str,
+) -> subprocess.CompletedProcess[str]:
+    """Wait for a Popen process, killing its whole tree by PID on timeout.
+
+    Returns a CompletedProcess. On timeout the return code is -1 and stdout is
+    discarded (partial output from a runaway process is not trustworthy).
+    """
     try:
-        # Use taskkill /T to kill the process tree
-        subprocess.run(
-            ["taskkill", "/F", "/T", "/IM", name],
-            capture_output=True, timeout=5,
+        stdout, stderr = proc.communicate(timeout=timeout_s)
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=proc.returncode, stdout=stdout, stderr=stderr,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        pass
+    except subprocess.TimeoutExpired:
+        _kill_proc_tree(proc.pid)
+        try:
+            proc.communicate(timeout=5)  # reap so we don't leak a zombie
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=-1, stdout="", stderr=timeout_msg,
+        )
 
 
 class SandboxedRunner:
@@ -211,33 +258,33 @@ class SandboxedRunner:
     ) -> subprocess.CompletedProcess[str]:
         """Run with timeout and isolated working directory."""
         effective_timeout = timeout if timeout is not None else self.timeout
-        try:
-            kwargs: dict[str, Any] = {
-                "cwd": cwd,
-                "capture_output": capture_output,
-                "text": True,
-                "timeout": effective_timeout,
-                # No shell=True -- prevents injection
-                # Isolated cwd -- no access to parent dirs
-            }
-            if env is not None:
-                kwargs["env"] = env
-            if sys.platform == "win32":
-                kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+        # Popen (not subprocess.run) so we hold the child's PID: on timeout we
+        # must kill its WHOLE tree by PID (untrusted code may spawn children),
+        # never by image name. No shell=True; isolated cwd; restricted env.
+        popen_kwargs: dict[str, Any] = {"cwd": cwd, "text": True}
+        if capture_output:
+            popen_kwargs["stdout"] = subprocess.PIPE
+            popen_kwargs["stderr"] = subprocess.PIPE
+        if env is not None:
+            popen_kwargs["env"] = env
+        if sys.platform == "win32":
+            popen_kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+        else:
+            # Own session → child pid is its process-group id, so a timeout can
+            # killpg the entire tree, not just the direct child.
+            popen_kwargs["start_new_session"] = True
 
-            return subprocess.run(cmd, **kwargs)
-        except subprocess.TimeoutExpired:
-            if sys.platform == "win32":
-                _kill_process_tree(cmd[0] if cmd else "")
-            return subprocess.CompletedProcess(
-                args=cmd, returncode=-1,
-                stdout="", stderr=f"Timeout after {effective_timeout}s",
-            )
+        try:
+            proc = subprocess.Popen(cmd, **popen_kwargs)
         except FileNotFoundError:
             return subprocess.CompletedProcess(
                 args=cmd, returncode=-2,
                 stdout="", stderr=f"Command not found: {cmd[0]}",
             )
+
+        return _finish_proc(
+            proc, cmd, effective_timeout, f"Timeout after {effective_timeout}s",
+        )
 
     def _run_docker(
         self,
@@ -269,28 +316,29 @@ class SandboxedRunner:
             self.docker_image,
             *cmd,
         ]
-        try:
-            kwargs: dict[str, Any] = {
-                "capture_output": capture_output,
-                "text": True,
-                "timeout": effective_timeout + 10,  # Extra time for Docker overhead
-            }
-            if sys.platform == "win32":
-                kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+        popen_kwargs: dict[str, Any] = {"text": True}
+        if capture_output:
+            popen_kwargs["stdout"] = subprocess.PIPE
+            popen_kwargs["stderr"] = subprocess.PIPE
+        if sys.platform == "win32":
+            popen_kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+        else:
+            popen_kwargs["start_new_session"] = True
 
-            return subprocess.run(docker_cmd, **kwargs)
-        except subprocess.TimeoutExpired:
-            if sys.platform == "win32":
-                _kill_process_tree("docker")
-            return subprocess.CompletedProcess(
-                args=cmd, returncode=-1,
-                stdout="", stderr=f"Docker timeout after {effective_timeout + 10}s",
-            )
+        try:
+            proc = subprocess.Popen(docker_cmd, **popen_kwargs)
         except FileNotFoundError:
             return subprocess.CompletedProcess(
-                args=cmd, returncode=-2,
-                stdout="", stderr="Docker not found",
+                args=cmd, returncode=-2, stdout="", stderr="Docker not found",
             )
+
+        # The container is constrained by --rm/--network none/--memory/timeout;
+        # killing the `docker run` client tree by PID (not /IM docker, which
+        # would kill every docker client) is the host-side stop on timeout.
+        return _finish_proc(
+            proc, cmd, effective_timeout + 10,  # extra time for Docker overhead
+            f"Docker timeout after {effective_timeout + 10}s",
+        )
 
     @staticmethod
     def _docker_available() -> bool:

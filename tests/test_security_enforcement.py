@@ -123,10 +123,11 @@ class TestDockerSecurityFlags:
         with patch.object(SandboxedRunner, "_docker_available", return_value=True):
             runner = SandboxedRunner.from_config(config)
             # Simulate a Docker run to check flags
-            with patch("subprocess.run") as mock_run:
-                mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+            with patch("subprocess.Popen") as mock_popen:
+                mock_popen.return_value.communicate.return_value = ("", "")
+                mock_popen.return_value.returncode = 0
                 runner.run(["echo", "test"], cwd="/tmp")
-                call_args = mock_run.call_args[0][0]
+                call_args = mock_popen.call_args[0][0]
                 assert "--pids-limit" in call_args
 
     def test_cap_drop_all(self) -> None:
@@ -134,10 +135,11 @@ class TestDockerSecurityFlags:
         config = SecurityConfig(mode=SecurityMode.DOCKER)
         with patch.object(SandboxedRunner, "_docker_available", return_value=True):
             runner = SandboxedRunner.from_config(config)
-            with patch("subprocess.run") as mock_run:
-                mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+            with patch("subprocess.Popen") as mock_popen:
+                mock_popen.return_value.communicate.return_value = ("", "")
+                mock_popen.return_value.returncode = 0
                 runner.run(["echo", "test"], cwd="/tmp")
-                call_args = mock_run.call_args[0][0]
+                call_args = mock_popen.call_args[0][0]
                 assert "--cap-drop" in call_args
 
     def test_no_new_privileges(self) -> None:
@@ -145,10 +147,11 @@ class TestDockerSecurityFlags:
         config = SecurityConfig(mode=SecurityMode.DOCKER)
         with patch.object(SandboxedRunner, "_docker_available", return_value=True):
             runner = SandboxedRunner.from_config(config)
-            with patch("subprocess.run") as mock_run:
-                mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+            with patch("subprocess.Popen") as mock_popen:
+                mock_popen.return_value.communicate.return_value = ("", "")
+                mock_popen.return_value.returncode = 0
                 runner.run(["echo", "test"], cwd="/tmp")
-                call_args = mock_run.call_args[0][0]
+                call_args = mock_popen.call_args[0][0]
                 assert any("no-new-privileges" in str(a) for a in call_args)
 
     def test_runs_as_nobody(self) -> None:
@@ -156,10 +159,11 @@ class TestDockerSecurityFlags:
         config = SecurityConfig(mode=SecurityMode.DOCKER)
         with patch.object(SandboxedRunner, "_docker_available", return_value=True):
             runner = SandboxedRunner.from_config(config)
-            with patch("subprocess.run") as mock_run:
-                mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+            with patch("subprocess.Popen") as mock_popen:
+                mock_popen.return_value.communicate.return_value = ("", "")
+                mock_popen.return_value.returncode = 0
                 runner.run(["echo", "test"], cwd="/tmp")
-                call_args = mock_run.call_args[0][0]
+                call_args = mock_popen.call_args[0][0]
                 assert "--user" in call_args
 
 

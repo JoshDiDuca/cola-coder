@@ -87,6 +87,24 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **SEC-005** [security/sandbox, medium] `done` (2026-06-11) — The sandbox's
+  native-timeout handler (`data/scorers/sandbox.py`) killed runaway processes
+  with `taskkill /F /T /IM <cmd[0]>` — by IMAGE NAME. That (a) terminates EVERY
+  process sharing the name system-wide (e.g. ALL `node` processes, including the
+  VS Code extension host) when cmd[0] is a bare name like `node`/`tsc`, and (b)
+  is INEFFECTIVE when cmd[0] is a full path (taskkill /IM can't match a path),
+  leaking orphaned grandchildren of timed-out untrusted code. Fixed: `_run_native`
+  /`_run_docker` now use `subprocess.Popen` so we hold the child PID and kill the
+  whole tree SCOPED TO THAT PID — Windows `taskkill /F /T /PID`, POSIX
+  `start_new_session=True` + `os.killpg` — via a shared `_finish_proc`/
+  `_kill_proc_tree`. Never touches unrelated processes; reaps grandchildren.
+  Preserved the contract (timeout→rc -1 + "Timeout", missing cmd→rc -2,
+  counters, cwd isolation). Also fixed 2 pre-existing F821 (quoted
+  SecurityConfig/ScoringAuditLogger annotations) with a TYPE_CHECKING import.
+  Docker isolation flags (--network none/--cap-drop ALL/nobody/--read-only/
+  pids/memory) verified unchanged. Tests: test_sandbox.py TestTimeoutKillIsPidScoped
+  (+2: timeout kills by PID int not image name; dead-pid is safe); updated 4
+  docker-flag tests to patch Popen. Found in this cycle's sandbox audit.
 - **DATA-022** [data-quality/bug, low-medium] `done` (2026-06-11) — The JS/TS
   modernness scorer (`CodeScorer._score_modernness_js_ts`, features/code_scorer.py)
   detected deprecated loose equality with `re.findall(r'(?<!=)==(?!=)', code)`,
