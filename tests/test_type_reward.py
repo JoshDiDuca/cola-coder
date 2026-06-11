@@ -306,6 +306,31 @@ class TestStyleCheck:
         score = _check_style(code)
         assert score < 1.0
 
+    # --- indentation consistency (BUG-102) ---
+
+    def test_consistent_space_indentation_no_penalty(self):
+        # All-space indentation across nesting levels is consistent → no penalty.
+        code = "function f() {\n  const a = 1;\n  if (a) {\n    return a;\n  }\n}"
+        assert _check_style(code) == 1.0
+
+    def test_tab_only_indentation_no_penalty(self):
+        # Pure tab indentation is consistent → no penalty.
+        code = "function f() {\n\tconst a = 1;\n\treturn a;\n}"
+        assert _check_style(code) == 1.0
+
+    def test_mixed_tab_and_space_indentation_penalized(self):
+        # One line tab-indented, another space-indented → mixed → penalty.
+        mixed = "function f() {\n\tconst a = 1;\n  const b = 2;\n}"
+        consistent = "function f() {\n  const a = 1;\n  const b = 2;\n}"
+        assert _check_style(mixed) < _check_style(consistent)
+        assert _check_style(consistent) == 1.0
+
+    def test_varied_space_widths_not_flagged_as_mixed(self):
+        # 2-space and 4-space indents are all spaces — not a tab/space mix.
+        # (The old even/odd check could misclassify; the new one must not.)
+        code = "function f() {\n  const a = 1;\n    const b = 2;\n}"
+        assert _check_style(code) == 1.0
+
 
 class TestCompletenessCheck:
     """Tests for _check_completeness (truncation detection)."""

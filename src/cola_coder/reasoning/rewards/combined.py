@@ -104,16 +104,28 @@ def _check_style(code: str) -> float:
     if long_lines > 0:
         score -= min(0.2, long_lines * 0.02)
 
-    # Check for consistent indentation
-    indent_sizes = set()
+    # BUG-102: penalize mixed indentation styles — tabs on some lines, spaces
+    # on others (the canonical "inconsistent indentation" smell, flagged by linters such
+    # as eslint no-mixed-spaces-and-tabs). We classify each indented line by its
+    # FIRST whitespace char, so tab-indentation followed by space alignment is
+    # not falsely flagged.
+    #
+    # NOTE: the previous version did `indent_sizes.add(indent % 4 == 0 or
+    # indent % 2 == 0)` — it added a BOOLEAN to the set, and the condition
+    # reduces to `indent % 2 == 0`, so it only ever distinguished odd vs even
+    # indent widths and never the tab-vs-space mix it documented. 2-space and
+    # 4-space code (both even) was treated as identical, making the check a
+    # no-op for its stated purpose.
+    indent_styles = set()
     for line in lines:
-        if line and not line.isspace():
-            stripped = line.lstrip()
-            indent = len(line) - len(stripped)
-            if indent > 0:
-                indent_sizes.add(indent % 4 == 0 or indent % 2 == 0)
-    # Mixed indentation is a small penalty
-    if len(indent_sizes) > 1:
+        if not line.strip():
+            continue
+        first = line[0]
+        if first == "\t":
+            indent_styles.add("tab")
+        elif first == " ":
+            indent_styles.add("space")
+    if len(indent_styles) > 1:
         score -= 0.1
 
     return max(0.0, score)

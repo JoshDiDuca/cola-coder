@@ -53,6 +53,21 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **BUG-102** [reasoning/reward-quality, low] `done` (2026-06-11) — The
+  indentation-consistency sub-check in `_check_style` (reasoning/rewards/
+  combined.py — the `combined` GRPO reward's style signal) was a no-op that
+  contradicted its docstring ("Consistent indentation (2 or 4 spaces, not
+  mixed)"). It did `indent_sizes.add(indent % 4 == 0 or indent % 2 == 0)` —
+  adding a BOOLEAN to the set, with a condition that reduces to `indent % 2 ==
+  0`. So it only ever distinguished odd vs even indent WIDTHS (never the
+  tab-vs-space mix it claimed), treating 2-space and 4-space code as identical
+  and only firing on rare odd indentation. Fixed to classify each indented line
+  by its FIRST whitespace char and penalize genuine tab/space mixing (the
+  canonical lint smell), without false-flagging tab-indent + space-alignment or
+  varied space widths. Low impact (style weight 0.1 × 0.1 sub-penalty) but a
+  real "sloppy prior AI work" cleanup of a training-signal heuristic. Tests:
+  test_type_reward.py TestStyleCheck (+4): consistent-space / tab-only / varied
+  widths → no penalty; mixed tab+space → penalty.
 - **TOOL-004** [tooling/security-consistency, medium] `done` (2026-06-11) —
   `TSBenchmark._tsc_check` (evaluation/ts_benchmark.py) ran `tsc` on MODEL-
   GENERATED TypeScript via a raw `subprocess.run(["tsc", "--noEmit", ...])` on a
