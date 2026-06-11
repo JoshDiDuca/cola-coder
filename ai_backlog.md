@@ -43,6 +43,23 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-007** [data-quality, medium] `done` (2026-06-11) — The local and
+  software_heritage file sources emitted metadata key `"path"`, but the language
+  detectors (scorers/language_detect.py) and the github source use the canonical
+  key `"file_path"`. So files from those two sources were NOT language-detected
+  by their EXTENSION (the most reliable signal) and silently fell back to weaker
+  content heuristics — e.g. a simple `.ts` file with no TS markers wouldn't be
+  recognised as TypeScript, so the tsc quality scorer wouldn't run on it. Fixed:
+  both sources now emit `"file_path"` alongside `"path"` (kept for compat —
+  swh's own code + tests read it). Tests: test_source_metadata.py +
+  test_swh.py file_path assertion.
+- **DATA-008** [data-quality, low] `done` (2026-06-11) — The HuggingFace source
+  emitted no `language` metadata even when constructed for a single language
+  (the common case — the pipeline builds one source per language). Now tags
+  `language` for single-language sources so downstream language-aware scorers
+  don't guess from content. (Multi-language sources can't know per-record
+  language: stream_code_data yields only content strings.) Tests:
+  test_source_metadata.py TestHuggingFaceSourceMetadata.
 - **EVAL-005** [eval/capability, medium] `done` (2026-06-11) — Benchmark
   decontamination wired end-to-end. `DataLeakageDetector` (MinHash) was a
   COMPLETE, tested, but UNWIRED feature module. (1) Added a `containment` metric

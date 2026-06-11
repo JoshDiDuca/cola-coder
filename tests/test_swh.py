@@ -274,6 +274,9 @@ class TestSoftwareHeritageSourceStream:
         assert "def hello" in py_record.content
         assert py_record.metadata["source"] == "software_heritage"
         assert py_record.metadata["origin"] == MOCK_ORIGIN_URL
+        # file_path is the canonical key the language detectors read — must be
+        # present (alongside the legacy "path") so SWH files are language-detected.
+        assert py_record.metadata["file_path"] == "src/main.py"
         assert py_record.metadata["sha1"] == "cnt002"
 
     def test_stream_no_origins_yields_nothing(self):
