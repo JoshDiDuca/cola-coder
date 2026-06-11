@@ -23,6 +23,13 @@ def is_enabled() -> bool:
 # Domain registry
 # ---------------------------------------------------------------------------
 
+# The canonical router taxonomy. MUST stay in sync with
+# router_model.DEFAULT_DOMAINS, router_data_generator's domains, and
+# domain_detector.DOMAINS (+ the "general" fallback). The router can ONLY ever
+# predict these labels, so eval samples labelled with anything else are
+# unroutable by design and would deflate accuracy + add phantom confusion-matrix
+# rows. (Kept as a literal so this module stays torch-free — see docstring; a
+# test asserts equality with DEFAULT_DOMAINS.)
 KNOWN_DOMAINS: list[str] = [
     "react",
     "nextjs",
@@ -30,8 +37,7 @@ KNOWN_DOMAINS: list[str] = [
     "prisma",
     "zod",
     "testing",
-    "python",
-    "general_ts",
+    "general",
 ]
 
 
@@ -75,13 +81,15 @@ def create_test_dataset() -> EvalDataset:
             prompt="import { render, screen } from '@testing-library/react';\ndescribe('Button', () => {\n  it('renders label', () => {\n    render(<button>Click me</button>);\n    expect(screen.getByText('Click me')).toBeInTheDocument();\n  });\n});",
             expected_domain="testing",
         ),
+        # Non-TS / plain code: the TS-focused router has no specialist for
+        # these, so the correct (routable) target is the "general" fallback.
         EvalSample(
             prompt="def fibonacci(n: int) -> int:\n    if n <= 1:\n        return n\n    return fibonacci(n - 1) + fibonacci(n - 2)",
-            expected_domain="python",
+            expected_domain="general",
         ),
         EvalSample(
             prompt="function add(a: number, b: number): number {\n  return a + b;\n}",
-            expected_domain="general_ts",
+            expected_domain="general",
         ),
         # A few ambiguous / cross-domain examples with canonical labels
         EvalSample(

@@ -53,6 +53,23 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-014** [data-quality/consistency, medium] `done` (2026-06-11) — Router
+  evaluation taxonomy diverged from the model/training taxonomy.
+  `router_evaluation.KNOWN_DOMAINS` was an 8-domain set
+  (`...testing, python, general_ts`) while `router_model.DEFAULT_DOMAINS`,
+  `router_data_generator`, and `domain_detector.DOMAINS` (+`general` fallback)
+  ALL use the canonical 7 (`...testing, general`). `create_test_dataset`
+  labelled 2/10 built-in samples `python`/`general_ts` — labels a correctly-
+  trained router can NEVER output — so `evaluate_router.py` capped accuracy at
+  80% and emitted phantom confusion-matrix rows, making router eval misleading.
+  (KNOWN_DOMAINS had no other consumers; it was pure divergence.) Fixed: aligned
+  KNOWN_DOMAINS to the canonical 7 and relabelled the Python / plain-TS samples
+  to the `general` fallback (a TS-focused router routes non-TS / generic code to
+  general). Kept router_evaluation torch-free (literal list + a test asserting
+  equality with DEFAULT_DOMAINS rather than a runtime import). Module had ZERO
+  test coverage; added test_router_taxonomy.py (5): KNOWN_DOMAINS ==
+  DEFAULT_DOMAINS == detector domains, no python/general_ts, all eval labels
+  routable, perfect router reaches 100%.
 - **BUG-107** [bug/train-inference, high] `done` (2026-06-11) — Sibling of
   BUG-106 in the REASONING path (predicted last cycle). `train_reasoning.py`
   calls `add_thinking_tokens()` to add `<think>`/`</think>` (vocab +2) and
