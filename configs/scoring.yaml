@@ -21,11 +21,21 @@ scoring:
       network: "none"
       read_only: true
       tmpfs_size_mb: 64
+    # SECURITY: all scraped/streamed content is untrusted. These defaults are
+    # the SAFE settings — keep them on. Disabling enabled/in_stream is allowed
+    # but logs a loud SECURITY warning at collection time (never silent).
     malware_scan:
-      enabled: true
+      enabled: true              # Master switch. false = NO malware scanning.
       in_stream: true            # Scan streamed record CONTENT during collection
                                  # (before tokenization — .npy output can't be
                                  # pattern-scanned). Clones are always scanned.
+      # on_threat applies to the post-download/clone directory scan:
+      #   quarantine (default, SAFE) = move threatening files aside, continue
+      #   abort                      = stop collection on any threat
+      #   warn                       = prompt to continue; in non-interactive
+      #                                runs this fails CLOSED (aborts) rather
+      #                                than silently ingesting malware.
+      # (The in-stream scanner always DROPS threatening records regardless.)
       on_threat: "quarantine"          # warn | quarantine | abort
       scanners:
         defender: true           # Windows Defender (auto-detected)

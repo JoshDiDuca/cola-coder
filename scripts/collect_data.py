@@ -72,11 +72,27 @@ def _scan_text_stream(iterator, label: str, stats: dict):
 
 
 def _maybe_scan_stream(iterator, label: str, scan_config: dict, stats: dict):
-    """Wrap *iterator* with in-stream threat scanning unless disabled."""
+    """Wrap *iterator* with in-stream threat scanning unless disabled.
+
+    Disabling is allowed but NEVER silent: scraped/streamed content is
+    untrusted, so turning off scanning is a security downgrade and must be
+    visible in the logs (SEC-001).
+    """
     malware_cfg = scan_config.get("malware_scan", {})
     if not malware_cfg.get("enabled", True):
+        cli.warn(
+            f"SECURITY: malware scanning is DISABLED (malware_scan.enabled=false "
+            f"in configs/scoring.yaml) — streamed {label} content is NOT scanned "
+            f"before tokenization. Re-enable it unless you fully trust this source."
+        )
         return iterator
     if not malware_cfg.get("in_stream", True):
+        cli.warn(
+            f"SECURITY: in-stream malware scanning is DISABLED "
+            f"(malware_scan.in_stream=false) — streamed {label} content is NOT "
+            f"pattern-scanned. Tokenized .npy output cannot be pattern-scanned "
+            f"afterwards, so threats in streamed records would pass through."
+        )
         return iterator
     return _scan_text_stream(iterator, label, stats)
 
@@ -129,7 +145,10 @@ def _scan_downloaded_data(
                 cli.dim(f"    Quarantined: {src.name}")
         return True
     else:  # warn
-        return cli.confirm("  Continue despite threats?")
+        # Fail-CLOSED: cli.confirm returns its default on EOF/no-TTY, so a
+        # non-interactive collection run would otherwise silently continue with
+        # malware in the data. default=False makes the safe choice the default.
+        return cli.confirm("  Continue despite threats? (default No = abort)", default=False)
 
 
 # ── Generic HF text streaming ────────────────────────────────────────────

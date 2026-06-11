@@ -27,9 +27,6 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   dead code — never constructed anywhere. Either integrate into the data path or
   remove. (mix_temperature config already removed.)
 
-- **SEC-001** [security, low] `open` — Tighten malware-scan config defaults so
-  in-stream scanning can't be silently disabled into an unsafe state; document
-  the safe defaults. (From a prior audit; verify current defaults.)
 
 - **MODEL-003** [model, low] `open` — Follow-up to MODEL-001: fine-tuning an
   upcycled MoE now works via `train.py --resume <moe_dir> --config <cfg>`, but
@@ -47,6 +44,21 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **SEC-001** [security, low->medium] `done` (2026-06-11) — In-stream malware
+  scanning could be disabled SILENTLY: `_maybe_scan_stream` returned the
+  unscanned iterator with no warning when `malware_scan.enabled=false` or
+  `in_stream=false`. Now both disable paths emit a loud `cli.warn` (SECURITY ...
+  DISABLED) — overrides are explicit, never silent. Safe defaults documented in
+  scoring.yaml. Verified: missing/empty config DEFAULTS to scanning (fail-safe).
+  Tests: test_collect_data_security.py TestInStreamScanGating.
+- **SEC-002** [security, medium] `done` (2026-06-11) — DISCOVERED during the
+  SEC-001 scan: `_scan_downloaded_data`'s `on_threat="warn"` path called
+  `cli.confirm("Continue despite threats?")` with the implicit default=True, and
+  `cli.confirm` returns its default on EOF/no-TTY — so a NON-INTERACTIVE
+  collection run would silently CONTINUE with malware in the dataset (fail-OPEN).
+  Fixed to `default=False` (fail-CLOSED: automated runs abort). The config
+  default is on_threat=quarantine (also safe); the in-stream scanner always
+  drops threats regardless. Test: TestFailClosedAndConfig.
 - **MODEL-001** [model, medium] `done` (2026-06-11) — Upcycled MoE checkpoints
   could be loaded for INFERENCE but NOT fine-tuned: `Trainer.__init__` built
   `Transformer(config.model)` straight from the (dense) config, so resuming from
