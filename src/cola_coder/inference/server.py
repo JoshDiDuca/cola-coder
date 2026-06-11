@@ -103,12 +103,19 @@ class UsageStats(BaseModel):
 # ── Chat completions ─────────────────────────────────────────────────────────
 
 
+class StreamOptions(BaseModel):
+    """OpenAI stream_options. include_usage=true emits a final usage chunk."""
+
+    include_usage: bool = False
+
+
 class ChatCompletionRequest(BaseModel):
     """Request body for /v1/chat/completions (OpenAI format)."""
 
     model: str = "cola-coder"
     messages: list[ChatMessage]
     stream: bool = False
+    stream_options: StreamOptions | None = None
     temperature: float = 0.8
     max_tokens: int = 256
     top_p: float = 0.9
@@ -157,6 +164,7 @@ class CompletionRequest(BaseModel):
     repetition_penalty: float = 1.1
     stop: list[str] | None = None
     stream: bool = False
+    stream_options: StreamOptions | None = None
     # Best-of-N with sandboxed verification (non-streaming only):
     # generate N candidates, verify (tsc / Python syntax), return the best.
     best_of: int = 1
@@ -587,7 +595,7 @@ def create_app(
     ):
         """SSE generator for streaming chat completions."""
         chat_id = _chat_id()
-        completion_tokens = 0
+        completion_text = ""
 
         async with _gen_lock:
             stream_iter = base_gen.generate_stream(
@@ -625,7 +633,7 @@ def create_app(
                 else:
                     first_chunk = False
 
-                completion_tokens += 1
+                completion_text += chunk
                 data = {
                     "id": chat_id,
                     "object": "chat.completion.chunk",
@@ -656,6 +664,28 @@ def create_app(
             ],
         }
         yield f"data: {json.dumps(final_data)}\n\n"
+
+        # OpenAI stream_options.include_usage: emit a final usage-only chunk
+        # (choices: []). Count tokens by re-encoding the accumulated text — per
+        # SSE chunk is wrong (chunks != tokens, and empty-decode tokens yield
+        # nothing), so this matches the non-streaming usage exactly.
+        if request.stream_options and request.stream_options.include_usage:
+            completion_tokens = len(
+                base_gen.tokenizer.encode(completion_text, add_bos=False)
+            )
+            usage_chunk = {
+                "id": chat_id,
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": model_name,
+                "choices": [],
+                "usage": {
+                    "prompt_tokens": prompt_token_count,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": prompt_token_count + completion_tokens,
+                },
+            }
+            yield f"data: {json.dumps(usage_chunk)}\n\n"
         yield "data: [DONE]\n\n"
 
     # ══════════════════════════════════════════════════════════════════════
@@ -754,7 +784,7 @@ def create_app(
     ):
         """SSE generator for streaming text completions."""
         cmpl_id = _completion_id()
-        completion_tokens = 0
+        completion_text = ""
 
         async with _gen_lock:
             stream_iter = base_gen.generate_stream(
@@ -787,7 +817,7 @@ def create_app(
                 else:
                     first_chunk = False
 
-                completion_tokens += 1
+                completion_text += chunk
                 data = {
                     "id": cmpl_id,
                     "object": "text_completion",
@@ -817,6 +847,25 @@ def create_app(
             ],
         }
         yield f"data: {json.dumps(final_data)}\n\n"
+
+        # OpenAI stream_options.include_usage: accurate usage via re-encoding.
+        if request.stream_options and request.stream_options.include_usage:
+            completion_tokens = len(
+                base_gen.tokenizer.encode(completion_text, add_bos=False)
+            )
+            usage_chunk = {
+                "id": cmpl_id,
+                "object": "text_completion",
+                "created": int(time.time()),
+                "model": model_name,
+                "choices": [],
+                "usage": {
+                    "prompt_tokens": prompt_token_count,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": prompt_token_count + completion_tokens,
+                },
+            }
+            yield f"data: {json.dumps(usage_chunk)}\n\n"
         yield "data: [DONE]\n\n"
 
     # ══════════════════════════════════════════════════════════════════════

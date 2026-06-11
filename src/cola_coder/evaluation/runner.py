@@ -143,6 +143,12 @@ def evaluate_solution(
         passed: True if all test cases pass.
         output: Execution output or error messages.
     """
+    # A problem with no test code can't be verified — running just the
+    # generated code with no assertions would exit 0 and falsely count as a
+    # pass, inflating pass@k. Treat "unverifiable" as NOT passed.
+    if not problem.test_code or not problem.test_code.strip():
+        return False, "NO TESTS: empty test_code — solution cannot be verified"
+
     # Combine the generated code with the test cases
     full_code = generated_code + "\n\n" + textwrap.dedent(problem.test_code)
 

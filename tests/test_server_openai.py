@@ -400,3 +400,63 @@ class TestPromptStripRobustness:
         assert resp.status_code == 200
         content = resp.json()["choices"][0]["message"]["content"]
         assert "COMPLETION_MARKER" in content
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Streaming usage (INFER-004): stream_options.include_usage
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def _sse_objects(body: str) -> list:
+    import json as _json
+    objs = []
+    for line in body.splitlines():
+        if line.startswith("data: "):
+            payload = line[len("data: "):]
+            if payload.strip() == "[DONE]":
+                continue
+            objs.append(_json.loads(payload))
+    return objs
+
+
+class TestStreamingUsage:
+    def test_chat_stream_emits_usage_when_requested(self, client: TestClient) -> None:
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "messages": [{"role": "user", "content": "hi there"}],
+                "stream": True,
+                "stream_options": {"include_usage": True},
+            },
+        )
+        assert resp.status_code == 200
+        usage_objs = [o for o in _sse_objects(resp.text) if o.get("usage")]
+        assert len(usage_objs) == 1
+        u = usage_objs[0]["usage"]
+        # completion counted by re-encoding the accumulated text (3 chunk words)
+        assert u["completion_tokens"] == 3
+        assert u["total_tokens"] == u["prompt_tokens"] + u["completion_tokens"]
+        # The usage chunk carries no choices (OpenAI shape)
+        assert usage_objs[0]["choices"] == []
+
+    def test_chat_stream_no_usage_by_default(self, client: TestClient) -> None:
+        resp = client.post(
+            "/v1/chat/completions",
+            json={"messages": [{"role": "user", "content": "hi"}], "stream": True},
+        )
+        assert resp.status_code == 200
+        assert all(not o.get("usage") for o in _sse_objects(resp.text))
+
+    def test_completion_stream_emits_usage_when_requested(self, client: TestClient) -> None:
+        resp = client.post(
+            "/v1/completions",
+            json={
+                "prompt": "def add",
+                "stream": True,
+                "stream_options": {"include_usage": True},
+            },
+        )
+        assert resp.status_code == 200
+        usage_objs = [o for o in _sse_objects(resp.text) if o.get("usage")]
+        assert len(usage_objs) == 1
+        assert usage_objs[0]["usage"]["completion_tokens"] == 3

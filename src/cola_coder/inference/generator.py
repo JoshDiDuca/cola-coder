@@ -494,6 +494,9 @@ class CodeGenerator:
         temperature: float = 0.8,
         top_k: int = 50,
         top_p: float = 0.9,
+        min_p: float = 0.0,
+        repetition_penalty: float = 1.1,
+        stop_tokens: list[str] | None = None,
     ) -> list[str]:
         """Generate code for multiple prompts.
 
@@ -508,6 +511,9 @@ class CodeGenerator:
             temperature: Sampling temperature.
             top_k: Top-k threshold.
             top_p: Top-p threshold.
+            min_p: Confidence-scaled floor (0 = disabled).
+            repetition_penalty: Penalty for repeating tokens.
+            stop_tokens: Stop generation when any of these tokens are produced.
 
         Returns:
             List of generated texts.
@@ -520,6 +526,9 @@ class CodeGenerator:
                 temperature=temperature,
                 top_k=top_k,
                 top_p=top_p,
+                min_p=min_p,
+                repetition_penalty=repetition_penalty,
+                stop_tokens=stop_tokens,
             )
             results.append(result)
         return results

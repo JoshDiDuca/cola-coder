@@ -11,17 +11,6 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
-- **INFER-004** [inference, low] `open` — Streaming `completion_tokens` is
-  incremented per SSE chunk, not per token, so OpenAI-compatible usage stats are
-  wrong for streamed responses. `server.py` ~565, ~626. Fix: count via
-  tokenizer or track token count in the stream loop.
-
-- **EVAL-004** [eval, low] `open` — `execute_code` with empty `test_code` trivially
-  "passes" (no tests to fail) and counts toward pass@k. `evaluation/runner.py`
-  ~125-149. Fix: skip/warn on empty tests.
-
-- **INFER-005** [inference, low] `open` — `generate_batch` doesn't accept/forward
-  `min_p` (silently uses 0.0). `generator.py` ~471-508. API inconsistency.
 
 - **DATA-006** [data-quality, low] `open` — Follow-up to DATA-002: if dynamic
   per-batch / online source reweighting is wanted, design runtime data mixing
@@ -48,6 +37,22 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **INFER-004** [inference, low] `done` (2026-06-11) — Streaming `completion_tokens`
+  was counted per SSE chunk but NEVER emitted (dead variable; no usage in the
+  stream at all). Implemented OpenAI `stream_options.include_usage`: both stream
+  endpoints now accumulate the completion text and emit a final usage-only chunk
+  (`choices: []`) with an ACCURATE count (re-encode the accumulated text — chunks
+  != tokens, and empty-decode tokens yield nothing). Default (no stream_options)
+  still emits no usage, per spec. Tests: test_server_openai TestStreamingUsage.
+- **EVAL-004** [eval, low] `done` (2026-06-11) — `evaluate_solution` with empty/
+  whitespace `test_code` ran the generated code with no assertions → exit 0 →
+  false PASS, inflating pass@k. Now returns (False, "NO TESTS: ...") and
+  short-circuits before any sandbox execution. Tests: test_inference_eval_fixes
+  TestEmptyTestCode.
+- **INFER-005** [inference, low] `done` (2026-06-11) — `generate_batch` silently
+  dropped min_p/repetition_penalty/stop_tokens; now accepts and forwards all
+  three (parity with generate). Tests: test_inference_eval_fixes
+  TestGenerateBatchForwardsParams.
 - **BUG-101** [bug/ux, medium] `done` (2026-06-11) — The "Prepare Mixed Data
   (code+text+math)" menu item was BROKEN: it passed --mix-code/--mix-text/
   --mix-math to prepare_data.py, which has no such args, so argparse errored
