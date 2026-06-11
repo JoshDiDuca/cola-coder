@@ -182,8 +182,14 @@ class BatchInference:
                     top_k=self.top_k,
                     top_p=self.top_p,
                 )
-                # Extract just the generated part (after prompt)
-                generated = output[len(prompt):] if output.startswith(prompt) else output
+                # Strip the prompt prefix via the canonical longest-common-prefix
+                # helper. The naive `output[len(prompt):] if output.startswith(
+                # prompt) else output` echoed the ENTIRE prompt back whenever BPE
+                # decode(encode(prompt)) didn't match the prompt byte-for-byte
+                # (BOS render / whitespace / boundary merges) — the INFER-001 leak.
+                from cola_coder.inference.text_utils import strip_prompt_prefix
+
+                generated = strip_prompt_prefix(output, prompt)
             else:
                 # No generator — return empty (for testing)
                 generated = ""

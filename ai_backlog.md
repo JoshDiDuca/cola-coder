@@ -41,6 +41,18 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **INFER-009** [inference/bug, medium] `done` (2026-06-11) — `BatchInference.run`
+  (features/batch_inference.py, menu-wired, untested) stripped the prompt with
+  the naive `output[len(prompt):] if output.startswith(prompt) else output` —
+  the exact INFER-001 prompt-echo leak in a different code path. `generate()`
+  returns `decode(prompt_tokens + new_tokens)`, and on any BPE round-trip
+  mismatch (BOS render / whitespace / boundary merge) `startswith` is False, so
+  the ENTIRE prompt was echoed back as the "generated" output (and the est.
+  token count + success-rate metrics were inflated by it). Fixed to use the
+  canonical `inference.text_utils.strip_prompt_prefix` (longest-common-prefix —
+  a mismatch costs at most a few boundary chars, never the whole prompt; DRY
+  with the server). Tests: test_batch_inference_prompt_strip.py (3): clean
+  strip, drift doesn't echo the full prompt, output matches the canonical helper.
 - **BUG-108** [reasoning/bug, medium] `done` (2026-06-11) — `SelfPlayTrainer.
   train_episode` (reasoning/self_play.py, menu-wired, previously ZERO tests)
   fine-tuned on a PASSING solution TWICE: when `best_reward > 0.9` it called
