@@ -87,6 +87,23 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-022** [data-quality/bug, low-medium] `done` (2026-06-11) — The JS/TS
+  modernness scorer (`CodeScorer._score_modernness_js_ts`, features/code_scorer.py)
+  detected deprecated loose equality with `re.findall(r'(?<!=)==(?!=)', code)`,
+  which ALSO matched the `==` INSIDE `!==` (strict inequality — a MODERN idiom):
+  in `!==` the `==` is preceded by `!` (lookbehind only excluded `=`) and followed
+  by a non-`=`. So clean TypeScript using `!==` was scored as deprecated loose
+  `==`, inflating deprecated_points and DEFLATING the modernness sub-score →
+  lower training weight. Since CodeScorer feeds `score_data.py`'s `.weights.npy`
+  and this is a TS-PRIMARY project where `!==` is ubiquitous, it systematically
+  under-weighted good modern TS. Verified empirically: `a !== b && c !== d`
+  matched 3 false `==` before, 0 after. Fixed by excluding `!` from the
+  lookbehind: `(?<![=!])==(?!=)` — still catches real `==`, still ignores `===`.
+  Found in this cycle's data-scorer fresh scan (heuristic/curriculum scorers
+  otherwise clean; noted a tiny-dataset edge in curriculum `_compute_phases`
+  where n<num_phases → np.min([]) — low sev, not fixed). Tests:
+  test_code_scorer_modernness.py (3): strict-inequality not penalized vs loose,
+  !==-only code beats ==-only code, genuine == still penalized vs ===.
 - **MODEL-006** [model/moe/perf, low] `done` (2026-06-11) — Vectorized the MoE
   load-balancing loss (`MoEFFN._load_balancing_loss`, features/moe_layer.py). It
   counted per-expert top-k assignments with an O(top_k * num_experts) Python

@@ -938,8 +938,12 @@ class CodeScorer:
         then_count = len(re.findall(r'\.then\(', code))
         deprecated_points += min(then_count * 0.2, 1.5)
 
-        # == (loose equality) instead of ===
-        loose_eq = len(re.findall(r'(?<!=)==(?!=)', code))
+        # == (loose equality) instead of ===. The lookbehind must exclude BOTH
+        # `=` (so `===` isn't matched) AND `!` — otherwise the `==` inside `!==`
+        # (strict inequality, a MODERN idiom) was counted as deprecated loose
+        # equality, systematically deflating the modernness score for clean TS
+        # that uses `!==` (common, and this is a TS-primary project).
+        loose_eq = len(re.findall(r'(?<![=!])==(?!=)', code))
         deprecated_points += min(loose_eq * 0.2, 1.0)
 
         # arguments keyword (old-style variadic)
