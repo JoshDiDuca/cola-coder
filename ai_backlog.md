@@ -87,6 +87,23 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **MODEL-007** [model/tokenizer/capability, medium] `done` (2026-06-11) — Adopted
+  digit-splitting in the BPE tokenizer (train_tokenizer.create_tokenizer): the
+  pre-tokenizer is now `Sequence([Digits(individual_digits=True),
+  ByteLevel(add_prefix_space=False)])`. Plain ByteLevel BPE merged digit runs
+  (`"12345"`→1 token), which hurts numeric handling; LLaMA 3 / Qwen2.5-Coder /
+  DeepSeek all split digits to one-token-per-digit. This matters here because
+  the data mix deliberately includes ~10% math (open-web-math) plus code full of
+  indices/versions/ports. A 2025-26 best practice with clear empirical support,
+  modular and low-risk: it ONLY affects FRESHLY trained tokenizers — existing
+  `tokenizer.json` files load via `Tokenizer.from_file` unchanged, so no
+  checkpoint breaks (a new tokenizer would require re-prep + retrain anyway,
+  which is an intentional stage-1 action). Verified empirically: `"12345"` →
+  1 merged token before, 5 single-digit tokens after; round-trip intact. Tests:
+  test_tokenizer.py test_digits_split_individually (per-digit tokenization, no
+  multi-digit token, round-trip); all 37 tokenizer-dependent tests still green
+  (FIM/gguf/ollama/sft/reasoning persist). Doc note added to CLAUDE.md.
+  Found in this cycle's tokenizer-training fresh scan.
 - **DATA-023** [data-quality, low] `done` (2026-06-11) — `AddMetadata._guess_language`
   (data/transforms/metadata.py) tagged each record's `estimated_language` from a
   CONTENT heuristic only, ignoring the file EXTENSION that the local/github

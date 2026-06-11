@@ -47,12 +47,21 @@ def create_tokenizer(vocab_size: int = 32768) -> tuple[Tokenizer, trainers.BpeTr
     # BPE model: the core algorithm
     tokenizer = Tokenizer(models.BPE())
 
-    # Pre-tokenizer: how to split text BEFORE BPE learning
-    # ByteLevel means:
-    # 1. Convert all bytes to visible characters (handles any encoding)
-    # 2. Split on whitespace boundaries
-    # add_prefix_space=False: don't add a space at the start of text
-    tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
+    # Pre-tokenizer: how to split text BEFORE BPE learning.
+    # 1. Digits(individual_digits=True): split every run of digits into single
+    #    digit pre-tokens so BPE can NEVER merge "12345" into one token. Modern
+    #    code/math tokenizers (LLaMA 3, Qwen2.5-Coder, DeepSeek) all do this —
+    #    one-token-per-digit markedly improves numeric handling (arithmetic,
+    #    array indices, version/port numbers), which matters here because the
+    #    data mix deliberately includes ~10% math (open-web-math).
+    # 2. ByteLevel: convert all bytes to visible chars (encodes anything) and
+    #    split on whitespace. add_prefix_space=False: no leading space.
+    # NOTE: this only affects FRESHLY trained tokenizers — existing tokenizer.json
+    # files load via Tokenizer.from_file unchanged, so no checkpoint breaks.
+    tokenizer.pre_tokenizer = pre_tokenizers.Sequence([
+        pre_tokenizers.Digits(individual_digits=True),
+        pre_tokenizers.ByteLevel(add_prefix_space=False),
+    ])
 
     # Decoder: converts token IDs back to text
     tokenizer.decoder = decoders.ByteLevel()

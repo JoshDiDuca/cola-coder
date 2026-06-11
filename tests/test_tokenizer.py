@@ -73,3 +73,28 @@ class TestTokenizerTraining:
         assert "def" in decoded
         assert "hello" in decoded
         assert "42" in decoded
+
+    def test_digits_split_individually(self, tmp_path):
+        """MODEL-007: multi-digit numbers must tokenize one-digit-per-token
+        (LLaMA-3 / Qwen2.5-Coder / DeepSeek style). BPE must never merge a run
+        of digits into a single token — the Digits pre-tokenizer splits them
+        first. Improves numeric handling (matters for the ~10% math data)."""
+        code_samples = [
+            "port = 8080\n", "x = 12345\n", "v = 2024\n",
+            "a[100] = 999\n", "pi = 3.14159\n",
+        ] * 100
+        output_path = str(tmp_path / "tok.json")
+        tokenizer = train_from_iterator(
+            iter(code_samples), vocab_size=400, output_path=output_path,
+        )
+
+        encoded = tokenizer.encode("n = 67890")
+        pieces = [tokenizer.decode([tid]).strip() for tid in encoded.ids]
+        digit_pieces = [p for p in pieces if p.isdigit()]
+        assert digit_pieces, "expected per-digit tokens for 67890"
+        # No token may span two or more digits.
+        assert all(len(p) == 1 for p in digit_pieces), (
+            f"BPE merged a digit run into a multi-digit token: {digit_pieces}"
+        )
+        # Round-trip still intact.
+        assert tokenizer.decode(encoded.ids).strip().endswith("67890")
