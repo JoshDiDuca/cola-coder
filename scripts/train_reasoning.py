@@ -532,6 +532,16 @@ def main():
             if hasattr(config, "checkpoint")
             else "./checkpoints/reasoning"
         )
+        # Persist the thinking-token-expanded tokenizer next to the checkpoint.
+        # add_thinking_tokens() added <think>/</think> (vocab +2) and the model
+        # trained on those ids. Without saving it, inference reloads the BASE
+        # tokenizer.json — which lacks those tokens — so the reasoning markers
+        # fragment and the trained ids can't be decoded, breaking
+        # extract_thinking()/strip_thinking() (same class as BUG-106 for SFT).
+        # resolve_tokenizer_path() reads tokenizer_path back from metadata.json.
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        reasoning_tokenizer_path = str(Path(output_dir) / "tokenizer.json")
+        tokenizer.tokenizer.save(reasoning_tokenizer_path)
         save_checkpoint(
             model=model,
             optimizer=grpo_trainer.optimizer,
@@ -542,8 +552,10 @@ def main():
             loss=0.0,
             config={"model": vars(config.model), "reasoning": True},
             output_dir=output_dir,
+            tokenizer_path=reasoning_tokenizer_path,
         )
         cli.info("Saved to", output_dir)
+        cli.info("Reasoning tokenizer", reasoning_tokenizer_path)
     except Exception as e:
         cli.warn(f"Could not save checkpoint: {e}")
         cli.dim("The trained model is still in memory but was not persisted.")

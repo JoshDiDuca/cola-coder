@@ -53,6 +53,21 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **BUG-107** [bug/train-inference, high] `done` (2026-06-11) — Sibling of
+  BUG-106 in the REASONING path (predicted last cycle). `train_reasoning.py`
+  calls `add_thinking_tokens()` to add `<think>`/`</think>` (vocab +2) and
+  trains the model on those ids, then `save_checkpoint`s the expanded model —
+  but NEVER persisted the expanded tokenizer (the save_checkpoint call omitted
+  `tokenizer_path`). Inference reloads the BASE tokenizer.json (no thinking
+  tokens): the reasoning markers fragment and the trained ids decode out of
+  range, silently breaking `extract_thinking()`/`strip_thinking()` (so reward
+  parsing + the whole reasoning feature fail at inference). Model side was
+  already handled (`_maybe_resize_vocab`); only the tokenizer was lost. Fixed
+  identically to BUG-106: save the expanded tokenizer into output_dir and pass
+  `tokenizer_path=` to save_checkpoint (→ metadata.json → resolve_tokenizer_
+  path). Tests: test_reasoning_tokenizer_persist.py (3): base lacks thinking
+  tokens, add→save→reload preserves exact ids (single-id encode), metadata
+  resolution.
 - **BUG-106** [bug/train-inference, high] `done` (2026-06-11) — SFT train/
   inference tokenizer mismatch. `train_sft.py` calls `add_chat_tokens()` to add
   `<|im_start|>`/`<|im_end|>` (NOT in base SPECIAL_TOKENS) to the in-memory
