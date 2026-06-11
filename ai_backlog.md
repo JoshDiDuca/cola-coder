@@ -87,6 +87,27 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **TOOL-008** [tooling/repo-integrity, HIGH] `done` (2026-06-11) — 25 core
+  `.py` source files under `src/cola_coder/data/` were UNTRACKED (never
+  committed) — the long-term fallout of the original unanchored `data/`
+  gitignore rule: it matched `src/cola_coder/data/` and silently kept git from
+  ever adding files there. TOOL-008's structural fix (anchoring to `/data/`)
+  stopped NEW files being ignored but never back-filled the already-untracked
+  ones. The orphaned set includes modules that ALREADY-COMMITTED code imports —
+  e.g. `data/registry.py` is imported by the committed `filters/pii.py`
+  (`from cola_coder.data.registry import register_filter`), and `pipeline.py`,
+  `sources/*` (github/huggingface/local/mixed/self_align/software_heritage/
+  instruction_gen), `filters/{__init__,length,quality}.py`, `curation/*`
+  (test_runner/test_scorer/docker_sandbox), `transforms/*`, `fim.py`,
+  `fim_dataset.py`, `mixing.py`, `combine.py`, `dedup.py`. So a FRESH CLONE
+  would be missing them → import errors across the data pipeline, filter
+  registry, FIM, curation, and sources. Discovered this cycle via `git stash`
+  surfacing the untracked list. Verified: all 25 are first-party `.py` source
+  (355B–43KB, no data/secrets/binaries — secret-scanned clean), not ignored,
+  and import cleanly. Committed all 25 to version control. Orphaning was fully
+  contained to `src/cola_coder/data/` (no untracked source elsewhere in
+  src/scripts/tests). Follow-up DATA-021 (DataPipeline not wired into the live
+  collector) is unaffected — these are now at least tracked/backed-up.
 - **SEC-005** [security/sandbox, medium] `done` (2026-06-11) — The sandbox's
   native-timeout handler (`data/scorers/sandbox.py`) killed runaway processes
   with `taskkill /F /T /IM <cmd[0]>` — by IMAGE NAME. That (a) terminates EVERY
