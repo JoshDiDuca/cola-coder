@@ -35,10 +35,12 @@ from cola_coder.export.gguf_export import (
     _map_single_key,
     _GGUF_MAGIC,
     _GGUF_VERSION,
+    _RMS_NORM_EPS,
     _to_f32,
     _to_f16,
     _quantize_q8_0,
 )
+from cola_coder.model.normalization import RMSNorm
 from cola_coder.export.ollama_export import OllamaExporter
 from cola_coder.export.quantize import ModelQuantizer, QuantResult, _model_size_mb
 
@@ -149,6 +151,31 @@ class TestWeightNameMapping:
 # ──────────────────────────────────────────────────────────────────────────────
 # 2. GGUFExporter._map_weight_names
 # ──────────────────────────────────────────────────────────────────────────────
+
+class TestGGUFMetadata:
+    """GGUF metadata must faithfully describe the model."""
+
+    def test_rms_eps_matches_model(self):
+        # The exporter wrote 1e-5 while the model uses 1e-6 — a 10x mismatch
+        # that makes llama.cpp compute norms differently from the trained model.
+        # The metadata eps must equal the ACTUAL RMSNorm eps.
+        meta = GGUFExporter(_tiny_config())._build_gguf_metadata()
+        _vtype, eps = meta["llama.attention.layer_norm_rms_epsilon"]
+        assert eps == RMSNorm(8).eps
+
+    def test_rms_eps_constant_tracks_rmsnorm_default(self):
+        # If someone changes RMSNorm's default eps, this fails so the GGUF
+        # constant gets updated too (keeps export faithful).
+        assert _RMS_NORM_EPS == RMSNorm(8).eps
+
+    def test_metadata_has_core_llama_keys(self):
+        cfg = _tiny_config()
+        meta = GGUFExporter(cfg)._build_gguf_metadata()
+        assert meta["general.architecture"][1] == "llama"
+        assert meta["llama.block_count"][1] == cfg.n_layers
+        assert meta["llama.embedding_length"][1] == cfg.dim
+        assert meta["llama.attention.head_count_kv"][1] == cfg.n_kv_heads
+
 
 class TestGGUFExporterWeightMapping:
 

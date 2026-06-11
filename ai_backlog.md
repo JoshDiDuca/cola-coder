@@ -43,6 +43,20 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **TOOL-003** [tooling/export, low-medium] `done` (2026-06-11) — GGUF export
+  hardcoded `llama.attention.layer_norm_rms_epsilon = 1e-5` in BOTH the builtin
+  writer (gguf_export.py:497) and the gguf-package path (:565), but the model's
+  RMSNorm uses eps=1e-6 (model/normalization.py default, never overridden). So
+  every exported GGUF told llama.cpp to use a 10x-larger epsilon than the model
+  was built with — an unfaithful export (numerically small for normal
+  activations, but wrong). Fixed: both paths now use a `_RMS_NORM_EPS` constant
+  (=1e-6) and a regression test cross-checks it against an actual RMSNorm
+  instance, so a future change to RMSNorm's default forces the export to update
+  too. Audited the rest of gguf_export (Q8_0 block layout, weight-name mapping,
+  GGUF v3 file layout / 32-byte alignment / data-relative offsets) — all correct
+  (the flattened Q8_0 blocking aligns with llama.cpp's per-row blocking because
+  cola-coder dims are always multiples of 32). Tests: test_export.py
+  TestGGUFMetadata (3).
 - **TOOL-002** [tooling/export, medium] `done` (2026-06-11) — `_model_size_mb`
   (export/quantize.py) summed only parameters() + buffers(), but torch.ao
   dynamic-quantized Linear stores its INT8 weights in a `_packed_params`

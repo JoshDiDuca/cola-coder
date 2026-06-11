@@ -209,6 +209,12 @@ _GGML_TYPE_F32 = 0
 _GGML_TYPE_F16 = 1
 _GGML_TYPE_Q8_0 = 8
 
+# RMSNorm epsilon written into GGUF metadata. MUST match the model's actual
+# RMSNorm eps (model/normalization.py RMSNorm default = 1e-6) — llama.cpp uses
+# this value to compute norms, so a mismatch makes the exported model diverge
+# from the trained one. (test_export cross-checks this against a real RMSNorm.)
+_RMS_NORM_EPS = 1e-6
+
 
 def _encode_string(s: str) -> bytes:
     """Encode a UTF-8 string as GGUF: uint64 length + bytes."""
@@ -494,7 +500,7 @@ class GGUFExporter:
             "llama.rope.freq_base": (_GGUF_TYPE_FLOAT32, cfg.rope_theta),
             "llama.attention.head_count": (_GGUF_TYPE_UINT32, cfg.n_heads),
             "llama.attention.head_count_kv": (_GGUF_TYPE_UINT32, cfg.n_kv_heads),
-            "llama.attention.layer_norm_rms_epsilon": (_GGUF_TYPE_FLOAT32, 1e-5),
+            "llama.attention.layer_norm_rms_epsilon": (_GGUF_TYPE_FLOAT32, _RMS_NORM_EPS),
             "tokenizer.ggml.model": (_GGUF_TYPE_STRING, "llama"),
             "tokenizer.ggml.bos_token_id": (_GGUF_TYPE_UINT32, 1),
             "tokenizer.ggml.eos_token_id": (_GGUF_TYPE_UINT32, 2),
@@ -562,7 +568,7 @@ class GGUFExporter:
         writer.add_rope_freq_base(cfg.rope_theta)
         writer.add_head_count(cfg.n_heads)
         writer.add_head_count_kv(cfg.n_kv_heads)
-        writer.add_layer_norm_rms_eps(1e-5)
+        writer.add_layer_norm_rms_eps(_RMS_NORM_EPS)
 
         # Map quantization string to GGMLQuantizationType
         quant_map = {
