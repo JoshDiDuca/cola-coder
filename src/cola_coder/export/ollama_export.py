@@ -18,24 +18,37 @@ from __future__ import annotations
 
 from pathlib import Path
 
+# These MUST match cola_coder.tokenizer.chat_template.IM_START / IM_END — the
+# ChatML format cola-coder is actually trained on (SFT) — and the base <|eos|>
+# token. They are defined as literals here to keep this module torch-free
+# (chat_template imports the Transformer / torch); test_ollama_chatml asserts
+# they stay in sync with the canonical constants.
+_IM_START = "<|im_start|>"
+_IM_END = "<|im_end|>"
+_EOS = "<|eos|>"
+
 
 class OllamaExporter:
     """Create an Ollama Modelfile for easy local deployment.
 
     The generated Modelfile configures:
     - The GGUF file path (FROM directive)
-    - Chat template (LLaMA-style)
+    - Chat template (ChatML — the format cola-coder is trained on)
     - Sensible defaults for code generation (temperature, top-p, etc.)
     """
 
-    # LLaMA-style chat template — matches the training format used by
-    # most code-focused models based on the LLaMA architecture.
+    # ChatML template — matches cola_coder.tokenizer.chat_template (the format
+    # used during SFT: <|im_start|>{role}\n{content}<|im_end|>). The previous
+    # LLaMA-3 template (<|start_header_id|>/<|eot_id|>) used tokens that are NOT
+    # in cola-coder's vocabulary, so an exported Ollama model would fragment the
+    # template and never see its trained chat tokens — broken instruction
+    # following (the BUG-106 family, on the Ollama-export side).
     _CHAT_TEMPLATE = (
-        "{{ if .System }}<|start_header_id|>system<|end_header_id|>\n\n"
-        "{{ .System }}<|eot_id|>{{ end }}"
-        "{{ range .Messages }}<|start_header_id|>{{ .Role }}<|end_header_id|>\n\n"
-        "{{ .Content }}<|eot_id|>{{ end }}"
-        "<|start_header_id|>assistant<|end_header_id|>\n\n"
+        "{{ if .System }}" + _IM_START + "system\n"
+        "{{ .System }}" + _IM_END + "\n{{ end }}"
+        "{{ range .Messages }}" + _IM_START + "{{ .Role }}\n"
+        "{{ .Content }}" + _IM_END + "\n{{ end }}"
+        + _IM_START + "assistant\n"
     )
 
     def create_modelfile(
@@ -79,7 +92,7 @@ class OllamaExporter:
             "",
             f"FROM {gguf_path}",
             "",
-            "# Chat template (LLaMA 3 style)",
+            "# Chat template (ChatML — matches cola-coder's SFT format)",
             f'TEMPLATE """{self._CHAT_TEMPLATE}"""',
             "",
             "# System prompt for code generation",
@@ -93,8 +106,8 @@ class OllamaExporter:
             "PARAMETER top_k 40",
             "PARAMETER repeat_penalty 1.1",
             "PARAMETER num_predict 512",
-            "PARAMETER stop <|eot_id|>",
-            "PARAMETER stop <|end_of_text|>",
+            f"PARAMETER stop {_IM_END}",
+            f"PARAMETER stop {_EOS}",
         ]
         return "\n".join(lines) + "\n"
 

@@ -49,6 +49,19 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **TOOL-006** [tooling/export, medium] `done` (2026-06-11) — Ollama Modelfile
+  used the wrong chat template. `OllamaExporter._CHAT_TEMPLATE` + stop params
+  were LLaMA-3 style (`<|start_header_id|>`/`<|end_header_id|>`/`<|eot_id|>` and
+  stop `<|eot_id|>`/`<|end_of_text|>`) — tokens NOT in cola-coder's vocab. The
+  model is trained on ChatML (`<|im_start|>{role}\n{content}<|im_end|>`, per
+  chat_template.py), so an exported Ollama model would fragment the template,
+  never see its trained chat tokens, and never hit a real stop token — broken
+  instruction following (the BUG-106 family, on the Ollama side). Fixed: the
+  Modelfile now emits the ChatML template + `stop <|im_end|>` / `stop <|eos|>`.
+  Kept ollama_export torch-free (literal tokens + a test asserting they match
+  chat_template.IM_START/IM_END and the base SPECIAL_TOKENS — the DATA-014
+  pattern). Tests: test_ollama_chatml.py (5): ChatML tokens present, no stale
+  LLaMA-3 tokens, stop params correct, tokens in sync with the canonical source.
 - **TOOL-005** [tooling/export, high] `done` (2026-06-11) — GGUF export embedded
   NO tokenizer vocabulary. Both writers emitted `tokenizer.ggml.model="llama"`
   with bos/eos ids but no `tokenizer.ggml.tokens`/`token_type`/`merges` — and
