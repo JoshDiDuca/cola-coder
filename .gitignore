@@ -38,8 +38,11 @@ CLAUDE.local.md
 tasks/
 wandb/
 
-data/
-checkpoints/
+# Anchored to repo root so these don't also match the source packages
+# src/cola_coder/data/ (and any nested data/checkpoints dir) — an unanchored
+# `data/` silently ignored new files added under src/cola_coder/data/.
+/data/
+/checkpoints/
 plans/
 research/
 

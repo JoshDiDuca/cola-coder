@@ -53,6 +53,16 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **TOOL-007** [tooling/repo-hygiene, medium] `done` (2026-06-11) — Discovered
+  while committing DATA-019: `.gitignore` had unanchored `data/` and
+  `checkpoints/` rules, so `data/` ALSO matched the source package
+  `src/cola_coder/data/`. Existing tracked files were safe (tracked overrides
+  ignore), but a NEW file added under `src/cola_coder/data/` would be SILENTLY
+  ignored by `git add` — a real footgun (a future data module could appear to
+  commit but be dropped). Anchored both to repo root (`/data/`, `/checkpoints/`)
+  so they match only the top-level dataset/checkpoint dirs. Verified:
+  `data/foo.npy` + `checkpoints/foo` still ignored; a new
+  `src/cola_coder/data/*.py` is no longer ignored.
 - **DATA-019** [data-quality/bug, high] `done` (2026-06-11) — `tokenize_and_chunk`
   (data/preprocess.py — data-prep STAGE 2, the core tokenizer→.npy path) crashed
   at finalization on Windows (the primary platform). It did `data =
