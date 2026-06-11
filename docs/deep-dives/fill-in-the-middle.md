@@ -583,22 +583,28 @@ random splits each epoch) rather than pre-computing FIM during data prep.
 ```python
 class FIMCollator:
     def __call__(self, examples):
-        batch = []
-        for ex in examples:
-            tokens = ex["input_ids"]
-            if random.random() < self.fim_rate:
-                tokens = self._apply_fim(tokens)
-            batch.append(tokens)
+        batch = [self._apply_fim(ex["input_ids"]) for ex in examples]
         return {"input_ids": torch.stack(batch)}
+
+    def _apply_fim(self, tokens):
+        # Delegates to FIMTransform.apply (gates on fim_rate internally,
+        # preserves length); returns a tensor of the same dtype/device.
+        ids = self._transform.apply(tokens.tolist(), self._fim_ids)
+        return torch.tensor(ids, dtype=tokens.dtype, device=tokens.device)
 ```
 
-The collator's `_apply_fim` method uses a simpler split strategy than
-`FIMTransform` — it picks one split region and constructs PSM format, then
-truncates/pads to maintain a constant sequence length.
+`FIMCollator` is a thin PyTorch/DataLoader adapter around the canonical
+`FIMTransform` — it does **not** re-implement the split. `FIMTransform` reserves
+three content slots up front, so the output length exactly equals the input and
+the prediction target (`middle`) is never truncated. (An earlier version
+hand-rolled the split and truncated `seq_len + 3` tokens back to `seq_len`,
+silently chopping the end of `middle`; that bug is fixed by delegation.)
 
-Key difference from `FIMTransform`: the collator works directly with
-PyTorch tensors (not Python lists), and it constructs the FIM sequence using
-`torch.cat`. This makes it efficient for the training hot path.
+**Wiring note:** `FIMCollator` is *not* attached to `create_dataloader` by
+default. The default trainer path applies FIM at data-prep time
+(`scripts/prepare_fim_data.py`). To use dynamic train-time FIM, pass a
+`FIMCollator` as the DataLoader's `collate_fn` yourself (optional trainer
+plumbing is tracked as backlog item DATA-012).
 
 ---
 

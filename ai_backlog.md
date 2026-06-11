@@ -12,6 +12,16 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ## Open
 
 
+- **DATA-012** [data-quality, low] `open` — Optional capability follow-up to
+  DATA-011: dynamic FIM is not wired into `create_dataloader`/the trainer. The
+  fixed `FIMCollator` (and `FIMTransform`'s token-level `apply`) make train-time
+  FIM correct and available, but the default trainer path applies FIM only at
+  data-prep time (`prepare_fim_data.py`). Wiring a `fim_rate`/`fim_ids` opt-in
+  through `create_dataloader` → trainer config would enable per-epoch FIM split
+  variety (StarCoder2-style). Deferred: needs config plumbing + a smoke training
+  run to validate (avoid a silent-no-op flag); not validatable without training.
+
+
 - **DATA-006** [data-quality, low] `open` — Follow-up to DATA-002: if dynamic
   per-batch / online source reweighting is wanted, design runtime data mixing
   into the trainer DELIBERATELY (multi-source dataloader, per-source loss
@@ -43,6 +53,24 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-011** [data-quality/bug, medium] `done` (2026-06-11) — `FIMCollator`
+  (data/collator.py), the dynamic train-time Fill-in-the-Middle collator, was
+  UNREACHABLE (only referenced in docs — `create_dataloader` hardcodes
+  CodeCollator/WeightedCodeCollator) AND buggy: `_apply_fim` built `seq_len + 3`
+  tokens then truncated back to `seq_len`, silently chopping the LAST 3 tokens —
+  which are the END of `middle`, the segment FIM trains the model to predict.
+  For short middles it could even drop the `<fim_middle>` marker, producing
+  prefix+suffix with no target. It duplicated the correct, tested `FIMTransform`
+  (fim.py), which avoids this by reserving 3 content slots up front (output
+  length == input, target intact). The docs presented this buggy class as
+  "efficient for the training hot path." Fixed by delegating `FIMCollator` to
+  `FIMTransform` (DRY): length-preserving, target never truncated, gains SPM
+  ordering for free, dtype/device preserved. The module had ZERO tests; added
+  test_fim_collator.py (10): length preserved/stackable, middle-target present
+  across 40 seeds, no content lost beyond 3 reserved slots, rate-0 unchanged,
+  rate-1 transforms all, PSM/SPM ordering, dtype preserved. Corrected the
+  misleading docs + added a "not wired by default" note. Follow-up: DATA-012
+  (optional trainer wiring of dynamic FIM).
 - **MEM-001** [bug/correctness, medium] `done` (2026-06-11) — `MemoryConfig.
   max_context_tokens` (default 1024, documented "Max tokens of memory to inject
   into prompts") was NEVER enforced — a silent no-op config. `get_relevant_
