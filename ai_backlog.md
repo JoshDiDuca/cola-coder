@@ -11,6 +11,20 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+- **TOOL-011** [tooling/pipeline, medium] `open` — More `full_pipeline.py`
+  divergences from the audited Pipeline Manager (pipeline_menu.py), found
+  alongside TOOL-010: (1) Stage 1 `_stage_collect_data` runs `prepare_data.py`
+  (code-only), NOT `collect_data.py --sources code,text,math` — so full_pipeline
+  SKIPS multi-source collection (the 70/20/10 code/text/math mix, incl. the
+  DATA-026/027/028 fixes) and Stage 2 then runs `prepare_data.py` AGAIN
+  (redundant, and the stage-2 run drops Stage 1's `--score` weights). (2) Stage 6
+  SFT hardcodes `--epochs 2 --lr 2e-5` instead of scaling with model size via
+  `_model_scale(config)` (tiny→3 epochs etc.). (3) Stage 9 reasoning doesn't
+  derive `--reward`/`--problems` from `config.data.languages` (a TS-primary run
+  silently uses the python_exec default). None HANG (unlike TOOL-010); they
+  produce wrong-distribution/under-tuned artifacts. Fix by mirroring the
+  pipeline_menu stage methods. Medium — defer the larger Stage-1 rewrite.
+
 - **DATA-025** [data-quality/dead-code, low] `open` (integrate or remove — user
   decision) — `data/fim_dataset.py` (`FIMDataset` + `create_fim_dataloader`) is a
   redundant SECOND dynamic-FIM implementation, not wired into any live path. The
@@ -94,6 +108,23 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **TOOL-010** [tooling/pipeline, high] `done` (2026-06-11) — `full_pipeline.py`
+  Stage 5 (`_stage_generate_instructions`) ran `generate_instructions.py` with
+  NO args, which drops into the script's INTERACTIVE menu — so an unattended
+  `full_pipeline.py --config X` run HANGS FOREVER at stage 5 (the script's
+  `main()` only goes non-interactive with `--non-interactive`). Even if it
+  didn't hang: (a) no `--languages` → defaulted to `typescript` regardless of
+  the config (the project's "never omit --languages" rule), and (b) it wrote to
+  the script's default output (`<data_dir>/processed/instructions.jsonl`), NOT
+  `data/sft/instructions.jsonl` where Stage 6 reads from — so Stage 6 would
+  FileNotFoundError. Fixed by mirroring the audited Pipeline Manager
+  (pipeline_menu._stage_generate_instructions): `--non-interactive --source
+  huggingface --dataset <config> --languages <config langs> --mode template
+  --output data/sft/instructions.jsonl`. This unbreaks the documented end-to-end
+  runner. Logged TOOL-011 for the remaining (non-hanging) full_pipeline
+  divergences. Tests: test_full_pipeline_stage_args.py (4): non-interactive
+  present, config languages forwarded, output == Stage-6 input path, hf
+  source+dataset. Found this cycle auditing pipeline stage-arg wiring.
 - **MODEL-004** [model/reasoning, low] `done` (2026-06-11) — GRPO per-sequence
   policy log-prob (grpo.py) summed over PROMPT + completion tokens instead of
   completion-only. The prompt is fixed context, not a sampled action, so under

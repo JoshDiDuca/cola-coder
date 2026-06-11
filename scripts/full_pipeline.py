@@ -157,11 +157,40 @@ def _stage_extend_context(config: Config, args: argparse.Namespace) -> None:
 
 
 def _stage_generate_instructions(config: Config, args: argparse.Namespace) -> None:
-    """Stage 5: Generate instruction tuning data."""
+    """Stage 5: Generate instruction-tuning data (non-interactive).
+
+    Mirrors the audited Pipeline Manager (pipeline_menu._stage_generate_instructions):
+    - MUST pass --non-interactive, or generate_instructions.py drops into its
+      interactive menu and HANGS forever in an unattended pipeline.
+    - --languages / --dataset come from the run config so instruction examples
+      match the pretraining distribution (the project's "never omit --languages"
+      rule), not the script's hardcoded `typescript` default.
+    - --output MUST be data/sft/instructions.jsonl — exactly where Stage 6
+      (instruction tuning) reads from; the script's own default writes elsewhere
+      (<data_dir>/processed/), which would fail Stage 6 with FileNotFoundError.
+    """
     import subprocess
 
     venv = Path(".venv/Scripts/python")
-    cmd = [str(venv), "scripts/generate_instructions.py"]
+
+    data_cfg = getattr(config, "data", None)
+    dataset = getattr(data_cfg, "dataset", "bigcode/starcoderdata") if data_cfg is not None \
+        else "bigcode/starcoderdata"
+    languages = getattr(data_cfg, "languages", ["typescript"]) if data_cfg is not None \
+        else ["typescript"]
+    if not isinstance(languages, list):
+        languages = [str(languages)]
+
+    cmd = [
+        str(venv), "scripts/generate_instructions.py",
+        "--non-interactive",
+        "--source", "huggingface",
+        "--dataset", dataset,
+        "--languages", *languages,
+        "--mode", "template",
+        "--output", "data/sft/instructions.jsonl",
+    ]
+    cli.info("Instructions", f"languages={', '.join(languages)}, dataset={dataset}")
     subprocess.run(cmd, check=True)
 
 
