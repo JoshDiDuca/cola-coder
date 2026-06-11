@@ -394,31 +394,57 @@ def _run_weighted_mix(paths: list[str], weights: list[float], output_path: str) 
     """
     import numpy as np
 
-    total_weight = sum(weights)
-    norm_weights = [w / total_weight for w in weights]
-
+    # Load and validate all datasets, keeping paths/weights/arrays in lockstep.
+    # (The earlier code `continue`-skipped non-2D arrays, which desynced the
+    # later zip(paths, arrays, norm_weights, ...) and applied each weight to the
+    # wrong dataset.) Weights are renormalised over the datasets actually loaded.
+    loaded_paths: list[str] = []
+    loaded_weights: list[float] = []
     arrays = []
-    for p in paths:
+    chunk_size: int | None = None
+    for p, w in zip(paths, weights):
         arr = np.load(p, mmap_mode="r")
         if arr.ndim != 2:
             cli.print(f"[red]Error:[/red] {p} is not a 2-D array — skipping")
             continue
+        if chunk_size is None:
+            chunk_size = arr.shape[1]
+        elif arr.shape[1] != chunk_size:
+            # All inputs must share chunk_size or np.concatenate fails opaquely
+            # downstream — mirror DatasetCombiner.combine's explicit check.
+            cli.print(
+                f"[red]Error:[/red] chunk size mismatch: {p} has "
+                f"{arr.shape[1]}, expected {chunk_size}. Aborting."
+            )
+            sys.exit(1)
+        loaded_paths.append(p)
+        loaded_weights.append(w)
         arrays.append(arr)
 
     if not arrays:
         cli.print("[red]No valid datasets loaded. Aborting.[/red]")
         sys.exit(1)
 
+    total_weight = sum(loaded_weights)
+    norm_weights = [w / total_weight for w in loaded_weights]
+
     # Total number of rows in the output == sum of all input row counts.
     total_rows = sum(a.shape[0] for a in arrays)
 
-    # Compute how many rows to sample from each dataset.
+    # Compute how many rows to sample from each dataset (each contributes >=1).
     row_counts = [max(1, round(total_rows * w)) for w in norm_weights]
-    # Adjust last dataset to hit exact total.
-    row_counts[-1] = total_rows - sum(row_counts[:-1])
+    # Reconcile to exactly total_rows. Rounding + the min-1 clamp can over- or
+    # under-shoot; absorb the difference into the LARGEST bucket so it never
+    # goes negative (the old code forced the LAST bucket, which underflowed to a
+    # negative size — and a negative rng.choice size — when many tiny datasets
+    # were each clamped up to 1).
+    diff = total_rows - sum(row_counts)
+    if diff != 0:
+        j = max(range(len(row_counts)), key=lambda k: row_counts[k])
+        row_counts[j] = max(1, row_counts[j] + diff)
 
     cli.print(f"\n  [bold]Weighted mixing:[/bold]  {total_rows:,} total rows")
-    for p, arr, w, n in zip(paths, arrays, norm_weights, row_counts):
+    for p, arr, w, n in zip(loaded_paths, arrays, norm_weights, row_counts):
         cli.print(
             f"    {Path(p).stem:<30}  weight={w:.1%}  "
             f"sample {n:,} / {arr.shape[0]:,} rows"

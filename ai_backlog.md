@@ -53,6 +53,22 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **BUG-105** [bug/cli, medium] `done` (2026-06-11) — `_run_weighted_mix`
+  (combine_datasets.py, the non-interactive `--datasets a:0.8 b:0.2` path) had
+  three defects in an untested CLI function: (1) non-2D inputs were
+  `continue`-skipped, desyncing `zip(paths, arrays, norm_weights, row_counts)`
+  so weights/labels applied to the WRONG dataset; (2) `row_counts[-1] = total -
+  sum(rest)` could go NEGATIVE when many tiny datasets were each clamped to
+  `max(1,...)`, crashing `np.random.choice(size<0)` (proved: 1 big + 9 tiny
+  weights); (3) no chunk_size check, so mixing different `seq_len` datasets
+  failed with an opaque numpy concatenate error (the interactive
+  DatasetCombiner.combine validates this). Fixed: load+validate up front keeping
+  paths/weights/arrays in lockstep, renormalise weights over the datasets
+  actually loaded, abort with a clear message on chunk_size mismatch, and
+  reconcile row counts by absorbing the rounding diff into the LARGEST bucket
+  (never negative). Tests: test_combine_datasets_weighted_mix.py (8) — parse
+  (default/explicit/Windows-path/invalid weights) + mix (basic, many-tiny
+  no-crash, chunk mismatch aborts, skewed weights sum to total).
 - **BUG-104** [data-quality/bug, medium] `done` (2026-06-11) — `combine_datasets.py`
   `run_pipeline` exact-dedup path was NOT cross-dataset. It called
   `ExactDeduplicator.deduplicate_array(arr)` per-dataset in a loop — removing
