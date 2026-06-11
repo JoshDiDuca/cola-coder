@@ -254,11 +254,24 @@ class MoEFFN(nn.Module):
                 if not mask.any():
                     continue
 
-                # Apply capacity factor: limit tokens per expert
                 token_indices = mask.nonzero(as_tuple=True)[0]
-                capacity = int(self.capacity_factor * num_tokens / self.num_experts)
-                if len(token_indices) > capacity:
-                    token_indices = token_indices[:capacity]
+                # Capacity-based token dropping bounds per-expert compute during
+                # TRAINING only. At inference EVERY token must be processed:
+                # during single-token decode num_tokens == 1, so the old
+                # (unconditional) capacity = int(1.25 * 1 / num_experts) rounded
+                # to 0 and `token_indices[:0]` dropped ALL routed-expert
+                # contributions — the MoE silently collapsed to just its shared
+                # expert(s) at generation time (BUG-112). The old formula also
+                # omitted top_k, so per-expert capacity was top_k× too small and
+                # over-dropped even in training (expected load is
+                # num_tokens * top_k / num_experts). Gate on self.training and
+                # use the standard top_k-aware formula.
+                if self.training and self.capacity_factor > 0:
+                    capacity = int(
+                        self.capacity_factor * num_tokens * self.top_k / self.num_experts
+                    )
+                    if 1 <= capacity < len(token_indices):
+                        token_indices = token_indices[:capacity]
 
                 # Process selected tokens through this expert
                 expert_input = x_flat[token_indices]

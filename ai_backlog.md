@@ -76,6 +76,26 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **BUG-112** [model/moe, high] `done` (2026-06-11) — MoE inference collapse.
+  `MoEFFN.forward` (features/moe_layer.py) applied capacity-based token dropping
+  UNCONDITIONALLY with `capacity = int(capacity_factor * num_tokens /
+  num_experts)`. During single-token autoregressive DECODE `num_tokens == 1`, so
+  `capacity = int(1.25 * 1 / 8) = 0` and `token_indices[:0]` dropped EVERY
+  routed-expert contribution — the MoE silently collapsed to just its shared
+  expert(s) at generation time (verified: a 1-token eval forward with
+  num_shared_experts=0 produced an all-zero output). So an upcycled/fine-tuned
+  MoE checkpoint (stages 7/7.5) ran inference with its entire routed-expert
+  capacity SILENT — drastically degraded generation. The formula also omitted
+  `top_k`, so per-expert capacity was top_k× below the expected load
+  (`num_tokens * top_k / num_experts`), over-dropping even in training. Fixed:
+  gate capacity dropping on `self.training` (inference processes every token —
+  the generator runs model.eval(), generator.py:96) and use the standard
+  top_k-aware formula with a `1 <= capacity < len(token_indices)` guard so tiny
+  batches never round to a zero/over-aggressive cap. Improves BOTH inference
+  (no collapse) and training (correct, less aggressive dropping). Tests:
+  test_moe_capacity.py (5): single-token decode routed experts contribute,
+  eval drops no tokens, training doesn't over-drop with the top_k formula,
+  capacity_factor=0 disables dropping, shared-expert sanity.
 - **DATA-020** [data-quality/wiring+bug, medium] `done` (2026-06-11) — Two coupled
   fixes in the modular filter system. (1) WIRING: 5 of 8 FilterPlugins (`pii`,
   `content`, `license`, `syntax`, `deduplication`) conformed to the interface and
