@@ -38,6 +38,16 @@ def _load_upcycle():
     return module.upcycle
 
 
+def _load_export_model():
+    """Import scripts/export_model.py by path (scripts/ is not a package)."""
+    spec = importlib.util.spec_from_file_location(
+        "export_model_script", _SCRIPTS / "export_model.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _tiny_moe_config(enabled: bool = True) -> ModelConfig:
     cfg = ModelConfig(
         vocab_size=256, dim=64, n_layers=2,
@@ -298,6 +308,29 @@ class TestMoEResumeFineTune:
             num_experts=4, num_shared_experts=1, top_k=2, output_dir=str(moe_dir),
         )
         return config_yaml, moe_dir
+
+    def test_export_load_model_handles_moe_checkpoint(self, tmp_path):
+        # EXPORT-009: export_model._load_model must apply the MoE config before
+        # building the Transformer, or quantize/benchmark of an upcycled MoE
+        # checkpoint crashes on experts.* keys (the dense model has nowhere to
+        # load them). Mirrors the inference/eval load paths.
+        import torch
+
+        config_yaml, moe_dir = self._make_upcycled(tmp_path)
+        export_model = _load_export_model()
+
+        dense_cfg = Config.from_yaml(str(config_yaml))  # moe NOT enabled in YAML
+        assert not dense_cfg.model.moe.enabled
+
+        model = export_model._load_model(dense_cfg, str(moe_dir))
+
+        # Config was flipped to MoE and the expert weights loaded successfully.
+        assert dense_cfg.model.moe.enabled
+        assert model.is_moe
+        # Smoke forward (device-matched so it works on the GPU box too).
+        dev = next(model.parameters()).device
+        out = model(torch.randint(0, dense_cfg.model.vocab_size, (1, 8), device=dev))
+        assert out.shape[-1] == dense_cfg.model.vocab_size
 
     def test_resume_path_loads_moe_checkpoint(self, tmp_path):
         from cola_coder.features.moe_layer import apply_moe_config_from_checkpoint

@@ -108,6 +108,22 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **EXPORT-009** [export/bug, medium] `done` (2026-06-11) — `export_model.py::_load_model`
+  built `Transformer(config.model)` and called `load_model_only` WITHOUT first
+  calling `apply_moe_config_from_checkpoint(config, checkpoint)`. Every other load
+  path (inference/loading, trainer, evaluate, generate, serve, smoke_test) flips
+  the config to MoE before building the model so an upcycled MoE checkpoint's
+  expert weights (`blocks.N.ffn.experts.*`) have somewhere to load — export was
+  the ONLY one missing it. So quantizing or benchmarking an upcycled/fine-tuned
+  MoE checkpoint (stages 7/7.5) via export_model.py crashed with a hard
+  `_load_state_dict_tied` failure (experts.* keys have nowhere to go in a dense
+  model). Fixed by mirroring the canonical pattern: apply the MoE config (no-op
+  for dense checkpoints) before building the Transformer; logs the expert counts
+  when it fires. (GGUF export reads raw safetensors tensors and doesn't build a
+  Transformer, so it's a separate concern — full MoE→GGUF support is out of
+  scope.) Tests: test_moe_integration.py test_export_load_model_handles_moe_checkpoint
+  (real dense→upcycle→export_model._load_model: config flipped to MoE, is_moe,
+  forward works). Found scanning the export path.
 - **EVAL-008** [eval/wiring+robustness, medium] `done` (2026-06-11) — The during-
   training auto-eval (`training/auto_eval.py` AutoEvaluator — periodic HumanEval
   pass@k + regression detection + best-checkpoint save, 545 lines) was fully

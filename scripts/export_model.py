@@ -50,6 +50,15 @@ def _load_config(config_path: str) -> Config:
 def _load_model(config: Config, checkpoint_path: str) -> Transformer:
     """Load the Transformer from a checkpoint (weights only, no optimizer)."""
     from cola_coder.training.checkpoint import load_model_only
+    from cola_coder.inference.loading import apply_moe_config_from_checkpoint
+
+    # Upcycled MoE checkpoints carry expert weights (blocks.N.ffn.experts.*) that
+    # have nowhere to load in a dense model. Flip the config to MoE BEFORE building
+    # the Transformer — exactly as the inference/eval paths do — or the load is a
+    # hard _load_state_dict_tied failure. No-op for dense checkpoints.
+    if apply_moe_config_from_checkpoint(config, checkpoint_path):
+        cli.info("MoE", f"{config.model.moe.num_experts}+"
+                        f"{config.model.moe.num_shared_experts} experts")
 
     model = Transformer(config.model)
     device = "cuda" if __import__("torch").cuda.is_available() else "cpu"
