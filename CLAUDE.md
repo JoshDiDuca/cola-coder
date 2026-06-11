@@ -101,6 +101,12 @@ The full training pipeline is **10 stages**. Use the Pipeline Manager or `full_p
 
 Re-prepare data only if tokenizer, seq_len, dataset, languages, or filter mode changes.
 
+**Fill-in-the-Middle (FIM):** two options — (a) prep-time, `scripts/prepare_fim_data.py`
+(static, baked into the .npy); or (b) dynamic train-time, set `data.fim_rate` (e.g. 0.1)
+in the config — the dataloader rearranges that fraction of each batch into FIM on the fly
+(StarCoder2-style, different splits each epoch). Dynamic FIM needs the tokenizer's
+`<|fim_*|>` tokens; it auto-disables with a warning if they're absent. Default `fim_rate: 0.0` (off).
+
 ### Multi-Source Data (Qwen2.5-Coder ratios)
 ```bash
 # Collect code + text + math with 70/20/10 weights

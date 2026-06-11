@@ -59,6 +59,10 @@ data:
   max_tokens_per_file: 8192  # allow longer files (truncated to seq_len during training)
   data_dir: "./data"
   num_workers: 8
+  # Dynamic train-time Fill-in-the-Middle (StarCoder2-style); 0.0 = off.
+  # e.g. 0.1 rearranges ~10% of each batch into FIM on the fly (needs the
+  # tokenizer's <|fim_*|> tokens). Prep-time alternative: prepare_fim_data.py.
+  fim_rate: 0.0
 
 checkpoint:
   save_every: 5000

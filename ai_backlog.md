@@ -53,6 +53,19 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-018** [docs/discoverability, low] `done` (2026-06-11) — DATA-012 wired
+  dynamic FIM via `DataConfig.fim_rate`, but the knob lived only in the dataclass
+  default — absent from config templates and docs, so users couldn't discover
+  it (an undiscoverable feature is nearly a dead one). Surfaced a documented
+  `fim_rate: 0.0` in the `data:` section of all 5 main configs (tiny/small/
+  medium/4080_max/large) + a CLAUDE.md note covering prep-time vs dynamic FIM.
+  All configs verified to still parse with fim_rate defaulting to 0.0 (off).
+  Tests: test_config_fim_rate.py (6): every config exposes fim_rate, off by
+  default, psm in [0,1], and the YAML surfaces the knob. (Fresh scan this cycle
+  confirmed the untested feature modules data_balancer/multi_file_context/
+  overfitting_detector are clean-or-unwired — the auto-discoverable bug surface
+  is exhausted; remaining items INFER-011/DATA-006 need a training/model
+  validation channel.)
 - **INFER-010** [inference/bug, medium] `done` (2026-06-11) — `InteractiveChat`
   (features/multi_turn_chat.py, menu-wired, untested) extracted the assistant
   reply via `rsplit("### Assistant:", 1)` with a fallback of
