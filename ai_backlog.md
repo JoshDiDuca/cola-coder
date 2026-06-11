@@ -108,6 +108,26 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **EVAL-008** [eval/wiring+robustness, medium] `done` (2026-06-11) — The during-
+  training auto-eval (`training/auto_eval.py` AutoEvaluator — periodic HumanEval
+  pass@k + regression detection + best-checkpoint save, 545 lines) was fully
+  implemented AND integrated into the Trainer (which calls should_eval/evaluate/
+  check_regression), but `train.py` never constructed or passed one and NO config
+  has an `auto_eval` section — so the feature was completely DORMANT (never ran in
+  production). Two fixes: (1) WIRING — added opt-in `--auto-eval` / `--eval-every`
+  / `--eval-subset` flags to train.py that build an AutoEvaluator (checkpoint_dir
+  from config), load the tokenizer it needs, and pass `auto_evaluator`+`tokenizer`
+  to `trainer.train()`; off by default (zero change to existing runs), and
+  disables gracefully if the tokenizer can't resolve. (2) ROBUSTNESS — the
+  trainer's eval block was UNGUARDED: a failure in the (never-before-run)
+  generation/sandbox path would crash a long training run, and if it raised after
+  `model.eval()` the model was left in eval mode (dropout off) for the rest of
+  training. Extracted it to a crash-safe `Trainer._run_auto_eval(step, tokenizer)`
+  (try/except → warn+continue; `finally: model.train()` always restores train
+  mode) — consistent with auto_eval's own "never let eval crash training" design.
+  Tests: test_auto_eval_hardening.py (5): failure swallowed + train mode restored,
+  success runs report+regression, and the three skip guards (no evaluator / no
+  tokenizer / should_eval False). Found scanning the training/eval internals.
 - **DATA-029** [data-quality/pipeline, low-medium] `done` (2026-06-11) — The
   `PipelineOrchestrator` (cola_coder/pipeline/orchestrator.py — the engine behind
   `run_pipeline.py`) ran `prepare_data.py` WITHOUT `--score`, so the orchestrator-

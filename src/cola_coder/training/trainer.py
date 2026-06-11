@@ -450,22 +450,8 @@ class Trainer:
                     self.metrics.finish()
                     return
 
-            # Auto-eval check (optional — only runs at configured intervals)
-            if (
-                self.auto_evaluator is not None
-                and tokenizer is not None
-                and self.auto_evaluator.should_eval(step)
-            ):
-                self.auto_evaluator.evaluate(
-                    self.model, tokenizer, step, device=self.device
-                )
-                cli.print(self.auto_evaluator.format_report())
-                if self.auto_evaluator.check_regression(self.auto_evaluator.history[-1]):
-                    cli.warn(
-                        f"Auto-eval regression detected at step {step}! "
-                        f"pass@1 {self.auto_evaluator.history[-1].pass_at_1:.1%} vs "
-                        f"best {self.auto_evaluator.best_score:.1%}"
-                    )
+            # Auto-eval check (optional — only runs at configured intervals).
+            self._run_auto_eval(step, tokenizer)
 
             # Save checkpoint (skip if this is the step we just resumed from)
             if (
@@ -546,6 +532,40 @@ class Trainer:
 
         self.metrics.finish()
         print("\nTraining complete!")
+
+    def _run_auto_eval(self, step: int, tokenizer) -> None:
+        """Run the optional during-training HumanEval check, crash-safe.
+
+        An auto-eval failure must NEVER kill a long training run — it's
+        best-effort telemetry that pauses to generate+execute HumanEval.
+        ``evaluate()`` guards each problem internally, but a setup error (the
+        generator, sandbox, etc.) could still propagate, so the whole thing is
+        wrapped. The ``finally`` restores train mode: ``evaluate()`` switches to
+        eval mode and only flips back at its end, so an exception mid-way would
+        otherwise leave the model in eval mode (dropout off) for the rest of
+        training.
+        """
+        if not (
+            self.auto_evaluator is not None
+            and tokenizer is not None
+            and self.auto_evaluator.should_eval(step)
+        ):
+            return
+        try:
+            self.auto_evaluator.evaluate(
+                self.model, tokenizer, step, device=self.device
+            )
+            cli.print(self.auto_evaluator.format_report())
+            if self.auto_evaluator.check_regression(self.auto_evaluator.history[-1]):
+                cli.warn(
+                    f"Auto-eval regression detected at step {step}! "
+                    f"pass@1 {self.auto_evaluator.history[-1].pass_at_1:.1%} vs "
+                    f"best {self.auto_evaluator.best_score:.1%}"
+                )
+        except Exception as exc:  # noqa: BLE001 — telemetry must not kill training
+            cli.warn(f"Auto-eval failed at step {step} ({exc}); continuing training.")
+        finally:
+            self.model.train()
 
     def _evaluate(self, val_loader, use_amp: bool, amp_dtype) -> float:
         """Compute average loss on a validation DataLoader.

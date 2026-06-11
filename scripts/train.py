@@ -189,6 +189,21 @@ def main():
         action="store_true",
         help="Enable Weights & Biases logging.",
     )
+    parser.add_argument(
+        "--auto-eval",
+        action="store_true",
+        help="Run a small HumanEval pass@k check every --eval-every steps during "
+             "training (regression detection; best model saved to <ckpt>/best). "
+             "Best-effort — failures warn and never crash training.",
+    )
+    parser.add_argument(
+        "--eval-every", type=int, default=5000,
+        help="Steps between auto-eval runs (only used with --auto-eval).",
+    )
+    parser.add_argument(
+        "--eval-subset", type=int, default=20,
+        help="HumanEval problems sampled per auto-eval run (only with --auto-eval).",
+    )
     args = parser.parse_args()
 
     cli.header("Cola-Coder", "Model Training")
@@ -329,8 +344,37 @@ def main():
     if args.wandb:
         cli.info("W&B logging", "ENABLED")
 
+    # Optional opt-in during-training auto-eval. Builds a HumanEval regression
+    # monitor + loads the tokenizer it needs; disabled gracefully if the
+    # tokenizer can't be resolved (auto-eval is best-effort telemetry, and a
+    # failure here must never block a real training run).
+    auto_evaluator = None
+    eval_tokenizer = None
+    if args.auto_eval:
+        try:
+            from cola_coder.training.auto_eval import AutoEvaluator
+            from cola_coder.tokenizer.tokenizer_utils import CodeTokenizer
+            from cola_coder.data.dataset_resolver import DatasetResolver
+
+            eval_tokenizer = CodeTokenizer(str(DatasetResolver.get_tokenizer_path()))
+            auto_evaluator = AutoEvaluator(
+                eval_every_steps=args.eval_every,
+                eval_subset=args.eval_subset,
+                checkpoint_dir=config.checkpoint.output_dir,
+            )
+            cli.info("Auto-eval", f"every {args.eval_every:,} steps, {args.eval_subset} problems")
+        except Exception as exc:
+            cli.warn(f"--auto-eval requested but could not initialise ({exc}); disabled.")
+            auto_evaluator = None
+            eval_tokenizer = None
+
     try:
-        trainer.train(data_path=str(data_path), use_wandb=args.wandb)
+        trainer.train(
+            data_path=str(data_path),
+            use_wandb=args.wandb,
+            auto_evaluator=auto_evaluator,
+            tokenizer=eval_tokenizer,
+        )
     except KeyboardInterrupt:
         cli.warn("Training interrupted by user.")
         cli.dim("You can resume from the latest checkpoint with --resume")
