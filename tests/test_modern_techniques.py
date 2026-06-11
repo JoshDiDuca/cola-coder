@@ -227,6 +227,73 @@ class TestMuon:
         opt2 = create_optimizer(model, optimizer="muon")
         opt2.load_state_dict(state)  # must not raise
 
+    def test_muon_state_dict_restores_buffers(self):
+        # "Doesn't raise" is not enough — the custom Muon state (momentum
+        # buffers for Muon groups, exp_avg/exp_avg_sq/step for AdamW groups)
+        # must actually be RESTORED, or resume silently starts from cold state.
+        import copy
+
+        from cola_coder.training.optimizer import create_optimizer
+
+        torch.manual_seed(0)
+        model = Transformer(_tiny_config())
+        opt = create_optimizer(model, optimizer="muon")
+        x = torch.randint(0, 64, (2, 16))
+        for _ in range(3):  # populate momentum + adamw moments + step counters
+            opt.zero_grad()
+            model.compute_loss(x).backward()
+            opt.step()
+
+        model_b = copy.deepcopy(model)
+        opt_b = create_optimizer(model_b, optimizer="muon")
+        opt_b.load_state_dict(copy.deepcopy(opt.state_dict()))
+
+        params_a = [p for g in opt.param_groups for p in g["params"]]
+        params_b = [p for g in opt_b.param_groups for p in g["params"]]
+        restored = 0
+        for pa, pb in zip(params_a, params_b):
+            sa, sb = opt.state[pa], opt_b.state[pb]
+            assert set(sa.keys()) == set(sb.keys())
+            for k, v in sa.items():
+                if torch.is_tensor(v):
+                    assert torch.equal(v, sb[k]), f"state[{k}] not restored"
+                    restored += 1
+                else:
+                    assert v == sb[k]  # e.g. AdamW step counter
+        assert restored > 0  # there really was tensor state to restore
+
+    def test_muon_resume_reproduces_continuous_step(self):
+        # The resume guarantee: loading a saved optimizer state and taking the
+        # next step must produce the SAME weight update as never having stopped.
+        import copy
+
+        from cola_coder.training.optimizer import create_optimizer
+
+        torch.manual_seed(0)
+        model = Transformer(_tiny_config())
+        opt = create_optimizer(model, optimizer="muon")
+        x = torch.randint(0, 64, (2, 16))
+        for _ in range(3):
+            opt.zero_grad()
+            model.compute_loss(x).backward()
+            opt.step()
+
+        # Branch B resumes from A's exact state at the same weights.
+        model_b = copy.deepcopy(model)
+        opt_b = create_optimizer(model_b, optimizer="muon")
+        opt_b.load_state_dict(copy.deepcopy(opt.state_dict()))
+
+        # One more identical step on each.
+        opt.zero_grad()
+        model.compute_loss(x).backward()
+        opt.step()
+        opt_b.zero_grad()
+        model_b.compute_loss(x).backward()
+        opt_b.step()
+
+        for (n, a), (_, b) in zip(model.named_parameters(), model_b.named_parameters()):
+            assert torch.allclose(a, b, atol=1e-5), f"resume diverged at {n}"
+
     def test_scheduler_scales_both_optimizer_sides(self):
         from cola_coder.training.optimizer import create_optimizer, create_scheduler
 

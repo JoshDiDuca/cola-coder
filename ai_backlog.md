@@ -49,6 +49,21 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **TEST-002** [test-quality/checkpoint, medium] `done` (2026-06-11) — Audited
+  the training internals (trainer step, infinite dataloader, Muon/AdamW
+  optimizer + decoupled WD grouping, cosine/WSD scheduler with the fp16
+  scaler-skip guard, per-sample-weighted CE + PaLM z-loss) — all VERIFIED
+  correct, no bugs. But the custom `Muon` optimizer (non-standard serialized
+  state: momentum buffers + embedded-AdamW moments) is on the CRITICAL
+  checkpoint path and its round-trip test only asserted `load_state_dict`
+  "must not raise" — which would pass even if resume silently started from cold
+  state. Hardened: added `test_muon_state_dict_restores_buffers` (every tensor
+  state entry + AdamW step counter actually restored) and
+  `test_muon_resume_reproduces_continuous_step` (resuming from a saved state and
+  taking the next step yields the SAME weight update as never stopping — the
+  real resume guarantee). Verified the round-trip is in fact correct (max param
+  diff 0.0 after the resumed step); the tests lock it against future regressions
+  (non-serializable state, param-group reorder).
 - **INFER-008** [inference/bug, medium] `done` (2026-06-11) — `StreamingGenerator`
   (features/streaming_generation.py — a menu-wired, ZERO-test per-token streaming
   telemetry feature) was a diverged duplicate that had NEITHER of two fixes the
