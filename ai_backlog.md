@@ -53,6 +53,21 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **SEC-004** [security, medium] `done` (2026-06-11) — Silent malware-scan
+  fail-OPEN when no scanner backend is available. (1) `CompositeMalwareScanner.
+  scan_file/scan_directory` returned `is_clean=True, scan_errors=[]` (a
+  verified-clean verdict) when `self._scanners` was empty — but nothing actually
+  scanned. (2) The GitHub scraper's `_scan_clone` did `if not available_scanners:
+  return True` — silently admitting every cloned third-party repo as clean when
+  `malware_scan=True` but yara-python wasn't installed and Defender wasn't
+  present (common on non-Windows / minimal installs), contradicting the SEC-001
+  "never skip a scan silently" posture. Fixed: the composite scanner now records
+  a `scan_error` (→ `had_errors=True`, NOT verified-clean per the documented
+  contract; `is_clean` stays True since no threats were *found*) when zero
+  scanners are available; `_scan_clone` emits a loud SECURITY warning and
+  proceeds unverified (consistent with its incomplete-scan path) instead of
+  returning silently. Tests: test_malware_scanner.py updated test_no_scanners +
+  added directory-flag and no-spurious-error-with-scanner (3).
 - **DATA-014** [data-quality/consistency, medium] `done` (2026-06-11) — Router
   evaluation taxonomy diverged from the model/training taxonomy.
   `router_evaluation.KNOWN_DOMAINS` was an 8-domain set

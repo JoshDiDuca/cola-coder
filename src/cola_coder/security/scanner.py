@@ -59,6 +59,15 @@ class MalwareScannerProtocol(Protocol):
 class CompositeMalwareScanner:
     """Run multiple scanners and combine results."""
 
+    # When zero scanners are available the result cannot be a verified-clean
+    # verdict — nothing actually scanned the input. We surface this as a
+    # scan_error (→ had_errors=True) rather than silently returning is_clean=True
+    # (a fail-OPEN), matching the contract documented on MalwareScanResult.
+    _NO_SCANNER_MSG = (
+        "no malware scanner available — scan incomplete, NOT verified clean "
+        "(install yara-python, or enable Microsoft Defender / ClamAV)"
+    )
+
     def __init__(
         self,
         scanners: list[MalwareScannerProtocol] | None = None,
@@ -104,6 +113,8 @@ class CompositeMalwareScanner:
 
     def scan_file(self, path: Path) -> MalwareScanResult:
         result = MalwareScanResult(files_scanned=1)
+        if not self._scanners:
+            result.scan_errors.append(self._NO_SCANNER_MSG)
         for scanner in self._scanners:
             try:
                 sub = scanner.scan_file(path)
@@ -122,6 +133,8 @@ class CompositeMalwareScanner:
 
     def scan_directory(self, path: Path) -> MalwareScanResult:
         result = MalwareScanResult()
+        if not self._scanners:
+            result.scan_errors.append(self._NO_SCANNER_MSG)
         for scanner in self._scanners:
             try:
                 sub = scanner.scan_directory(path)
