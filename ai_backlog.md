@@ -43,6 +43,19 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **SEC-003** [security, high] `done` (2026-06-11) — PATH TRAVERSAL in the agent
+  ToolExecutor. `_validate_path` (tools/executor.py) used
+  `str(resolved).startswith(str(project_root))` for containment — the classic
+  sibling-prefix bypass: a path resolving to `<root>-secrets/x` passes because
+  the STRING starts with the root. CONFIRMED empirically: `read_file` with
+  `path="../proj-secrets/secret.txt"` read a file outside the project root. The
+  agent's read_file/run_tests/lint/git tools all route model-supplied paths
+  through this. Fixed with `Path.is_relative_to` (component-wise containment).
+  Also hardened `_handle_git_diff`: reject refs starting with `-` (a `git diff
+  --ext-diff`-style flag-injection slipped past the char-set check). The tools/
+  module had ZERO test coverage; added test_tool_executor.py (11): sibling/
+  parent/absolute escapes blocked, valid paths allowed, git-ref flag injection
+  + shell-metachar refs rejected, unknown tool, missing file.
 - **DATA-010** [data-quality, medium] `done` (2026-06-11) — `score_quality`
   (instruction_gen.py, the code->instruction SFT generator) awarded its +0.2
   "parses" bonus ONLY for ast.parse-able Python. cola-coder is TypeScript-

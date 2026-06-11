@@ -133,9 +133,15 @@ class ToolExecutor:
         """Validate and resolve a file path safely.
 
         Prevents path traversal outside project root.
+
+        SECURITY: must use Path containment, NOT str.startswith — a string
+        prefix check lets a SIBLING directory bypass it (e.g. project root
+        ".../cola-coder" would accept ".../cola-coder-secrets/x" because the
+        string starts with the root). is_relative_to compares path components,
+        so a sibling is correctly rejected.
         """
         resolved = (self.project_root / path).resolve()
-        if not str(resolved).startswith(str(self.project_root)):
+        if resolved != self.project_root and not resolved.is_relative_to(self.project_root):
             raise ValueError(f"Path traversal detected: {path}")
         return resolved
 
@@ -220,7 +226,12 @@ class ToolExecutor:
         ref = args.get("ref", "HEAD")
         file_path = args.get("file_path")
 
-        # Sanitize ref to prevent injection
+        # Sanitize ref to prevent injection. A leading "-" is rejected because
+        # `git diff <ref>` would treat it as a FLAG, not a ref (e.g. --ext-diff
+        # can run an external diff driver) — argument injection even though the
+        # char set is otherwise restricted.
+        if not ref or ref.startswith("-"):
+            return "Error: invalid git ref"
         if not all(c.isalnum() or c in ".-_/~^" for c in ref):
             return "Error: invalid git ref"
 
