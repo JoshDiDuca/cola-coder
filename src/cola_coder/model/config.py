@@ -12,6 +12,40 @@ from typing import Optional
 import yaml
 
 
+def resolve_moe_layers(moe_layers: str, n_layers: int) -> set[int]:
+    """Resolve the ``moe_layers`` config string to a set of layer indices.
+
+    Args:
+        moe_layers: "all" (every block), "alternate" (every other block,
+            starting at index 1), or a comma-separated list of indices
+            (e.g. "0,2,4").
+        n_layers: Total number of transformer blocks.
+
+    Returns:
+        Set of block indices that should use a MoE FFN.
+
+    Note: ``scripts/upcycle_to_moe.py`` converts EVERY FFN block, so an
+    upcycled checkpoint round-trips correctly only with moe_layers="all".
+
+    Canonical home is here (torch-free) so both the torch-free config layer
+    (ModelConfig.total_params) and features/moe_layer can use it; the latter
+    re-exports this function.
+    """
+    spec = (moe_layers or "all").strip().lower()
+    if spec == "all":
+        return set(range(n_layers))
+    if spec == "alternate":
+        return {i for i in range(n_layers) if i % 2 == 1}
+    indices: set[int] = set()
+    for part in spec.split(","):
+        part = part.strip()
+        if part.isdigit():
+            idx = int(part)
+            if 0 <= idx < n_layers:
+                indices.add(idx)
+    return indices
+
+
 @dataclass
 class MoEConfig:
     """Mixture of Experts configuration.
@@ -96,13 +130,31 @@ class ModelConfig:
         out_proj = self.dim * self.dim  # dim -> dim
         attn_per_layer = q_proj + kv_proj + out_proj
 
-        # FFN: gate + up + down projections
-        ffn_per_layer = 3 * self.dim * self.ffn_hidden_dim
+        # FFN: gate + up + down projections (one dense FFN per layer)
+        dense_ffn = 3 * self.dim * self.ffn_hidden_dim
 
         # Norms: 2 RMSNorm per layer (just a weight vector each) + 1 final
         norms = (2 * self.n_layers + 1) * self.dim
 
-        total = embedding + self.n_layers * (attn_per_layer + ffn_per_layer) + norms
+        # FFN total across all layers. With MoE enabled, the selected layers
+        # hold (num_experts + num_shared_experts) FFNs plus a router gate, so
+        # the dense formula would undercount the true parameter count (all
+        # experts live in memory) — which feeds VRAM estimates and model cards.
+        moe = getattr(self, "moe", None)
+        if moe is not None and getattr(moe, "enabled", False):
+            moe_layer_set = resolve_moe_layers(moe.moe_layers, self.n_layers)
+            experts_per_moe = moe.num_experts + moe.num_shared_experts
+            router_gate = moe.num_experts * self.dim  # nn.Linear(dim, num_experts)
+            ffn_total = 0
+            for i in range(self.n_layers):
+                if i in moe_layer_set:
+                    ffn_total += experts_per_moe * dense_ffn + router_gate
+                else:
+                    ffn_total += dense_ffn
+        else:
+            ffn_total = self.n_layers * dense_ffn
+
+        total = embedding + self.n_layers * attn_per_layer + ffn_total + norms
         return total
 
     @property

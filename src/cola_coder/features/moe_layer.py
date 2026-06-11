@@ -24,41 +24,15 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# Canonical (torch-free) home is model/config so the config layer can use it
+# for total_params; re-exported here for transformer.py and existing importers.
+from ..model.config import resolve_moe_layers  # noqa: F401
+
 FEATURE_ENABLED = True
 
 
 def is_enabled() -> bool:
     return FEATURE_ENABLED
-
-
-def resolve_moe_layers(moe_layers: str, n_layers: int) -> set[int]:
-    """Resolve the ``moe_layers`` config string to a set of layer indices.
-
-    Args:
-        moe_layers: "all" (every block), "alternate" (every other block,
-            starting at index 1), or a comma-separated list of indices
-            (e.g. "0,2,4").
-        n_layers: Total number of transformer blocks.
-
-    Returns:
-        Set of block indices that should use a MoE FFN.
-
-    Note: ``scripts/upcycle_to_moe.py`` converts EVERY FFN block, so an
-    upcycled checkpoint round-trips correctly only with moe_layers="all".
-    """
-    spec = (moe_layers or "all").strip().lower()
-    if spec == "all":
-        return set(range(n_layers))
-    if spec == "alternate":
-        return {i for i in range(n_layers) if i % 2 == 1}
-    indices: set[int] = set()
-    for part in spec.split(","):
-        part = part.strip()
-        if part.isdigit():
-            idx = int(part)
-            if 0 <= idx < n_layers:
-                indices.add(idx)
-    return indices
 
 
 def detect_moe_checkpoint(checkpoint_dir: str | Path) -> dict | None:

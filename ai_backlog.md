@@ -26,8 +26,6 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   there is no DEDICATED pipeline stage 7.5 / menu entry / auto-config (low LR,
   fraction of steps) to orchestrate it. Optional convenience wrapper.
 
-- **MODEL-002** [model, low] `open` — `ModelConfig.total_params` reports the dense
-  FFN count for MoE configs (display only; undercounts expert params).
 
 - **MODEL-004** [model, low] `open` — GRPO sequence log-prob (grpo.py:230-241,
   297-308) includes PROMPT tokens, not just completion tokens. VERIFIED this is
@@ -45,6 +43,14 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **MODEL-002** [model, low] `done` (2026-06-11) — `ModelConfig.total_params`
+  used the dense FFN formula regardless of MoE, so a MoE config reported ~active
+  params, not the true in-memory total (all experts) — which feeds VRAM
+  estimates and model cards. Now counts (num_experts + num_shared_experts) FFNs
+  + router gate for each MoE layer. As part of this, `resolve_moe_layers` moved
+  to the torch-free `model/config.py` (canonical) and is re-exported from
+  `features/moe_layer.py` (transformer.py + tests unchanged via re-export).
+  Tests: test_moe_param_count.py (7).
 - **REASON-001** [reasoning, medium] `done` (2026-06-11) — `extract_thinking`
   (thinking_tokens.py:124) used `.index()` for the FIRST `</think>` only, so a
   model emitting multiple reasoning blocks left later `<think>..</think>` blocks
@@ -186,6 +192,18 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Not a bug (verified)
+
+- **VS Code extension scan (2026-06-11)** — a thorough scan flagged 11 items in
+  the extension (client/providers/server/ui/extension.ts); ALL verified as false
+  positives or non-issues. Highlights: generateVerified state "stuck" (early
+  returns are BEFORE setState; the in-try return still runs finally);
+  InlineCompletionProvider debounce/abort "leaks/races" (Promise executor runs
+  sync so `sub` is always set; debounce resolves cancelled BEFORE the request;
+  post-await isCancellationRequested recheck exists); LanguageModelProvider
+  uncaught-promise/`undefined`-name (the `.catch(()=>{})` handles the chain; an
+  `if (params)` guard exists); chatStream empty-body throw is intentional and
+  caught by both callers; onDidChangeConfiguration throw is caught by VS Code's
+  listener wrapper. The extension is well-written — do not re-flag these.
 
 - **chat_template offset off-by-one** (claimed format_chat_training mis-masks
   assistant spans) — FALSE POSITIVE. `offset += len(segment) + 1` is read at the
