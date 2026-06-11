@@ -289,6 +289,10 @@ def main() -> None:
         )
 
     try:
+        # MoE-aware load: flip the config to MoE for upcycled checkpoints before
+        # building the model (no-op for dense), or the load fails on experts.*.
+        from cola_coder.inference.loading import apply_moe_config_from_checkpoint
+        apply_moe_config_from_checkpoint(config, checkpoint_dir)
         model = Transformer(config.model).to(device)
         load_model_only(checkpoint_dir, model, device=device)
         tokenizer = CodeTokenizer(tokenizer_path)

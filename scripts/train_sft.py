@@ -185,6 +185,11 @@ def main() -> None:
     tokenizer = CodeTokenizer(tokenizer_path)
     cli.info("Tokenizer vocab", tokenizer.vocab_size)
 
+    # MoE-aware load: flip the config to MoE for upcycled checkpoints before
+    # building the model (no-op for dense), so SFT can fine-tune an upcycled MoE
+    # checkpoint instead of crashing on experts.* keys.
+    from cola_coder.inference.loading import apply_moe_config_from_checkpoint
+    apply_moe_config_from_checkpoint(config, args.checkpoint)
     model = Transformer(config.model).to(device)
     load_model_only(args.checkpoint, model, device=device)
     cli.info("Checkpoint", args.checkpoint)

@@ -146,6 +146,11 @@ def main():
     cli.info("Config", args.config)
 
     # ── Build model ──────────────────────────────────────────────────────────
+    # If resuming, flip the config to MoE for an upcycled checkpoint BEFORE the
+    # build (no-op for dense) so its expert weights have somewhere to load.
+    if args.resume:
+        from cola_coder.inference.loading import apply_moe_config_from_checkpoint
+        apply_moe_config_from_checkpoint(config, args.resume)
     model = Transformer(config.model).to(device)
     cli.info("Model parameters", f"{model.num_parameters:,}")
 

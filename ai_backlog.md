@@ -108,6 +108,26 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **BUG-113** [loaders/bug, high] `done` (2026-06-11) — Closed the EXPORT-009 bug
+  CLASS: a sweep of every checkpoint-loading site found EIGHT more that build a
+  `Transformer(...)` and `load_model_only`/`load_checkpoint` WITHOUT first calling
+  `apply_moe_config_from_checkpoint` — so loading an upcycled MoE checkpoint
+  (stages 7/7.5) crashed on `experts.*` keys. Fixed (apply before build, no-op for
+  dense): `run.py` (interactive REPL), `benchmark.py`, `ts_benchmark.py`,
+  `regression_test.py`, `train_sft.py` (SFT fine-tune), `train_reasoning.py`
+  (GRPO base ckpt), `find_lr.py` (only when `--resume`), and
+  `evaluation/quality_report.py`. The last two grep-missed sites build
+  `Transformer(model_cfg)` from a bare ModelConfig, so they wrap it as
+  `SimpleNamespace(model=model_cfg)` for the apply call. `upcycle_to_moe.py`
+  correctly does NOT apply (its input is dense); the weight-level loaders
+  (checkpoint_average/compare/model_card) operate on raw state dicts (no model
+  build) — no bug. Separately fixed a REAL pre-existing bug in
+  `inference_benchmark.py`: it passed `model_cfg` (a ModelConfig) as the `model`
+  arg to `load_model_only` (which requires a built nn.Module) — it never worked;
+  now builds the Transformer first (+ MoE-aware). Tests:
+  test_moe_integration.py test_apply_moe_via_modelconfig_namespace_wrapper (the
+  ModelConfig-wrapper path: flips to MoE, builds, loads, is_moe). All edited
+  scripts compile. Found by the EXPORT-009 follow-up sweep.
 - **EXPORT-009** [export/bug, medium] `done` (2026-06-11) — `export_model.py::_load_model`
   built `Transformer(config.model)` and called `load_model_only` WITHOUT first
   calling `apply_moe_config_from_checkpoint(config, checkpoint)`. Every other load

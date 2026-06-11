@@ -146,7 +146,18 @@ class InferenceBenchmarker:
             if k in ModelConfig.__dataclass_fields__
         })
 
-        self._model = load_model_only(self.checkpoint, model_cfg, device=self._device)
+        # load_model_only loads INTO a built model — passing model_cfg (a
+        # ModelConfig) was a bug. Build the Transformer first. Also flip to MoE
+        # for an upcycled checkpoint (no-op for dense) so expert weights load.
+        from cola_coder.model.transformer import Transformer
+        from cola_coder.inference.loading import apply_moe_config_from_checkpoint
+        import types as _types
+
+        apply_moe_config_from_checkpoint(
+            _types.SimpleNamespace(model=model_cfg), self.checkpoint
+        )
+        self._model = Transformer(model_cfg).to(self._device)
+        load_model_only(self.checkpoint, self._model, device=self._device)
         self._model.eval()
 
         # Load tokenizer

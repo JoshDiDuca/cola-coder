@@ -559,6 +559,11 @@ def main() -> None:
         )
 
     try:
+        # Flip the config to MoE first if this is an upcycled checkpoint, so the
+        # built model has somewhere to load expert weights (no-op for dense).
+        from cola_coder.inference.loading import apply_moe_config_from_checkpoint
+        apply_moe_config_from_checkpoint(config, checkpoint_dir)
+
         # Build skeleton model (random weights, correct shape)
         model = Transformer(config.model).to(device)
 

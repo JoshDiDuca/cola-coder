@@ -292,6 +292,11 @@ def main():
             cli.dim(f"  Checkpoint vocab: {ckpt_vocab_size} (config: {config.model.vocab_size})")
             config.model.vocab_size = ckpt_vocab_size
 
+        # MoE-aware load: flip the config to MoE for upcycled base checkpoints
+        # before building the model (no-op for dense), or the load fails on
+        # experts.* keys.
+        from cola_coder.inference.loading import apply_moe_config_from_checkpoint
+        apply_moe_config_from_checkpoint(config, args.base_checkpoint)
         model = Transformer(config.model).to(device)
         load_model_only(args.base_checkpoint, model, device=device)
         cli.info("Checkpoint", args.base_checkpoint)

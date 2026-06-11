@@ -163,6 +163,10 @@ def main() -> None:
         tokenizer = CodeTokenizer(args.tokenizer)
         cli.info("Tokenizer", f"{tokenizer.vocab_size} tokens")
 
+        # MoE-aware load: flip the config to MoE for upcycled checkpoints before
+        # building the model (no-op for dense), or the load fails on experts.*.
+        from cola_coder.inference.loading import apply_moe_config_from_checkpoint
+        apply_moe_config_from_checkpoint(config, args.checkpoint)
         model = Transformer(config.model).to(device)
         load_model_only(args.checkpoint, model, device=device)
         cli.info("Checkpoint", args.checkpoint)

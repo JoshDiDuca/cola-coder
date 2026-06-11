@@ -332,6 +332,30 @@ class TestMoEResumeFineTune:
         out = model(torch.randint(0, dense_cfg.model.vocab_size, (1, 8), device=dev))
         assert out.shape[-1] == dense_cfg.model.vocab_size
 
+    def test_apply_moe_via_modelconfig_namespace_wrapper(self, tmp_path):
+        # EXPORT-009 family: quality_report / inference_benchmark build
+        # Transformer(model_cfg) from a bare ModelConfig and call
+        # apply_moe_config_from_checkpoint on a SimpleNamespace(model=model_cfg).
+        # Lock that the wrapper flips the ModelConfig to MoE so the build matches
+        # the checkpoint and the load succeeds.
+        import types
+        from cola_coder.inference.loading import apply_moe_config_from_checkpoint
+        from cola_coder.training.checkpoint import load_model_only
+
+        config_yaml, moe_dir = self._make_upcycled(tmp_path)
+        model_cfg = Config.from_yaml(str(config_yaml)).model
+        assert not model_cfg.moe.enabled
+
+        flipped = apply_moe_config_from_checkpoint(
+            types.SimpleNamespace(model=model_cfg), str(moe_dir)
+        )
+        assert flipped is True
+        assert model_cfg.moe.enabled
+
+        model = Transformer(model_cfg)
+        load_model_only(str(moe_dir), model, device="cpu")
+        assert model.is_moe
+
     def test_resume_path_loads_moe_checkpoint(self, tmp_path):
         from cola_coder.features.moe_layer import apply_moe_config_from_checkpoint
         from cola_coder.training.checkpoint import load_checkpoint

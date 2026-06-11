@@ -249,6 +249,16 @@ class QualityReportGenerator:
         tokenizer_path = self._find_tokenizer()
         tokenizer = CodeTokenizer(tokenizer_path)
 
+        # MoE-aware build: flip model_cfg to MoE for an upcycled checkpoint (no-op
+        # for dense) so the model has somewhere to load expert weights.
+        # apply_moe_config_from_checkpoint expects a `.model` attr; model_cfg IS a
+        # ModelConfig, so wrap it.
+        import types as _types
+        from cola_coder.inference.loading import apply_moe_config_from_checkpoint
+        apply_moe_config_from_checkpoint(
+            _types.SimpleNamespace(model=model_cfg), self.checkpoint_path
+        )
+
         model = Transformer(model_cfg).to(device)
         load_model_only(self.checkpoint_path, model, device=device)
         model.eval()
