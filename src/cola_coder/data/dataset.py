@@ -18,8 +18,6 @@ and parallel loading (similar to how a web server handles requests).
 # less. This teaches the model to produce code that looks like the good examples.
 # Think of it like a playlist where your favorite songs play more often.
 
-import os
-
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -169,99 +167,6 @@ class WeightedCodeCollator:
         input_ids = torch.stack([ex["input_ids"] for ex in examples])
         weights = torch.stack([ex["weight"] for ex in examples])
         return {"input_ids": input_ids, "weights": weights}
-
-
-class MixedDataset(Dataset):
-    """Dataset that mixes multiple data sources with configurable weights.
-
-    Industry standard: Qwen2.5-Coder uses 70% code, 20% text, 10% math.
-    Temperature-based sampling smooths the distribution (T=0.3 default).
-
-    Each source has its own .npy file. Sampling weights determine how often
-    each source is drawn from. Think of it like a weighted random playlist:
-    the playlist skips between albums according to their relative weights,
-    and the temperature knob controls how extreme the skew is.
-    """
-
-    def __init__(
-        self,
-        sources: dict[str, str],
-        weights: dict[str, float] | None = None,
-        max_seq_len: int | None = None,
-        temperature: float = 0.3,
-    ):
-        """
-        Args:
-            sources: Mapping of source_name -> npy_path.
-                e.g. {"code": "data/code.npy", "text": "data/text.npy"}
-            weights: Sampling weights per source (will be normalised).
-                If None, uses equal weights.
-            max_seq_len: Truncate chunks to this length.
-            temperature: Sampling temperature (lower = sharper distribution).
-                0.3 is Qwen's default. At T=1.0 the raw weights are used as-is.
-        """
-        self.datasets: dict[str, CodeDataset] = {}
-        self.source_names: list[str] = []
-
-        total = 0
-        for name, path in sources.items():
-            if not os.path.exists(path):
-                print(f"  Warning: {name} data not found at {path}, skipping")
-                continue
-            ds = CodeDataset(path, max_seq_len=max_seq_len)
-            self.datasets[name] = ds
-            self.source_names.append(name)
-            total += len(ds)
-
-        if not self.datasets:
-            raise ValueError("No valid data sources found")
-
-        self.total_size = total
-
-        # Compute sampling probabilities with temperature smoothing.
-        # p_i = w_i^(1/T) / sum(w_j^(1/T))
-        # At T→0 the highest-weight source dominates completely.
-        # At T=1 the raw weights are used directly.
-        # At T→∞ all sources are sampled equally regardless of weight.
-        if weights is None:
-            weights = {name: 1.0 for name in self.source_names}
-
-        raw_weights = np.array([weights.get(n, 1.0) for n in self.source_names], dtype=np.float64)
-        smoothed = raw_weights ** (1.0 / temperature)
-        self.probabilities = (smoothed / smoothed.sum()).astype(np.float64)
-
-        # Precomputed cumulative probabilities for O(log n) source selection.
-        self.cum_probs = np.cumsum(self.probabilities)
-
-    def __len__(self) -> int:
-        """Total number of training examples across all sources."""
-        return self.total_size
-
-    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
-        """Sample from a weighted random source.
-
-        idx is used as an RNG seed offset for reproducibility across workers,
-        not as a direct index into any single underlying dataset.
-
-        Returns:
-            Dictionary with 'input_ids' tensor and 'source' scalar tensor
-            (integer index identifying which data source was sampled).
-        """
-        rng = np.random.default_rng(idx)
-
-        # Pick source proportional to smoothed weights
-        r = rng.random()
-        source_idx = int(np.searchsorted(self.cum_probs, r))
-        source_idx = min(source_idx, len(self.source_names) - 1)
-
-        source_name = self.source_names[source_idx]
-        ds = self.datasets[source_name]
-
-        # Pick a random position within that source
-        inner_idx = int(rng.integers(0, len(ds)))
-        item = ds[inner_idx]
-        item["source"] = torch.tensor(source_idx, dtype=torch.long)
-        return item
 
 
 class CodeCollator:

@@ -340,7 +340,7 @@ class DataMenu:
                 {"label": "Enhanced Wizard",
                  "detail": "7-step wizard — full config control with summary"},
                 {"label": "Prepare Mixed Data (code+text+math)",
-                 "detail": "Configure MixedDataset with per-source sampling ratios"},
+                 "detail": "Collect multiple sources with per-source ratios (collect_data.py)"},
                 {"label": "Prepare Repo-Level Data",
                  "detail": "Format repos with file separators for whole-repo context"},
             ]
@@ -1808,15 +1808,15 @@ class DataMenu:
     # ── New prepare methods ────────────────────────────────────────────────
 
     def _prepare_mixed_data_menu(self) -> None:
-        """Configure and launch mixed code+text+math data preparation."""
+        """Configure and launch mixed code+text+math data collection."""
         _print_section_header(
             "Prepare Mixed Data",
-            "Configure MixedDataset with per-source sampling ratios",
+            "Collect code + text + math with per-source ratios",
         )
 
         cli.print(
-            "  MixedDataset combines multiple .npy sources with configurable\n"
-            "  sampling weights. Ratios are applied per-batch during training.\n"
+            "  Collects multiple sources (code, text, math) and combines them at\n"
+            "  the chosen ratios into one training set via collect_data.py.\n"
         )
 
         # Config selection
@@ -1878,7 +1878,7 @@ class DataMenu:
             "Math ratio": f"{ratios['math'] / total:.1%}",
         }, title="Mixed Data Configuration")
 
-        if not cli.confirm("Launch mixed data preparation?"):
+        if not cli.confirm("Launch mixed data collection?"):
             return
 
         try:
@@ -1886,14 +1886,23 @@ class DataMenu:
             _tok = str(DatasetResolver.get_tokenizer_path())
         except Exception:
             _tok = self._master.storage.tokenizer_path
+
+        # Write the chosen ratios into a derived data_sources config and run
+        # the real multi-source collector. (The old code passed --mix-code/
+        # --mix-text/--mix-math to prepare_data.py, which has no such args, so
+        # this menu item always errored out with "unrecognized arguments".)
+        from cola_coder.data.mixing import write_weighted_data_sources
+
+        derived = write_weighted_data_sources(
+            ratios, "configs/auto/data_sources_mixed.yaml"
+        )
+        cli.dim(f"  Derived data sources: {derived}")
         args = [
             "--config", config_path,
             "--tokenizer", _tok,
-            "--mix-code", str(ratios["code"]),
-            "--mix-text", str(ratios["text"]),
-            "--mix-math", str(ratios["math"]),
+            "--data-sources", str(derived),
         ]
-        self._master._run_script("prepare_data.py", args)
+        self._master._run_script("collect_data.py", args)
         self._master._pause()
 
     def _prepare_repo_level_data_menu(self) -> None:

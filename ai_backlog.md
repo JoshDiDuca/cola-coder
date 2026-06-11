@@ -23,9 +23,13 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 - **INFER-005** [inference, low] `open` — `generate_batch` doesn't accept/forward
   `min_p` (silently uses 0.0). `generator.py` ~471-508. API inconsistency.
 
-- **DATA-002** [data-quality, low] `open` — `MixedDataset` (data/dataset.py) is
-  dead code — never constructed anywhere. Either integrate into the data path or
-  remove. (mix_temperature config already removed.)
+- **DATA-006** [data-quality, low] `open` — Follow-up to DATA-002: if dynamic
+  per-batch / online source reweighting is wanted, design runtime data mixing
+  into the trainer DELIBERATELY (multi-source dataloader, per-source loss
+  tracking → inverse-loss reweighting). The orphaned `MixedDataset` that
+  half-implemented this was removed; `data/mixing.py` already has the
+  reweighting math (`MixingOptimizer`). The current pipeline does
+  collection-time mixing via collect_data, which fits the single-.npy trainer.
 
 
 - **MODEL-003** [model, low] `open` — Follow-up to MODEL-001: fine-tuning an
@@ -44,6 +48,23 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **BUG-101** [bug/ux, medium] `done` (2026-06-11) — The "Prepare Mixed Data
+  (code+text+math)" menu item was BROKEN: it passed --mix-code/--mix-text/
+  --mix-math to prepare_data.py, which has no such args, so argparse errored
+  with "unrecognized arguments" every time. Discovered while resolving DATA-002.
+  Fixed to write the chosen ratios into a derived data_sources config
+  (`data/mixing.py:write_weighted_data_sources`, weight 0 disables a source) and
+  run the real multi-source collector `collect_data.py --data-sources <derived>`.
+  Misleading help text ("MixedDataset ... per-batch during training") corrected.
+  Tests: test_mixed_data.py TestWriteWeightedDataSources + TestMenuWiring.
+- **DATA-002** [data-quality, low] `done` (2026-06-11) — `MixedDataset`
+  (training-time weighted sampler) was dead code: never constructed, imported, or
+  tested; the trainer loads a single .npy. RESOLVED by REMOVE (not integrate):
+  the working mixing is collection-time (collect_data, fits the trainer);
+  runtime mixing is a separate deliberate feature deferred to DATA-006 rather
+  than left as an orphan masquerading as functional. Also cleaned the now-unused
+  `os` top-import and 3 pre-existing lint items in the touched files. Tests:
+  test_mixed_data.py TestMixedDatasetRemoved.
 - **SEC-001** [security, low->medium] `done` (2026-06-11) — In-stream malware
   scanning could be disabled SILENTLY: `_maybe_scan_stream` returned the
   unscanned iterator with no warning when `malware_scan.enabled=false` or
