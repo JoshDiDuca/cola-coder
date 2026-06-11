@@ -184,24 +184,51 @@ class MemoryManager:
         Returns:
             Formatted memory context string
         """
-        parts = []
+        # Enforce the configured token budget — this string is prepended to the
+        # model's prompt, so it must not blow max_context_tokens (which was
+        # documented but previously never applied: a large project.md + chunks
+        # could overflow the context window and push out the actual query).
+        budget = self.config.max_context_tokens
+        parts: list[str] = []
+        used = 0
 
-        # Always include project context
-        project = self.get_project_context()
-        if project.strip():
-            parts.append(project.strip())
+        # Always include project context, but cap it to the budget.
+        project = self.get_project_context().strip()
+        if project:
+            project = self._truncate_to_tokens(project, budget)
+            parts.append(project)
+            used += self._estimate_tokens(project)
 
-        # Retrieve relevant chunks
+        # Retrieve relevant chunks, adding the most relevant that still fit.
         search_query = f"{query} {code[:500]} {file_path}".strip()
-        if search_query:
+        if search_query and used < budget:
             chunks = self.retrieve(search_query, max_chunks=3)
             for chunk in chunks:
-                if chunk.relevance_score > 0.1:
-                    parts.append(
-                        f"## {chunk.section} ({chunk.source_file})\n{chunk.content}"
-                    )
+                if chunk.relevance_score <= 0.1:
+                    continue
+                block = f"## {chunk.section} ({chunk.source_file})\n{chunk.content}"
+                cost = self._estimate_tokens(block)
+                if used + cost > budget:
+                    continue  # skip oversized chunks; a later smaller one may fit
+                parts.append(block)
+                used += cost
 
         return "\n\n".join(parts) if parts else ""
+
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        """Rough token estimate (~4 chars/token — the project-wide heuristic).
+
+        The memory manager is tokenizer-free; this matches the char/4 estimate
+        used by repo_context and the VS Code extension.
+        """
+        return (len(text) + 3) // 4
+
+    def _truncate_to_tokens(self, text: str, max_tokens: int) -> str:
+        """Truncate text so its estimated token count fits within max_tokens."""
+        if self._estimate_tokens(text) <= max_tokens:
+            return text
+        return text[: max_tokens * 4].rstrip() + "\n... (truncated)"
 
     # ----- Write Operations -----
 

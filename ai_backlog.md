@@ -43,6 +43,17 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **MEM-001** [bug/correctness, medium] `done` (2026-06-11) — `MemoryConfig.
+  max_context_tokens` (default 1024, documented "Max tokens of memory to inject
+  into prompts") was NEVER enforced — a silent no-op config. `get_relevant_
+  memories` (called by routing_orchestrator to prepend memory to the model's
+  prompt) concatenated project.md + 3 chunks with no token cap, so a large
+  memory store could overflow the context window and push out the actual
+  query/code. Fixed: enforce the budget — project context is truncated to fit,
+  and chunks are added most-relevant-first only while they fit (char/4 token
+  estimate, the project-wide heuristic). The memory module had ZERO tests; added
+  test_memory_budget.py (5): estimate, project truncation, total-within-budget
+  with many chunks, small-not-truncated, uninitialized→empty.
 - **SEC-003** [security, high] `done` (2026-06-11) — PATH TRAVERSAL in the agent
   ToolExecutor. `_validate_path` (tools/executor.py) used
   `str(resolved).startswith(str(project_root))` for containment — the classic
