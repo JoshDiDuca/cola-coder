@@ -59,12 +59,35 @@ class QuantResult:
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _model_size_mb(model: nn.Module) -> float:
-    """Estimate model size in MB by summing parameter and buffer bytes."""
+    """Estimate model size in MB by summing parameter and buffer bytes.
+
+    torch.ao dynamic-quantized Linear layers store their INT8 weights inside a
+    ``_packed_params`` submodule that ``parameters()`` and ``buffers()`` do NOT
+    enumerate — so a naive sum reports ~0 MB for a quantized model and an absurd
+    compression ratio (millions×). Those packed weights are exposed via the
+    module's callable ``weight()`` / ``bias()`` accessors, so count them here.
+    """
     total_bytes = 0
     for p in model.parameters():
         total_bytes += p.nelement() * p.element_size()
     for b in model.buffers():
         total_bytes += b.nelement() * b.element_size()
+
+    # Add packed INT8 weights from torch.ao dynamic-quantized modules.
+    for module in model.modules():
+        if not hasattr(module, "_packed_params"):
+            continue
+        for accessor in ("weight", "bias"):
+            fn = getattr(module, accessor, None)
+            if not callable(fn):
+                continue  # plain nn.Linear has a tensor attr, not a method
+            try:
+                t = fn()
+            except (TypeError, RuntimeError, AttributeError):
+                continue
+            if isinstance(t, torch.Tensor):
+                total_bytes += t.nelement() * t.element_size()
+
     return total_bytes / (1024 * 1024)
 
 

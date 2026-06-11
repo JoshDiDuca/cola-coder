@@ -43,6 +43,19 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **TOOL-002** [tooling/export, medium] `done` (2026-06-11) — `_model_size_mb`
+  (export/quantize.py) summed only parameters() + buffers(), but torch.ao
+  dynamic-quantized Linear stores its INT8 weights in a `_packed_params`
+  submodule that neither enumerates. So EVERY dynamic-INT8 export reported the
+  quantized model as ~0 MB and a compression ratio in the MILLIONS (verified:
+  2,003,906×). The quantization itself was correct — only the user-facing size
+  report was nonsense. A prior agent had papered over it (test_export.py
+  comment: "may not always shrink the python object" + a loose `ratio >= 0.5`).
+  Fixed: also count packed weights via the quantized module's callable
+  `weight()`/`bias()` accessors (INT4 builtin already uses register_buffer, so it
+  was fine). Now reports a sane ~4× for int8-vs-fp32. Tightened the two weak
+  tests + added a direct regression (test_export.py
+  test_model_size_counts_packed_int8_weights).
 - **TEST-001** [test-quality, medium] `done` (2026-06-11) — quality_filter.py
   (the data-quality GATE deciding which scraped code enters training) had NO
   direct test coverage (only the separate filters/ plugins were tested). A

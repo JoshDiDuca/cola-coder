@@ -115,9 +115,12 @@ def test_quantize_dynamic_reduces_size():
     quantizer = ModelQuantizer(model)
     q_model, result = quantizer.quantize_dynamic()
 
-    assert result.quantized_size_mb <= original_mb * 1.1  # should not grow
+    # Must report a real reduction, not 0 MB / millions-x (the packed INT8
+    # weights are now counted, so the quantized model is genuinely smaller).
+    assert result.quantized_size_mb > 0
+    assert result.quantized_size_mb < original_mb
     assert result.original_size_mb > 0
-    assert result.compression_ratio > 0
+    assert 1.5 < result.compression_ratio < 6.0
 
 
 def test_quantize_int4_reduces_size():

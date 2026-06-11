@@ -40,7 +40,7 @@ from cola_coder.export.gguf_export import (
     _quantize_q8_0,
 )
 from cola_coder.export.ollama_export import OllamaExporter
-from cola_coder.export.quantize import ModelQuantizer, QuantResult
+from cola_coder.export.quantize import ModelQuantizer, QuantResult, _model_size_mb
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -399,6 +399,20 @@ class TestModelQuantizer:
         q_model, result = quantizer.quantize_dynamic()
         assert isinstance(q_model, nn.Module)
 
+    def test_model_size_counts_packed_int8_weights(self):
+        """_model_size_mb must count the packed INT8 weights, not report ~0.
+
+        Regression for the reporting bug: dynamic-quantized Linear stores its
+        weights in _packed_params (invisible to parameters()/buffers()), so the
+        quantized model used to measure as 0 MB.
+        """
+        quantizer = ModelQuantizer(self.model)
+        q_model, _ = quantizer.quantize_dynamic()
+        size = _model_size_mb(q_model)
+        assert size > 0.0, "quantized model measured as 0 MB — packed weights missed"
+        # And it must be meaningfully smaller than the fp32 original.
+        assert size < _model_size_mb(self.model)
+
     def test_dynamic_quant_result_fields(self):
         quantizer = ModelQuantizer(self.model)
         _, result = quantizer.quantize_dynamic()
@@ -407,11 +421,17 @@ class TestModelQuantizer:
         assert result.method == "dynamic_int8"
 
     def test_dynamic_quant_compression_ratio(self):
-        """INT8 should give at least 1× compression (never larger)."""
+        """INT8 must report a SANE compression ratio.
+
+        Regression: _model_size_mb used to miss the packed INT8 weights (they
+        live in _packed_params, not parameters()/buffers()), so it reported
+        ~0 MB and a ratio in the millions. INT8 weights are 1 byte vs fp32's 4,
+        so the real ratio is ~2-5x (a bit under 4x due to fp32 bias/scale).
+        """
         quantizer = ModelQuantizer(self.model)
         _, result = quantizer.quantize_dynamic()
-        # torch.ao dynamic quant may not always shrink the python object, but ratio >= 0.5
-        assert result.compression_ratio >= 0.5
+        assert result.quantized_size_mb > 0, "packed INT8 weights not counted"
+        assert 1.5 < result.compression_ratio < 6.0, result.compression_ratio
 
     def test_dynamic_quant_model_forward_runs(self):
         """Quantized model must still produce valid logits."""
