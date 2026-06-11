@@ -134,6 +134,22 @@ class CodeTokenizer:
             + [self.fim_middle_id]
         )
 
+    def fim_prompt(self, prefix: str, suffix: str) -> str:
+        """Build a FIM prompt STRING with the literal marker tokens intact.
+
+        Use this (NOT ``decode(encode_fim(...))``) whenever a STRING is needed
+        to feed back into ``generate()`` / ``encode()``. ``decode`` skips
+        special tokens, so ``decode(encode_fim(p, s))`` returns just ``p + s``
+        with the ``<|fim_prefix|>``/``<|fim_suffix|>``/``<|fim_middle|>`` markers
+        STRIPPED — the model then sees no fill-in-the-middle structure at all.
+        Keeping the marker strings means ``encode()`` re-recognises them as the
+        FIM special tokens, so the model receives the intended FIM layout.
+        """
+        pfx = self.tokenizer.id_to_token(self.fim_prefix_id)
+        sfx = self.tokenizer.id_to_token(self.fim_suffix_id)
+        mid = self.tokenizer.id_to_token(self.fim_middle_id)
+        return f"{pfx}{prefix}{sfx}{suffix}{mid}"
+
     def add_special_tokens(self, tokens: list[str]) -> int:
         """Add new special tokens to the vocabulary.
 

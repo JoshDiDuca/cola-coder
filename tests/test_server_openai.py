@@ -35,6 +35,11 @@ class MockTokenizer:
     def encode_fim(self, prefix: str, suffix: str) -> list[int]:
         return [1, 2, 3]
 
+    def fim_prompt(self, prefix: str, suffix: str) -> str:
+        # Mirrors CodeTokenizer.fim_prompt: markers kept intact (NOT stripped
+        # like decode would). The server must use THIS, not decode(encode_fim).
+        return f"<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>"
+
     def decode(self, ids: list[int]) -> str:
         return "decoded fim prompt"
 

@@ -49,6 +49,20 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **INFER-007** [inference/bug, high] `done` (2026-06-11) — The `/v1/fim`
+  endpoint (server.py) — which powers the VS Code extension's inline ghost-text
+  completions — built its prompt as `decode(encode_fim(prefix, suffix))`.
+  `decode` skips special tokens, so the `<|fim_prefix|>`/`<|fim_suffix|>`/
+  `<|fim_middle|>` markers were STRIPPED, leaving the model a plain
+  `prefix+suffix` with NO fill-in-the-middle structure → FIM/inline completion
+  was completely broken (verified empirically: `decode(encode_fim("A","B"))` ==
+  `"AB"`). Fixed by adding `CodeTokenizer.fim_prompt(prefix, suffix)` which
+  builds the marker-string form (`<|fim_prefix|>…<|fim_suffix|>…<|fim_middle|>`
+  via `id_to_token`), so `generate()`'s re-encode recovers the exact FIM ids
+  (`encode(fim_prompt(p,s)) == encode_fim(p,s)`, asserted). Server now calls
+  `fim_prompt`. Tests: test_fim_prompt.py (4) — markers present + ordered,
+  re-encode recovers ids, decode strips them (documents the bug), and a
+  server-level capture proving `generate()` receives the markers.
 - **TOOL-006** [tooling/export, medium] `done` (2026-06-11) — Ollama Modelfile
   used the wrong chat template. `OllamaExporter._CHAT_TEMPLATE` + stop params
   were LLaMA-3 style (`<|start_header_id|>`/`<|end_header_id|>`/`<|eot_id|>` and

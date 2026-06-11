@@ -881,9 +881,12 @@ def create_app(
         """
         tokenizer = base_gen.tokenizer
 
-        # Build FIM-encoded prompt
-        fim_ids = tokenizer.encode_fim(request.prefix, request.suffix)
-        fim_prompt = tokenizer.decode(fim_ids)
+        # Build the FIM prompt with the marker tokens INTACT. Using
+        # decode(encode_fim(...)) here was a bug: decode() strips the special
+        # FIM tokens, leaving the model a plain "prefix+suffix" with no
+        # fill-in-the-middle structure (inline completions were broken).
+        # fim_prompt() keeps the markers so generate()'s re-encode recovers them.
+        fim_prompt = tokenizer.fim_prompt(request.prefix, request.suffix)
 
         # Optionally prepend repo context if available
         if request.file_path and hasattr(generator, "scanner"):
