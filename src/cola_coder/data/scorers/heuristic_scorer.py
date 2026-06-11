@@ -5,7 +5,6 @@ Optimized for large batch scoring via multiprocessing (CPU-bound signals).
 
 from __future__ import annotations
 
-import multiprocessing
 import os
 from concurrent.futures import ProcessPoolExecutor
 from typing import TYPE_CHECKING
@@ -138,7 +137,7 @@ class HeuristicScorer:
     @staticmethod
     def is_available() -> bool:
         try:
-            from cola_coder.features.code_scorer import CodeScorer
+            from cola_coder.features.code_scorer import CodeScorer  # noqa: F401
             return True
         except ImportError:
             return False

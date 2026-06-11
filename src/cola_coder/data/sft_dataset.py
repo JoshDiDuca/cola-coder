@@ -30,7 +30,6 @@ from torch.utils.data import Dataset
 
 from cola_coder.tokenizer.tokenizer_utils import CodeTokenizer
 from cola_coder.tokenizer.chat_template import (
-    IM_START,
     IM_END,
     format_chat_training,
 )

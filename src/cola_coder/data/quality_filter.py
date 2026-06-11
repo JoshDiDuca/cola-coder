@@ -190,22 +190,21 @@ def check_not_data_file(content: str) -> tuple[bool, str]:
 
     # Sample first 50 lines to check patterns
     sample = lines[:50]
-    sample_text = "\n".join(sample)
 
     # Check for JSON array/object dumps (many lines starting with { or [)
-    brace_lines = sum(1 for l in sample if l.strip().startswith(("{", "[", "]", "}")))
+    brace_lines = sum(1 for ln in sample if ln.strip().startswith(("{", "[", "]", "}")))
     if len(sample) > 10 and brace_lines / len(sample) > 0.8:
         return False, "data_file (JSON-like)"
 
     # Check for hex dumps or base64 blocks
     hex_pattern = re.compile(r"^[0-9a-fA-F\s]{40,}$")
-    hex_lines = sum(1 for l in sample if hex_pattern.match(l.strip()))
+    hex_lines = sum(1 for ln in sample if hex_pattern.match(ln.strip()))
     if len(sample) > 10 and hex_lines / len(sample) > 0.5:
         return False, "data_file (hex/binary)"
 
     # Check for CSV-like data (many lines with same number of commas)
     if len(sample) > 10:
-        comma_counts = [l.count(",") for l in sample if l.strip()]
+        comma_counts = [ln.count(",") for ln in sample if ln.strip()]
         if comma_counts and min(comma_counts) > 3:
             # Many commas and consistent count → probably CSV
             avg = sum(comma_counts) / len(comma_counts)
@@ -223,13 +222,13 @@ def check_not_test_heavy(content: str, max_test_ratio: float = 0.9) -> tuple[boo
     auto-generated test files with thousands of assert lines and no
     real logic — these aren't useful.
     """
-    lines = [l.strip() for l in content.split("\n") if l.strip()]
+    lines = [ln.strip() for ln in content.split("\n") if ln.strip()]
     if len(lines) < 20:
         return True, ""  # Too short to judge
 
     assert_lines = sum(
-        1 for l in lines
-        if l.startswith("assert") or l.startswith("self.assert") or l.startswith("expect(")
+        1 for ln in lines
+        if ln.startswith("assert") or ln.startswith("self.assert") or ln.startswith("expect(")
     )
     ratio = assert_lines / len(lines)
     if ratio > max_test_ratio:
@@ -308,14 +307,14 @@ def check_comment_ratio(content: str, max_comment_ratio: float = 0.85) -> tuple[
     License files, documentation headers, and comment-only files
     don't help the model learn code patterns.
     """
-    lines = [l.strip() for l in content.split("\n") if l.strip()]
+    lines = [ln.strip() for ln in content.split("\n") if ln.strip()]
     if len(lines) < 10:
         return True, ""  # Too short to judge
 
     comment_lines = sum(
-        1 for l in lines
-        if l.startswith("#") or l.startswith("//") or l.startswith("/*")
-        or l.startswith("*") or l.startswith("'''") or l.startswith('"""')
+        1 for ln in lines
+        if ln.startswith("#") or ln.startswith("//") or ln.startswith("/*")
+        or ln.startswith("*") or ln.startswith("'''") or ln.startswith('"""')
     )
     ratio = comment_lines / len(lines)
     if ratio > max_comment_ratio:
@@ -342,9 +341,9 @@ def check_has_functions_or_classes(content: str, min_definitions: int = 1) -> tu
         "async function", "interface ", "type ", "enum ",
     ]
     definitions = sum(
-        1 for l in lines
+        1 for ln in lines
         for pat in definition_patterns
-        if pat in l and not l.strip().startswith(("#", "//", "*"))
+        if pat in ln and not ln.strip().startswith(("#", "//", "*"))
     )
     if definitions < min_definitions:
         return False, f"no_structure ({definitions} definitions)"
@@ -394,7 +393,7 @@ def check_code_to_blank_ratio(content: str, min_code_ratio: float = 0.5) -> tupl
     if len(lines) < 10:
         return True, ""
 
-    non_blank = sum(1 for l in lines if l.strip())
+    non_blank = sum(1 for ln in lines if ln.strip())
     ratio = non_blank / len(lines)
     if ratio < min_code_ratio:
         return False, f"too_sparse ({ratio:.0%} non-blank)"
@@ -409,7 +408,7 @@ def check_no_obvious_copy_paste(content: str, max_duplicate_ratio: float = 0.3) 
     (common in auto-generated tests or boilerplate) aren't useful
     training data — the model just memorizes the repeated block.
     """
-    lines = [l.strip() for l in content.split("\n") if l.strip() and len(l.strip()) > 10]
+    lines = [ln.strip() for ln in content.split("\n") if ln.strip() and len(ln.strip()) > 10]
     if len(lines) < 20:
         return True, ""
 
@@ -435,8 +434,8 @@ def check_has_some_documentation(content: str) -> tuple[bool, str]:
     lines = content.split("\n")
 
     doc_lines = sum(
-        1 for l in lines
-        if any(ind in l for ind in doc_indicators)
+        1 for ln in lines
+        if any(ind in ln for ind in doc_indicators)
     )
 
     # Require at least 1 documentation line per 50 lines of code

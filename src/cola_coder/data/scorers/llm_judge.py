@@ -6,7 +6,6 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Any
 
 from cola_coder.data.scorers.credential_scanner import CredentialScanner
 from cola_coder.data.scorers.protocol import ScorerResult

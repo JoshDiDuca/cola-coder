@@ -87,6 +87,25 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **TOOL-009** [tooling/lint-hygiene, low-medium] `done` (2026-06-11) — The
+  documented lint gate (`ruff check src/ scripts/ tests/`, per CLAUDE.md) was
+  BROKEN: 21 pre-existing errors, all in `src/cola_coder/data/`. They went
+  unnoticed because prior cycles only ran ruff on the *specific files touched*,
+  never the whole tree (and several offending files were among the TOOL-008
+  untracked set, invisible until last cycle). Breakdown: 11× E741 (ambiguous
+  `l` loop var) + 1× F841 (dead `sample_text`) in quality_filter.py (the
+  data-quality GATE, TEST-001-covered); F401 dead imports (`multiprocessing`,
+  `typing.Any`, `IM_START`) auto-removed; 6× F401 availability-probe imports
+  (sources/__init__.py ×5, heuristic_scorer is_available ×1) annotated
+  `# noqa: F401` matching the existing filters/__init__.py convention (removing
+  them would break @register_source registration + availability detection).
+  Renamed all comprehension-local `l`→`ln` (behavior-neutral; each is
+  comp-scoped). `ruff check src/ scripts/ tests/` now passes (21→0). Validated:
+  test_quality_filter + test_filters + test_quality_classifier +
+  test_scorer_protocol (102) and security/score-data/checkpoint suites all green
+  — the quality-gate renames changed no behavior. Found this cycle ruff-scanning
+  the newly-tracked TOOL-008 modules. (Going forward, run full-tree ruff, not
+  just touched files.)
 - **TOOL-008** [tooling/repo-integrity, HIGH] `done` (2026-06-11) — 25 core
   `.py` source files under `src/cola_coder/data/` were UNTRACKED (never
   committed) — the long-term fallout of the original unanchored `data/`
