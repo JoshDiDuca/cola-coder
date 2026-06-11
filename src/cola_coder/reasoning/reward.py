@@ -24,6 +24,19 @@ from ..evaluation.runner import execute_code
 logger = logging.getLogger(__name__)
 
 
+def thinking_length_penalty(thinking_words: int, max_thinking_tokens: int) -> float:
+    """Penalty (>= 0) for an over-long thinking trace.
+
+    Shared by every GRPO reward (python_exec, typescript, combined) so all
+    three discourage runaway reasoning identically. ``thinking_words`` is the
+    word count of the ``<think>`` trace (``len(thinking.split())``).
+    """
+    if thinking_words <= max_thinking_tokens:
+        return 0.0
+    excess = thinking_words - max_thinking_tokens
+    return min(0.1, excess * 0.001)  # Small penalty, capped
+
+
 def compute_reward(
     generated_text: str,
     test_code: str,
@@ -89,9 +102,8 @@ def compute_reward(
             reward += 0.1
 
     # Length penalty: discourage excessively long thinking
-    if info["thinking_length"] > max_thinking_tokens:
-        excess = info["thinking_length"] - max_thinking_tokens
-        penalty = min(0.1, excess * 0.001)  # Small penalty, capped
+    penalty = thinking_length_penalty(info["thinking_length"], max_thinking_tokens)
+    if penalty:
         info["length_penalty"] = -penalty
         reward -= penalty
 

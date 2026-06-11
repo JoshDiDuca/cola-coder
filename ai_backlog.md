@@ -11,16 +11,21 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
-- **REWARD-001** [reasoning/reward-quality, medium] `open` — Sibling of
-  max_thinking_tokens being ignored by TS/combined rewards (reward_registry
-  `_typescript_reward`/`_combined_reward` accept `**kwargs` and discard
-  `max_thinking_tokens`, which GRPO passes from `self.max_thinking_tokens`). The
-  Python reward applies a thinking-length penalty; TS/combined silently don't,
-  so a user lowering `max_thinking_tokens` to constrain thinking gets no signal
-  on the TS path. Either thread the penalty through (the combined reward would
-  need access to the raw generation, not just the stripped code) or drop the
-  param from those signatures + document. Low-medium; logged while fixing
-  BUG-109.
+- **EVAL-006** [eval/correctness, medium] `open` (latent, no live caller yet) —
+  `evaluate_solution` (evaluation/runner.py:125) and `extract_function` (:158,
+  keys on `def {entry_point}`) silently assume Python: they ignore
+  `problem.language` and run `problem.test_code` through `execute_code` (Python).
+  A `language="typescript"` `CodingProblem` (TYPESCRIPT_PROBLEMS, ~40 problems in
+  humaneval.py) fed in would always FAIL with a misleading Python SyntaxError,
+  silently deflating pass@k for a TS-primary project. NOT live today: both
+  callers (`scripts/evaluate.py`, `quality_report.py`) load Python-only
+  `get_all_problems()` (= PROBLEMS + EXTENDED, no TS), and TS has its own
+  sandboxed `ts_benchmark.py`/`TscRunner` path. But `ProblemLoader` /
+  `ProblemSet.filter_by_language("typescript")` CAN return TS problems, so wiring
+  them to runner.evaluate_solution is a footgun. Fix (fail-loud pattern, cf.
+  TOK-001/DATA-003): guard on `problem.language` — return a clear "use
+  ts_benchmark for TypeScript" instead of a misleading false-fail, or route to
+  the tsc path. Found in this cycle's fresh scan.
 
 - **INFER-011** [inference/consistency, medium] `open` — `multi_turn_chat`'s
   `ChatSession` formats prompts in ALPACA style (`### User:` / `### Assistant:`),
@@ -64,6 +69,29 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **BUG-110** [reasoning/reward, high] `done` (2026-06-11) — The `typescript` and
+  `combined` GRPO rewards (reward_registry `_typescript_reward`/`_combined_reward`)
+  scored the RAW generation — `<think>reasoning</think>code` — INCLUDING the
+  thinking trace. `TypeCheckReward.score`/`CombinedReward.detailed_score` don't
+  strip thinking, so tsc/the syntax+completeness signals treated the `<think>`
+  tags as TypeScript → syntax error / depressed score on EVERY reasoning-
+  formatted generation. The `python_exec` reward already calls `extract_thinking`
+  and runs only the code; the TS path (the RECOMMENDED reward for the TS-primary
+  project: single typescript → `--reward typescript`) did not. Net effect: near-
+  constant ~0 reward → ~zero variance → GRPO's std<1e-4 collapse-guard SKIPS the
+  update → TS reasoning training silently makes no progress. Fixed: both wrappers
+  now `extract_thinking(gen)` and score the CODE only. Same fix closes REWARD-001
+  — they were also discarding `max_thinking_tokens`; both now apply the shared
+  `thinking_length_penalty` (extracted to reward.py, DRY with compute_reward) so
+  all three rewards discourage runaway reasoning identically, and add
+  `thinking_length`/`length_penalty` to their info dicts. Reward kept in [0,1]
+  (clamp − penalty, floored at 0) per the existing GRPO-stability invariant.
+  Tests: test_reward_thinking_aware.py (9, scorers stubbed so no tsc/Node needed):
+  helper under/at/over/capped, TS strips thinking before scoring + no-thinking
+  unchanged + length penalty + unit-range floor, combined strips + penalty.
+- **REWARD-001** [reasoning/reward-quality, medium] `done` (2026-06-11) — Folded
+  into BUG-110 (same root: TS/combined rewards weren't thinking-aware). The
+  shared `thinking_length_penalty` is now applied on all three reward paths.
 - **BUG-109** [reasoning/reward-quality, medium] `done` (2026-06-11) — The GRPO
   format bonus in `compute_reward` (reasoning/reward.py — the DEFAULT
   `python_exec` reward, in active training use) contradicted its own comment.

@@ -83,6 +83,8 @@ def _make_typescript_reward() -> RewardFunction:
     (generations, test_code, **kwargs) signature as the Python reward.
     """
     from cola_coder.reasoning.rewards.type_check import TypeCheckReward
+    from cola_coder.reasoning.reward import thinking_length_penalty
+    from cola_coder.reasoning.thinking_tokens import extract_thinking
 
     _checker = TypeCheckReward()
 
@@ -91,18 +93,29 @@ def _make_typescript_reward() -> RewardFunction:
         test_code: str,
         **kwargs: object,
     ) -> tuple[list[float], list[dict]]:
+        max_thinking_tokens = int(kwargs.get("max_thinking_tokens", 512))
         rewards: list[float] = []
         infos: list[dict] = []
-        for code in generations:
+        for gen in generations:
+            # Score the ANSWER, not the <think> trace (BUG-110): tsc would treat
+            # the thinking tags as TypeScript and flag a syntax error, zeroing
+            # the reward on EVERY reasoning-formatted generation. The python_exec
+            # reward already strips thinking before executing — do the same here.
+            thinking, code = extract_thinking(gen)
+            thinking_words = len(thinking.split()) if thinking else 0
             score = _checker.score(code)
             # Clamp to [0, 1] for GRPO stability (score can be -0.5 for syntax errors)
             clamped = max(0.0, score)
+            penalty = thinking_length_penalty(thinking_words, max_thinking_tokens)
+            final = max(0.0, clamped - penalty)
             detailed = _checker.detailed_score(code)
-            rewards.append(clamped)
+            rewards.append(final)
             infos.append({
                 "correct": score == 1.0,
                 "raw_score": score,
                 "clamped_score": clamped,
+                "length_penalty": -penalty,
+                "thinking_length": thinking_words,
                 "num_errors": detailed.get("num_errors", -1),
                 "has_syntax_errors": detailed.get("has_syntax_errors", False),
                 "error_codes": detailed.get("error_codes", []),
@@ -120,6 +133,8 @@ def _make_combined_reward() -> RewardFunction:
     (generations, test_code, **kwargs) signature as the Python reward.
     """
     from cola_coder.reasoning.rewards.combined import CombinedReward
+    from cola_coder.reasoning.reward import thinking_length_penalty
+    from cola_coder.reasoning.thinking_tokens import extract_thinking
 
     _combined = CombinedReward()
 
@@ -128,17 +143,27 @@ def _make_combined_reward() -> RewardFunction:
         test_code: str,
         **kwargs: object,
     ) -> tuple[list[float], list[dict]]:
+        max_thinking_tokens = int(kwargs.get("max_thinking_tokens", 512))
         rewards: list[float] = []
         infos: list[dict] = []
-        for code in generations:
+        for gen in generations:
+            # Score the ANSWER, not the <think> trace (BUG-110): the syntax /
+            # completeness signals would treat the thinking prose as broken code
+            # and depress the reward on every reasoning-formatted generation.
+            thinking, code = extract_thinking(gen)
+            thinking_words = len(thinking.split()) if thinking else 0
             detailed = _combined.detailed_score(code)
             score = detailed["combined_score"]
             clamped = max(0.0, score)
-            rewards.append(clamped)
+            penalty = thinking_length_penalty(thinking_words, max_thinking_tokens)
+            final = max(0.0, clamped - penalty)
+            rewards.append(final)
             infos.append({
                 "correct": score >= 0.9,
                 "raw_score": score,
                 "clamped_score": clamped,
+                "length_penalty": -penalty,
+                "thinking_length": thinking_words,
                 "type_score": detailed.get("type_score"),
                 "syntax_score": detailed.get("syntax_score"),
                 "style_score": detailed.get("style_score"),
