@@ -85,13 +85,6 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 
 
-- **MODEL-004** [model, low] `open` — GRPO sequence log-prob (grpo.py:230-241,
-  297-308) includes PROMPT tokens, not just completion tokens. VERIFIED this is
-  currently harmless: advantages are mean-centered (Σaᵢ=0), the prompt is shared
-  across the group, and the trainer does one step per group with ratios≈1, so
-  the shared prompt-token gradients cancel exactly (only bf16-precision noise
-  remains). Masking prompt tokens would match standard GRPO and be robust to
-  future multi-step/non-centered changes — a cleanup, NOT a bug. Low priority.
 
 - **OPS-001** [tooling, low] `open` (deferred for user) — storage split-brain:
   configs/storage.yaml → E:/cola-coder-data vs config.checkpoint.output_dir →
@@ -101,6 +94,26 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **MODEL-004** [model/reasoning, low] `done` (2026-06-11) — GRPO per-sequence
+  policy log-prob (grpo.py) summed over PROMPT + completion tokens instead of
+  completion-only. The prompt is fixed context, not a sampled action, so under
+  the policy only completion tokens should count (reference GRPO). It was
+  VERIFIED harmless in the current single-step, mean-centered, shared-prompt
+  setup (the shared prompt-token log-probs cancel exactly in current−old), but
+  it's a non-standard deviation that's fragile to future non-centered/multi-step
+  changes. Fixed: added `_completion_logprob_sum(token_log_probs, prompt_len)`
+  (token_log_probs[j] scores token j+1, so completion tokens index >= prompt_len
+  are scored by indices >= prompt_len-1; returns 0-D 0.0 when there are no
+  completion tokens) and used it in BOTH the old-policy (pi_old) and current-
+  policy (pi_new) log-prob computations; `prompt_len = len(encode(prompt,
+  add_bos=True))` computed once. Behavior is near-identical now (the prompt terms
+  cancelled anyway) but the objective is now standard and robust. Tests:
+  test_grpo_completion_mask.py (5): masks prompt, prompt_len=1 keeps all, no-
+  completion→0, masked+prompt==full, start-at-end→0. Found while scanning the
+  trainer/reasoning path; the model/inference/training/export cores all
+  re-verified CLEAN this cycle (trainer accum/clip/scaler/scheduler/save/resume/
+  eval; parallel_filtered_stream preserves order so DATA-028 holds; INT4 quant
+  pack/unpack round-trips).
 - **DATA-028** [data-quality/bug, high] `done` (2026-06-11) — Generalized DATA-026:
   `stream_code_data` now ROUND-ROBINS across languages (one sample per language
   per round) instead of yielding each language to exhaustion in sequence. DATA-026's

@@ -78,6 +78,29 @@ def compute_group_advantages(
     return centered / (rewards.std() + 1e-8)
 
 
+def _completion_logprob_sum(
+    token_log_probs: torch.Tensor,
+    prompt_len: int,
+) -> torch.Tensor:
+    """Sum log-probs over the COMPLETION tokens only (mask the prompt).
+
+    `token_log_probs[j]` scores token j+1 given tokens [:j+1]. The prompt is
+    fixed context, not a sampled action, so under the policy only the completion
+    tokens (indices >= prompt_len) count — they are scored by token_log_probs
+    indices >= prompt_len - 1. Summing the prompt tokens too (MODEL-004) is a
+    standard-GRPO deviation: it was harmless here because advantages are
+    mean-centered and the prompt is shared across the group, so the shared
+    prompt-token log-probs cancel in (current - old). Masking matches reference
+    GRPO and is robust to future non-centered / multi-step changes.
+
+    Returns a 0-D tensor (0.0 when there are no completion tokens).
+    """
+    start = max(prompt_len - 1, 0)
+    if start >= token_log_probs.shape[0]:
+        return token_log_probs.new_zeros(())
+    return token_log_probs[start:].sum()
+
+
 class GRPOTrainer:
     """Simplified GRPO trainer for reasoning experiments."""
 
@@ -224,6 +247,10 @@ class GRPOTrainer:
                 for _ in range(self.group_size)
             ]
 
+        # Number of prompt tokens (shared by all generations) — used to mask the
+        # prompt out of the policy log-prob so only completion tokens count.
+        prompt_len = len(self.tokenizer.encode(prompt, add_bos=True))
+
         # Compute log probabilities of the generated tokens (old policy, pi_old)
         log_probs_list = []
         for output in generations:
@@ -237,7 +264,7 @@ class GRPOTrainer:
                 token_log_probs = log_probs[0, :-1].gather(
                     1, input_tensor[0, 1:].unsqueeze(1)
                 ).squeeze(1)
-                total_log_prob = token_log_probs.sum().item()
+                total_log_prob = _completion_logprob_sum(token_log_probs, prompt_len).item()
                 log_probs_list.append(total_log_prob)
 
         # Step 2: Compute rewards
@@ -305,7 +332,7 @@ class GRPOTrainer:
                 token_log_probs = log_probs[0, :-1].gather(
                     1, input_tensor[0, 1:].unsqueeze(1)
                 ).squeeze(1)
-                current_log_prob = token_log_probs.sum()
+                current_log_prob = _completion_logprob_sum(token_log_probs, prompt_len)
 
             # Compute probability ratio (pi_new / pi_old)
             old_log_prob = log_probs_list[i]
