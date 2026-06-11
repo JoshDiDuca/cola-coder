@@ -49,6 +49,18 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-017** [data-quality/bug, low-medium] `done` (2026-06-11) —
+  `QualityFilterPlugin` (data/filters/quality.py) fell back to
+  `record.metadata.get("languages")` (PLURAL) when no config languages were
+  set, but sources emit the canonical SINGULAR `language` key (DATA-007/008) —
+  so the fallback was ALWAYS None and the language-aware quality checks
+  (e.g. TS-specific syntax) never engaged on a per-record basis. Fixed: prefer
+  the pipeline-config `languages` list, else fall back to the record's singular
+  `language` wrapped in a list (filter_code expects list[str]). Closes the
+  filter-plugin sweep (syntax.py + quality.py audited; syntax.py clean modulo a
+  caught deep-recursion pass-through). Tests: test_quality_filter_plugin.py (5):
+  config precedence, singular-language fallback, None when absent, plural key no
+  longer picked up, mode forwarding.
 - **DATA-016** [data-quality/config, low-medium] `done` (2026-06-11) — Phantom
   config in `ContentFilter` (data/filters/content.py): `max_autogen_markers`
   was stored in `__init__`/`setup()` and documented ("Max autogen markers
