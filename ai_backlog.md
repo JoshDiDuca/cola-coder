@@ -53,6 +53,25 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **BUG-104** [data-quality/bug, medium] `done` (2026-06-11) — `combine_datasets.py`
+  `run_pipeline` exact-dedup path was NOT cross-dataset. It called
+  `ExactDeduplicator.deduplicate_array(arr)` per-dataset in a loop — removing
+  only WITHIN-dataset duplicates (already done by prepare_data's default exact
+  dedup) while leaving CROSS-dataset duplicate chunks in the combined training
+  set, contradicting the comment ("remove dupes across datasets") and the menu
+  label. The minhash path already deduped across (each secondary vs the
+  primary). So combining overlapping corpora (e.g. the same file in both the TS
+  and general datasets) with `--dedup exact` silently kept the dupes. Fixed by
+  unifying both methods onto `CrossDatasetDeduplicator(method=dedup_method)` —
+  exact now genuinely removes cross-dataset dupes (SHA-256 hash set of primary,
+  star topology, primary kept intact), matching minhash. Removed the now-unused
+  ExactDeduplicator/numpy imports. The script's `run_pipeline` had ZERO test
+  coverage (test_combine.py only tests DatasetCombiner/dedup.py directly); added
+  test_combine_datasets_script.py (3): exact removes cross-dataset dupes (4 vs
+  the broken 6 chunks), none keeps all 6, primary kept intact. KNOWN LIMITATION
+  (follow-up, both methods): secondaries are deduped vs the primary only, not
+  vs each other (B∩C dupes survive) — a star topology, not full transitive
+  dedup.
 - **BUG-103** [bug/curation, medium] `done` (2026-06-11) — `score_repos_parallel`
   was BROKEN in subprocess mode. `_score_repo_worker` (test_runner.py)
   reconstructed `TestRunner(mode=mode, ...)` in each worker process WITHOUT

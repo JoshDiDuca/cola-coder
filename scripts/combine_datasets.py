@@ -244,9 +244,8 @@ def show_summary(settings: dict, output_path: str) -> bool:
 
 def run_pipeline(settings: dict, output_path: str):
     """Execute the combination pipeline."""
-    import numpy as np
     from cola_coder.data.combine import DatasetCombiner, DatasetInput
-    from cola_coder.data.dedup import ExactDeduplicator, CrossDatasetDeduplicator
+    from cola_coder.data.dedup import CrossDatasetDeduplicator
 
     cli.print()
     cli.print("[bold cyan]Starting dataset combination...[/bold cyan]")
@@ -263,47 +262,34 @@ def run_pipeline(settings: dict, output_path: str):
         cli.print("[dim]Running deduplication...[/dim]")
         t0 = time.time()
 
-        if dedup_method == "exact":
-            # Exact dedup: load all, hash, remove dupes across datasets
-            dedup = ExactDeduplicator()
-            temp_paths = []
-            for i, ds in enumerate(datasets):
-                arr = np.load(ds["path"], mmap_mode="r")
-                clean, removed = dedup.deduplicate_array(arr)
-                dedup_removed += removed
-                # Save cleaned version to temp file
-                temp_path = str(
-                    Path(output_path).parent / f"_temp_dedup_{ds['name']}.npy"
-                )
-                np.save(temp_path, clean)
-                temp_paths.append(temp_path)
-                cli.print(f"  {ds['name']}: {removed} exact duplicates removed")
-            paths_to_combine = temp_paths
-
-        elif dedup_method == "minhash":
-            cross_dedup = CrossDatasetDeduplicator(
-                method="minhash", threshold=0.8,
+        # Both "exact" and "minhash" dedup ACROSS datasets: each secondary is
+        # deduped against the primary (kept intact), via CrossDatasetDeduplicator.
+        # The earlier "exact" path called ExactDeduplicator.deduplicate_array
+        # per-dataset, which only removed WITHIN-dataset dupes (already handled by
+        # prepare_data's exact dedup) and left cross-dataset duplicates — exactly
+        # what dedup-at-combine is supposed to remove (BUG-104).
+        cross_dedup = CrossDatasetDeduplicator(method=dedup_method, threshold=0.8)
+        label = "exact" if dedup_method == "exact" else "near-"
+        temp_paths = [datasets[0]["path"]]  # Primary kept as-is
+        for i in range(1, len(datasets)):
+            ds = datasets[i]
+            temp_path = str(
+                Path(output_path).parent / f"_temp_dedup_{ds['name']}.npy"
             )
-            temp_paths = [datasets[0]["path"]]  # Primary kept as-is
-            for i in range(1, len(datasets)):
-                ds = datasets[i]
-                temp_path = str(
-                    Path(output_path).parent / f"_temp_dedup_{ds['name']}.npy"
-                )
-                result = cross_dedup.deduplicate_pair(
-                    primary_path=datasets[0]["path"],
-                    secondary_path=ds["path"],
-                    tokenizer_path=settings.get("tokenizer_path"),
-                    output_path=temp_path,
-                )
-                dedup_removed += result.duplicates_removed
-                temp_paths.append(temp_path)
-                cli.print(
-                    f"  {ds['name']}: {result.duplicates_removed} "
-                    f"near-duplicates removed"
-                )
+            result = cross_dedup.deduplicate_pair(
+                primary_path=datasets[0]["path"],
+                secondary_path=ds["path"],
+                tokenizer_path=settings.get("tokenizer_path"),
+                output_path=temp_path,
+            )
+            dedup_removed += result.duplicates_removed
+            temp_paths.append(temp_path)
+            cli.print(
+                f"  {ds['name']}: {result.duplicates_removed} "
+                f"{label}duplicates removed"
+            )
 
-            paths_to_combine = temp_paths
+        paths_to_combine = temp_paths
 
         elapsed = time.time() - t0
         cli.print(
