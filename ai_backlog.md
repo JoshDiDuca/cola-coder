@@ -53,6 +53,21 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-019** [data-quality/bug, high] `done` (2026-06-11) — `tokenize_and_chunk`
+  (data/preprocess.py — data-prep STAGE 2, the core tokenizer→.npy path) crashed
+  at finalization on Windows (the primary platform). It did `data =
+  mmap_data[:num_chunks]` (a memmap VIEW), saved it, `del mmap_data`, then
+  `tmp_path.unlink()` — but the view kept the temp file mapped, so the UNGUARDED
+  unlink raised `PermissionError [WinError 32]` AFTER the output .npy was already
+  written, leaving an orphaned `_tmp.npy` and a confusing trailing crash. Same
+  class as DATA-004 (which fixed only the dedup path); the main prepare path was
+  never fixed and had ZERO tests. Verified empirically on this machine (both the
+  bug and the fix). Fixed with the DATA-004 idiom: save from a throwaway slice
+  (no long-lived view), release the handle (`_mmap.close()` + del + gc.collect),
+  then unlink in a try/except (a residual lock now only warns, never crashes a
+  finished run). Also dropped an unused `os` import + an f-string nit while in
+  the file. Tests: test_preprocess_finalize.py (2): full run completes + temp
+  removed + manifest written; empty-iterator path.
 - **DATA-018** [docs/discoverability, low] `done` (2026-06-11) — DATA-012 wired
   dynamic FIM via `DataConfig.fim_rate`, but the knob lived only in the dataclass
   default — absent from config templates and docs, so users couldn't discover

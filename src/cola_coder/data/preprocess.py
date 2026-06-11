@@ -24,7 +24,7 @@ but behave like they're in RAM. The OS loads pages on demand, so we can
 have a 100GB dataset but only use a few GB of RAM at a time.
 """
 
-import os
+import gc
 import signal
 import threading
 import time
@@ -198,31 +198,48 @@ def tokenize_and_chunk(
     signal.signal(signal.SIGINT, old_handler)  # Restore original handler
     producer.join(timeout=5)
 
-    # --- Finalize: trim memmap to actual size and save as .npy ---
+    # --- Finalize: write the used portion to the real .npy, then release the
+    # memmap BEFORE deleting the temp file. On Windows a live memmap — or any
+    # VIEW into it, e.g. `mmap_data[:num_chunks]` — keeps the file open, so the
+    # subsequent unlink raised PermissionError [WinError 32] (the DATA-004
+    # mmap-handle-release bug, here in the main prepare path). We save from a
+    # throwaway slice (no long-lived view), close the underlying handle, then
+    # unlink defensively. ---
     if num_chunks == 0:
         print("Warning: No data was processed!")
-        data = np.zeros((1, chunk_size), dtype=np.uint16)
+        out_shape = (1, chunk_size)
+        np.save(output_file, np.zeros((1, chunk_size), dtype=np.uint16))
     else:
-        # Slice the memmap to the used portion — numpy.save handles this directly
-        data = mmap_data[:num_chunks]
+        out_shape = (num_chunks, chunk_size)
+        np.save(output_file, mmap_data[:num_chunks])
 
-    np.save(output_file, data)
-
-    # Clean up temp file
+    # Release the memmap handle (DATA-004 idiom) so Windows lets us delete the
+    # temp file. _mmap.close() is the reliable release; del + gc are belt-and-
+    # suspenders; the try/except means a residual lock only warns, never crashes
+    # a finished run (the output .npy is already saved at this point).
+    mm = getattr(mmap_data, "_mmap", None)
     del mmap_data
+    if mm is not None:
+        mm.close()
+    gc.collect()
+
     tmp_path = Path(tmp_file)
     if tmp_path.exists():
-        tmp_path.unlink()
+        try:
+            tmp_path.unlink()
+        except OSError as exc:
+            print(f"  [cleanup] could not remove temp file {tmp_path} ({exc}); "
+                  "safe to delete manually")
 
     # --- Summary ---
     elapsed = time.time() - start_time
     if _interrupted:
         print(f"\n⏹ INTERRUPTED — saved partial data ({num_chunks:,} chunks)")
-        print(f"  This is perfectly usable for training!")
+        print("  This is perfectly usable for training!")
     print(f"\nSaved {num_chunks:,} chunks of {chunk_size} tokens each")
     print(f"Total tokens processed: {total_tokens:,}")
     print(f"Total files processed: {total_files:,}")
-    print(f"Data shape: {data.shape}")
+    print(f"Data shape: {out_shape}")
     print(f"File size: {Path(output_file).stat().st_size / 1e6:.1f} MB")
     print(f"Wall time: {elapsed:.0f}s ({elapsed / 60:.1f} min)")
     if elapsed > 0:
