@@ -178,6 +178,36 @@ class TestInterleave:
 
         assert result.total_chunks <= 60
 
+    def test_interleave_hits_target_ratio_with_equal_sized_sources(self, tmp_path):
+        """DATA-027: 70/20/10 weights must yield a 70/20/10 OUTPUT even when all
+        sources are the SAME size (exactly what --max-samples produces). The old
+        code used total_available + clamp and collapsed this to ~53/32/16."""
+        from collections import Counter
+
+        paths = []
+        for i in range(3):
+            p = tmp_path / f"src_{i}.npy"
+            # Fill each source with its own id so chunks can be attributed.
+            np.save(str(p), np.full((100, CHUNK_SIZE), i, dtype=np.uint16))
+            paths.append(str(p))
+
+        result = DatasetCombiner().combine(
+            datasets=[
+                DatasetInput(paths[0], weight=0.7, name="code"),
+                DatasetInput(paths[1], weight=0.2, name="text"),
+                DatasetInput(paths[2], weight=0.1, name="math"),
+            ],
+            strategy="interleave",
+            output_path=str(tmp_path / "mixed.npy"),
+            shuffle=False,
+        )
+        out = np.load(result.output_path)
+        total = len(out)
+        counts = Counter(int(row[0]) for row in out)
+        assert abs(counts[0] / total - 0.70) < 0.03, counts
+        assert abs(counts[1] / total - 0.20) < 0.03, counts
+        assert abs(counts[2] / total - 0.10) < 0.03, counts
+
 
 # ---------------------------------------------------------------------------
 # Test: weighted sampling strategy

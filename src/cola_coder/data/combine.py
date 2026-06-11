@@ -199,12 +199,28 @@ class DatasetCombiner:
         and ~30% from dataset 1, interleaved in a round-robin pattern.
         """
         n_datasets = len(arrays)
-        total_available = sum(len(a) for a in arrays)
-        target = max_chunks if max_chunks is not None else total_available
 
-        # Compute per-dataset target counts
-        per_ds_target = np.round(weights * target).astype(int)
-        # Clamp to available
+        # Ratio-preserving target: the largest output size for which every
+        # source's share (weight[i] * target) still fits within its available
+        # chunks — i.e. min_i(available[i] / weight[i]). This makes the OUTPUT
+        # ratio match `weights` EXACTLY without upsampling (over-represented
+        # sources are subsampled). The previous code used `total_available` and
+        # then clamped, which silently DISTORTED the ratio whenever the
+        # highest-weight source wasn't proportionally the largest — e.g.
+        # equal-sized code/text/math (exactly what `--max-samples` produces)
+        # collapsed a 70/20/10 request to ~53/32/16. (The `weighted` strategy
+        # upsamples to preserve more data; interleave deliberately does not.)
+        ratio_caps = [
+            len(arrays[i]) / weights[i]
+            for i in range(n_datasets)
+            if weights[i] > 0 and len(arrays[i]) > 0
+        ]
+        ratio_target = min(ratio_caps) if ratio_caps else 0.0
+        target = ratio_target if max_chunks is None else min(ratio_target, float(max_chunks))
+
+        # Per-dataset target counts. floor keeps each within available; the
+        # explicit clamp is rounding-safety for the binding source.
+        per_ds_target = np.floor(weights * target).astype(int)
         for i in range(n_datasets):
             per_ds_target[i] = min(per_ds_target[i], len(arrays[i]))
 

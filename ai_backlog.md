@@ -101,6 +101,25 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-027** [data-quality/bug, high] `done` (2026-06-11) — `DatasetCombiner._interleave`
+  (data/combine.py) — the live combine step that mixes code/text/math at the
+  Qwen2.5-Coder 70/20/10 ratio — distorted that ratio whenever the highest-weight
+  source wasn't proportionally the largest. It set `per_ds_target[i] =
+  round(weight[i] * total_available)` then CLAMPED to available, so when the
+  high-weight source was capped its share shrank while the others kept their
+  (too-large) shares. With EQUAL-sized sources (exactly what `--max-samples`
+  produces) a 70/20/10 request collapsed to ~53/32/16 — verified empirically.
+  Fixed by computing the ratio-preserving target `min_i(available[i]/weight[i])`
+  (the largest output where every source's `weight*target` fits in its available
+  chunks) → output ratio matches the weights EXACTLY by subsampling
+  over-represented sources (interleave deliberately doesn't upsample; that's the
+  `weighted` strategy's job). weight=0 sources contribute nothing (BUG-101
+  compatible); max_chunks still honored. Verified: equal-sized code/text/math →
+  70/20/10 (was 53/32/16); existing interleave tests (loose) still pass and are
+  now more correct (equal weights → truly equal contribution). Tests:
+  test_combine.py test_interleave_hits_target_ratio_with_equal_sized_sources.
+  Found in this cycle's collect_data/combine fresh scan (the natural follow-up
+  to DATA-026 — both are live multi-source balance bugs).
 - **DATA-026** [data-quality/bug, high] `done` (2026-06-11) — `stream_code_data`
   (data/download.py) — the live HuggingFace ingestion that feeds ALL training
   data — starved later languages under a sample cap. The language loop yielded
