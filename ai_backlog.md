@@ -49,6 +49,19 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-015** [data-quality/bug, medium] `done` (2026-06-11) — `LicenseFilter`
+  rejected validly-licensed training data due to CASE-SENSITIVE SPDX matching.
+  `check` did `if normalized in self.PERMISSIVE` against a canonically-cased set
+  ({"MIT","Apache-2.0",...}); the alias map only normalized a handful of
+  lowercase spellings. SPDX identifiers are case-insensitive (spec §10.1), so a
+  permissive license arriving in non-canonical case that wasn't in the alias map
+  — `"apache-2.0"`, `"zlib"`, `"bsd-3-clause"`, `"mit-0"`, etc. — was silently
+  REJECTED, discarding usable permissively-licensed data and shrinking the
+  corpus. Fixed: membership check is now case-insensitive (`normalized.lower()
+  in {s.lower() for s in PERMISSIVE}`); the alias map still handles alternate
+  SPELLINGS ("apache2"). Verified it does NOT flip GPL/AGPL/unknown to
+  permissive. Tests: test_filters.py TestLicenseFilter (+2): case-insensitive
+  permissive accepted, non-permissive still rejected regardless of case.
 - **TEST-002** [test-quality/checkpoint, medium] `done` (2026-06-11) — Audited
   the training internals (trainer step, infinite dataloader, Muon/AdamW
   optimizer + decoupled WD grouping, cosine/WSD scheduler with the fp16

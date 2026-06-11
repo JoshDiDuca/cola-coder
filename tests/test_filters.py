@@ -65,6 +65,23 @@ class TestLicenseFilter:
         assert keep is False
         assert "non_permissive" in reason
 
+    def test_permissive_license_case_insensitive(self):
+        # DATA-015: SPDX ids are case-insensitive. Non-canonical case that the
+        # alias map didn't cover used to be wrongly rejected, discarding valid
+        # permissively-licensed data.
+        for lic in ("apache-2.0", "APACHE-2.0", "zlib", "bsd-3-clause",
+                    "mit-0", "isc", "Mit"):
+            record = FakeRecord(content="x = 1", metadata={"license": lic})
+            keep, reason = self.f.check(record)
+            assert keep is True, f"{lic!r} wrongly rejected: {reason}"
+
+    def test_case_insensitivity_does_not_admit_non_permissive(self):
+        # The fix must not flip GPL/unknown to permissive.
+        for lic in ("gpl-3.0", "GPL-3.0", "agpl-3.0", "somethingweird"):
+            record = FakeRecord(content="x = 1", metadata={"license": lic})
+            keep, _ = self.f.check(record)
+            assert keep is False, f"{lic!r} wrongly admitted"
+
     def test_rejects_unknown(self):
         record = FakeRecord(content="x = 1", metadata={"license": "SomethingWeird"})
         keep, reason = self.f.check(record)
