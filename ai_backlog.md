@@ -43,6 +43,18 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-010** [data-quality, medium] `done` (2026-06-11) — `score_quality`
+  (instruction_gen.py, the code->instruction SFT generator) awarded its +0.2
+  "parses" bonus ONLY for ast.parse-able Python. cola-coder is TypeScript-
+  PRIMARY, so an identical TS/JS pair scored 0.2 lower than Python — and a short
+  TS response (20-49 chars, balanced braces) scored 0.55 → REJECTED while the
+  Python equivalent scored 0.65 → kept. That systematically filters out the
+  project's primary-language synthetic data MORE than Python. Fixed: JS/TS earns
+  the same bonus via a balanced-brace check. Also: `_make_fix_pair` shuffled the
+  shared module-level `_BUG_INJECTIONS` list in place (side effect on every
+  call) — now shuffles a copy. The module had ZERO test coverage; added
+  test_instruction_gen.py (12): language parity, dedup, threshold, no global
+  mutation, generate smoke.
 - **DATA-009** [data-quality, medium] `done` (2026-06-11) — `SelfAlignSource.
   _build_inner_source` built `HuggingFaceSource(dataset=...)` for the HF path
   WITHOUT passing `languages`. HuggingFaceSource defaults to `["python"]`, so a
