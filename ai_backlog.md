@@ -101,6 +101,24 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-028** [data-quality/bug, high] `done` (2026-06-11) — Generalized DATA-026:
+  `stream_code_data` now ROUND-ROBINS across languages (one sample per language
+  per round) instead of yielding each language to exhaustion in sequence. DATA-026's
+  per-language quota only balanced the `max_samples` path; but `prepare_data.py`
+  (the main stage-2 prep) passes NO `max_samples` and caps DOWNSTREAM at the TOKEN
+  level via `tokenize_and_chunk(max_tokens=...)`. With the old sequential stream,
+  that token cap was reached while still inside the FIRST language → every other
+  language starved (a multi-language `prepare_data --max-tokens N` produced a
+  single-language corpus). Round-robin balances regardless of where/how the
+  output is capped (samples here OR tokens downstream), since the FIRST N items
+  are now an interleaved, balanced mix. Stream order is irrelevant downstream
+  (chunks are deduped/scored/curriculum-reordered/shuffled). Single-language
+  requests degrade to a plain sequential read; one erroring language is dropped
+  from the rotation without killing the rest. Supersedes the DATA-026 quota with
+  a single general mechanism (its 5 tests still pass — they assert counts, which
+  round-robin preserves). Tests: test_download_balance.py +1
+  (balanced interleaved prefix protects the downstream token cap: out[:6]=2/2/2,
+  out[:30]=10/10/10). Found this cycle scanning prepare_data's cap path.
 - **DATA-027** [data-quality/bug, high] `done` (2026-06-11) — `DatasetCombiner._interleave`
   (data/combine.py) — the live combine step that mixes code/text/math at the
   Qwen2.5-Coder 70/20/10 ratio — distorted that ratio whenever the highest-weight

@@ -262,42 +262,38 @@ def stream_code_data(
             print("Download complete. Reading from local cache.")
 
     count = 0
-    n_langs = len(languages)
-    for li, lang in enumerate(languages):
-        # Per-language budget so a MULTI-language request with max_samples is
-        # BALANCED rather than yielding the entire first language and starving
-        # the rest (e.g. languages=["typescript","python"], max_samples=N would
-        # otherwise return N typescript and 0 python). Each language gets an even
-        # share of the REMAINING budget, so an under-full language rolls its
-        # leftover forward to later ones and the total still reaches max_samples.
-        # Single-language or no-cap requests behave exactly like before.
-        if max_samples is not None:
-            remaining_langs = n_langs - li
-            lang_quota = (max_samples - count + remaining_langs - 1) // remaining_langs
-        else:
-            lang_quota = None
+    # Round-robin across languages (one sample from each per round). This keeps
+    # the language mix BALANCED no matter where or how the output is later
+    # capped: a max_samples cap here, OR — crucially — the TOKEN cap that
+    # tokenize_and_chunk applies downstream in prepare_data (which passes no
+    # max_samples). A plain sequential loop would yield the entire first language
+    # first, so any cap before it finished would starve every other language
+    # (DATA-026 for max_samples; DATA-028 for the token-cap path). Stream order
+    # is irrelevant downstream — chunks are deduped, scored, curriculum-reordered
+    # and shuffled. Single-language requests degrade to a plain sequential read.
+    if streaming:
+        sources = [_iter_hf_streaming(dataset_name, lang, split) for lang in languages]
+    else:
+        sources = [_iter_parquet_files(cache_dir, lang) for lang in languages]
+    active = list(range(len(languages)))
 
-        lang_count = 0
-        try:
-            if streaming:
-                source = _iter_hf_streaming(dataset_name, lang, split)
-            else:
-                source = _iter_parquet_files(cache_dir, lang)
-
-            for content in source:
-                yield content
-                count += 1
-                lang_count += 1
-
-                if max_samples is not None and count >= max_samples:
-                    print(f"  Reached sample limit: {max_samples:,}")
-                    return
-                if lang_quota is not None and lang_count >= lang_quota:
-                    break  # this language hit its fair share — move to the next
-
-        except Exception as e:
-            print(f"  Warning: Error loading {lang}: {e}")
-            continue
+    while active:
+        still_active: list[int] = []
+        for li in active:
+            try:
+                content = next(sources[li])
+            except StopIteration:
+                continue  # this language is exhausted — drop it from the rotation
+            except Exception as e:  # noqa: BLE001 — one bad language must not kill the rest
+                print(f"  Warning: Error loading {languages[li]}: {e}")
+                continue
+            yield content
+            count += 1
+            still_active.append(li)
+            if max_samples is not None and count >= max_samples:
+                print(f"  Reached sample limit: {max_samples:,}")
+                return
+        active = still_active
 
     print(f"Total: {count:,} code files yielded")
 

@@ -70,3 +70,15 @@ def test_no_cap_yields_everything(monkeypatch):
     out = list(dl.stream_code_data(languages=["a", "b"], max_samples=None, streaming=True))
     assert len(out) == 70
     assert _dist(out) == {"a": 30, "b": 40}
+
+
+def test_balanced_prefix_without_cap_protects_downstream_token_limit(monkeypatch):
+    # DATA-028: prepare_data passes NO max_samples and caps later at the TOKEN
+    # level (tokenize_and_chunk(max_tokens=...)). Round-robin must make the
+    # FIRST N yielded items a balanced language mix, so that downstream cap
+    # isn't single-language. A sequential loop would make out[:6] == 6x "a".
+    _install_fake(monkeypatch, {"a": 100, "b": 100, "c": 100})
+    out = list(dl.stream_code_data(languages=["a", "b", "c"], max_samples=None, streaming=True))
+    assert _dist(out[:6]) == {"a": 2, "b": 2, "c": 2}  # interleaved, balanced prefix
+    # The interleaving holds deep into the stream too, not just the first round.
+    assert _dist(out[:30]) == {"a": 10, "b": 10, "c": 10}
