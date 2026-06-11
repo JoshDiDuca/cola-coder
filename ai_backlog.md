@@ -49,6 +49,24 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **INFER-008** [inference/bug, medium] `done` (2026-06-11) — `StreamingGenerator`
+  (features/streaming_generation.py — a menu-wired, ZERO-test per-token streaming
+  telemetry feature) was a diverged duplicate that had NEITHER of two fixes the
+  canonical `generator.generate_stream` got: (1) it decoded text per-token
+  (`decode([next_token])`), which mangles byte-level BPE — a single token can be
+  a partial multi-byte UTF-8 sequence, decoding to replacement chars / wrong
+  spacing in isolation; (2) it reduced multi-token stops to their first token
+  (the INFER-006 bug), halting far too early. Fixed: use full-decode-diff for
+  the emitted text (decode the full sequence, yield the incremental delta) and
+  the shared hybrid stop matcher. Extracted `partition_stops(tokenizer,
+  stop_tokens)` to module scope in generator.py (CodeGenerator._partition_stops
+  now delegates — DRY) so both streamers behave identically; added the same
+  hold-back so a multi-token stop can't leak its prefix. Tests:
+  test_streaming_generation.py (5): multi-token stop not truncated early, eos /
+  no-stop passthrough, a merge-tokenizer test proving full-decode-diff recovers
+  a char that per-token decode loses, and StreamToken metadata. (The test suite
+  caught a self-inflicted regression — an orphaned forward block — during the
+  edit; fixed before commit.)
 - **INFER-007** [inference/bug, high] `done` (2026-06-11) — The `/v1/fim`
   endpoint (server.py) — which powers the VS Code extension's inline ghost-text
   completions — built its prompt as `decode(encode_fim(prefix, suffix))`.

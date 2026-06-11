@@ -50,6 +50,31 @@ def _earliest_stop_index(text: str, stop_strings: list[str], start: int = 0) -> 
     return earliest
 
 
+def partition_stops(tokenizer, stop_tokens: list[str] | None) -> tuple[set[int], list[str]]:
+    """Split requested stops into token-level and string-level matchers.
+
+    EOS and any stop that encodes to exactly ONE token (this covers special
+    tokens such as ``<|im_end|>`` / ``<|fim_suffix|>``, which the decoder strips
+    and so cannot be matched as text) go in a set of token IDs for exact, fast
+    matching. Stops that encode to MULTIPLE tokens are returned as strings for
+    substring matching on the decoded output — reducing them to their first
+    token stops generation far too early (e.g. ``";\\n"`` halts at the first
+    ``;``). Shared by CodeGenerator and StreamingGenerator so both behave
+    identically (INFER-006).
+    """
+    single_stop_ids: set[int] = {tokenizer.eos_id}
+    string_stops: list[str] = []
+    for st in stop_tokens or []:
+        if not st:
+            continue
+        encoded = tokenizer.encode(st, add_bos=False)
+        if len(encoded) == 1:
+            single_stop_ids.add(encoded[0])
+        elif encoded:
+            string_stops.append(st)
+    return single_stop_ids, string_stops
+
+
 class CodeGenerator:
     """Generate code using a trained transformer model."""
 
@@ -81,17 +106,7 @@ class CodeGenerator:
         reducing them to their first token (the old behavior) stopped generation
         far too early (e.g. ``";\\n"`` halted at the first ``;``).
         """
-        single_stop_ids: set[int] = {self.tokenizer.eos_id}
-        string_stops: list[str] = []
-        for st in stop_tokens or []:
-            if not st:
-                continue
-            encoded = self.tokenizer.encode(st, add_bos=False)
-            if len(encoded) == 1:
-                single_stop_ids.add(encoded[0])
-            elif encoded:
-                string_stops.append(st)
-        return single_stop_ids, string_stops
+        return partition_stops(self.tokenizer, stop_tokens)
 
     @torch.no_grad()  # Disable gradient computation (saves memory, faster)
     def generate(

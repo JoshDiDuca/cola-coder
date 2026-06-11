@@ -122,6 +122,7 @@ class StreamingGenerator:
             StreamToken with text, token_id, position, timing
         """
         from ..inference.sampling import sample_next_token
+        from ..inference.generator import partition_stops, _earliest_stop_index
 
         stats = StreamStats()
         start_time = time.perf_counter()
@@ -131,14 +132,10 @@ class StreamingGenerator:
         input_ids = torch.tensor([token_ids], dtype=torch.long, device=self.device)
         stats.prompt_tokens = len(token_ids)
 
-        # Build stop token set
-        stop_ids = set()
-        stop_ids.add(self.tokenizer.eos_id)
-        if stop_tokens:
-            for st in stop_tokens:
-                encoded = self.tokenizer.encode(st, add_bos=False)
-                if encoded:
-                    stop_ids.add(encoded[0])
+        # Stops: single-token (EOS + special tokens) matched exactly; multi-token
+        # stops matched at the STRING level on the decoded completion. Reducing a
+        # multi-token stop to its first token halts far too early (INFER-006).
+        single_stop_ids, string_stops = partition_stops(self.tokenizer, stop_tokens)
 
         # Clear caches
         self.model.clear_caches()
@@ -157,6 +154,20 @@ class StreamingGenerator:
         decode_start = time.perf_counter()
         stopped_by = "max_tokens"
 
+        # Text is computed by decoding the FULL sequence and yielding only the
+        # incremental new characters (full-decode-diff). Per-token decode
+        # ([next_token]) mangles byte-level BPE: a single token can be a partial
+        # multi-byte UTF-8 sequence, so it decodes to replacement chars / wrong
+        # spacing in isolation. (Matches CodeGenerator.generate_stream.)
+        current_decoded = self.tokenizer.decode(generated_ids)
+        prev_decoded_len = len(current_decoded)
+        prompt_char_len = prev_decoded_len
+        # With string stops active, hold back the last (max_stop_len-1) chars
+        # before emitting so a stop sequence can't leak its own prefix (e.g.
+        # "\n\n" leaking its first "\n"). Matches CodeGenerator.generate_stream.
+        max_stop_len = max((len(s) for s in string_stops), default=0)
+        last_token = None
+
         for i in range(max_new_tokens):
             next_token = sample_next_token(
                 next_logits.clone(),
@@ -167,17 +178,37 @@ class StreamingGenerator:
                 generated_ids=generated_ids,
             )
 
-            # Check stop conditions
-            if next_token == self.tokenizer.eos_id:
-                stopped_by = "eos"
-                break
-            if next_token in stop_ids and next_token != self.tokenizer.eos_id:
-                stopped_by = "stop_token"
+            # Token-level stop (EOS / single-token stops) — excluded from output.
+            if next_token in single_stop_ids:
+                stopped_by = "eos" if next_token == self.tokenizer.eos_id else "stop_token"
                 break
 
             generated_ids.append(next_token)
-            token_text = self.tokenizer.decode([next_token])
+            last_token = next_token
+            current_decoded = self.tokenizer.decode(generated_ids)
             elapsed = (time.perf_counter() - start_time) * 1000
+
+            if string_stops:
+                idx = _earliest_stop_index(current_decoded, string_stops, prompt_char_len)
+                if idx is not None:
+                    if idx > prev_decoded_len:
+                        yield StreamToken(
+                            text=current_decoded[prev_decoded_len:idx],
+                            token_id=next_token, position=i,
+                            elapsed_ms=elapsed, is_final=True,
+                        )
+                    stopped_by = "stop_token"
+                    break
+                # Only emit text that can't be the prefix of a future stop.
+                safe_len = len(current_decoded) - (max_stop_len - 1)
+                token_text = (
+                    current_decoded[prev_decoded_len:safe_len]
+                    if safe_len > prev_decoded_len else ""
+                )
+                prev_decoded_len = max(prev_decoded_len, safe_len)
+            else:
+                token_text = current_decoded[prev_decoded_len:]
+                prev_decoded_len = len(current_decoded)
 
             is_final = (i == max_new_tokens - 1)
             yield StreamToken(
@@ -188,13 +219,24 @@ class StreamingGenerator:
                 is_final=is_final,
             )
 
-            # Get next token's logits
+            # Feed the new token to get the next token's logits (KV-cache).
             next_input = torch.tensor([[next_token]], dtype=torch.long, device=self.device)
             start_pos = len(generated_ids) - 1
             with autocast(device_type=self.device if use_amp else "cpu",
                            dtype=torch.bfloat16, enabled=use_amp):
                 logits = self.model(next_input, start_pos=start_pos, use_cache=True)
             next_logits = logits[0, -1, :]
+
+        # Flush any held-back tail (generation ended via EOS / max tokens without
+        # hitting a string stop).
+        if string_stops and len(current_decoded) > prev_decoded_len and stopped_by != "stop_token":
+            yield StreamToken(
+                text=current_decoded[prev_decoded_len:],
+                token_id=last_token if last_token is not None else self.tokenizer.eos_id,
+                position=len(generated_ids) - len(token_ids) - 1,
+                elapsed_ms=(time.perf_counter() - start_time) * 1000,
+                is_final=True,
+            )
 
         # Finalize stats
         stats.decode_time_ms = (time.perf_counter() - decode_start) * 1000
