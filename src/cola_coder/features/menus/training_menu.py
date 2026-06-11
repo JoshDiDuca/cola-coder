@@ -139,6 +139,8 @@ class TrainingMenu:
                  "detail": "Stage 6: Fine-tune on ChatML instruction data"},
                 {"label": "MoE Upcycling",
                  "detail": "Stage 7: Convert dense checkpoint to Mixture of Experts"},
+                {"label": "Fine-tune Upcycled MoE",
+                 "detail": "Stage 7.5: Differentiate experts (low LR, short schedule)"},
             ]
 
             choice = cli.choose("Post-Training:", options, allow_cancel=True)
@@ -153,6 +155,8 @@ class TrainingMenu:
                 self._instruction_tuning_menu()
             elif choice == 3:
                 self._moe_upcycling_menu()
+            elif choice == 4:
+                self._moe_finetune_menu()
 
     def _alignment_menu(self) -> None:
         """Alignment: routing, reasoning, self-play."""
@@ -1107,6 +1111,79 @@ class TrainingMenu:
             "--num-shared", str(num_shared),
         ]
         self._master._run_script("upcycle_to_moe.py", args)
+        self._master._pause()
+
+    def _moe_finetune_menu(self) -> None:
+        """Stage 7.5: fine-tune an upcycled MoE checkpoint to differentiate experts.
+
+        Upcycling (stage 7) copies the dense FFN into every expert, so they
+        start identical. A short, low-LR fine-tune differentiates them without
+        destroying the inherited dense knowledge (MODEL-003). Derives a
+        finetune config (scaled LR + max_steps) and runs `train.py --resume`
+        on the MoE checkpoint — the trainer auto-detects MoE from the checkpoint.
+        """
+        import yaml
+        from pathlib import Path
+
+        from cola_coder.model.config import derive_moe_finetune_config
+
+        _print_section_header(
+            "Fine-tune Upcycled MoE",
+            "Differentiate experts after upcycling (low LR, short schedule)",
+        )
+        cli.print(
+            "  Upcycling copies the dense FFN into every expert (identical at first).\n"
+            "  This short, low-LR fine-tune differentiates them. Run AFTER MoE\n"
+            "  upcycling, on the upcycled MoE checkpoint (e.g. checkpoints/moe/).\n"
+        )
+
+        ckpt_path = self._master._pick_checkpoint("Select upcycled MoE checkpoint:")
+        if ckpt_path is None:
+            return
+        config_path = self._master._config_for_checkpoint(ckpt_path)
+
+        # Recipe presets: (lr_fraction, step_fraction)
+        presets = [
+            {"label": "Gentle (10% LR, 10% steps)", "detail": "Safest — minimal drift"},
+            {"label": "Recommended (10% LR, 15% steps)", "detail": "Good differentiation"},
+            {"label": "Aggressive (20% LR, 25% steps)", "detail": "More differentiation, more drift"},
+        ]
+        pick = cli.choose("Fine-tune recipe:", presets, allow_cancel=True)
+        if pick is None:
+            return
+        lr_frac, step_frac = [(0.1, 0.10), (0.1, 0.15), (0.2, 0.25)][pick]
+
+        try:
+            raw = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) or {}
+        except OSError as exc:
+            cli.error(f"Could not read config {config_path}: {exc}")
+            return
+
+        derived = derive_moe_finetune_config(raw, lr_fraction=lr_frac, step_fraction=step_frac)
+
+        auto_dir = Path("configs/auto")
+        auto_dir.mkdir(parents=True, exist_ok=True)
+        derived_path = str(auto_dir / f"{Path(config_path).stem}_moe_ft.yaml")
+        Path(derived_path).write_text(
+            yaml.safe_dump(derived, sort_keys=False), encoding="utf-8"
+        )
+
+        base_tr = raw.get("training", {})
+        new_tr = derived.get("training", {})
+        cli.kv_table({
+            "MoE checkpoint": ckpt_path,
+            "Base config": config_path,
+            "Derived config": derived_path,
+            "Learning rate": f"{new_tr.get('learning_rate')} (was {base_tr.get('learning_rate')})",
+            "Max steps": f"{new_tr.get('max_steps')} (was {base_tr.get('max_steps')})",
+        }, title="MoE Fine-tune Config")
+
+        if not cli.confirm("Start MoE fine-tuning?"):
+            return
+
+        self._master._run_script(
+            "train.py", ["--config", derived_path, "--resume", ckpt_path]
+        )
         self._master._pause()
 
     def _self_play_training_menu(self) -> None:

@@ -46,6 +46,59 @@ def resolve_moe_layers(moe_layers: str, n_layers: int) -> set[int]:
     return indices
 
 
+def derive_moe_finetune_config(
+    config: dict,
+    *,
+    lr_fraction: float = 0.1,
+    step_fraction: float = 0.15,
+) -> dict:
+    """Return a deep-copied config dict tuned for fine-tuning an upcycled MoE.
+
+    MODEL-003: an upcycled MoE starts with every expert as an identical copy of
+    the dense FFN; a short, low-LR fine-tune is what differentiates the experts
+    without destroying the inherited dense knowledge (the standard
+    upcycling recipe — e.g. Qwen2-MoE / sparse-upcycling literature train only
+    a fraction of the original steps at a fraction of the LR).
+
+    Only the ``training`` section is rescaled (learning_rate, min_lr, max_steps,
+    warmup_steps); everything else — including any ``model.moe`` block — is left
+    untouched. The trainer additionally auto-detects MoE from the resumed
+    checkpoint (``apply_moe_config_from_checkpoint``), so a dense base config
+    still fine-tunes the MoE correctly.
+
+    Args:
+        config: Raw config dict (as loaded from YAML), not the dataclass.
+        lr_fraction: Multiplier on the base learning rate (default 0.1 = 10%).
+        step_fraction: Multiplier on the base max_steps (default 0.15 = 15%).
+
+    Returns:
+        A new config dict; the input is not mutated.
+    """
+    import copy
+
+    if not 0.0 < lr_fraction <= 1.0:
+        raise ValueError(f"lr_fraction must be in (0, 1], got {lr_fraction}")
+    if not 0.0 < step_fraction <= 1.0:
+        raise ValueError(f"step_fraction must be in (0, 1], got {step_fraction}")
+
+    out = copy.deepcopy(config)
+    tr = out.setdefault("training", {})
+
+    base_lr = float(tr.get("learning_rate", 3.0e-4))
+    base_min = float(tr.get("min_lr", base_lr * 0.1))
+    base_steps = int(tr.get("max_steps", 20000))
+    base_warmup = int(tr.get("warmup_steps", 500))
+
+    new_lr = base_lr * lr_fraction
+    tr["learning_rate"] = new_lr
+    # min_lr must stay below the (lowered) peak LR.
+    tr["min_lr"] = min(base_min, new_lr * 0.1)
+    tr["max_steps"] = max(1, round(base_steps * step_fraction))
+    # Keep warmup short relative to the shortened schedule.
+    tr["warmup_steps"] = max(0, min(base_warmup, round(tr["max_steps"] * 0.05)))
+    return out
+
+
 @dataclass
 class MoEConfig:
     """Mixture of Experts configuration.

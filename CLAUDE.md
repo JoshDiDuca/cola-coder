@@ -179,7 +179,7 @@ Feature scanning functions stay in master_menu.py — ToolsMenu imports them fro
 1. Pipeline Manager     → pipeline_menu.py (create/resume/view/override named runs)
 2. Foundation (1-2)     → Train tokenizer, Prepare data
 3. Pre-Training (3)     → Train model, Resume, Background training
-4. Post-Training (4-7)  → Extend context, Generate instructions, Instruction tuning, MoE upcycle
+4. Post-Training (4-7)  → Extend context, Generate instructions, Instruction tuning, MoE upcycle, MoE fine-tune (7.5)
 5. Alignment (8-9)      → Train semantic router, GRPO reasoning, Self-play
 6. Monitoring           → VRAM estimation, LR finder, dashboard, eval history
 ```

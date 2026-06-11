@@ -31,10 +31,6 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   collection-time mixing via collect_data, which fits the single-.npy trainer.
 
 
-- **MODEL-003** [model, low] `open` — Follow-up to MODEL-001: fine-tuning an
-  upcycled MoE now works via `train.py --resume <moe_dir> --config <cfg>`, but
-  there is no DEDICATED pipeline stage 7.5 / menu entry / auto-config (low LR,
-  fraction of steps) to orchestrate it. Optional convenience wrapper.
 
 
 - **MODEL-004** [model, low] `open` — GRPO sequence log-prob (grpo.py:230-241,
@@ -53,6 +49,21 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **MODEL-003** [model/capability, low-medium] `done` (2026-06-11) — Finished the
+  MoE fine-tune orchestration (stage 7.5). MODEL-001 made `train.py --resume
+  <moe_dir>` fine-tune an upcycled MoE, but there was no dedicated entry or
+  auto-config — the user had to hand-pick a low LR / short schedule, and the MoE
+  upcycling menu dropped them with no follow-up (experts stay identical copies
+  of the dense FFN until differentiated). Added torch-free
+  `derive_moe_finetune_config(cfg, lr_fraction=0.1, step_fraction=0.15)` in
+  model/config.py (the standard sparse-upcycling recipe: a fraction of steps at
+  a fraction of the LR; rescales only the training section, clamps min_lr below
+  the lowered peak, keeps warmup short, never 0 steps; input not mutated) and a
+  Post-Training menu entry `_moe_finetune_menu` (3 presets) that derives a config
+  → writes configs/auto/{stem}_moe_ft.yaml → runs `train.py --resume`. Tests:
+  test_moe_finetune_config.py (10); the static menu-wiring test validates the new
+  train.py --config/--resume invocation. Does NOT start training (orchestration +
+  config only).
 - **SEC-004** [security, medium] `done` (2026-06-11) — Silent malware-scan
   fail-OPEN when no scanner backend is available. (1) `CompositeMalwareScanner.
   scan_file/scan_directory` returned `is_clean=True, scan_errors=[]` (a
