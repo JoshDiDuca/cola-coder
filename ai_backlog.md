@@ -49,6 +49,26 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **TOOL-005** [tooling/export, high] `done` (2026-06-11) — GGUF export embedded
+  NO tokenizer vocabulary. Both writers emitted `tokenizer.ggml.model="llama"`
+  with bos/eos ids but no `tokenizer.ggml.tokens`/`token_type`/`merges` — and
+  "llama" is the wrong model for cola-coder's byte-level BPE (should be "gpt2").
+  A GGUF with no token list cannot be loaded by llama.cpp/Ollama at all, so
+  EVERY exported model was unusable (TOOL-003 had audited the quant block layout,
+  not the vocab). The builtin writer also couldn't express GGUF arrays. Fixed:
+  added GGUF array support to `_encode_kv` (type 9), a torch-free
+  `build_gguf_vocab(tokenizer_json)` (byte-level BPE → gpt2 model, id-ordered
+  token list, CONTROL/UNKNOWN/NORMAL types, "a b" merges, special-token ids),
+  and `_resolve_vocab` which loads the checkpoint's tokenizer via
+  `resolve_tokenizer_path` (honouring the SFT/reasoning expanded tokenizer from
+  BUG-106/107) and refuses to embed a vocab whose size ≠ the model's embedding
+  rows. Both writers now embed it (builtin via array metadata; gguf-package via
+  add_token_list/types/merges). When no tokenizer resolves, export still
+  succeeds but warns LOUDLY that the GGUF has no vocabulary (no silent broken
+  artifact). Tests: test_gguf_vocab.py (8) — vocab builder, array encoder
+  round-trip, and end-to-end export whose GGUF KV section is parsed back to
+  verify model=="gpt2", token count == vocab_size, merges present, plus
+  missing-tokenizer and vocab-mismatch fallbacks.
 - **MODEL-003** [model/capability, low-medium] `done` (2026-06-11) — Finished the
   MoE fine-tune orchestration (stage 7.5). MODEL-001 made `train.py --resume
   <moe_dir>` fine-tune an upcycled MoE, but there was no dedicated entry or

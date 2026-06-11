@@ -25,6 +25,7 @@ manual writer is used that produces a valid GGUF v3 file.
 
 from __future__ import annotations
 
+import json
 import re
 import struct
 import logging
@@ -200,9 +201,15 @@ _GGUF_TYPE_INT32 = 5
 _GGUF_TYPE_FLOAT32 = 6
 _GGUF_TYPE_BOOL = 7
 _GGUF_TYPE_STRING = 8
+_GGUF_TYPE_ARRAY = 9
 _GGUF_TYPE_UINT64 = 10
 _GGUF_TYPE_INT64 = 11
 _GGUF_TYPE_FLOAT64 = 12
+
+# GGUF tokenizer token types (llama.cpp llama_token_type)
+_GGUF_TOKEN_TYPE_NORMAL = 1
+_GGUF_TOKEN_TYPE_UNKNOWN = 2
+_GGUF_TOKEN_TYPE_CONTROL = 3
 
 # Tensor type codes
 _GGML_TYPE_F32 = 0
@@ -240,9 +247,81 @@ def _encode_kv(key: str, value_type: int, value: object) -> bytes:
         out += struct.pack("<Q", int(value))
     elif value_type == _GGUF_TYPE_FLOAT64:
         out += struct.pack("<d", float(value))
+    elif value_type == _GGUF_TYPE_ARRAY:
+        # value is (element_type, [items]). GGUF arrays: elem_type (uint32),
+        # length (uint64), then each element packed WITHOUT its own type tag.
+        elem_type, items = value
+        out += struct.pack("<I", elem_type)
+        out += struct.pack("<Q", len(items))
+        for item in items:
+            if elem_type == _GGUF_TYPE_STRING:
+                out += _encode_string(str(item))
+            elif elem_type == _GGUF_TYPE_INT32:
+                out += struct.pack("<i", int(item))
+            elif elem_type == _GGUF_TYPE_UINT32:
+                out += struct.pack("<I", int(item))
+            elif elem_type == _GGUF_TYPE_FLOAT32:
+                out += struct.pack("<f", float(item))
+            else:
+                raise ValueError(f"Unsupported GGUF array element type: {elem_type}")
     else:
         raise ValueError(f"Unsupported GGUF value type: {value_type}")
     return out
+
+
+def build_gguf_vocab(tokenizer_json: dict) -> dict | None:
+    """Extract a GGUF-ready vocabulary from a HuggingFace tokenizer.json dict.
+
+    cola-coder uses a byte-level BPE tokenizer, which maps to llama.cpp's
+    ``gpt2`` tokenizer model (NOT ``llama``/SentencePiece). A GGUF file with no
+    token list cannot be loaded by llama.cpp at all, so embedding this is what
+    makes an exported model actually usable.
+
+    Returns a dict with ``model`` ("gpt2"), ``tokens`` (id-ordered list),
+    ``token_types`` (parallel list of GGUF token-type ints), ``merges``
+    ("a b" strings), and ``bos_id``/``eos_id``/``unk_id``/``pad_id`` (or None).
+    Returns ``None`` if the JSON has no usable BPE vocab.
+    """
+    model = tokenizer_json.get("model") or {}
+    vocab = model.get("vocab")
+    if not isinstance(vocab, dict) or not vocab:
+        return None
+
+    n = len(vocab)
+    id_to_tok = {idx: tok for tok, idx in vocab.items()}
+    # Vocab ids are contiguous 0..n-1; fall back to "" for any gap (defensive).
+    tokens = [id_to_tok.get(i, "") for i in range(n)]
+
+    token_types = [_GGUF_TOKEN_TYPE_NORMAL] * n
+    for added in tokenizer_json.get("added_tokens", []) or []:
+        tid = added.get("id")
+        if isinstance(tid, int) and 0 <= tid < n and added.get("special"):
+            token_types[tid] = _GGUF_TOKEN_TYPE_CONTROL
+    unk_token = model.get("unk_token")
+    if unk_token and unk_token in vocab:
+        token_types[vocab[unk_token]] = _GGUF_TOKEN_TYPE_UNKNOWN
+
+    merges: list[str] = []
+    for mg in model.get("merges", []) or []:
+        if isinstance(mg, (list, tuple)) and len(mg) == 2:
+            merges.append(f"{mg[0]} {mg[1]}")
+        elif isinstance(mg, str):
+            merges.append(mg)
+
+    def _id_of(content: str) -> int | None:
+        v = vocab.get(content)
+        return v if isinstance(v, int) else None
+
+    return {
+        "model": "gpt2",
+        "tokens": tokens,
+        "token_types": token_types,
+        "merges": merges,
+        "bos_id": _id_of("<|bos|>"),
+        "eos_id": _id_of("<|eos|>"),
+        "unk_id": _id_of("<|unk|>"),
+        "pad_id": _id_of("<|pad|>"),
+    }
 
 
 def _write_gguf_manual(
@@ -376,6 +455,7 @@ class GGUFExporter:
         checkpoint_path: str,
         output_path: str,
         quantization: str = "f16",
+        tokenizer_path: str | None = None,
     ) -> ExportResult:
         """Export a cola-coder safetensors checkpoint to GGUF.
 
@@ -409,15 +489,19 @@ class GGUFExporter:
 
             mapped = self._map_weight_names(state_dict)
 
+            # Resolve and embed the tokenizer vocabulary. Without it the GGUF
+            # has no token list and llama.cpp cannot load it at all.
+            vocab = self._resolve_vocab(safetensors_path, tokenizer_path, mapped)
+
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
             if GGUF_PACKAGE_AVAILABLE:
                 num_tensors = self._write_gguf_with_package(
-                    mapped, output_path, quantization
+                    mapped, output_path, quantization, vocab=vocab
                 )
             else:
                 num_tensors = self._write_gguf_builtin(
-                    mapped, output_path, quantization
+                    mapped, output_path, quantization, vocab=vocab
                 )
 
             size_mb = Path(output_path).stat().st_size / (1024 * 1024)
@@ -483,13 +567,81 @@ class GGUFExporter:
             f"Cannot find model.safetensors from checkpoint path: {checkpoint_path}"
         )
 
-    def _build_gguf_metadata(self) -> dict:
+    def _resolve_vocab(
+        self,
+        safetensors_path: Path,
+        tokenizer_path: str | None,
+        mapped: dict[str, "torch.Tensor"],
+    ) -> dict | None:
+        """Resolve the tokenizer for this checkpoint and build its GGUF vocab.
+
+        Priority: explicit ``tokenizer_path`` → the checkpoint's recorded
+        tokenizer (``resolve_tokenizer_path``, which honours an SFT/reasoning
+        checkpoint's expanded tokenizer per BUG-106/107). Returns None (with a
+        loud warning) if no tokenizer is found or its vocab size doesn't match
+        the model's embedding rows — never embeds a mismatched vocab.
+        """
+        tj_path = tokenizer_path
+        if tj_path is None:
+            try:
+                from cola_coder.inference.loading import resolve_tokenizer_path
+
+                tj_path = resolve_tokenizer_path(safetensors_path.parent)
+            except Exception:  # noqa: BLE001
+                tj_path = None
+
+        if not tj_path or not Path(tj_path).exists():
+            logger.warning(
+                "GGUF export: no tokenizer found (resolved=%r). The GGUF will "
+                "have NO vocabulary and will not load in llama.cpp as-is. Pass "
+                "tokenizer_path, or ensure the checkpoint's metadata.json records "
+                "tokenizer_path.",
+                tj_path,
+            )
+            return None
+
+        try:
+            tj = json.loads(Path(tj_path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("GGUF export: could not read tokenizer %s: %s", tj_path, exc)
+            return None
+
+        vocab = build_gguf_vocab(tj)
+        if vocab is None:
+            logger.warning(
+                "GGUF export: tokenizer %s has no BPE vocab — embedding skipped", tj_path
+            )
+            return None
+
+        emb = mapped.get("token_embd.weight")
+        if emb is not None and emb.shape[0] != len(vocab["tokens"]):
+            logger.warning(
+                "GGUF export: tokenizer vocab (%d) != model embedding rows (%d) — "
+                "tokenizer mismatch, NOT embedding a vocab. Use the checkpoint's "
+                "expanded tokenizer (BUG-106/107) for SFT/reasoning models.",
+                len(vocab["tokens"]), emb.shape[0],
+            )
+            return None
+
+        logger.info(
+            "GGUF export: embedding tokenizer vocab (%d tokens, %d merges) from %s",
+            len(vocab["tokens"]), len(vocab["merges"]), tj_path,
+        )
+        return vocab
+
+    def _build_gguf_metadata(self, vocab: dict | None = None) -> dict:
         """Build GGUF metadata dict for the model config.
 
-        Returns a dict: key → (gguf_value_type, value)
+        Returns a dict: key → (gguf_value_type, value).
+
+        When ``vocab`` (from :func:`build_gguf_vocab`) is provided, the full
+        byte-level BPE tokenizer is embedded (model="gpt2", token list, types,
+        merges, special-token ids) so the GGUF is loadable by llama.cpp. When
+        it is None, only the minimal placeholder tokenizer keys are written —
+        the caller will have warned that the file has no usable vocabulary.
         """
         cfg = self.config
-        return {
+        meta = {
             "general.architecture": (_GGUF_TYPE_STRING, "llama"),
             "general.name": (_GGUF_TYPE_STRING, "cola-coder"),
             "llama.context_length": (_GGUF_TYPE_UINT32, cfg.max_seq_len),
@@ -501,10 +653,35 @@ class GGUFExporter:
             "llama.attention.head_count": (_GGUF_TYPE_UINT32, cfg.n_heads),
             "llama.attention.head_count_kv": (_GGUF_TYPE_UINT32, cfg.n_kv_heads),
             "llama.attention.layer_norm_rms_epsilon": (_GGUF_TYPE_FLOAT32, _RMS_NORM_EPS),
-            "tokenizer.ggml.model": (_GGUF_TYPE_STRING, "llama"),
-            "tokenizer.ggml.bos_token_id": (_GGUF_TYPE_UINT32, 1),
-            "tokenizer.ggml.eos_token_id": (_GGUF_TYPE_UINT32, 2),
         }
+
+        if vocab is None:
+            # No vocab resolved — minimal placeholder (NOT a loadable model).
+            meta["tokenizer.ggml.model"] = (_GGUF_TYPE_STRING, "llama")
+            meta["tokenizer.ggml.bos_token_id"] = (_GGUF_TYPE_UINT32, 1)
+            meta["tokenizer.ggml.eos_token_id"] = (_GGUF_TYPE_UINT32, 2)
+            return meta
+
+        meta["tokenizer.ggml.model"] = (_GGUF_TYPE_STRING, vocab["model"])
+        meta["tokenizer.ggml.tokens"] = (
+            _GGUF_TYPE_ARRAY, (_GGUF_TYPE_STRING, vocab["tokens"])
+        )
+        meta["tokenizer.ggml.token_type"] = (
+            _GGUF_TYPE_ARRAY, (_GGUF_TYPE_INT32, vocab["token_types"])
+        )
+        if vocab["merges"]:
+            meta["tokenizer.ggml.merges"] = (
+                _GGUF_TYPE_ARRAY, (_GGUF_TYPE_STRING, vocab["merges"])
+            )
+        for key, vid in (
+            ("bos_token_id", vocab["bos_id"]),
+            ("eos_token_id", vocab["eos_id"]),
+            ("unknown_token_id", vocab["unk_id"]),
+            ("padding_token_id", vocab["pad_id"]),
+        ):
+            if vid is not None:
+                meta[f"tokenizer.ggml.{key}"] = (_GGUF_TYPE_UINT32, int(vid))
+        return meta
 
     def _quantize_tensor(
         self, tensor: torch.Tensor, method: str
@@ -530,9 +707,10 @@ class GGUFExporter:
         mapped: dict[str, torch.Tensor],
         output_path: str,
         quantization: str,
+        vocab: dict | None = None,
     ) -> int:
         """Write GGUF using the built-in writer (no external deps)."""
-        metadata = self._build_gguf_metadata()
+        metadata = self._build_gguf_metadata(vocab)
         tensors_np: dict[str, np.ndarray] = {}
         tensor_types: dict[str, int] = {}
 
@@ -553,6 +731,7 @@ class GGUFExporter:
         mapped: dict[str, torch.Tensor],
         output_path: str,
         quantization: str,
+        vocab: dict | None = None,
     ) -> int:
         """Write GGUF using the official gguf Python package."""
         writer = GGUFWriter(output_path, arch="llama")
@@ -569,6 +748,24 @@ class GGUFExporter:
         writer.add_head_count(cfg.n_heads)
         writer.add_head_count_kv(cfg.n_kv_heads)
         writer.add_layer_norm_rms_eps(_RMS_NORM_EPS)
+
+        # Embed the byte-level BPE vocabulary so the GGUF is loadable. Uses the
+        # same vocab data as the builtin writer, via the gguf package's standard
+        # token APIs (the path llama.cpp's own converter uses).
+        if vocab is not None:
+            writer.add_tokenizer_model(vocab["model"])
+            writer.add_token_list(vocab["tokens"])
+            writer.add_token_types(vocab["token_types"])
+            if vocab["merges"]:
+                writer.add_token_merges(vocab["merges"])
+            if vocab["bos_id"] is not None:
+                writer.add_bos_token_id(int(vocab["bos_id"]))
+            if vocab["eos_id"] is not None:
+                writer.add_eos_token_id(int(vocab["eos_id"]))
+            if vocab["unk_id"] is not None:
+                writer.add_unk_token_id(int(vocab["unk_id"]))
+            if vocab["pad_id"] is not None:
+                writer.add_pad_token_id(int(vocab["pad_id"]))
 
         # Map quantization string to GGMLQuantizationType
         quant_map = {
