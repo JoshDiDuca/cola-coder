@@ -43,6 +43,13 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **TEST-001** [test-quality, medium] `done` (2026-06-11) — quality_filter.py
+  (the data-quality GATE deciding which scraped code enters training) had NO
+  direct test coverage (only the separate filters/ plugins were tested). A
+  subtle break silently poisons the training set. Added test_quality_filter.py
+  (20 tests) locking the key checks — headline guard is check_character_
+  diversity's denominator cap (see "Not a bug" below): a regression test
+  asserts large diverse code PASSES, so the cap can't be "fixed" away.
 - **MODEL-002** [model, low] `done` (2026-06-11) — `ModelConfig.total_params`
   used the dense FFN formula regardless of MoE, so a MoE config reported ~active
   params, not the true in-memory total (all experts) — which feeds VRAM
@@ -192,6 +199,19 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Not a bug (verified)
+
+- **check_character_diversity denominator cap (quality_filter.py:297)** — FALSE
+  POSITIVE (a scan flagged the `min(total_chars, 1000)` cap as letting large
+  repetitive files pass). The cap is REQUIRED and correct: unique chars are
+  bounded by the charset (~95 for ASCII code), so without the cap `unique/total`
+  → 0 for ANY large file and a normal diverse 10K-char code file (~85 unique)
+  would score 0.0085 < 0.05 and be WRONGLY REJECTED. The cap converts the metric
+  into an absolute floor ("≥50 unique chars" at 0.05), which matches the
+  docstring ("Normal code uses 30-40 unique chars") and still rejects truly
+  repetitive files (1-15 unique chars). Removing it would reject most large code
+  — a catastrophic regression. Locked by test_quality_filter.py
+  TestCharacterDiversityCap. The rest of the data-quality pipeline (filters,
+  scorers, ScoreMapper, weight polarity, chunking) was audited and is CLEAN.
 
 - **VS Code extension scan (2026-06-11)** — a thorough scan flagged 11 items in
   the extension (client/providers/server/ui/extension.ts); ALL verified as false
