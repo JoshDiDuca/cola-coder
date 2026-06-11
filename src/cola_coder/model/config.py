@@ -99,6 +99,40 @@ def derive_moe_finetune_config(
     return out
 
 
+def model_scale(config) -> dict:
+    """Derive per-model post-training scaling values from training.max_steps.
+
+    Single source of truth shared by the pipeline orchestrators (the Pipeline
+    Manager menu and scripts/full_pipeline.py) so SFT example counts/epochs and
+    GRPO group size scale consistently with model size. max_steps in each config
+    is Chinchilla-calibrated to params (tiny 20K→50M, small 100K→125M,
+    medium 150K→299M, 4080_max 200K→455M). Torch-free; reads only config.training.
+
+    Returns ``{"sft_examples", "sft_epochs", "grpo_group_size"}``.
+    """
+    training = getattr(config, "training", None)
+    max_steps = getattr(training, "max_steps", 20000) if training is not None else 20000
+
+    # SFT instruction examples ∝ training budget (max_steps//4 → 5K/25K/37.5K/50K).
+    sft_examples = max(2000, min(60000, max_steps // 4))
+    # Tiny models need more passes over their smaller dataset; larger configs
+    # have enough data that 2 epochs avoids overfitting.
+    sft_epochs = 3 if max_steps <= 50000 else 2
+    # Larger models can explore more candidate solutions per problem in VRAM.
+    if max_steps <= 25000:
+        grpo_group_size = 4
+    elif max_steps <= 120000:
+        grpo_group_size = 8
+    else:
+        grpo_group_size = 16
+
+    return {
+        "sft_examples": sft_examples,
+        "sft_epochs": sft_epochs,
+        "grpo_group_size": grpo_group_size,
+    }
+
+
 @dataclass
 class MoEConfig:
     """Mixture of Experts configuration.

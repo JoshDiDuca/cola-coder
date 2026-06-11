@@ -209,15 +209,20 @@ def _stage_instruction_tune(config: Config, args: argparse.Namespace) -> None:
             "Run Stage 5 (generate-instructions) first."
         )
 
+    # SFT epochs scale with model size (tiny needs more passes over its smaller
+    # dataset) via the shared model_scale helper — not a hardcoded 2.
+    from cola_coder.model.config import model_scale
+    epochs = model_scale(config)["sft_epochs"]
+
     cmd = [
         str(venv), "scripts/train_sft.py",
         "--data", str(instruction_data),
         "--config", args.config,
         "--checkpoint", str(latest),
-        "--epochs", "2",
+        "--epochs", str(epochs),
         "--lr", "2e-5",
     ]
-    cli.info("SFT", f"Fine-tuning on {instruction_data}")
+    cli.info("SFT", f"Fine-tuning on {instruction_data} (epochs={epochs})")
     subprocess.run(cmd, check=True)
 
 
@@ -281,11 +286,34 @@ def _stage_train_reasoning(config: Config, args: argparse.Namespace) -> None:
             "Run Stage 3 (pretrain) before Stage 9 (train-reasoning)."
         )
 
+    # train_reasoning.py builds the model from --config's `model` section, so it
+    # MUST be the run's MODEL config — NOT configs/reasoning.yaml (whose own
+    # model section is a fixed 768/12 ≈ 101M and would mismatch the pretrained
+    # checkpoint → load crash for every other size). Reward/problems/group-size
+    # derive from config.data.languages (mirrors the audited Pipeline Manager):
+    # single typescript → tsc, single python → exec, multi → combined.
+    from cola_coder.model.config import model_scale
+    scale = model_scale(config)
+    data_cfg = getattr(config, "data", None)
+    languages = getattr(data_cfg, "languages", ["python"]) if data_cfg is not None else ["python"]
+    language = languages[0] if languages else "python"
+    if len(languages) > 1:
+        reward = "combined"
+    elif language == "typescript":
+        reward = "typescript"
+    else:
+        reward = "python_exec"
+
     cmd = [
         str(venv), "scripts/train_reasoning.py",
-        "--config", "configs/reasoning.yaml",
+        "--config", args.config,
         "--base-checkpoint", str(latest),
+        "--language", language,
+        "--reward", reward,
+        "--problems", "all",
+        "--group-size", str(scale["grpo_group_size"]),
     ]
+    cli.info("Reasoning", f"reward={reward}, language={language}, group_size={scale['grpo_group_size']}")
     subprocess.run(cmd, check=True)
 
 

@@ -76,3 +76,68 @@ class TestStage5GenerateInstructions:
         cmd = _run_stage5(fp, calls, ["typescript"], dataset="bigcode/starcoderdata")
         assert "--source" in cmd and cmd[cmd.index("--source") + 1] == "huggingface"
         assert "--dataset" in cmd and cmd[cmd.index("--dataset") + 1] == "bigcode/starcoderdata"
+
+
+def _cfg(languages, max_steps, out_dir):
+    return types.SimpleNamespace(
+        data=types.SimpleNamespace(languages=languages, dataset="bigcode/the-stack-v2-dedup"),
+        training=types.SimpleNamespace(max_steps=max_steps),
+        checkpoint=types.SimpleNamespace(output_dir=out_dir),
+    )
+
+
+class TestStage6Sft:
+    def test_epochs_scale_with_model_size(self, captured_cmd, tmp_path):
+        fp, calls = captured_cmd
+        # Stage 6 reads data/sft/instructions.jsonl + checkpoints/<...>/latest;
+        # create them so the stage doesn't bail before building the command.
+        (tmp_path / "data" / "sft").mkdir(parents=True)
+        (tmp_path / "data" / "sft" / "instructions.jsonl").write_text("{}\n")
+        ck = tmp_path / "ck"
+        (ck / "latest").mkdir(parents=True)
+        import os
+        cwd = os.getcwd()
+        os.chdir(tmp_path)
+        try:
+            args = types.SimpleNamespace(config="configs/tiny.yaml", tokenizer=None)
+            # tiny: max_steps 20000 -> 3 epochs
+            fp._stage_instruction_tune(_cfg(["typescript"], 20000, str(ck)), args)
+            cmd = calls[-1]
+            assert cmd[cmd.index("--epochs") + 1] == "3"
+            calls.clear()
+            # medium: max_steps 150000 -> 2 epochs
+            fp._stage_instruction_tune(_cfg(["typescript"], 150000, str(ck)), args)
+            assert calls[-1][calls[-1].index("--epochs") + 1] == "2"
+        finally:
+            os.chdir(cwd)
+
+
+class TestStage9Reasoning:
+    def _run(self, fp, calls, languages, tmp_path):
+        ck = tmp_path / "ckpt"
+        (ck / "latest").mkdir(parents=True, exist_ok=True)
+        args = types.SimpleNamespace(config="configs/4080_max.yaml", tokenizer=None)
+        fp._stage_train_reasoning(_cfg(languages, 200000, str(ck)), args)
+        return calls[-1]
+
+    def test_uses_model_config_not_reasoning_yaml(self, captured_cmd, tmp_path):
+        fp, calls = captured_cmd
+        cmd = self._run(fp, calls, ["typescript"], tmp_path)
+        # The model config (args.config) must be passed, NOT configs/reasoning.yaml
+        # (whose fixed 101M model would mismatch the checkpoint).
+        assert cmd[cmd.index("--config") + 1] == "configs/4080_max.yaml"
+        assert "configs/reasoning.yaml" not in cmd
+
+    def test_reward_derived_from_languages(self, captured_cmd, tmp_path):
+        fp, calls = captured_cmd
+        cmd = self._run(fp, calls, ["typescript"], tmp_path)
+        assert cmd[cmd.index("--reward") + 1] == "typescript"
+        cmd = self._run(fp, calls, ["python"], tmp_path)
+        assert cmd[cmd.index("--reward") + 1] == "python_exec"
+        cmd = self._run(fp, calls, ["typescript", "python"], tmp_path)
+        assert cmd[cmd.index("--reward") + 1] == "combined"
+
+    def test_group_size_present(self, captured_cmd, tmp_path):
+        fp, calls = captured_cmd
+        cmd = self._run(fp, calls, ["typescript"], tmp_path)
+        assert "--group-size" in cmd and cmd[cmd.index("--group-size") + 1] == "16"

@@ -11,19 +11,19 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
-- **TOOL-011** [tooling/pipeline, medium] `open` — More `full_pipeline.py`
-  divergences from the audited Pipeline Manager (pipeline_menu.py), found
-  alongside TOOL-010: (1) Stage 1 `_stage_collect_data` runs `prepare_data.py`
-  (code-only), NOT `collect_data.py --sources code,text,math` — so full_pipeline
-  SKIPS multi-source collection (the 70/20/10 code/text/math mix, incl. the
-  DATA-026/027/028 fixes) and Stage 2 then runs `prepare_data.py` AGAIN
-  (redundant, and the stage-2 run drops Stage 1's `--score` weights). (2) Stage 6
-  SFT hardcodes `--epochs 2 --lr 2e-5` instead of scaling with model size via
-  `_model_scale(config)` (tiny→3 epochs etc.). (3) Stage 9 reasoning doesn't
-  derive `--reward`/`--problems` from `config.data.languages` (a TS-primary run
-  silently uses the python_exec default). None HANG (unlike TOOL-010); they
-  produce wrong-distribution/under-tuned artifacts. Fix by mirroring the
-  pipeline_menu stage methods. Medium — defer the larger Stage-1 rewrite.
+- **TOOL-011** [tooling/pipeline, low-medium] `open` (deferred — design decision)
+  — Remaining `full_pipeline.py` divergence after TOOL-012: Stage 1
+  `_stage_collect_data` runs `prepare_data.py` (code-only), NOT `collect_data.py
+  --sources code,text,math`, so the runner SKIPS multi-source collection (the
+  70/20/10 code/text/math mix incl. DATA-026/027/028), and Stage 2 then runs
+  `prepare_data.py` AGAIN (redundant; the stage-2 run drops Stage 1's `--score`
+  weights). Fixing this is a design decision (the collect-vs-prepare 2-stage
+  model is ambiguous: collect_data.py already tokenizes+mixes, so running both
+  double-produces .npy and training scans/picks one). The Pipeline Manager makes
+  Stage 1 an interactive CHOICE (auto multi-source vs code-only) — full_pipeline
+  needs an equivalent non-interactive policy (e.g. multi-source if
+  data_sources.yaml enables text/math, else code-only, and drop the redundant
+  Stage 2). Defer to user steer on the intended model.
 
 - **DATA-025** [data-quality/dead-code, low] `open` (integrate or remove — user
   decision) — `data/fim_dataset.py` (`FIMDataset` + `create_fim_dataloader`) is a
@@ -108,6 +108,25 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **TOOL-012** [tooling/pipeline, high] `done` (2026-06-11) — `full_pipeline.py`
+  Stage 9 (reasoning) passed `--config configs/reasoning.yaml` to
+  train_reasoning.py, which builds the model from `config.model` — and
+  reasoning.yaml's own model section is a FIXED 768/12 (~101M). So for any run
+  whose pretrained checkpoint isn't ~that size (tiny/medium/4080_max/large),
+  Stage 9 built a mismatched model and the `load_model_only(base_checkpoint)`
+  call CRASHED on shape mismatch — the reasoning stage was broken for almost
+  every config. Fixed: pass `args.config` (the run's MODEL config) so the model
+  matches the checkpoint, and derive `--language`/`--reward`/`--problems`/
+  `--group-size` from `config.data.languages` + model size (single typescript →
+  `typescript`, single python → `python_exec`, multi → `combined`), mirroring the
+  audited Pipeline Manager. Also Stage 6 SFT: `--epochs` now scales with model
+  size (tiny→3, larger→2) instead of a hardcoded 2. Extracted the scaling logic
+  to a shared, torch-free `cola_coder.model.config.model_scale` (single source of
+  truth; `pipeline_menu._model_scale` now delegates to it — DRY). Tests:
+  test_full_pipeline_stage_args.py +4 (stage-6 epochs scale 3↔2; stage-9 uses the
+  model config not reasoning.yaml; reward derived ts/py/combined; group-size
+  present); 93 pipeline_menu tests still green via the delegation. TOOL-011
+  narrowed to the remaining (deferred) Stage-1 multi-source design decision.
 - **TOOL-010** [tooling/pipeline, high] `done` (2026-06-11) — `full_pipeline.py`
   Stage 5 (`_stage_generate_instructions`) ran `generate_instructions.py` with
   NO args, which drops into the script's INTERACTIVE menu — so an unattended

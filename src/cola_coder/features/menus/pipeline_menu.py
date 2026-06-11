@@ -888,39 +888,11 @@ class PipelineMenu:
 
     @staticmethod
     def _model_scale(config) -> dict:
-        """Derive per-model scaling values from training.max_steps.
-
-        max_steps in each config (Chinchilla-calibrated to model size):
-          tiny      20 K  →  50M params
-          small    100 K  → 125M params
-          medium   150 K  → 299M params
-          4080_max 200 K  → 455M params
-        """
-        training = getattr(config, "training", None)
-        max_steps = getattr(training, "max_steps", 20000) if training is not None else 20000
-
-        # SFT instruction examples: proportional to training budget.
-        # max_steps // 4 naturally gives 5K / 25K / 37.5K / 50K across configs.
-        sft_examples = max(2000, min(60000, max_steps // 4))
-
-        # SFT epochs: tiny models need more passes over their smaller dataset;
-        # larger configs have enough data that 2 epochs avoids overfitting.
-        sft_epochs = 3 if max_steps <= 50000 else 2
-
-        # GRPO group size: larger models can explore more candidate solutions
-        # per problem without running out of VRAM.
-        if max_steps <= 25000:
-            grpo_group_size = 4    # tiny
-        elif max_steps <= 120000:
-            grpo_group_size = 8    # small
-        else:
-            grpo_group_size = 16   # medium / 4080_max
-
-        return {
-            "sft_examples": sft_examples,
-            "sft_epochs": sft_epochs,
-            "grpo_group_size": grpo_group_size,
-        }
+        """Per-model SFT/GRPO scaling — delegates to the shared, torch-free
+        `cola_coder.model.config.model_scale` (one source of truth, also used by
+        scripts/full_pipeline.py)."""
+        from cola_coder.model.config import model_scale
+        return model_scale(config)
 
     def _stage_generate_instructions(
         self, run: PipelineRun, config, input_path: str,
