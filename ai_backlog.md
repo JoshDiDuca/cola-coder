@@ -108,6 +108,21 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-029** [data-quality/pipeline, low-medium] `done` (2026-06-11) — The
+  `PipelineOrchestrator` (cola_coder/pipeline/orchestrator.py — the engine behind
+  `run_pipeline.py`) ran `prepare_data.py` WITHOUT `--score`, so the orchestrator-
+  driven pipeline produced `train_data.npy` with NO `.weights.npy` sidecar and
+  trained on FLAT per-sample weights — silently skipping the quality-weighted
+  training the README recommends and that `full_pipeline.py` (and the Pipeline
+  Manager) both do. The trainer auto-detects `<data>.weights.npy`
+  (trainer.py:235) so the weights were simply never produced. Fixed by adding
+  `--score` to `_run_data_prep`. Verified the orchestrator's OTHER stages are
+  correctly wired (smoke `--json/--quick`, export `--action gguf-q4` against
+  `_ACTION_MAP`, training passes the tracked `--data` path) and that
+  `auto_pipeline.py` just delegates to `full_pipeline.py` (inherits TOOL-010/012).
+  Tests: test_pipeline_orchestrator.py TestDataPrepArgs (data-prep cmd includes
+  --score + essentials). Found this cycle auditing the run_pipeline/auto_pipeline
+  orchestration paths.
 - **TOOL-012** [tooling/pipeline, high] `done` (2026-06-11) — `full_pipeline.py`
   Stage 9 (reasoning) passed `--config configs/reasoning.yaml` to
   train_reasoning.py, which builds the model from `config.model` — and

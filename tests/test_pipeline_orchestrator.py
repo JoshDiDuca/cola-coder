@@ -301,6 +301,25 @@ class TestStageResultRecording:
         assert results[0].duration_seconds >= 0.0
 
 
+class TestDataPrepArgs:
+    """DATA-029: orchestrator data-prep must request quality scoring so
+    run_pipeline trains on per-sample-weighted data (the recommended path),
+    not silently on flat weights."""
+
+    def test_data_prep_passes_score(self, orchestrator: PipelineOrchestrator):
+        res = MagicMock()
+        res.success = True
+        res.artifacts = {}
+        with patch.object(orchestrator, "_run_stage", return_value=res) as m:
+            orchestrator._run_data_prep()
+        # _run_stage(stage, cmd, timeout=...) — cmd is the 2nd positional arg.
+        cmd = m.call_args[0][1]
+        assert "--score" in cmd, cmd
+        # And it still passes the essentials.
+        assert "--config" in cmd
+        assert "--output-name" in cmd and cmd[cmd.index("--output-name") + 1] == "train_data"
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. Report formatting
 # ─────────────────────────────────────────────────────────────────────────────

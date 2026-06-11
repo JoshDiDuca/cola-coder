@@ -228,6 +228,11 @@ class PipelineOrchestrator:
             "--config", self.config_path,
             "--tokenizer", tokenizer_path,
             "--output-name", "train_data",
+            # --score writes train_data.weights.npy; the trainer auto-detects the
+            # sibling weights file and trains with per-sample quality weights.
+            # Without it run_pipeline silently trained on FLAT weights, unlike the
+            # documented/recommended path and full_pipeline (which both score).
+            "--score",
         ]
         result = self._run_stage(PipelineStage.DATA_PREP, cmd, timeout=14400)
 
