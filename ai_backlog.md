@@ -53,6 +53,24 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **BUG-106** [bug/train-inference, high] `done` (2026-06-11) — SFT train/
+  inference tokenizer mismatch. `train_sft.py` calls `add_chat_tokens()` to add
+  `<|im_start|>`/`<|im_end|>` (NOT in base SPECIAL_TOKENS) to the in-memory
+  tokenizer and resize the model (vocab +2), trains the model on those new ids,
+  then `save_checkpoint`s the expanded model — but NEVER persisted the expanded
+  tokenizer. So inference (`resolve_tokenizer_path` → base tokenizer.json)
+  reloaded a tokenizer WITHOUT the chat tokens: it fragments the ChatML role
+  markers into ordinary tokens and can neither feed nor decode the ids the model
+  trained on, silently breaking instruction following (the entire point of SFT).
+  Discovered while auditing special-token-string usage (the DATA-003/013 family)
+  — here the markers ARE added at train time but the expansion was thrown away
+  on save. Fixed: train_sft saves the expanded tokenizer into the checkpoint dir
+  and passes `tokenizer_path=` to `save_checkpoint` (writes it to metadata.json),
+  which `resolve_tokenizer_path` already reads back first. Tests:
+  test_sft_tokenizer_persist.py (4): base tokenizer lacks chat tokens,
+  add→save→reload preserves the exact ids (marker encodes to a single id, not
+  fragmented), metadata tokenizer_path resolves + takes priority, dead path
+  falls through.
 - **DATA-013** [data-quality/bug, medium] `done` (2026-06-11) — `prepare_docs_data.py`
   wrapped each doc in `<|doc|>...<|/doc|>` then `tokenizer.encode`d it, but
   `<|doc|>`/`<|/doc|>` are NOT in the base tokenizer's SPECIAL_TOKENS — they're

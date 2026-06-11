@@ -258,6 +258,19 @@ def main() -> None:
         output_dir = f"checkpoints/{cfg_name}_sft"
     cli.info("Output dir", output_dir)
 
+    # Persist the chat-token-expanded tokenizer next to the checkpoint.
+    # add_chat_tokens() extended the in-memory tokenizer (and the model's vocab)
+    # with <|im_start|>/<|im_end|>. Without saving it, inference reloads the BASE
+    # tokenizer.json — which lacks those tokens — fragments the ChatML role
+    # markers, and can neither feed nor decode the ids the model trained on: a
+    # silent train/inference mismatch that breaks instruction following. The
+    # tokenizer_path recorded in metadata.json (via save_checkpoint below) is
+    # what inference's resolve_tokenizer_path() reads back first.
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    sft_tokenizer_path = str(Path(output_dir) / "tokenizer.json")
+    tokenizer.tokenizer.save(sft_tokenizer_path)
+    cli.info("SFT tokenizer", sft_tokenizer_path)
+
     # wandb
     wandb_run = None
     if args.wandb:
@@ -419,6 +432,7 @@ def main() -> None:
                     "lr": args.lr,
                 },
                 output_dir=output_dir,
+                tokenizer_path=sft_tokenizer_path,
             )
 
     except KeyboardInterrupt:
