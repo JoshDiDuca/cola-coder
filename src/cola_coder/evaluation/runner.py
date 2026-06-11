@@ -143,6 +143,21 @@ def evaluate_solution(
         passed: True if all test cases pass.
         output: Execution output or error messages.
     """
+    # This harness EXECUTES Python (execute_code runs `python main.py`). A
+    # TypeScript (or any non-Python) problem would have its test_code piped
+    # through the Python interpreter and fail with a misleading SyntaxError,
+    # silently deflating pass@k for a TS-primary project (EVAL-006). Neither
+    # current caller feeds TS problems here (both load Python-only
+    # get_all_problems()), but ProblemSet.filter_by_language("typescript") can —
+    # so fail loud with a clear pointer instead of a confusing false-fail.
+    language = getattr(problem, "language", "python")
+    if language != "python":
+        return False, (
+            f"LANGUAGE NOT SUPPORTED: evaluate_solution executes Python; problem "
+            f"'{getattr(problem, 'task_id', '?')}' is {language!r}. Use the "
+            f"TypeScript benchmark (evaluation/ts_benchmark.py) for non-Python problems."
+        )
+
     # A problem with no test code can't be verified — running just the
     # generated code with no assertions would exit 0 and falsely count as a
     # pass, inflating pass@k. Treat "unverifiable" as NOT passed.

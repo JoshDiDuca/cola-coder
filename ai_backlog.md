@@ -11,21 +11,14 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
-- **EVAL-006** [eval/correctness, medium] `open` (latent, no live caller yet) —
-  `evaluate_solution` (evaluation/runner.py:125) and `extract_function` (:158,
-  keys on `def {entry_point}`) silently assume Python: they ignore
-  `problem.language` and run `problem.test_code` through `execute_code` (Python).
-  A `language="typescript"` `CodingProblem` (TYPESCRIPT_PROBLEMS, ~40 problems in
-  humaneval.py) fed in would always FAIL with a misleading Python SyntaxError,
-  silently deflating pass@k for a TS-primary project. NOT live today: both
-  callers (`scripts/evaluate.py`, `quality_report.py`) load Python-only
-  `get_all_problems()` (= PROBLEMS + EXTENDED, no TS), and TS has its own
-  sandboxed `ts_benchmark.py`/`TscRunner` path. But `ProblemLoader` /
-  `ProblemSet.filter_by_language("typescript")` CAN return TS problems, so wiring
-  them to runner.evaluate_solution is a footgun. Fix (fail-loud pattern, cf.
-  TOK-001/DATA-003): guard on `problem.language` — return a clear "use
-  ts_benchmark for TypeScript" instead of a misleading false-fail, or route to
-  the tsc path. Found in this cycle's fresh scan.
+- **EVAL-007** [eval/capability, low] `open` — Follow-up to EVAL-006: to actually
+  EVALUATE TypeScript HumanEval problems (TYPESCRIPT_PROBLEMS, ~40 in
+  humaneval.py) rather than just guard them out, the pipeline needs (1) a TS
+  `extract_function` (the current one keys on `def {entry_point}` and returns ""
+  for TS) and (2) sandboxed TS execution of runnable `test_code` (assertions),
+  not just tsc compile-check (ts_benchmark only type-checks TSProblem). Needs
+  Node/ts-node in a sandbox (untrusted-code rules apply). Medium effort, defer
+  until a TS-capable model exists to evaluate.
 
 - **INFER-011** [inference/consistency, medium] `open` — `multi_turn_chat`'s
   `ChatSession` formats prompts in ALPACA style (`### User:` / `### Assistant:`),
@@ -69,6 +62,21 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **EVAL-006** [eval/correctness, medium] `done` (2026-06-11) — `evaluate_solution`
+  (evaluation/runner.py) executes Python (execute_code → `python main.py`) but
+  ignored `problem.language`, so a `language="typescript"` `CodingProblem`
+  (TYPESCRIPT_PROBLEMS, reachable via `ProblemSet.filter_by_language`) would have
+  its TS test_code piped through the Python interpreter → misleading SyntaxError
+  → always-fail, silently deflating pass@k for this TS-primary project. Latent
+  (both current callers load Python-only `get_all_problems()`), but a real
+  footgun. Fixed with a fail-loud `problem.language` guard (cf. TOK-001/DATA-003):
+  returns a clear "LANGUAGE NOT SUPPORTED … use ts_benchmark" verdict naming the
+  task_id, instead of a confusing false-fail, before any execution. Actually
+  evaluating TS (TS extract_function + sandboxed TS execution) split to EVAL-007.
+  Tests: test_eval_runner_language.py (4, execute_code stubbed): TS not executed
+  as Python + clear message, Python still reaches execution, empty-test guard
+  still fires, default language=python runs. (Found in last cycle's server scan;
+  fixed this cycle.)
 - **BUG-111** [inference/bug, high] `done` (2026-06-11) — The `/v1/fim` endpoint
   (server.py) — which powers the VS Code extension's inline ghost-text
   completions — returned the prefix+suffix code PREPENDED to the actual infill on
@@ -819,6 +827,25 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Not a bug (verified)
 
+- **Preprocessing "remainder chunk loss"** (preprocess.py — final `token_buffer`
+  < chunk_size discarded at `_DONE`) — NOT A BUG (verified 2026-06-11). Dropping
+  the trailing sub-chunk-size remainder is standard, correct GPT-style document
+  packing: chunks are fixed-length training examples, and the proposed "fix"
+  (zero-pad the remainder to chunk_size) would INJECT pad/token-0 ids into the
+  training stream, teaching the model to predict padding — strictly worse. The
+  loss is < chunk_size tokens (≤2047) out of a multi-GB corpus: negligible and
+  intended. Do not "fix" by zero-padding.
+- **SFT label/offset misalignment on truncation** (sft_dataset.py
+  `_tokenize_conversation`:126-173) — NOT A BUG (verified 2026-06-11). Claim: tokens
+  truncated to max_seq_len but offsets taken from untruncated text → misaligned
+  labels. Verified safe: `CodeTokenizer.encode(text, add_bos, add_eos)` is exactly
+  `[bos] + self.tokenizer.encode(text).ids + [eos]`, and the offsets come from the
+  SAME `self.tokenizer.encode(text)`, so `token_ids[i+1]` aligns with `offsets[i]`
+  (the `bos_offset=1` mapping is correct). Truncation is TOKEN-level (not mid-token
+  in char space) and the label loop is bounded by `min(len(token_ids),
+  len(offsets)+1)`, so surviving tokens stay correctly aligned and dropped tokens
+  are simply unlabeled. No off-by-one. (Same scrutiny as the chat_template
+  off-by-one false positive below.)
 - **Streaming prompt-echo via `chunk.startswith(prompt_text)`** (server.py
   _stream_chat:628, _stream_completion analog) — FALSE POSITIVE (re-confirmed
   2026-06-11 while fixing BUG-111). `generate_stream` yields ONLY incremental
