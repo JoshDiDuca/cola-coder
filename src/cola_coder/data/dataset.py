@@ -189,6 +189,48 @@ class CodeCollator:
         return {"input_ids": input_ids}
 
 
+class FIMTrainingCollator:
+    """Applies dynamic (per-batch) Fill-in-the-Middle, then batches.
+
+    Wraps the canonical, length-preserving ``FIMTransform`` (data/fim.py) so a
+    fraction of each batch is rearranged into FIM format with fresh random
+    splits every epoch (StarCoder2-style), rather than pre-computed once at
+    data-prep time. Composes with quality weights: ``input_ids`` are
+    FIM-transformed and stacked, and per-example ``weight`` scalars (from
+    WeightedCodeDataset) are stacked through unchanged.
+    """
+
+    def __init__(
+        self,
+        fim_rate: float,
+        fim_ids: dict[str, int],
+        psm_rate: float = 0.5,
+        seed: int | None = None,
+    ) -> None:
+        from types import SimpleNamespace
+
+        from .fim import FIMTransform
+
+        self._transform = FIMTransform(fim_rate=fim_rate, psm_rate=psm_rate, seed=seed)
+        # FIMTransform.apply reads fim_*_id off a tokenizer-like object.
+        self._fim_ns = SimpleNamespace(
+            fim_prefix_id=fim_ids["fim_prefix_id"],
+            fim_suffix_id=fim_ids["fim_suffix_id"],
+            fim_middle_id=fim_ids["fim_middle_id"],
+        )
+
+    def __call__(self, examples: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
+        ids = []
+        for ex in examples:
+            t = ex["input_ids"]
+            transformed = self._transform.apply(t.tolist(), self._fim_ns)
+            ids.append(torch.tensor(transformed, dtype=t.dtype))
+        batch = {"input_ids": torch.stack(ids)}
+        if "weight" in examples[0]:
+            batch["weights"] = torch.stack([ex["weight"] for ex in examples])
+        return batch
+
+
 def create_dataloader(
     data_path: str,
     batch_size: int = 32,
@@ -196,6 +238,9 @@ def create_dataloader(
     num_workers: int = 4,
     max_seq_len: int | None = None,
     weights_path: str | None = None,
+    fim_rate: float = 0.0,
+    fim_ids: dict[str, int] | None = None,
+    fim_psm_rate: float = 0.5,
 ) -> DataLoader:
     """Create a DataLoader for training.
 
@@ -234,6 +279,13 @@ def create_dataloader(
     else:
         dataset = CodeDataset(data_path, max_seq_len=max_seq_len)
         collator = CodeCollator()
+
+    # Dynamic FIM: wrap the chosen collator so each batch is FIM-augmented on
+    # the fly. FIMTrainingCollator preserves quality weights, so this composes
+    # with the weighted path above. Off by default (fim_rate=0).
+    if fim_rate and fim_rate > 0.0 and fim_ids:
+        collator = FIMTrainingCollator(fim_rate, fim_ids, psm_rate=fim_psm_rate)
+        print(f"  Dynamic FIM: rate={fim_rate:.0%}, psm={fim_psm_rate:.0%}")
 
     # Auto-cap workers to CPU count for maximum throughput without oversubscription
     cpu_count = os.cpu_count() or 4

@@ -259,6 +259,13 @@ class DataConfig:
     max_tokens_per_file: int = 2048  # Truncate files longer than this
     data_dir: str = "./data"  # Where to store processed data
     num_workers: int = 8  # Parallel data loading workers (auto-capped to CPU count)
+    # Dynamic (train-time) Fill-in-the-Middle augmentation. 0.0 = off (default;
+    # FIM can still be pre-computed at data-prep time via prepare_fim_data.py).
+    # When > 0, the dataloader rearranges that fraction of each batch into FIM
+    # format on the fly (different random splits each epoch, StarCoder2-style).
+    # Requires the tokenizer to have <|fim_*|> tokens; otherwise auto-disabled.
+    fim_rate: float = 0.0
+    fim_psm_rate: float = 0.5  # PSM vs SPM ordering among FIM-transformed samples
 
 
 @dataclass

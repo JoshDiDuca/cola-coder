@@ -238,6 +238,14 @@ class Trainer:
             cli.info(
                 "Curriculum", "schedule detected — dataloader shuffling disabled",
             )
+        # Dynamic FIM (optional): resolve the <|fim_*|> ids from the sibling
+        # tokenizer. Auto-disables (with a warning) if FIM isn't requested or the
+        # tokenizer lacks the tokens — never silently a no-op, never a crash.
+        fim_rate = float(getattr(self.config.data, "fim_rate", 0.0) or 0.0)
+        fim_ids = self._resolve_fim_ids(tokenizer_path) if fim_rate > 0.0 else None
+        if fim_rate > 0.0 and fim_ids is None:
+            fim_rate = 0.0  # _resolve_fim_ids already warned
+
         dataloader = create_dataloader(
             data_path,
             batch_size=cfg.batch_size,
@@ -245,6 +253,9 @@ class Trainer:
             num_workers=self.config.data.num_workers,
             max_seq_len=self.config.model.max_seq_len,
             weights_path=weights_path,
+            fim_rate=fim_rate,
+            fim_ids=fim_ids,
+            fim_psm_rate=float(getattr(self.config.data, "fim_psm_rate", 0.5)),
         )
 
         # Create infinite data iterator (loop over dataset forever)
@@ -569,6 +580,42 @@ class Trainer:
 
         self.model.train()
         return total_loss / max(num_batches, 1)
+
+    def _resolve_fim_ids(self, tokenizer_path: str | None) -> dict[str, int] | None:
+        """Resolve the <|fim_*|> token ids for dynamic FIM, or None if unavailable.
+
+        Reads the ids directly from the tokenizer (does NOT add them — the model
+        was trained with a fixed vocab, so FIM ids that aren't already present
+        would be out-of-vocab). Returns None with a warning when FIM can't be
+        enabled, so the caller falls back to non-FIM training rather than
+        crashing or silently doing nothing.
+        """
+        if not tokenizer_path or not Path(tokenizer_path).exists():
+            cli.warn(
+                "data.fim_rate > 0 but no tokenizer.json beside the data — "
+                "dynamic FIM disabled."
+            )
+            return None
+        try:
+            from cola_coder.tokenizer.tokenizer_utils import CodeTokenizer
+
+            tok = CodeTokenizer(tokenizer_path)
+            ids = {
+                "fim_prefix_id": tok.fim_prefix_id,
+                "fim_suffix_id": tok.fim_suffix_id,
+                "fim_middle_id": tok.fim_middle_id,
+            }
+        except Exception as exc:  # noqa: BLE001
+            cli.warn(f"data.fim_rate > 0 but tokenizer load failed ({exc}) — dynamic FIM disabled.")
+            return None
+        if any(v is None for v in ids.values()):
+            cli.warn(
+                "data.fim_rate > 0 but the tokenizer has no <|fim_*|> tokens — "
+                "dynamic FIM disabled (retrain the tokenizer with FIM tokens)."
+            )
+            return None
+        cli.info("Dynamic FIM", f"enabled (rate={self.config.data.fim_rate})")
+        return ids
 
     def _infinite_dataloader(self, dataloader):
         """Create an infinite iterator that loops over the dataloader.

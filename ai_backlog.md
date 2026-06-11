@@ -12,14 +12,6 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ## Open
 
 
-- **DATA-012** [data-quality, low] `open` — Optional capability follow-up to
-  DATA-011: dynamic FIM is not wired into `create_dataloader`/the trainer. The
-  fixed `FIMCollator` (and `FIMTransform`'s token-level `apply`) make train-time
-  FIM correct and available, but the default trainer path applies FIM only at
-  data-prep time (`prepare_fim_data.py`). Wiring a `fim_rate`/`fim_ids` opt-in
-  through `create_dataloader` → trainer config would enable per-epoch FIM split
-  variety (StarCoder2-style). Deferred: needs config plumbing + a smoke training
-  run to validate (avoid a silent-no-op flag); not validatable without training.
 
 
 - **DATA-006** [data-quality, low] `open` — Follow-up to DATA-002: if dynamic
@@ -49,6 +41,24 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-012** [capability/training, medium] `done` (2026-06-11) — Wired dynamic
+  (train-time) Fill-in-the-Middle end-to-end (StarCoder2-style per-epoch FIM
+  split variety), the optional follow-up to DATA-011. Added `DataConfig.fim_rate`
+  (default 0.0 = off, backward-compatible) + `fim_psm_rate`; a `FIMTrainingCollator`
+  in dataset.py that applies the canonical length-preserving `FIMTransform`
+  per-batch and PRESERVES quality weights (composes with WeightedCodeDataset);
+  `create_dataloader(fim_rate, fim_ids, fim_psm_rate)` wraps the collator when
+  enabled. The Trainer resolves the `<|fim_*|>` ids from the sibling tokenizer
+  (`_resolve_fim_ids`) and auto-DISABLES with a warning — never a silent no-op,
+  never a crash — when fim_rate=0, the tokenizer is missing, or it lacks FIM
+  tokens (reads ids, never adds them: a model trained on a fixed vocab can't use
+  out-of-vocab FIM ids). The deferred "needs a training run to avoid a silent
+  no-op" concern is met by unit tests proving the dataloader actually emits FIM
+  tokens. Tests: test_dynamic_fim.py (8): collator applies FIM / rate-0 no-op /
+  weights preserved, create_dataloader batches contain FIM ids at rate>0 and
+  none at rate=0, and the trainer id-resolution (present / missing tokenizer /
+  no-fim-tokens). NOTE: whether dynamic FIM IMPROVES eval quality still warrants
+  a smoke training run — the wiring/no-op-safety is what's validated here.
 - **DATA-017** [data-quality/bug, low-medium] `done` (2026-06-11) —
   `QualityFilterPlugin` (data/filters/quality.py) fell back to
   `record.metadata.get("languages")` (PLURAL) when no config languages were
