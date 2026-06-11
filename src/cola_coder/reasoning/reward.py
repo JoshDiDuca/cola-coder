@@ -68,11 +68,23 @@ def compute_reward(
     if success:
         reward += 1.0
 
-    # Format bonus: reward proper use of thinking tokens
+    # Format bonus: reward the proper think-FIRST-then-code structure
+    # (<think>reasoning</think> followed by the actual answer code).
+    #
+    # The previous check (`think_end < len(generated_text) - 10`) only verified
+    # that 10+ characters — whitespace included — followed </think>. Despite the
+    # "thinking comes BEFORE the code" comment, it never confirmed that: output
+    # like `def f(): pass<think>...</think>   ` (code BEFORE the thinking, then
+    # trailing spaces) wrongly earned the bonus, so the model got no signal that
+    # reasoning must precede the answer. Same class as BUG-102 — a reward
+    # heuristic that contradicted its own docstring. Now require (1) the first
+    # non-whitespace content to be <think> (thinking-first) and (2) real
+    # non-whitespace content after </think> (the answer code).
     if THINK_OPEN in generated_text and THINK_CLOSE in generated_text:
-        # Check that thinking comes BEFORE the code
-        think_end = generated_text.index(THINK_CLOSE)
-        if think_end < len(generated_text) - 10:  # Code follows thinking
+        think_first = generated_text.lstrip().startswith(THINK_OPEN)
+        close_end = generated_text.index(THINK_CLOSE) + len(THINK_CLOSE)
+        code_follows = bool(generated_text[close_end:].strip())
+        if think_first and code_follows:
             info["format_bonus"] = 0.1
             reward += 0.1
 

@@ -11,6 +11,17 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+- **REWARD-001** [reasoning/reward-quality, medium] `open` — Sibling of
+  max_thinking_tokens being ignored by TS/combined rewards (reward_registry
+  `_typescript_reward`/`_combined_reward` accept `**kwargs` and discard
+  `max_thinking_tokens`, which GRPO passes from `self.max_thinking_tokens`). The
+  Python reward applies a thinking-length penalty; TS/combined silently don't,
+  so a user lowering `max_thinking_tokens` to constrain thinking gets no signal
+  on the TS path. Either thread the penalty through (the combined reward would
+  need access to the raw generation, not just the stripped code) or drop the
+  param from those signatures + document. Low-medium; logged while fixing
+  BUG-109.
+
 - **INFER-011** [inference/consistency, medium] `open` — `multi_turn_chat`'s
   `ChatSession` formats prompts in ALPACA style (`### User:` / `### Assistant:`),
   but the model is SFT-trained on CHATML (`<|im_start|>{role}\n…<|im_end|>`, per
@@ -53,6 +64,24 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **BUG-109** [reasoning/reward-quality, medium] `done` (2026-06-11) — The GRPO
+  format bonus in `compute_reward` (reasoning/reward.py — the DEFAULT
+  `python_exec` reward, in active training use) contradicted its own comment.
+  It claimed to "Check that thinking comes BEFORE the code" but only tested
+  `think_end < len(generated_text) - 10` — i.e. that 10+ characters, WHITESPACE
+  INCLUDED, followed `</think>`. So `code<think>reasoning</think>   ` (code
+  FIRST, then trailing spaces) wrongly earned the +0.1 bonus, and the model got
+  no signal that reasoning must precede the answer — and trailing whitespace
+  alone satisfied the "code follows" intent. Same class as BUG-102 (a sloppy
+  reward heuristic that did not match its docstring). Fixed to require BOTH
+  (1) the first non-whitespace content is `<think>` (thinking-first) and (2)
+  real non-whitespace content after `</think>` (the answer). Discovered via a
+  fresh scan of the reasoning reward path; logged the sibling REWARD-001
+  (max_thinking_tokens ignored by TS/combined rewards) as open. Tests:
+  test_reward_format_bonus.py (6, execute_code stubbed so no host execution):
+  proper think-first→bonus, leading-whitespace→bonus, code-before-thinking→none
+  (the bug), think-first-but-only-whitespace-after→none, no-tokens→none,
+  open-tag-only→none.
 - **TOOL-007** [tooling/repo-hygiene, medium] `done` (2026-06-11) — Discovered
   while committing DATA-019: `.gitignore` had unanchored `data/` and
   `checkpoints/` rules, so `data/` ALSO matched the source package
