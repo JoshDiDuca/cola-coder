@@ -853,6 +853,21 @@ _LENGTH_FAIL_SCORES: dict[str, float] = {
     "too_long":  0.3,
 }
 
+# "Gate" checks: those whose failure is a CLEARLY-BAD signal (broken syntax,
+# minified, auto-generated, data dump, no character diversity, embedded secret).
+# A gate failure must CAP the overall score rather than be averaged in — else a
+# data dump that fails one gate but passes 7 trivial checks scores ~0.79 ("good"
+# tier → 1.5x training weight on garbage). Soft quality checks (naming, docs,
+# comment ratio, test-heaviness, length, JS brace-balance) are deliberately NOT
+# gates: failing them means "mediocre", not "throw it out". Derived from
+# _SCORE_MAP: fail_score <= the threshold ⇒ failing it is strongly negative.
+_GATE_FAIL_THRESHOLD = 0.10
+_GATE_CHECKS: frozenset[str] = frozenset(
+    name
+    for name, (_pass, fail) in _SCORE_MAP.items()
+    if fail is not None and fail <= _GATE_FAIL_THRESHOLD
+)
+
 
 def _check_to_score(check_fn_name: str, keep: bool, reason: str) -> float:
     """Convert a single check result to a [0.0, 1.0] score."""
@@ -913,7 +928,13 @@ def score_code(
     if not breakdown:
         return 0.0, {}
 
-    overall = sum(breakdown.values()) / len(breakdown)
+    # Soft average across ALL checks, then CAP by the worst gate failure so a
+    # single clearly-bad signal can't be diluted by many trivial passes. When
+    # every gate passes (score 1.0), the cap is inert and overall == soft_avg,
+    # preserving scores for clean files.
+    soft_avg = sum(breakdown.values()) / len(breakdown)
+    gate_scores = [s for name, s in breakdown.items() if name in _GATE_CHECKS]
+    overall = min(soft_avg, min(gate_scores)) if gate_scores else soft_avg
     return overall, breakdown
 
 
