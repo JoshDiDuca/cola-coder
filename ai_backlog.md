@@ -112,6 +112,23 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **TOOL-013** [test-coverage/regression-guard, low-medium] `done` (2026-06-12) —
+  Fresh scan of the GRPO reward path (reward.py, rewards/combined.py,
+  reward_registry.py) found the code CORRECT — python_exec runs tests sandboxed;
+  typescript/combined strip `<think>` traces (BUG-110 fix), clamp to [0,1], and
+  both weight sets in CombinedReward sum to 1.0 — but two correctness-critical
+  behaviors had NO test guard: (1) the `combined` adapter's `info["correct"]` key
+  that GRPO `train_step` indexes (`sum(... if info["correct"])` → KeyError if
+  dropped), and (2) the BUG-110 thinking-stripping for typescript+combined (scoring
+  `<think>` prose as broken code would tank the reward on EVERY reasoning-formatted
+  generation — a silent training-killer). Added 4 regression tests:
+  test_combined_reward_info_has_correct_key, combined thinking-stripping (a
+  bracket-imbalanced `<think>` + valid answer scores >0.8 via the adapter vs 0.40
+  un-stripped — proving the strip materially helps), and the typescript
+  thinking-stripping invariant (wrapped >= bare). 37 reward-registry + checkpoint
+  green; ruff clean. No production change — locks existing-correct behavior so the
+  GRPO contract / BUG-110 fix can't silently regress.
+
 - **INFER-017** [inference/capability, low] `done` (2026-06-12) — Completed the
   no_repeat_ngram surface: wired it into the VS Code extension's INLINE COMPLETION
   (FIM) path — the highest-value consumer, since inline completions are where

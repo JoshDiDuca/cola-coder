@@ -280,6 +280,39 @@ def test_combined_reward_info_has_reward_type():
     assert infos[0].get("reward_type") == "combined"
 
 
+def test_combined_reward_info_has_correct_key():
+    # GRPO's train_step does `sum(1 for info in infos if info["correct"])` — a
+    # missing 'correct' key would KeyError mid-training. Lock the contract.
+    _, infos = RewardRegistry.get("combined")([VALID_TS], "")
+    assert "correct" in infos[0]
+    assert isinstance(infos[0]["correct"], bool)
+
+
+def test_combined_reward_strips_thinking_before_scoring():
+    # BUG-110 regression: the reward must score the ANSWER, not the <think>
+    # trace. <think> content with badly unbalanced brackets would tank the
+    # static syntax check IF scored — so a reasoning-formatted generation whose
+    # ANSWER is valid must still score high (the adapter strips the trace first).
+    from cola_coder.reasoning.rewards.combined import CombinedReward
+
+    reasoning = "<think>function foo( { (( broken ((( </think>\n" + VALID_TS
+    adapter_reward, _ = RewardRegistry.get("combined")([reasoning], "")
+    unstripped = CombinedReward().score(reasoning)  # what NOT stripping would give
+    assert adapter_reward[0] > 0.8, "adapter should score the valid answer, not the trace"
+    assert adapter_reward[0] > unstripped + 0.2, "stripping must materially help"
+
+
+def test_typescript_reward_strips_thinking_before_scoring():
+    # Same BUG-110 guard for the tsc path. tsc may be absent here (reward 0 for
+    # all), so this only asserts the reasoning-formatted gen scores >= the bare
+    # code — never worse for having a <think> trace (which stripping guarantees).
+    fn = RewardRegistry.get("typescript")
+    reasoning = "<think>some reasoning prose that is not valid ts</think>\n" + VALID_TS
+    bare, _ = fn([VALID_TS], "")
+    wrapped, _ = fn([reasoning], "")
+    assert wrapped[0] >= bare[0] - 1e-6
+
+
 # ---------------------------------------------------------------------------
 # 8. Custom reward registration
 # ---------------------------------------------------------------------------
