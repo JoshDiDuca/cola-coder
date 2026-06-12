@@ -39,20 +39,6 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   `truncate_or_pad=False` docstring says output is "shorter by up to 3" but it's
   actually LONGER by 3 — trivial doc nit, not fixed.)
 
-- **MODEL-006** [model/config-hygiene, low] `open` — Phantom config knob:
-  `RoPEScalingConfig.original_max_seq_len` (config.py, default 4096) is NEVER
-  read. `Transformer.__init__` passes `original_max_seq_len=config.max_seq_len`
-  to `get_rope_freqs` (transformer.py:271), so a user who sets a custom
-  `rope_scaling.original_max_seq_len` in YAML (e.g. extending a 2048-trained
-  model) is silently ignored — the YaRN wavelength partitions use
-  config.max_seq_len instead. Correct for the common case (config.max_seq_len ==
-  the original training length), but a silent divergence and a phantom knob (the
-  project bans these, cf. reasoning.md). Fix needs a small precedence decision:
-  honor the field when set, else fall back to config.max_seq_len — but the
-  dataclass default (4096) can't be distinguished from an explicit 4096, so
-  either change the sentinel to 0/None="use max_seq_len" or document the field as
-  advisory-only. Found in this cycle's MODEL-005 rope audit. Low pri.
-
 - **DATA-021** [data-quality/architecture, medium] `open` — The modular
   FilterPlugin + `DataPipeline` system (data/pipeline.py + data/filters/, registry
   in data/registry.py) is built and now fully registered (DATA-020), but is NOT
@@ -107,6 +93,23 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Done
+
+- **MODEL-006** [model/config-hygiene, low] `done` (2026-06-12) — Phantom config
+  knob: `RoPEScalingConfig.original_max_seq_len` (default 4096) was NEVER read —
+  `Transformer.__init__` hardcoded `original_max_seq_len=config.max_seq_len` when
+  building the YaRN freq table, so a user extending a model trained at a DIFFERENT
+  length than the current config's max_seq_len was silently ignored (the YaRN
+  wavelength partitions `original_max_seq_len/beta_*` use the wrong base). Fixed:
+  changed the dataclass default to the `0` sentinel ("use max_seq_len", now
+  distinguishable from an explicit value) and Transformer passes
+  `getattr(scaling, "original_max_seq_len", 0) or config.max_seq_len`. Verified no
+  YAML config sets the field, so the sentinel change is safe. Tests:
+  test_model006_rope_original_len.py (4): get_rope_freqs honors the param;
+  end-to-end a Transformer with original_max_seq_len=2048 produces DIFFERENT
+  rope_freqs than the default (proves it's read — failed on HEAD); 0 sentinel ==
+  explicit max_seq_len; non-yarn unaffected. checkpoint + 280 config/rope tests
+  green; ruff clean. Fresh-scan note: audited training/trainer.py step (grad-accum
+  scaling, fp16 skipped-step LR guard, z_loss, MoE aux loss) — clean, no new item.
 
 - **MODEL-007** [model/training, high] `done` (2026-06-12) — GRPO's PPO objective
   was both mis-formulated and inert. (a) The importance ratio was SEQUENCE-LEVEL:

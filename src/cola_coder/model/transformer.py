@@ -262,13 +262,20 @@ class Transformer(nn.Module):
         # extended length (max_seq_len * factor). scaling_type/scaling_factor
         # were resolved above (shared with the YaRN attention temperature).
         rope_len = int(config.max_seq_len * max(scaling_factor, 1.0))
+        # Honor an explicit rope_scaling.original_max_seq_len (MODEL-006); the 0
+        # sentinel (default) falls back to max_seq_len — the original training
+        # length in the common case.
+        rope_original_len = (
+            getattr(scaling, "original_max_seq_len", 0) or config.max_seq_len
+            if scaling is not None else config.max_seq_len
+        )
         rope_freqs = get_rope_freqs(
             dim=config.head_dim,
             max_seq_len=rope_len * 2,
             theta=getattr(config, "rope_theta", 10000.0),
             scaling_type=scaling_type,
             scaling_factor=scaling_factor,
-            original_max_seq_len=config.max_seq_len,
+            original_max_seq_len=rope_original_len,
         )
         self.register_buffer("rope_freqs", rope_freqs, persistent=False)
 

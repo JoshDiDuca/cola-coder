@@ -161,7 +161,12 @@ class RoPEScalingConfig:
 
     type: str = "none"               # "none", "linear", "ntk", "yarn"
     factor: float = 1.0              # Scaling factor (e.g., 8.0 for 4K→32K)
-    original_max_seq_len: int = 4096  # Original training seq len
+    # Pre-extension training length the YaRN wavelength partitions use. 0 (the
+    # default) means "use the model's max_seq_len" — the common case where the
+    # config's max_seq_len IS the original training length. Set a positive value
+    # only when extending a model trained at a DIFFERENT length than the current
+    # config's max_seq_len (MODEL-006: previously this field was never read).
+    original_max_seq_len: int = 0
 
 
 @dataclass
