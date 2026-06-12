@@ -88,6 +88,22 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   ratio diverges from 1, the clip engages, and the constant-norm magnitude/LR
   interaction is sane. Needs a real/CPU model run; defer until convenient.
 
+- **EXPORT-011** [export/bug?, medium] `open` (needs validation — gguf package +
+  llama.cpp, not installable/runnable here) — In `_write_gguf_with_package`
+  (gguf_export.py ~line 785) the gguf-package path does
+  `writer.add_tensor(name, data, raw_dtype=quant_type)` where `data` is the F32
+  numpy array and `quant_type` is e.g. `GGMLQuantizationType.Q4_K`. The gguf
+  PYTHON library does NOT quantize — `raw_dtype` declares the bytes are ALREADY in
+  that format. Passing F32 bytes tagged as Q4_K/Q5_K/Q8_0 likely produces a file
+  llama.cpp reads as garbage (size/format mismatch) or rejects. If confirmed, the
+  gguf-package path can only safely emit F32/F16 unless it pre-quantizes the data
+  to the exact K-quant block layout (which is what llama.cpp's llama-quantize
+  does). Suggested resolution: for the package path, write F16 and instruct the
+  user to run `llama-quantize` for K-quants (or pre-quantize q8_0 ourselves and
+  pass the real q8_0 bytes with raw_dtype=Q8_0). Could not validate in this
+  environment (gguf package absent, EXPORT-010 fresh scan). Verify before
+  shipping a fix.
+
 - **OPS-001** [tooling, low] `open` (deferred for user) — storage split-brain:
   configs/storage.yaml → E:/cola-coder-data vs config.checkpoint.output_dir →
   ./checkpoints. Needs the user's decision; do not unilaterally resolve.
@@ -95,6 +111,22 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Done
+
+- **EXPORT-010** [export/bug, medium] `done` (2026-06-12) — GGUF export silently
+  lied about quantization. `SUPPORTED_QUANTIZATIONS` advertises `q4_k_m`/`q5_k_m`,
+  but the built-in writer (used when the `gguf` package is absent) can't emit true
+  K-quants — `_quantize_q4_k_m`/`_quantize_q5_k_m` just `return _quantize_q8_0(...)`.
+  The data was a valid q8_0 file (tagged `_GGML_TYPE_Q8_0`), but `ExportResult`
+  reported `quantization="q4_k_m"` — so a user requesting a ~4× smaller q4 file got
+  a 2× larger q8_0 file LABELED q4, with no warning (the silent-downgrade class).
+  Fixed: new pure `_effective_quantization(requested, gguf_package_available)`
+  resolves the quant ACTUALLY written + a warning; `export()` logs the warning,
+  passes the EFFECTIVE quant to the writer, and reports it (plus new
+  `requested_quantization` + `warning` fields on ExportResult). export_model.py now
+  prints the warning + the realized `quant=` so the downgrade is visible. Tests:
+  test_export.py +4 (K-quant w/o package → q8_0 + warning; with package kept;
+  non-K-quants never warn; ExportResult carries the fields). 104 export/quant +
+  checkpoint green; --help OK; ruff clean. Found in this cycle's export fresh scan.
 
 - **DATA-036** [data-quality/observability, low-medium] `done` (2026-06-12) —
   Multi-source mixing (the 70/20/10 code/text/math ratios) had no way to VERIFY

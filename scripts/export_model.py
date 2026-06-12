@@ -90,9 +90,14 @@ def action_gguf(
     result = exporter.export(checkpoint, output_path, quantization=quantization)
 
     if result.success:
+        if result.warning:
+            # The requested quantization couldn't be produced (e.g. K-quant
+            # without the gguf package) — say so loudly, not silently.
+            cli.warn(result.warning)
         cli.success(
             f"Exported to {result.output_path}  "
-            f"({result.file_size_mb:.1f} MB, {result.num_tensors} tensors)"
+            f"({result.file_size_mb:.1f} MB, {result.num_tensors} tensors, "
+            f"quant={result.quantization})"
         )
     else:
         cli.error("Export failed", hint=result.error)

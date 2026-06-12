@@ -39,6 +39,7 @@ from cola_coder.export.gguf_export import (
     _to_f32,
     _to_f16,
     _quantize_q8_0,
+    _effective_quantization,
 )
 from cola_coder.model.normalization import RMSNorm
 from cola_coder.export.ollama_export import OllamaExporter
@@ -574,3 +575,36 @@ class TestEndToEnd:
         content = Path(mf).read_text()
         assert "cola-coder" in content
         assert "FROM" in content
+
+
+class TestEffectiveQuantization:
+    """EXPORT-010: requesting a K-quant without the gguf package must surface the
+    q8_0 downgrade, not silently report a q4/q5 file that's really q8_0."""
+
+    def test_kquant_without_package_downgrades_to_q8_0(self):
+        for q in ("q4_k_m", "q5_k_m"):
+            eff, warn = _effective_quantization(q, gguf_package_available=False)
+            assert eff == "q8_0"
+            assert warn and q in warn and "q8_0" in warn
+
+    def test_kquant_with_package_kept(self):
+        for q in ("q4_k_m", "q5_k_m"):
+            eff, warn = _effective_quantization(q, gguf_package_available=True)
+            assert eff == q and warn == ""
+
+    def test_non_kquant_never_warns(self):
+        for q in ("f32", "f16", "q8_0"):
+            for has_pkg in (True, False):
+                eff, warn = _effective_quantization(q, gguf_package_available=has_pkg)
+                assert eff == q and warn == ""
+
+    def test_export_result_carries_request_and_warning_fields(self):
+        # The dataclass must expose the honesty fields the export path sets.
+        r = ExportResult(
+            output_path="x.gguf", file_size_mb=1.0, quantization="q8_0",
+            num_tensors=1, success=True,
+            requested_quantization="q4_k_m", warning="downgraded",
+        )
+        assert r.quantization == "q8_0"  # what's actually in the file
+        assert r.requested_quantization == "q4_k_m"
+        assert r.warning == "downgraded"

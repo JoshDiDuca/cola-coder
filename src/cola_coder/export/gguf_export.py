@@ -113,10 +113,34 @@ class ExportResult:
     """Summary of a completed GGUF export."""
     output_path: str
     file_size_mb: float
-    quantization: str
+    quantization: str  # the quantization ACTUALLY written (may differ from requested)
     num_tensors: int
     success: bool
     error: str = ""
+    requested_quantization: str = ""  # what the caller asked for
+    warning: str = ""  # set when the effective quant differs from the request
+
+
+def _effective_quantization(
+    requested: str, gguf_package_available: bool
+) -> tuple[str, str]:
+    """Resolve the quantization that will ACTUALLY be written, + any warning.
+
+    The built-in writer (used when the ``gguf`` package is absent) cannot emit
+    true K-quants — ``q4_k_m`` / ``q5_k_m`` fall back to ``q8_0``. Returning the
+    EFFECTIVE quantization (and a warning) keeps the export honest instead of
+    reporting a q4/q5 file that is really q8_0 (EXPORT-010).
+
+    Returns ``(effective_quantization, warning)`` where warning is "" if none.
+    """
+    if requested in ("q4_k_m", "q5_k_m") and not gguf_package_available:
+        return "q8_0", (
+            f"'{requested}' requires the 'gguf' package — the built-in writer "
+            "cannot produce true K-quants, so the file is exported as 'q8_0' "
+            "(larger than requested). Install gguf, or quantize the f16 export "
+            "with llama.cpp's llama-quantize for true K-quants."
+        )
+    return requested, ""
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -482,6 +506,14 @@ class GGUFExporter:
                 ),
             )
 
+        # Resolve what will ACTUALLY be written (the built-in writer downgrades
+        # K-quants to q8_0). Surface the downgrade instead of silently lying.
+        effective_quant, warning = _effective_quantization(
+            quantization, GGUF_PACKAGE_AVAILABLE
+        )
+        if warning:
+            logger.warning(warning)
+
         try:
             safetensors_path = self._resolve_checkpoint_path(checkpoint_path)
             logger.info("Loading weights from %s", safetensors_path)
@@ -497,11 +529,11 @@ class GGUFExporter:
 
             if GGUF_PACKAGE_AVAILABLE:
                 num_tensors = self._write_gguf_with_package(
-                    mapped, output_path, quantization, vocab=vocab
+                    mapped, output_path, effective_quant, vocab=vocab
                 )
             else:
                 num_tensors = self._write_gguf_builtin(
-                    mapped, output_path, quantization, vocab=vocab
+                    mapped, output_path, effective_quant, vocab=vocab
                 )
 
             size_mb = Path(output_path).stat().st_size / (1024 * 1024)
@@ -511,7 +543,9 @@ class GGUFExporter:
             return ExportResult(
                 output_path=output_path,
                 file_size_mb=round(size_mb, 2),
-                quantization=quantization,
+                quantization=effective_quant,  # what's actually in the file
+                requested_quantization=quantization,
+                warning=warning,
                 num_tensors=num_tensors,
                 success=True,
             )
