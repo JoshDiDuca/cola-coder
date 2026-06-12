@@ -88,6 +88,17 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   ratio diverges from 1, the clip engages, and the constant-norm magnitude/LR
   interaction is sane. Needs a real/CPU model run; defer until convenient.
 
+- **BUG-114** [training-stability, low-medium] `open` — Defense-in-depth follow-up
+  to DATA-034: bf16 training (the RTX 4080 primary) runs `GradScaler(enabled=False)`,
+  so a NaN/Inf loss from ANY source (not just SFT all-ignored batches — e.g. a
+  pretrain z-loss spike, a bad sample) backprops to NaN weights and corrupts the
+  checkpoint with no safety net. DATA-034 removed the known SFT source; add a
+  cheap guard in BOTH train loops (trainer.py + train_sft.py): if
+  `not torch.isfinite(loss)`, log and SKIP that step's backward/optimizer.step
+  (don't poison weights). fp16 is already covered by GradScaler's inf/nan skip;
+  this closes the bf16 gap. Low-risk, but touches the hot training loop — validate
+  it doesn't change normal-step behavior.
+
 - **OPS-001** [tooling, low] `open` (deferred for user) — storage split-brain:
   configs/storage.yaml → E:/cola-coder-data vs config.checkpoint.output_dir →
   ./checkpoints. Needs the user's decision; do not unilaterally resolve.
@@ -95,6 +106,25 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Done
+
+- **DATA-034** [data-quality/training-stability, high] `done` (2026-06-12) —
+  `SFTDataset._load` (data/sft_dataset.py) skipped malformed/empty examples but
+  NOT examples with NO labeled assistant tokens (labels all -100). That happens
+  when a conversation has no assistant turn, or when truncation to max_seq_len
+  cuts off the assistant content. Such an example has zero SFT signal AND is a
+  corruption hazard: train_sft.py uses `CrossEntropyLoss(ignore_index=-100)`
+  (mean), which returns NaN when a batch is all-ignored → NaN gradients → NaN
+  weights → CORRUPTED checkpoint. Critically, bf16 (the RTX 4080 primary
+  precision) runs with `GradScaler(enabled=False)`, so there is NO skip-on-NaN
+  safety net there (fp16 would be caught by the scaler). Fixed: `_load` now drops
+  any example where `not any(lbl != -100 for lbl in labels)`, logging the count
+  separately. Every loaded example now retains ≥1 label through the `labels[:,1:]`
+  shift (assistant tokens are never at index 0), so a batch of valid examples can
+  never be all-ignored. Tests: test_sft_dataset_labels.py (5): assistant kept with
+  labels, user-only/system-only dropped, mixed file keeps only signal examples,
+  load invariant. 65 SFT + checkpoint green; ruff clean. Found in this cycle's SFT
+  data-path fresh scan. FOLLOW-UP: BUG-114 (defense-in-depth NaN guard in the
+  train loop for any OTHER non-finite-loss source under bf16).
 
 - **SEC-008** [security/bug, low-medium] `done` (2026-06-12) — Quarantine
   basename collision in collect_data.py `_scan_downloaded_data`. The post-download

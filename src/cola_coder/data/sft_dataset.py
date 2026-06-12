@@ -75,6 +75,7 @@ class SFTDataset(Dataset):
         """Read the JSONL file and tokenize every conversation."""
         path = Path(data_path)
         skipped = 0
+        skipped_no_labels = 0
 
         with open(path, encoding="utf-8") as fh:
             for line_no, raw_line in enumerate(fh, 1):
@@ -97,12 +98,30 @@ class SFTDataset(Dataset):
                     skipped += 1
                     continue
 
+                # An example with NO labeled tokens (every label is -100) carries
+                # zero SFT signal — it happens when a conversation has no assistant
+                # turn, or when truncation to max_seq_len cuts off the assistant
+                # content. Worse than useless: if such examples fill a batch,
+                # CrossEntropyLoss(ignore_index=-100, mean) returns NaN, which
+                # backprops to NaN weights and CORRUPTS the checkpoint (bf16 — the
+                # primary precision — has no GradScaler to skip the step). Drop it
+                # (DATA-034; the fail-loud-not-poison class).
+                if not any(lbl != -100 for lbl in labels):
+                    skipped_no_labels += 1
+                    continue
+
                 self._input_ids.append(input_ids)
                 self._labels.append(labels)
 
         if skipped:
             logger.warning(
                 "SFTDataset: skipped %d malformed lines in %s", skipped, path,
+            )
+        if skipped_no_labels:
+            logger.warning(
+                "SFTDataset: skipped %d examples with no assistant tokens "
+                "(no SFT signal / NaN-loss risk) in %s",
+                skipped_no_labels, path,
             )
         logger.info(
             "SFTDataset: loaded %d examples from %s", len(self._input_ids), path,
