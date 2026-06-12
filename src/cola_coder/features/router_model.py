@@ -35,6 +35,7 @@ class RouterConfig:
     max_seq_len: int = 256  # Only need first ~256 tokens to determine domain
     dropout: float = 0.1
     architecture: str = "mlp"  # "mlp" or "transformer"
+    pad_id: int = 0  # training pads short sequences with this id; pooling masks it
     # Transformer-specific
     num_layers: int = 2
     num_heads: int = 4
@@ -71,9 +72,13 @@ class MLPRouter(nn.Module):
         Returns:
             Logits over domains (batch_size, num_domains)
         """
-        # Embed and mean-pool
+        # Embed and masked mean-pool. Training pads short snippets to max_seq_len
+        # with pad_id; a plain mean(dim=1) averages those zeros in, diluting a
+        # 20-token snippet's signal ~12x AND mismatching inference (route() does
+        # NOT pad). Pool over real tokens only so train and inference agree.
         embeds = self.embedding(input_ids)  # (B, S, D)
-        pooled = embeds.mean(dim=1)  # (B, D) - bag of embeddings
+        keep = (input_ids != self.config.pad_id).unsqueeze(-1).to(embeds.dtype)  # (B,S,1)
+        pooled = (embeds * keep).sum(dim=1) / keep.sum(dim=1).clamp_min(1.0)  # (B, D)
         logits = self.classifier(pooled)  # (B, num_domains)
         return logits
 
@@ -136,10 +141,21 @@ class TransformerRouter(nn.Module):
         embeds = self.embedding(input_ids) + self.pos_embedding(positions)
         embeds = self.dropout(embeds)
 
-        hidden = self.transformer(embeds)
+        # Mask padding so the encoder doesn't attend to pad tokens and pooling
+        # doesn't average them in (training pads to max_seq_len; inference does
+        # not — masking makes the two consistent).
+        pad_mask = input_ids == self.config.pad_id  # (B, S) True = ignore
+        all_pad = pad_mask.all(dim=1)
+        if all_pad.any():
+            # An all-pad row would NaN the attention softmax (every key masked);
+            # keep its first position so attention stays finite (degenerate input).
+            pad_mask[all_pad, 0] = False
 
-        # Use mean pooling (more robust than CLS token)
-        pooled = hidden.mean(dim=1)
+        hidden = self.transformer(embeds, src_key_padding_mask=pad_mask)
+
+        # Masked mean pooling over real (non-pad) positions.
+        keep = (~pad_mask).unsqueeze(-1).to(hidden.dtype)  # (B, S, 1)
+        pooled = (hidden * keep).sum(dim=1) / keep.sum(dim=1).clamp_min(1.0)
         logits = self.classifier(pooled)
         return logits
 

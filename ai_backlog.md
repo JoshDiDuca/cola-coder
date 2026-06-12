@@ -142,6 +142,26 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **ROUTER-001** [model/router quality, medium] `done` (2026-06-12) — Both routers
+  (`MLPRouter`, `TransformerRouter` in features/router_model.py) mean-pooled over
+  ALL positions including padding. `train_router.py` pads short snippets to
+  max_seq_len with pad_id=0 (line 84-86), so a 20-token snippet padded to 256 had
+  its domain signal diluted ~12x by pad embeddings — AND inference (`route()`,
+  line 214) does NOT pad, so the model was trained on pad-diluted means but
+  evaluated on clean ones (a train/inference mismatch hurting accuracy). The
+  TransformerRouter additionally ATTENDED to pad tokens (no key-padding mask).
+  Fix: added `RouterConfig.pad_id` (default 0); both forwards now masked-mean-pool
+  over real tokens only, and the transformer passes `src_key_padding_mask` (with
+  an all-pad-row guard that keeps position 0 so the attention softmax can't NaN on
+  degenerate empty input). Architecture/params unchanged → existing router
+  checkpoints still load; unpadded inference is identical, so no regression — but
+  routers should be RETRAINED to gain the now-consistent pooling (training was
+  previously diluted). Fresh-scan note: the "MixedDataset dead code" known thread
+  is ALREADY resolved (DATA-002, removed 2026-06-11). Tests: 5 new in
+  test_router_pooling.py (MLP + Transformer: appending padding doesn't change
+  logits; all-pad input stays finite; batched padded row matches the single run).
+  22 router + checkpoint tests pass; ruff clean.
+
 - **MODEL-014** [model/pipeline feature, medium] `done` (2026-06-12) — Wired the
   MoE expert-differentiation fine-tune into the automated pipeline (the known
   "MoE fine-tune pipeline stage" thread). Stage 7 (`_stage_upcycle_moe`) used to
