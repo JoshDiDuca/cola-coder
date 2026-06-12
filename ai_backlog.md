@@ -73,20 +73,6 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   Node/ts-node in a sandbox (untrusted-code rules apply). Medium effort, defer
   until a TS-capable model exists to evaluate.
 
-- **INFER-011** [inference/consistency, medium] `open` — `multi_turn_chat`'s
-  `ChatSession` formats prompts in ALPACA style (`### User:` / `### Assistant:`),
-  but the model is SFT-trained on CHATML (`<|im_start|>{role}\n…<|im_end|>`, per
-  `tokenizer/chat_template.py`, used by `train_sft.py`). So an interactive chat
-  against the SFT model feeds it an unfamiliar format → degraded responses
-  (same family as TOOL-006's Ollama template). NOT safely fixable yet: ChatML
-  markers are special tokens that `decode` STRIPS, which breaks string-based
-  reply extraction (both rsplit AND strip_prompt_prefix) — a correct ChatML
-  chat needs the generator to expose completion-only decoded text (decode of
-  the new token ids alone), plus validation against a real SFT model. Reuse
-  `chat_template.format_chat` for the prompt to guarantee format parity.
-
-
-
 
 - **DATA-006** [data-quality, low] `open` — Follow-up to DATA-002: if dynamic
   per-batch / online source reweighting is wanted, design runtime data mixing
@@ -100,6 +86,14 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 
 
+- **UX-014** [ux/inference, low] `open` — Follow-up to INFER-011: `InteractiveChat`
+  now supports `chat_format="chatml"` but has NO live menu/script caller (only
+  constructed in tests). Wire an interactive-chat entry point (e.g. in
+  master_menu / a `chat.py` script) that builds an `InteractiveChat` from a
+  checkpoint+config, auto-selecting `chat_format="chatml"` when the checkpoint
+  dir ends in `_sft` (or a `--chat-format` override), else "alpaca". Small, but
+  best validated once an SFT checkpoint exists to confirm reply quality.
+
 - **OPS-001** [tooling, low] `open` (deferred for user) — storage split-brain:
   configs/storage.yaml → E:/cola-coder-data vs config.checkpoint.output_dir →
   ./checkpoints. Needs the user's decision; do not unilaterally resolve.
@@ -107,6 +101,35 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Done
+
+- **INFER-011** [inference/consistency, medium] `done` (2026-06-12) —
+  `multi_turn_chat`'s `ChatSession` only formatted prompts in ALPACA style
+  (`### User:`/`### Assistant:`), but `train_sft.py` trains on CHATML
+  (`<|im_start|>{role}\n…<|im_end|>`, tokenizer/chat_template.py). Interactive
+  chat against an SFT checkpoint therefore fed it an unfamiliar format →
+  degraded replies. Previously deemed "not safely fixable" because ChatML
+  markers are special tokens that `decode` STRIPS, breaking string-based reply
+  extraction. Fixed in three coherent layers, each unit-tested with the existing
+  scripted-stub harness (no GPU/SFT model needed):
+  (1) `CodeGenerator.generate(return_new_only=True)` (generator.py) returns
+  completion-only text — decode of the NEW token ids alone — at both the normal
+  and string-stop return points; default False keeps the legacy prompt+completion
+  return (zero change for existing callers). This is the missing primitive the
+  old note named.
+  (2) `ChatSession.chat_format` ("alpaca"|"chatml"): rendering centralized into
+  `_render`/`_render_alpaca`/`_render_chatml` (the latter reuses
+  `chat_template.format_chat` + an `<|im_start|>assistant\n` generation prompt for
+  format parity). Refactor also fixed a latent truncation bug — the old fallback
+  hardcoded Alpaca prefixes and assumed the last message was a user turn.
+  (3) `InteractiveChat(chat_format=...)` + `_generate_reply`: ChatML mode stops on
+  `<|im_end|>` and uses `return_new_only=True` (no prompt string-diff); Alpaca
+  keeps the legacy strip path. Tests: test_infer011_chatml_chat.py (12) across all
+  three layers; regression: generator_stop_tokens / multi_turn_chat_extract /
+  ollama_chatml / streaming / batch_strip / inference all green; checkpoint suite
+  green; full-tree ruff clean. NOTE: end-to-end chat QUALITY still wants a real
+  SFT checkpoint to A/B; InteractiveChat has no live menu caller yet (wiring it
+  into a menu, with chat_format auto-set from whether the checkpoint is an _sft
+  dir, is a small follow-up → logged as UX-014).
 
 - **SEC-007** [security/sandbox, medium] `done` (2026-06-12) — The agent tool
   executor's `run_tests` handler (tools/executor.py `_handle_run_tests`) ran pytest

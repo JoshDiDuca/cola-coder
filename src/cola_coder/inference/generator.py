@@ -119,6 +119,7 @@ class CodeGenerator:
         min_p: float = 0.0,
         repetition_penalty: float = 1.1,
         stop_tokens: list[str] | None = None,
+        return_new_only: bool = False,
     ) -> str:
         """Generate code given a prompt.
 
@@ -132,9 +133,16 @@ class CodeGenerator:
                    min_p * max_token_prob (0 = disabled, try 0.05-0.1).
             repetition_penalty: Penalty for repeating tokens.
             stop_tokens: Stop generation when any of these tokens are generated.
+            return_new_only: When True, return ONLY the completion (decode of the
+                newly generated tokens), not ``prompt + completion``. This is the
+                robust way to recover the reply when the prompt contains special
+                tokens (e.g. ChatML ``<|im_start|>``) that ``decode`` strips —
+                string-diffing the decoded prompt then fails (INFER-011). Default
+                False preserves the legacy prompt+completion return.
 
         Returns:
-            The generated text (prompt + new tokens).
+            The generated text — ``prompt + new tokens`` by default, or just the
+            completion when ``return_new_only`` is True.
         """
         # Encode the prompt
         token_ids = self.tokenizer.encode(prompt, add_bos=True)
@@ -189,6 +197,13 @@ class CodeGenerator:
                 idx = _earliest_stop_index(full, string_stops, prompt_char_len)
                 if idx is not None:
                     self.model.clear_caches()
+                    if return_new_only:
+                        # Re-decode the completion alone and cut the stop there:
+                        # char offsets differ between the full and new-only
+                        # decodings, so we can't reuse `idx`.
+                        comp = self.tokenizer.decode(generated_ids[len(token_ids):])
+                        cidx = _earliest_stop_index(comp, string_stops, 0)
+                        return comp[:cidx] if cidx is not None else comp
                     return full[:idx]
 
             # Feed the new token through the model (with KV-cache)
@@ -203,6 +218,8 @@ class CodeGenerator:
 
         # Decode all generated tokens
         self.model.clear_caches()
+        if return_new_only:
+            return self.tokenizer.decode(generated_ids[len(token_ids):])
         return self.tokenizer.decode(generated_ids)
 
     @torch.no_grad()

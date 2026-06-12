@@ -54,6 +54,11 @@ class ChatSession:
     user_prefix: str = "### User:\n"
     assistant_prefix: str = "### Assistant:\n"
     system_prefix: str = "### System:\n"
+    # "alpaca" → ### User:/### Assistant: prefixes (base model).
+    # "chatml" → <|im_start|>role…<|im_end|> (matches train_sft.py's SFT format,
+    # per tokenizer/chat_template.py). Use "chatml" against an SFT checkpoint so
+    # the model sees the format it was trained on (INFER-011).
+    chat_format: Literal["alpaca", "chatml"] = "alpaca"
 
     def add_message(self, role: str, content: str, metadata: dict | None = None) -> None:
         """Add a message to the conversation."""
@@ -72,6 +77,7 @@ class ChatSession:
 
         If a tokenizer is provided, truncates old messages to fit within
         max_context_tokens. Without a tokenizer, includes all messages.
+        The rendering honors ``self.chat_format`` ("alpaca" or "chatml").
 
         Args:
             tokenizer: Optional tokenizer for token counting and truncation
@@ -79,66 +85,63 @@ class ChatSession:
         Returns:
             Formatted prompt string ready for the model
         """
-        parts = []
+        if tokenizer:
+            return self._truncate_to_fit(tokenizer)
+        return self._render(self.messages)
 
-        # System prompt first
+    def _render(self, messages: list[ChatMessage]) -> str:
+        """Render a message subset into a model-ready prompt that ends with the
+        assistant generation prefix, in the configured chat_format."""
+        if self.chat_format == "chatml":
+            return self._render_chatml(messages)
+        return self._render_alpaca(messages)
+
+    def _render_alpaca(self, messages: list[ChatMessage]) -> str:
+        prefixes = {
+            "user": self.user_prefix,
+            "assistant": self.assistant_prefix,
+            "system": self.system_prefix,
+        }
+        parts = []
         if self.system_prompt:
             parts.append(f"{self.system_prefix}{self.system_prompt}")
+        for msg in messages:
+            parts.append(f"{prefixes[msg.role]}{msg.content}")
+        parts.append(self.assistant_prefix)  # model continues here
+        return self.turn_separator.join(parts)
 
-        # Format each message
-        for msg in self.messages:
-            if msg.role == "user":
-                parts.append(f"{self.user_prefix}{msg.content}")
-            elif msg.role == "assistant":
-                parts.append(f"{self.assistant_prefix}{msg.content}")
-            elif msg.role == "system":
-                parts.append(f"{self.system_prefix}{msg.content}")
+    def _render_chatml(self, messages: list[ChatMessage]) -> str:
+        from cola_coder.tokenizer.chat_template import IM_START, format_chat
 
-        # Add the assistant prefix for the model to continue
-        parts.append(self.assistant_prefix)
+        msg_dicts = []
+        if self.system_prompt:
+            msg_dicts.append({"role": "system", "content": self.system_prompt})
+        msg_dicts.extend({"role": m.role, "content": m.content} for m in messages)
+        body = format_chat(msg_dicts)
+        # Open an assistant turn for the model to complete (the generation prompt).
+        gen = f"{IM_START}assistant\n"
+        return f"{body}\n{gen}" if body else gen
 
-        full_prompt = self.turn_separator.join(parts)
+    def _truncate_to_fit(self, tokenizer) -> str:
+        """Render the history, dropping oldest messages until it fits the window.
 
-        # Truncate if tokenizer available and prompt too long
-        if tokenizer:
-            full_prompt = self._truncate_to_fit(full_prompt, tokenizer)
-
-        return full_prompt
-
-    def _truncate_to_fit(self, prompt: str, tokenizer) -> str:
-        """Truncate oldest messages to fit within context window.
-
-        Strategy: keep system prompt + last N turns that fit.
+        Strategy: keep the system prompt + the most recent messages that fit.
+        Rebuilds via ``_render`` so truncation stays format-consistent (the old
+        code hardcoded Alpaca prefixes in the fallback and assumed the last
+        message was a user turn).
         """
-        token_count = len(tokenizer.encode(prompt, add_bos=False))
-        if token_count <= self.max_context_tokens:
-            return prompt
+        full = self._render(self.messages)
+        if len(tokenizer.encode(full, add_bos=False)) <= self.max_context_tokens:
+            return full
 
-        # Rebuild with fewer messages
-        # Keep system prompt, drop oldest messages first
+        # Drop oldest messages first, keeping the system prompt.
         for start_idx in range(1, len(self.messages)):
-            parts = []
-            if self.system_prompt:
-                parts.append(f"{self.system_prefix}{self.system_prompt}")
+            candidate = self._render(self.messages[start_idx:])
+            if len(tokenizer.encode(candidate, add_bos=False)) <= self.max_context_tokens:
+                return candidate
 
-            for msg in self.messages[start_idx:]:
-                if msg.role == "user":
-                    parts.append(f"{self.user_prefix}{msg.content}")
-                elif msg.role == "assistant":
-                    parts.append(f"{self.assistant_prefix}{msg.content}")
-                elif msg.role == "system":
-                    parts.append(f"{self.system_prefix}{msg.content}")
-
-            parts.append(self.assistant_prefix)
-            truncated = self.turn_separator.join(parts)
-
-            token_count = len(tokenizer.encode(truncated, add_bos=False))
-            if token_count <= self.max_context_tokens:
-                return truncated
-
-        # If even a single turn doesn't fit, return just the last turn truncated
-        last_msg = self.messages[-1]
-        return f"{self.user_prefix}{last_msg.content}\n\n{self.assistant_prefix}"
+        # Even the last message alone overflows — render just it (best effort).
+        return self._render(self.messages[-1:]) if self.messages else self._render([])
 
     def clear(self) -> None:
         """Clear all messages."""
@@ -206,17 +209,21 @@ class InteractiveChat:
         generator,
         system_prompt: str = "You are a helpful coding assistant.",
         max_context_tokens: int = 1024,
+        chat_format: Literal["alpaca", "chatml"] = "alpaca",
     ):
         """
         Args:
             generator: A CodeGenerator or StreamingGenerator instance
             system_prompt: System instructions for the model
             max_context_tokens: Max tokens for context window
+            chat_format: "alpaca" for a base model, "chatml" for an SFT
+                checkpoint trained via train_sft.py (INFER-011 format parity).
         """
         self.generator = generator
         self.session = ChatSession(
             system_prompt=system_prompt,
             max_context_tokens=max_context_tokens,
+            chat_format=chat_format,
         )
         self.commands = {
             "/clear": self._cmd_clear,
@@ -259,19 +266,38 @@ class InteractiveChat:
             self.session.add_user_message(user_input)
             prompt = self.session.format_prompt()
 
-            # Generate response
-            response = self.generator.generate(
-                prompt,
-                max_new_tokens=256,
-                temperature=0.7,
-                stop_tokens=[self.session.user_prefix.strip()],
-            )
-
-            # Extract just the assistant's reply.
-            assistant_text = self._extract_reply(response, prompt)
+            assistant_text = self._generate_reply(prompt)
 
             self.session.add_assistant_message(assistant_text)
             print(f"\nAssistant> {assistant_text}\n")
+
+    def _generate_reply(self, prompt: str) -> str:
+        """Generate the assistant's reply for a formatted prompt.
+
+        ChatML mode is robust by construction: stop on the ``<|im_end|>`` special
+        token and ask the generator for completion-only text (return_new_only) —
+        no string-diffing the prompt, which fails when decode strips the ChatML
+        markers (INFER-011). Alpaca mode keeps the legacy stop + prompt-strip path.
+        """
+        if self.session.chat_format == "chatml":
+            from cola_coder.tokenizer.chat_template import IM_END
+
+            reply = self.generator.generate(
+                prompt,
+                max_new_tokens=256,
+                temperature=0.7,
+                stop_tokens=[IM_END],
+                return_new_only=True,
+            )
+            return reply.strip()
+
+        response = self.generator.generate(
+            prompt,
+            max_new_tokens=256,
+            temperature=0.7,
+            stop_tokens=[self.session.user_prefix.strip()],
+        )
+        return self._extract_reply(response, prompt)
 
     def _extract_reply(self, response: str, prompt: str) -> str:
         """Return just the assistant's reply from generate()'s output.
