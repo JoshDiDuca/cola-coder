@@ -311,7 +311,13 @@ class SoftwareHeritageSource(DataSource):
             timeout: HTTP request timeout in seconds (default 30).
         """
         self._origins = origins or []
-        self._content_types = set(content_types) if content_types else None
+        # Normalize to canonical ".ext" lowercase so the filter matches what
+        # os.path.splitext yields. Without this, content_types=[".PY"] or
+        # ["py"] (both plausible) matched NOTHING — a silent empty stream.
+        self._content_types = (
+            {"." + ct.strip().lstrip(".").lower() for ct in content_types if ct.strip()}
+            if content_types else None
+        )
         self._token = token
         self._max_files = max_files
         self._timeout = timeout

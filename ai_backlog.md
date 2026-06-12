@@ -112,6 +112,18 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-038** [data-quality/bug, low] `done` (2026-06-12) — `SoftwareHeritageSource`
+  stored `content_types` as a raw `set(content_types)` but matched against
+  `os.path.splitext(name)[1].lower()` (canonical ".ext" lowercase). So a plausible
+  config like `content_types=[".PY"]` or `["py"]` matched NOTHING → a silent empty
+  stream with no error (the "config silently doesn't match" class). Fixed: normalize
+  each entry to `"." + ext.strip().lstrip(".").lower()` in __init__ (drops blanks).
+  Tests: test_swh.py +6 (uppercase/missing-dot/mixed-forms normalized, blanks
+  dropped, None stays None, canonical unchanged). Fresh-scan note: audited the whole
+  data-source layer (huggingface→download.stream_code_data round-robin language
+  balancing, SWH walk/binary-decode handling, github license gate) — all correct
+  except this. 39 SWH/source + checkpoint green; ruff clean.
+
 - **DATA-037** [data-quality/legal, medium] `done` (2026-06-12) — The GitHub
   scraper detected a repo's license (`check_license`, github.py:~1249) but only
   TAGGED it as metadata — it never REJECTED copyleft. The active gate was the

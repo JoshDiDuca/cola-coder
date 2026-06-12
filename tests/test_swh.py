@@ -230,6 +230,36 @@ class TestSoftwareHeritageSourceAvailability:
         assert source.estimate_size() is None
 
 
+class TestContentTypeNormalization:
+    """DATA-038: content_types must be normalized to canonical '.ext' lowercase.
+    os.path.splitext yields a lowercased '.ext', so unnormalized inputs like
+    '.PY' or 'py' previously matched NOTHING — a silent empty stream."""
+
+    def test_uppercase_extension_normalized(self):
+        s = SoftwareHeritageSource(origins=["x"], content_types=[".PY", ".TS"])
+        assert s._content_types == {".py", ".ts"}
+
+    def test_missing_dot_normalized(self):
+        s = SoftwareHeritageSource(origins=["x"], content_types=["py", "ts"])
+        assert s._content_types == {".py", ".ts"}
+
+    def test_mixed_forms_collapse(self):
+        s = SoftwareHeritageSource(origins=["x"], content_types=[".PY", "py", "Py"])
+        assert s._content_types == {".py"}
+
+    def test_blank_entries_dropped(self):
+        s = SoftwareHeritageSource(origins=["x"], content_types=[".py", "", "  "])
+        assert s._content_types == {".py"}
+
+    def test_none_stays_none(self):
+        s = SoftwareHeritageSource(origins=["x"], content_types=None)
+        assert s._content_types is None
+
+    def test_already_canonical_unchanged(self):
+        s = SoftwareHeritageSource(origins=["x"], content_types=[".py", ".ts"])
+        assert s._content_types == {".py", ".ts"}
+
+
 class TestSoftwareHeritageSourceStream:
     """Test the full streaming flow with mocked API responses."""
 
