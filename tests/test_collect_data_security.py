@@ -74,3 +74,45 @@ class TestFailClosedAndConfig:
         assert "in_stream: true" in cfg
         assert 'on_threat: "quarantine"' in cfg
         assert "SECURITY" in cfg
+
+
+class TestQuarantineDestNoCollision:
+    """SEC-008: quarantining two threats with the SAME basename must not
+    overwrite — the old `quarantine_dir / src.name` silently lost evidence."""
+
+    def test_same_basename_different_dirs_no_collision(self, tmp_path):
+        mod = _load()
+        q = tmp_path / "quarantine"
+        a = mod._quarantine_dest(q, Path("/repo/pkgA/__init__.py"))
+        b = mod._quarantine_dest(q, Path("/repo/pkgB/__init__.py"))
+        assert a != b  # distinct destinations despite identical basename
+        assert a.name.endswith("___init__.py") and b.name.endswith("___init__.py")
+
+    def test_same_path_is_idempotent(self, tmp_path):
+        mod = _load()
+        q = tmp_path / "quarantine"
+        src = Path("/repo/x/index.js")
+        assert mod._quarantine_dest(q, src) == mod._quarantine_dest(q, src)
+
+    def test_dest_is_under_quarantine_dir_and_keeps_basename(self, tmp_path):
+        mod = _load()
+        q = tmp_path / "quarantine"
+        dst = mod._quarantine_dest(q, Path("/a/b/evil.exe"))
+        assert dst.parent == q
+        assert dst.name.endswith("_evil.exe")
+
+    def test_no_real_overwrite_when_quarantining_collisions(self, tmp_path):
+        # End-to-end: two distinct files named the same both survive in quarantine.
+        mod = _load()
+        q = tmp_path / "quarantine"
+        q.mkdir()
+        (tmp_path / "p1").mkdir()
+        (tmp_path / "p2").mkdir()
+        f1 = tmp_path / "p1" / "index.js"
+        f1.write_text("AAA")
+        f2 = tmp_path / "p2" / "index.js"
+        f2.write_text("BBB")
+        f1.rename(mod._quarantine_dest(q, f1))
+        f2.rename(mod._quarantine_dest(q, f2))
+        contents = sorted(p.read_text() for p in q.iterdir())
+        assert contents == ["AAA", "BBB"]  # neither was overwritten

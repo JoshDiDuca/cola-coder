@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import logging
 import sys
 from pathlib import Path
@@ -97,6 +98,20 @@ def _maybe_scan_stream(iterator, label: str, scan_config: dict, stats: dict):
     return _scan_text_stream(iterator, label, stats)
 
 
+def _quarantine_dest(quarantine_dir: Path, src: Path) -> Path:
+    """Collision-free quarantine destination for a threatening file.
+
+    The old code used ``quarantine_dir / src.name``, so two threats sharing a
+    basename (e.g. the ubiquitous ``index.js`` / ``__init__.py``) collided —
+    ``rename`` SILENTLY OVERWROTE the first, destroying quarantined-malware
+    evidence. Prefix with a short hash of the FULL source path: unique per
+    distinct path (idempotent for the same path), while keeping the readable
+    basename for forensic triage.
+    """
+    digest = hashlib.md5(str(src).encode("utf-8")).hexdigest()[:8]
+    return quarantine_dir / f"{digest}_{src.name}"
+
+
 def _scan_downloaded_data(
     raw_dir: Path,
     config: dict,
@@ -140,9 +155,9 @@ def _scan_downloaded_data(
         for t in result.threats:
             src = Path(t.file_path)
             if src.exists():
-                dst = quarantine_dir / src.name
+                dst = _quarantine_dest(quarantine_dir, src)
                 src.rename(dst)
-                cli.dim(f"    Quarantined: {src.name}")
+                cli.dim(f"    Quarantined: {src.name} -> {dst.name}")
         return True
     else:  # warn
         # Fail-CLOSED: cli.confirm returns its default on EOF/no-TTY, so a

@@ -96,6 +96,24 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **SEC-008** [security/bug, low-medium] `done` (2026-06-12) — Quarantine
+  basename collision in collect_data.py `_scan_downloaded_data`. The post-download
+  malware quarantine moved each threat to `quarantine_dir / src.name`, so two
+  threatening files sharing a basename (ubiquitous: `index.js`, `__init__.py`,
+  `main.py` across repos/subdirs) collided — `src.rename(dst)` SILENTLY OVERWROTE
+  the first, destroying quarantined-malware evidence (forensic data loss). Fixed:
+  new testable `_quarantine_dest(quarantine_dir, src)` prefixes the destination
+  with an 8-char hash of the FULL source path — unique per distinct path,
+  idempotent for the same path, basename preserved for triage. The data is clean
+  either way (both moved out of raw_dir), but now BOTH threats are retained in
+  quarantine. Fresh-scan note: verified the "tighten malware-scan defaults" thread
+  is ALREADY safe (scoring.yaml enabled/in_stream/quarantine, warn fails-CLOSED
+  non-interactively) and the config knobs (on_threat, scanners.*, yara_rules_dir)
+  are all read+enforced; MoE fine-tune stage 7.5 is wired (training_menu →
+  derive_moe_finetune_config). Tests: test_collect_data_security.py +4 (no
+  collision on shared basename, idempotent, under quarantine dir + basename kept,
+  end-to-end both files survive). 163 security/scan + checkpoint green; ruff clean.
+
 - **INFER-013** [inference/bug, high] `done` (2026-06-12) — The FastAPI server's
   non-streaming `/v1/chat/completions` leaked the prompt into the reply in
   INSTRUCT mode. It did `strip_prompt_prefix(result, prompt)` against the
