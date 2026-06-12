@@ -261,29 +261,34 @@ def _element_to_markdown(el: Tag, base_url: str = "") -> str:  # noqa: C901
                 lines.append(f"`{text}`")
             return
 
-        # ── Unordered lists ─────────────────────────────────────────────
-        if name == "ul":
-            lines.append("")
-            for child in node.children:
-                child_name = getattr(child, "name", None)
-                if child_name == "li":
-                    item_text = child.get_text(" ", strip=True)  # type: ignore[union-attr]
-                    if item_text:
-                        lines.append(f"- {item_text}")
-            lines.append("")
-            return
-
-        # ── Ordered lists ───────────────────────────────────────────────
-        if name == "ol":
+        # ── Lists (ul / ol) ─────────────────────────────────────────────
+        if name in ("ul", "ol"):
+            ordered = name == "ol"
             lines.append("")
             counter = 1
             for child in node.children:
-                child_name = getattr(child, "name", None)
-                if child_name == "li":
-                    item_text = child.get_text(" ", strip=True)  # type: ignore[union-attr]
-                    if item_text:
-                        lines.append(f"{counter}. {item_text}")
-                        counter += 1
+                if getattr(child, "name", None) != "li":
+                    continue
+                prefix = f"{counter}. " if ordered else "- "
+                # A <pre> code block inside a list item (common in step-by-step
+                # guides) must NOT be flattened into the bullet text — that
+                # collapses its indentation/newlines into one space-joined line
+                # of broken code (DATA-040). Detach the code blocks first so the
+                # bullet gets only the description, then render each block as a
+                # proper fence (with DATA-039 language detection via _walk).
+                pres = child.find_all("pre")  # type: ignore[union-attr]
+                for p in pres:
+                    p.extract()
+                desc = child.get_text(" ", strip=True)  # type: ignore[union-attr]
+                emitted = False
+                if desc:
+                    lines.append(f"{prefix}{desc}")
+                    emitted = True
+                for p in pres:
+                    _walk(p)
+                    emitted = True
+                if emitted and ordered:
+                    counter += 1
             lines.append("")
             return
 

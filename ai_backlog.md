@@ -104,19 +104,6 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   environment (gguf package absent, EXPORT-010 fresh scan). Verify before
   shipping a fix.
 
-- **DATA-040** [data-quality, low-medium] `open` — Follow-up to DATA-039: the docs
-  HTML→Markdown converter's `<p>`, `<li>` (ul/ol) handlers flatten their contents
-  with `node.get_text(" ", strip=True)` instead of recursing the `_walk` tree. This
-  DESTROYS structure inside those elements: inline `<code>` loses its backticks,
-  and — worse — a `<pre>` CODE BLOCK inside a list item or paragraph (common in
-  step-by-step framework guides) is collapsed to a single space-joined line, so its
-  indentation/newlines vanish → broken code examples in the docs training data.
-  Fix needs a modest restructure: recurse `_walk` into `<li>`/`<p>` children
-  (handling the list-item "- "/"N." prefix against the shared `lines` accumulator)
-  so nested code blocks/inline code/nested lists render correctly. Deferred from the
-  DATA-039 cycle (the lang-class fix was small+safe; this is a larger, riskier HTML
-  refactor — validate against real React/Next.js/Zod doc pages before shipping).
-
 - **OPS-001** [tooling, low] `open` (deferred for user) — storage split-brain:
   configs/storage.yaml → E:/cola-coder-data vs config.checkpoint.output_dir →
   ./checkpoints. Needs the user's decision; do not unilaterally resolve.
@@ -124,6 +111,22 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Done
+
+- **DATA-040** [data-quality, low-medium] `done` (2026-06-12) — Follow-up to
+  DATA-039: the docs HTML→Markdown converter flattened list items with
+  `child.get_text(" ", strip=True)`, collapsing a `<pre>` CODE BLOCK inside a list
+  item (common in step-by-step framework guides) into a single space-joined line —
+  indentation/newlines gone → broken code examples in the docs training data.
+  Fixed: the unified `ul`/`ol` handler now `extract()`s the `<pre>` blocks from each
+  `<li>` BEFORE taking the description text, then renders each block as a proper
+  fence via `_walk` (so it also gets DATA-039 language detection). Plain items and
+  ordered numbering are unchanged. Scope note: a `<pre>` can only validly live in a
+  `<li>` (browsers auto-close `<p>` before a block `<pre>`), so the `<li>` fix
+  covers the real case; inline `<code>` inside flattened prose still loses its
+  backticks (low harm — the model still sees the text), left as-is. Tests:
+  test_scrape_docs_codefence.py +4 (code block in ordered/unordered item preserved
+  with multiline formatting; plain list + ordered numbering unchanged). 156 docs +
+  checkpoint green; ruff clean.
 
 - **DATA-039** [data-quality/bug, low-medium] `done` (2026-06-12) — The docs
   HTML→Markdown converter (scripts/scrape_docs.py `_element_to_markdown`) read the

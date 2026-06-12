@@ -57,3 +57,45 @@ class TestCodeFenceLanguage:
         # backticked. (Inline code INSIDE a <p> is currently flattened — DATA-040.)
         md = _md("<code>npm install</code>")
         assert "`npm install`" in md
+
+
+class TestListCodeBlocks:
+    """DATA-040: a <pre> code block inside a list item must render as a proper
+    fenced block, not be flattened (get_text) into a single broken bullet line."""
+
+    def test_code_block_in_ordered_item_preserved(self):
+        html = (
+            "<ol>"
+            "<li>Install the package:"
+            "<pre><code class=\"language-bash\">npm install zod</code></pre>"
+            "</li>"
+            "<li>Import it:"
+            "<pre><code class=\"language-ts\">import { z } from 'zod';</code></pre>"
+            "</li>"
+            "</ol>"
+        )
+        md = _md(html)
+        # Descriptions are numbered bullets...
+        assert "1. Install the package:" in md
+        assert "2. Import it:" in md
+        # ...and the code blocks are real fences (not flattened into the bullet).
+        assert "```bash\nnpm install zod\n```" in md
+        assert "```ts\nimport { z } from 'zod';\n```" in md
+
+    def test_multiline_code_in_list_keeps_formatting(self):
+        html = (
+            "<ul><li>Example:"
+            "<pre><code class=\"language-ts\">function f() {\n  return 1;\n}</code></pre>"
+            "</li></ul>"
+        )
+        md = _md(html)
+        assert "- Example:" in md
+        assert "function f() {\n  return 1;\n}" in md  # newlines survived
+
+    def test_plain_list_unchanged(self):
+        md = _md("<ul><li>first</li><li>second</li></ul>")
+        assert "- first" in md and "- second" in md
+
+    def test_ordered_numbering_unchanged_for_plain_items(self):
+        md = _md("<ol><li>one</li><li>two</li><li>three</li></ol>")
+        assert "1. one" in md and "2. two" in md and "3. three" in md
