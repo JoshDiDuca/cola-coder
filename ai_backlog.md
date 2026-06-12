@@ -96,6 +96,25 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **INFER-013** [inference/bug, high] `done` (2026-06-12) — The FastAPI server's
+  non-streaming `/v1/chat/completions` leaked the prompt into the reply in
+  INSTRUCT mode. It did `strip_prompt_prefix(result, prompt)` against the
+  marker-form ChatML prompt (`<|im_start|>…`), but `generate()` returns
+  decode(prompt+completion) and `decode(skip_special=True)` STRIPS the markers, so
+  `result` never starts with `prompt` → the longest-common-prefix diff matched
+  almost nothing and returned (nearly) the whole decoded prompt as the assistant
+  message. This is the VS Code chat-participant path when baseModelMode=false
+  (the INFER-011 / BUG-111 prompt-echo class). The FIM endpoint already fixed it
+  by diffing the DECODED prompt; chat did not. Fixed: extracted a shared
+  `_completion_after_prompt(result, prompt, tokenizer)` (decode→encode the prompt
+  so both sides are marker-free, then strip) and routed BOTH chat and FIM through
+  it (DRY). Streaming chat was unaffected (generate_stream yields completion-only
+  chunks); /v1/completions was unaffected (raw prompt has no special tokens).
+  Tests: test_server_chat_prompt_strip.py (5): ChatML no-leak, a control proving
+  the raw-diff DID leak, FIM infill-only, plaintext base mode, empty completion.
+  169 server/inference + checkpoint green; ruff clean. Found in this cycle's
+  inference-server fresh scan.
+
 - **EVAL-009** [eval/observability, medium] `done` (2026-06-12) — The HumanEval
   orchestrator (scripts/evaluate.py) wrapped the whole generate→extract→grade
   pipeline in `except Exception: pass`, so a HARNESS failure (generator crash,

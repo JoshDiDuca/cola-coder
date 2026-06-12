@@ -320,6 +320,22 @@ def _parse_referenced_files(context_str: str) -> list[str]:
     return re.findall(r"<\|file\|>([^\n]+)\n", context_str)
 
 
+def _completion_after_prompt(result: str, prompt: str, tokenizer) -> str:
+    """Strip the echoed prompt from a ``decode(prompt_ids + new_ids)`` result.
+
+    ``generate()`` returns the decoded prompt+completion, and ``decode`` STRIPS
+    special tokens — so when the prompt carries markers (ChatML ``<|im_start|>``,
+    FIM ``<|fim_*|>``) ``result`` never starts with the marker-form ``prompt`` and
+    a raw prefix-diff leaks the whole prompt back into the reply (BUG-111 for FIM;
+    the same bug on /v1/chat/completions in instruct mode). Diff against the
+    DECODED prompt — re-encode→decode yields exactly the prompt content the model
+    saw minus markers, the same form as ``result``'s prefix — so the
+    longest-common-prefix helper removes precisely the prompt.
+    """
+    decoded_prompt = tokenizer.decode(tokenizer.encode(prompt, add_bos=False))
+    return strip_prompt_prefix(result, decoded_prompt)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # App factory
 # ══════════════════════════════════════════════════════════════════════════════
@@ -559,10 +575,11 @@ def create_app(
                     stop_tokens=request.stop,
                 )
 
-        # Strip the prompt echo robustly (BPE decode(encode(prompt)) is not
-        # always byte-identical, so a raw startswith can fail and leak the
-        # whole prompt — see text_utils.strip_prompt_prefix).
-        completion_text = strip_prompt_prefix(result, prompt)
+        # Strip the prompt echo. In instruct mode `prompt` is ChatML (with
+        # <|im_start|> markers) but decode() strips those from `result`, so we
+        # must diff against the DECODED prompt — otherwise the whole prompt leaks
+        # into the reply (the BUG-111 class the FIM endpoint already handles).
+        completion_text = _completion_after_prompt(result, prompt, base_gen.tokenizer)
         completion_tokens = len(
             base_gen.tokenizer.encode(completion_text, add_bos=False)
         )
@@ -936,20 +953,12 @@ def create_app(
             )
 
         # Extract only the infilled text (after <|fim_middle|>). generate()
-        # returns decode(prompt_ids + new_ids), and decode() STRIPS the FIM
-        # special tokens — so `result` never starts with the marker-form
-        # `fim_prompt`. The old `startswith(fim_prompt)` check therefore ALWAYS
-        # failed and returned the whole prefix+suffix+infill as the "infill"
-        # (BUG-111; the INFER-001/009 prompt-echo class — this broke the VS Code
-        # ghost-text feature even after INFER-007 fixed the prompt itself).
-        # Strip the DECODED prompt instead (markers gone, same form as result's
-        # prefix): re-encoding+decoding fim_prompt yields exactly the prompt
-        # content the model saw minus markers, so the longest-common-prefix
-        # helper removes the prefix+suffix and leaves only the generated middle.
-        decoded_prompt = tokenizer.decode(
-            tokenizer.encode(fim_prompt, add_bos=False)
-        )
-        infill = strip_prompt_prefix(result, decoded_prompt)
+        # returns decode(prompt_ids + new_ids) and decode() STRIPS the FIM special
+        # tokens, so `result` never starts with the marker-form `fim_prompt` (the
+        # old startswith check returned the whole prefix+suffix+infill — BUG-111,
+        # which broke VS Code ghost text). _completion_after_prompt diffs against
+        # the DECODED prompt so only the generated middle remains.
+        infill = _completion_after_prompt(result, fim_prompt, tokenizer)
         infill_tokens = len(
             tokenizer.encode(infill, add_bos=False)
         ) if infill else 0
