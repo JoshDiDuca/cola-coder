@@ -60,11 +60,22 @@ def derive_moe_finetune_config(
     upcycling recipe — e.g. Qwen2-MoE / sparse-upcycling literature train only
     a fraction of the original steps at a fraction of the LR).
 
-    Only the ``training`` section is rescaled (learning_rate, min_lr, max_steps,
-    warmup_steps); everything else — including any ``model.moe`` block — is left
-    untouched. The trainer additionally auto-detects MoE from the resumed
-    checkpoint (``apply_moe_config_from_checkpoint``), so a dense base config
-    still fine-tunes the MoE correctly.
+    The ``training`` section is rescaled (learning_rate, min_lr, max_steps,
+    warmup_steps) and ``checkpoint.output_dir`` is REDIRECTED to an isolated
+    ``<base>_moe_ft`` directory; everything else — including any ``model.moe``
+    block — is left untouched. The trainer additionally auto-detects MoE from the
+    resumed checkpoint (``apply_moe_config_from_checkpoint``), so a dense base
+    config still fine-tunes the MoE correctly.
+
+    Why redirect output_dir: this fine-tune RESUMES from the upcycled MoE dir
+    (e.g. checkpoints/moe) but the base config's ``checkpoint.output_dir`` still
+    points at the DENSE pretrained checkpoint (e.g. checkpoints/4080_max). The
+    trainer always saves to ``config.checkpoint.output_dir`` — so without the
+    redirect the MoE fine-tune would overwrite the dense base (irreversible loss
+    of the pretrained model) and mix MoE step dirs into the dense folder where
+    ``_cleanup_old_checkpoints`` could prune the base. Isolating to
+    ``<base>_moe_ft`` keeps the dense base, the upcycle source, and the fine-tune
+    output as three distinct, resumable checkpoints.
 
     Args:
         config: Raw config dict (as loaded from YAML), not the dataclass.
@@ -96,6 +107,11 @@ def derive_moe_finetune_config(
     tr["max_steps"] = max(1, round(base_steps * step_fraction))
     # Keep warmup short relative to the shortened schedule.
     tr["warmup_steps"] = max(0, min(base_warmup, round(tr["max_steps"] * 0.05)))
+
+    # Isolate the fine-tune output so it never clobbers the dense base checkpoint.
+    ckpt = out.setdefault("checkpoint", {})
+    base_out = str(ckpt.get("output_dir", "./checkpoints/model")).rstrip("/\\")
+    ckpt["output_dir"] = base_out + "_moe_ft"
     return out
 
 

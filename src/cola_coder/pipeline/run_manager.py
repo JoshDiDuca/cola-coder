@@ -48,7 +48,7 @@ STAGE_DEFS: dict[int, dict[str, str | bool]] = {
     },
     7: {
         "name": "upcycle-moe",
-        "description": "Convert dense model to Mixture of Experts",
+        "description": "Convert dense model to MoE + differentiate experts (fine-tune)",
         "optional": True,
     },
     8: {

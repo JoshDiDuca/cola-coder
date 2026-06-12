@@ -142,6 +142,39 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **MODEL-014** [model/pipeline feature, medium] `done` (2026-06-12) — Wired the
+  MoE expert-differentiation fine-tune into the automated pipeline (the known
+  "MoE fine-tune pipeline stage" thread). Stage 7 (`_stage_upcycle_moe`) used to
+  ONLY upcycle (`upcycle_to_moe.py` → checkpoints/moe) then jump to the router —
+  but upcycling clones the dense FFN into every expert IDENTICALLY, so the router
+  consumed undifferentiated experts and the optional MoE stage was effectively
+  wasted (a MoE no better than the dense model, just bigger/slower). Stage 7 now
+  also runs the MODEL-003 differentiation recipe: derive a fine-tune config
+  (`derive_moe_finetune_config`, default 10% LR / 15% steps), write it to
+  configs/auto/, and `train.py --config <derived> --resume checkpoints/moe --data
+  <npy>` (trainer auto-detects MoE). The derived config inherits `run.config_path`
+  so smoke runs inherit smoke step limits (15% of ~30 ≈ 5 steps) and the isolated
+  `_smoke` dir; the fine-tuned `<base>_moe_ft/latest` becomes the stage artifact
+  the router consumes. Graceful skips: no checkpoints/moe or unreadable config →
+  warn + return the upcycle/base checkpoint. STAGE_DEFS[7] description updated.
+  Builds on MODEL-013 (output-dir isolation) so the fine-tune can't clobber the
+  dense base. 282 pipeline/menu/moe tests pass; ruff clean.
+
+- **MODEL-013** [model/training bug, high] `done` (2026-06-12) — `derive_moe_finetune_config`
+  rescaled only the `training` section, leaving `checkpoint.output_dir` pointing
+  at the BASE config's dir. The MoE fine-tune RESUMES from the upcycled MoE dir
+  (checkpoints/moe) but the trainer always saves to `config.checkpoint.output_dir`
+  — so the fine-tune would have OVERWRITTEN the dense pretrained checkpoint (e.g.
+  checkpoints/4080_max), irreversibly destroying the base model (days of GPU), and
+  mixed MoE step dirs into the dense folder where `_cleanup_old_checkpoints` could
+  prune the base. Hit BOTH the existing training-menu stage 7.5 AND the new
+  pipeline wiring (MODEL-014). Fix: the derived config now redirects
+  `checkpoint.output_dir` to an isolated `<base>_moe_ft` dir (handles trailing
+  slash; defaults to `./checkpoints/model_moe_ft` when no checkpoint section), so
+  dense base / upcycle source / fine-tune output are three distinct resumable
+  checkpoints. Tests: 5 new in test_moe_finetune_config.py (redirect, differs from
+  base, trailing-slash, default, input-not-mutated). 14 config + checkpoint green.
+
 - **DATA-044** [data-quality, medium] `done` (2026-06-12) — CLOSED the last
   collect_data-vs-prepare_data parity gap: the multi-source mix can now train
   quality-WEIGHTED. Added `--score` to `collect_data.py` — after each source is

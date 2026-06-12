@@ -1022,16 +1022,71 @@ class PipelineMenu:
     def _stage_upcycle_moe(
         self, run: PipelineRun, config, input_path: str,
     ) -> str:
-        """Stage 7: MoE upcycling."""
+        """Stage 7: MoE upcycling + expert-differentiation fine-tune.
+
+        Upcycling clones the dense FFN into every expert, so they start IDENTICAL
+        — a raw upcycled checkpoint is no better than (just bigger/slower than)
+        the dense model. A short, low-LR fine-tune (MODEL-003 recipe) is what
+        differentiates the experts. Previously the pipeline upcycled then jumped
+        straight to the router, so the optional MoE stage shipped undifferentiated
+        experts (wasted upcycling). The derived fine-tune config redirects output
+        to an isolated `<base>_moe_ft` dir so the dense base is never clobbered,
+        and inherits this run's config (incl. smoke-mode step limits).
+        """
+        import yaml
+
+        from cola_coder.data.dataset_resolver import DatasetResolver
+        from cola_coder.model.config import derive_moe_finetune_config
+
         checkpoint = self._resolve_checkpoint(run, config, input_path)
 
-        args = [
+        self._run_stage_script("upcycle_to_moe.py", [
             "--checkpoint", checkpoint,
             "--config", run.config_path,
-        ]
-        self._run_stage_script("upcycle_to_moe.py", args)
+        ])
         moe_dir = Path("checkpoints/moe")
-        return str(moe_dir) if moe_dir.exists() else checkpoint
+        if not moe_dir.exists():
+            cli.warn("  Upcycling produced no checkpoints/moe — skipping fine-tune.")
+            return checkpoint
+
+        # Differentiate experts: short low-LR fine-tune resumed from the MoE dir.
+        try:
+            raw = yaml.safe_load(Path(run.config_path).read_text(encoding="utf-8")) or {}
+        except OSError as exc:
+            cli.warn(f"  Could not read config for MoE fine-tune: {exc} — "
+                     "experts left undifferentiated.")
+            return str(moe_dir)
+
+        derived = derive_moe_finetune_config(raw)
+        auto_dir = Path("configs/auto")
+        auto_dir.mkdir(parents=True, exist_ok=True)
+        derived_path = str(auto_dir / f"{Path(run.config_path).stem}_moe_ft.yaml")
+        Path(derived_path).write_text(
+            yaml.safe_dump(derived, sort_keys=False), encoding="utf-8"
+        )
+
+        ft_args = ["--config", derived_path, "--resume", str(moe_dir)]
+        # Pass the training data explicitly (same as Stage 3 pretrain).
+        data_dir = DatasetResolver.get_dataset_dir(
+            _DATA_SOURCES_PATH, config_path=run.config_path,
+        )
+        if data_dir.exists():
+            data_npys = sorted([
+                f for f in data_dir.glob("*.npy")
+                if ".weights" not in f.name and ".scores" not in f.name
+            ])
+            if data_npys:
+                ft_args.extend(["--data", str(data_npys[0])])
+
+        ft_out = derived.get("checkpoint", {}).get("output_dir", "")
+        cli.info("  MoE fine-tune", f"differentiating experts → {ft_out}")
+        self._run_stage_script("train.py", ft_args)
+
+        ft_dir = Path(ft_out) if ft_out else moe_dir
+        ft_latest = ft_dir / "latest"
+        if ft_latest.exists():
+            return str(ft_latest)
+        return str(ft_dir) if ft_dir.exists() else str(moe_dir)
 
     def _stage_train_router(self, run: PipelineRun, config) -> str:
         """Stage 8: Train semantic router.
