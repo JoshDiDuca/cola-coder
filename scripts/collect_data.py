@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -110,6 +111,35 @@ def _quarantine_dest(quarantine_dir: Path, src: Path) -> Path:
     """
     digest = hashlib.md5(str(src).encode("utf-8")).hexdigest()[:8]
     return quarantine_dir / f"{digest}_{src.name}"
+
+
+def _maybe_quality_filter(iterator, filter_mode: str, languages: list[str], workers=None):
+    """Wrap a CODE content stream with the quality filter (or pass through).
+
+    filter_mode: "conservative" (default — only rejects clearly-bad code:
+    minified, auto-generated, data dumps, broken syntax), "strict" (tighter +
+    style/structure checks), or "off" (no filtering). Language-aware so e.g. a
+    TypeScript run isn't rejected by the Python AST check. Mirrors prepare_data.
+    ``workers`` defaults to CPU cores (capped at 12); pass 1 for sequential.
+    """
+    if filter_mode == "off":
+        cli.warn("  Quality filter OFF for code — raw (unfiltered) code will be tokenized.")
+        return iterator
+
+    from cola_coder.data.quality_filter import (
+        FilterMode,
+        FilterStats,
+        parallel_filtered_stream,
+    )
+
+    mode = FilterMode.STRICT if filter_mode == "strict" else FilterMode.CONSERVATIVE
+    if workers is None:
+        workers = max(1, min(os.cpu_count() or 4, 12))
+    cli.info("  Quality filter", f"{mode.value} ({workers} workers)")
+    return parallel_filtered_stream(
+        iterator, mode=mode, stats=FilterStats(),
+        num_workers=workers, languages=languages,
+    )
 
 
 def _scan_downloaded_data(
@@ -229,6 +259,13 @@ def main() -> None:
     )
     parser.add_argument("--tokenizer", default=None, help="Tokenizer path override")
     parser.add_argument("--no-combine", action="store_true", help="Skip combining step")
+    parser.add_argument(
+        "--filter", choices=["conservative", "strict", "off"], default=None,
+        help="Quality filter for the CODE source before tokenization "
+             "(rejects minified/auto-generated/data-dump files). Default: read "
+             "data_sources.yaml code.filter, else 'conservative'. Text/math are "
+             "not code-filtered.",
+    )
     args = parser.parse_args()
 
     # ── Load configs ──────────────────────────────────────────────────
@@ -282,6 +319,12 @@ def main() -> None:
             dataset, languages=languages, max_samples=args.max_samples,
         )
         code_iter = _maybe_scan_stream(code_iter, "code", scan_config, scan_stats)
+        # Quality filter the CODE source (the multi-source path previously
+        # tokenized raw code — minified/auto-generated/data-dump files included —
+        # despite tokenize_and_chunk documenting "already quality-filtered" input.
+        # text/math are prose and intentionally NOT run through the code filter.
+        filter_mode = args.filter or code_cfg.get("filter", "conservative")
+        code_iter = _maybe_quality_filter(code_iter, filter_mode, languages)
         output_path = tokenize_and_chunk(
             code_iter, tokenizer, chunk_size=seq_len,
             output_dir=output_dir, output_name="code_data",

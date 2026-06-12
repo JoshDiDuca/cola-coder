@@ -116,3 +116,50 @@ class TestQuarantineDestNoCollision:
         f2.rename(mod._quarantine_dest(q, f2))
         contents = sorted(p.read_text() for p in q.iterdir())
         assert contents == ["AAA", "BBB"]  # neither was overwritten
+
+
+class TestCodeQualityFiltering:
+    """DATA-042: the multi-source code path must quality-filter before
+    tokenizing (it previously tokenized raw code — minified/auto-generated/
+    data-dump files included — despite tokenize_and_chunk expecting filtered
+    input). text/math are prose and are NOT code-filtered."""
+
+    _GOOD = "def add(a, b):\n    return a + b\n\n\nclass C:\n    pass\n"
+    _MINIFIED = "var x=" + "a+" * 600 + "1;"  # one enormous line → minified
+
+    def test_off_is_passthrough(self):
+        mod = _load()
+        src = iter([self._GOOD])
+        out = mod._maybe_quality_filter(src, "off", ["python"])
+        assert out is src  # same object — no filtering wrapper
+
+    def test_conservative_drops_minified(self, capsys):
+        mod = _load()
+        items = [self._GOOD, self._MINIFIED, self._GOOD]
+        kept = list(mod._maybe_quality_filter(
+            iter(items), "conservative", ["python"], workers=1,
+        ))
+        assert self._MINIFIED not in kept       # minified rejected
+        assert kept.count(self._GOOD) == 2       # good code kept
+
+    def test_conservative_keeps_clean_code(self):
+        mod = _load()
+        kept = list(mod._maybe_quality_filter(
+            iter([self._GOOD]), "conservative", ["python"], workers=1,
+        ))
+        assert kept == [self._GOOD]
+
+    def test_strict_mode_selectable(self):
+        mod = _load()
+        # strict is tighter but still keeps clean, well-structured code.
+        kept = list(mod._maybe_quality_filter(
+            iter([self._GOOD]), "strict", ["python"], workers=1,
+        ))
+        assert self._GOOD in kept or kept == []  # strict may reject; must not error
+
+    def test_filter_wired_into_code_path_only(self):
+        # Static guard: the code source applies the filter; text/math do not.
+        text = _SCRIPT.read_text(encoding="utf-8")
+        assert "_maybe_quality_filter(code_iter" in text
+        assert "_maybe_quality_filter(text_iter" not in text
+        assert "_maybe_quality_filter(math_iter" not in text

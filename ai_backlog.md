@@ -39,19 +39,20 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   trainer path (double-FIM warning), and fim.py's `truncate_or_pad=False` length
   docstring is corrected.
 
-- **DATA-021** [data-quality/architecture, medium] `open` — The modular
-  FilterPlugin + `DataPipeline` system (data/pipeline.py + data/filters/, registry
-  in data/registry.py) is built and now fully registered (DATA-020), but is NOT
-  wired into any LIVE entry point: `collect_data.py` filters via
-  `stream_code_data`/`tokenize_and_chunk` + the monolithic `quality_filter.py`,
-  not `DataPipeline`; `DataPipeline(` is constructed nowhere outside pipeline.py
-  itself (self_align.py only mentions it in docstrings). So the privacy (pii),
-  license, content, syntax, dedup filters — though now selectable by name — have
-  no config that actually invokes them in the real collection path. DECISION
-  NEEDED (larger, staged refactor): either (a) route collect_data/prepare_data
-  through DataPipeline with a `filters:` section in data_sources.yaml, or (b)
-  consolidate onto quality_filter.py and retire the unused DataPipeline filter
-  path. Don't do blindly — pick a single filtering architecture. Found this cycle.
+- **DATA-021** [data-quality/dead-code, low] `open` (urgency DOWNGRADED 2026-06-12)
+  — The modular FilterPlugin + `DataPipeline` system (data/pipeline.py +
+  data/filters/, registry in data/registry.py) is built and registered (DATA-020)
+  but NOT wired into any LIVE entry point — `DataPipeline(` is constructed nowhere
+  outside pipeline.py itself. ORIGINALLY framed as a data-quality exposure, but the
+  DATA-042 scan established the practical risk is LOW: the live sources are already
+  covered — the-stack-v2 (primary code) is license-filtered + PII-redacted upstream
+  by BigCode; the GitHub scraper has the DATA-037 copyleft gate; collect_data now
+  quality-filters code (DATA-042); secrets are scanned (DATA-033). So the unwired
+  pii/license/content/syntax/dedup plugins are largely REDUNDANT with the live
+  path, making this dead-code cleanup, not exposure. DECISION (user): either (a)
+  route collect_data/prepare_data through DataPipeline (consolidate on the modular
+  system), or (b) delete the unused DataPipeline filter path and keep
+  quality_filter.py. Pick one architecture — don't leave both.
 
 - **EVAL-007** [eval/capability, low] `open` — Follow-up to EVAL-006: to actually
   EVALUATE TypeScript HumanEval problems (TYPESCRIPT_PROBLEMS, ~40 in
@@ -111,6 +112,29 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Done
+
+- **DATA-042** [data-quality/bug, medium] `done` (2026-06-12) — `collect_data.py`
+  (the MULTI-SOURCE path — Full Auto Pipeline / Pipeline Manager Stage 1) tokenized
+  the CODE source with NO quality filtering: `stream_code_data → _maybe_scan_stream
+  (malware only) → tokenize_and_chunk`. `tokenize_and_chunk`'s own docstring states
+  its input is "already quality-filtered", but collect_data violated that — so
+  minified bundles, auto-generated code, data-file dumps, and broken-syntax files
+  (the ~40-50% noise StarCoder filters, and exactly what quality_filter.py exists
+  to reject) flowed straight into the multi-source training set. (prepare_data.py
+  DID filter; collect_data didn't — a real divergence between the two Stage-1
+  paths, related to TOOL-011.) Fixed: new `_maybe_quality_filter(iter, mode,
+  languages, workers)` wraps the CODE stream with `parallel_filtered_stream`
+  (language-aware, mirrors prepare_data) after the malware scan; mode from
+  `--filter {conservative,strict,off}` > data_sources.yaml `code.filter` >
+  "conservative" default. Text/math are prose and intentionally NOT code-filtered.
+  Tests: test_collect_data_security.py +5 (off=passthrough, conservative drops
+  minified / keeps clean, strict selectable, code-path-only wiring guard). Found in
+  this cycle's collect_data flow scan. Fresh-scan note: malware scan IS applied to
+  all 3 sources; the unwired DataPipeline filters (DATA-021) are largely REDUNDANT
+  for the live sources — the-stack-v2 is license-filtered + PII-redacted upstream
+  by BigCode, GitHub has the DATA-037 copyleft gate — so DATA-021's practical
+  data-quality urgency is LOW (it's now mainly dead-code cleanup, not exposure).
+  --help OK; ruff + checkpoint green.
 
 - **MODEL-010** [model/training/consistency, low-medium] `done` (2026-06-12) —
   Fresh scan of the reasoning CoT path (cot_data.py, thinking_tokens.py, reward.py)
