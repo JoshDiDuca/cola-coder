@@ -145,6 +145,26 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **INFER-018** [inference/partial-wiring, low-medium] `done` (2026-06-12) —
+  Best-of-N generation silently DROPPED the `no_repeat_ngram_size` sampling
+  param. The server's `_best_of_generate` → `generate_best_of_n` →
+  `_generate_candidates` chain threaded `min_p` but not `no_repeat_ngram_size`,
+  so a user who set it on a chat/completions request with `best_of > 1` got
+  verbatim-repetition suppression silently ignored (every other generate path —
+  regular, streaming, FIM — honors it). Root cause: the batched sampler
+  (`sample_next_tokens_batch`) deliberately skips per-sequence n-gram history for
+  throughput, so `generate_group` can't enforce it. Fix: thread the param through
+  all three functions; when `no_repeat_ngram_size > 0`, `_generate_candidates`
+  routes to the SERIAL `generate()` path (which applies the constraint) instead
+  of silently dropping it — an explicit speed/correctness trade documented in the
+  docstring (only triggered when the user opts into n-gram blocking). Fresh-scan
+  note: verified the rest of server.py is consistently wired — all 4 request
+  bodies (Generate/Chat/Completion/Fim) expose min_p + no_repeat_ngram_size and
+  every non-best-of call site passes both; also re-audited GRPO (Dr. GRPO/DAPO
+  per-token clip, std-collapse guard) — correct. Tests: 2 new in
+  test_best_of_n.py (n-gram>0 forces serial + passes param; n-gram==0 keeps
+  batched fast path). 20 best_of + 53 checkpoint/inference pass; ruff clean.
+
 - **MODEL-011** [model/training metric, medium] `done` (2026-06-12) — Reported
   training loss conflated the optimization objective with the language-modeling
   METRIC. `trainer.py` logged `loss.item()` where `loss` = CE + z-loss (and + MoE

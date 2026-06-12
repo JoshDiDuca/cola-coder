@@ -48,6 +48,27 @@ class FakeSerialGenerator:
         return text
 
 
+class FakeHybridGenerator:
+    """Generator exposing BOTH generate_group (batched) and generate (serial).
+
+    Records which path was taken so tests can assert that n-gram blocking
+    forces the serial path (the batched sampler can't honor it).
+    """
+
+    def __init__(self, texts: list[str]):
+        self.texts = list(texts)
+        self.group_calls: list[dict] = []
+        self.serial_calls: list[dict] = []
+
+    def generate_group(self, prompt, num_completions, **kwargs):
+        self.group_calls.append({"num_completions": num_completions, **kwargs})
+        return self.texts[:num_completions]
+
+    def generate(self, prompt, **kwargs):
+        self.serial_calls.append(kwargs)
+        return self.texts[len(self.serial_calls) % len(self.texts) - 1]
+
+
 class FakeTscRunner:
     """check_batch stub: maps candidate index -> list of error strings."""
 
@@ -228,6 +249,26 @@ class TestGenerationPlumbing:
         assert call["top_k"] == 10
         assert call["top_p"] == 0.8
         assert call["min_p"] == 0.05
+
+    def test_no_repeat_ngram_forces_serial_path(self):
+        # INFER-018: the batched sampler can't track per-sequence n-grams, so a
+        # positive no_repeat_ngram_size must route through serial generate()
+        # (which honors it) instead of being silently dropped by generate_group.
+        gen = FakeHybridGenerator(["def f(): pass"] * 3)
+        generate_best_of_n(
+            gen, "def f", num_candidates=3, language="python",
+            no_repeat_ngram_size=3,
+        )
+        assert gen.group_calls == [], "n-gram blocking must NOT use the batched path"
+        assert len(gen.serial_calls) == 3
+        assert all(c["no_repeat_ngram_size"] == 3 for c in gen.serial_calls)
+
+    def test_no_ngram_block_keeps_batched_fast_path(self):
+        # Default (no n-gram blocking) must still use the fast batched path.
+        gen = FakeHybridGenerator(["def f(): pass"] * 3)
+        generate_best_of_n(gen, "def f", num_candidates=3, language="python")
+        assert len(gen.group_calls) == 1
+        assert gen.serial_calls == []
 
     def test_serial_fallback_without_generate_group(self):
         gen = FakeSerialGenerator(["def f(): pass", "def g(): pass"])

@@ -100,6 +100,7 @@ def generate_best_of_n(
     top_k: int = 50,
     top_p: float = 0.9,
     min_p: float = 0.0,
+    no_repeat_ngram_size: int = 0,
     timeout: float = 10.0,
     tsc_runner=None,
     execute_fn: ExecuteFn | None = None,
@@ -114,6 +115,10 @@ def generate_best_of_n(
         tests: Optional Python test code appended to each candidate and
                executed in the sandbox — strongest verification signal.
         max_new_tokens / temperature / top_k / top_p / min_p: sampling params.
+        no_repeat_ngram_size: If > 0, hard-block repeated n-grams. The batched
+            sampler can't track per-sequence n-gram history, so a positive value
+            forces SERIAL candidate generation (slower) to actually honor it
+            rather than silently dropping it.
         timeout: Per-candidate verification timeout in seconds.
         tsc_runner: Injectable TscRunner (tests); default builds one if tsc exists.
         execute_fn: Injectable Python executor (tests); default is the
@@ -134,6 +139,7 @@ def generate_best_of_n(
         top_k=top_k,
         top_p=top_p,
         min_p=min_p,
+        no_repeat_ngram_size=no_repeat_ngram_size,
     )
 
     lang = detect_language(prompt) if language == "auto" else language
@@ -182,9 +188,17 @@ def _generate_candidates(
     top_k: int,
     top_p: float,
     min_p: float,
+    no_repeat_ngram_size: int = 0,
 ) -> list[str]:
-    """Batched generation when available, serial fallback otherwise."""
-    if hasattr(generator, "generate_group"):
+    """Batched generation when available, serial fallback otherwise.
+
+    n-gram blocking forces the serial path: the batched sampler
+    (sample_next_tokens_batch) deliberately skips per-sequence n-gram history
+    for throughput, so it cannot honor no_repeat_ngram_size. Rather than drop
+    the user's setting silently, generate candidates one at a time where
+    generate() applies the constraint.
+    """
+    if no_repeat_ngram_size <= 0 and hasattr(generator, "generate_group"):
         return generator.generate_group(
             prompt=prompt,
             num_completions=num_candidates,
@@ -194,7 +208,14 @@ def _generate_candidates(
             top_p=top_p,
             min_p=min_p,
         )
-    logger.debug("generator has no generate_group — serial best-of-N fallback")
+    if no_repeat_ngram_size > 0 and hasattr(generator, "generate_group"):
+        logger.debug(
+            "best-of-N: no_repeat_ngram_size=%d forces serial generation "
+            "(batched sampler can't track per-sequence n-grams)",
+            no_repeat_ngram_size,
+        )
+    else:
+        logger.debug("generator has no generate_group — serial best-of-N fallback")
     return [
         generator.generate(
             prompt=prompt,
@@ -203,6 +224,7 @@ def _generate_candidates(
             top_k=top_k,
             top_p=top_p,
             min_p=min_p,
+            no_repeat_ngram_size=no_repeat_ngram_size,
         )
         for _ in range(num_candidates)
     ]

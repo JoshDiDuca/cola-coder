@@ -405,6 +405,7 @@ def create_app(
         top_k: int,
         top_p: float,
         min_p: float,
+        no_repeat_ngram_size: int = 0,
     ) -> str:
         """Best-of-N generation + verification, serialized behind the GPU lock.
 
@@ -426,6 +427,7 @@ def create_app(
                 top_k=top_k,
                 top_p=top_p,
                 min_p=min_p,
+                no_repeat_ngram_size=no_repeat_ngram_size,
             )
         return result.best.text
 
@@ -565,6 +567,7 @@ def create_app(
                 top_k=request.top_k,
                 top_p=request.top_p,
                 min_p=request.min_p,
+                no_repeat_ngram_size=request.no_repeat_ngram_size,
             )
         else:
             async with _gen_lock:
@@ -761,6 +764,7 @@ def create_app(
                 top_k=request.top_k,
                 top_p=request.top_p,
                 min_p=request.min_p,
+                no_repeat_ngram_size=request.no_repeat_ngram_size,
             )
         else:
             async with _gen_lock:
