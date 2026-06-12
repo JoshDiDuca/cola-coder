@@ -238,16 +238,19 @@ def _element_to_markdown(el: Tag, base_url: str = "") -> str:  # noqa: C901
         # ── Fenced code blocks ──────────────────────────────────────────
         if name == "pre":
             code_el = node.find("code")
+            # The highlight-language class lives on EITHER <pre> or <code>
+            # depending on the highlighter (Prism puts it on <code>, but
+            # highlight.js/MDX/Docusaurus often put it on <pre>). Check both,
+            # and accept the `language-x` and shorthand `lang-x` forms — else
+            # the example ships with an UNTAGGED fence and the model can't tell
+            # what language it is (DATA-039).
+            classes = " ".join(node.get("class", []) or [])  # type: ignore[arg-type]
             if code_el:
-                lang_class = " ".join(code_el.get("class", []))  # type: ignore[arg-type]
-                lang = ""
-                m = re.search(r"language-(\w+)", lang_class)
-                if m:
-                    lang = m.group(1)
-                code_text = code_el.get_text()
-                lines.append(f"\n```{lang}\n{code_text}\n```\n")
-            else:
-                lines.append(f"\n```\n{node.get_text()}\n```\n")
+                classes += " " + " ".join(code_el.get("class", []) or [])  # type: ignore[arg-type]
+            m = re.search(r"(?:language|lang)-(\w+)", classes)
+            lang = m.group(1) if m else ""
+            code_text = (code_el or node).get_text()
+            lines.append(f"\n```{lang}\n{code_text}\n```\n")
             return
 
         # ── Inline code ─────────────────────────────────────────────────

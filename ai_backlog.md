@@ -104,6 +104,19 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   environment (gguf package absent, EXPORT-010 fresh scan). Verify before
   shipping a fix.
 
+- **DATA-040** [data-quality, low-medium] `open` — Follow-up to DATA-039: the docs
+  HTML→Markdown converter's `<p>`, `<li>` (ul/ol) handlers flatten their contents
+  with `node.get_text(" ", strip=True)` instead of recursing the `_walk` tree. This
+  DESTROYS structure inside those elements: inline `<code>` loses its backticks,
+  and — worse — a `<pre>` CODE BLOCK inside a list item or paragraph (common in
+  step-by-step framework guides) is collapsed to a single space-joined line, so its
+  indentation/newlines vanish → broken code examples in the docs training data.
+  Fix needs a modest restructure: recurse `_walk` into `<li>`/`<p>` children
+  (handling the list-item "- "/"N." prefix against the shared `lines` accumulator)
+  so nested code blocks/inline code/nested lists render correctly. Deferred from the
+  DATA-039 cycle (the lang-class fix was small+safe; this is a larger, riskier HTML
+  refactor — validate against real React/Next.js/Zod doc pages before shipping).
+
 - **OPS-001** [tooling, low] `open` (deferred for user) — storage split-brain:
   configs/storage.yaml → E:/cola-coder-data vs config.checkpoint.output_dir →
   ./checkpoints. Needs the user's decision; do not unilaterally resolve.
@@ -111,6 +124,18 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Done
+
+- **DATA-039** [data-quality/bug, low-medium] `done` (2026-06-12) — The docs
+  HTML→Markdown converter (scripts/scrape_docs.py `_element_to_markdown`) read the
+  code-fence language class ONLY from the `<code>` element. Many doc highlighters
+  (highlight.js, MDX, Docusaurus) put `language-X` on the `<pre>` instead, so those
+  examples shipped with an UNTAGGED ``` fence — the model couldn't tell what
+  language a code sample was, degrading framework-docs training quality. Fixed:
+  read the class from BOTH `<pre>` and `<code>`, and accept the `lang-X` shorthand
+  alongside `language-X`; also unified the with/without-`<code>` branches via
+  `(code_el or node).get_text()`. Tests: test_scrape_docs_codefence.py (7): lang on
+  code / on pre / lang- shorthand / pre-without-code / untagged-when-none / code
+  text preserved / standalone inline code. 13 docs + checkpoint green; ruff clean.
 
 - **DATA-038** [data-quality/bug, low] `done` (2026-06-12) — `SoftwareHeritageSource`
   stored `content_types` as a raw `set(content_types)` but matched against
