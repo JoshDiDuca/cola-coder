@@ -3,7 +3,8 @@
 import torch
 
 from cola_coder.inference.sampling import (
-    sample_next_token, _top_k_filter, _top_p_filter, _apply_repetition_penalty
+    sample_next_token, _top_k_filter, _top_p_filter, _apply_repetition_penalty,
+    _banned_ngram_tokens,
 )
 from cola_coder.evaluation.metrics import pass_at_k, compute_pass_at_k, ProblemResult
 
@@ -138,3 +139,46 @@ class TestPassAtK:
         assert "pass@1" in metrics
         # Average: (0.5 + 1.0 + 0.0) / 3 = 0.5
         assert abs(metrics["pass@1"] - 0.5) < 0.01
+
+
+class TestNoRepeatNgram:
+    """no_repeat_ngram_size hard-blocks tokens that would repeat a seen n-gram —
+    the fix for verbatim repetition loops in code generation."""
+
+    def test_bans_token_completing_seen_bigram(self):
+        # seq: a b a -> the bigram (a,?) was (a,b); last token is a, so b is banned.
+        banned = _banned_ngram_tokens([1, 2, 1], ngram_size=2)
+        assert banned == {2}
+
+    def test_trigram_prefix_match(self):
+        # seq: 1 2 3 1 2 -> trigram prefix (1,2) previously continued with 3 -> ban 3.
+        banned = _banned_ngram_tokens([1, 2, 3, 1, 2], ngram_size=3)
+        assert banned == {3}
+
+    def test_no_ban_when_prefix_unseen(self):
+        banned = _banned_ngram_tokens([1, 2, 3, 4], ngram_size=3)
+        assert banned == set()  # last prefix (3,4) never occurred before
+
+    def test_too_short_no_ban(self):
+        assert _banned_ngram_tokens([1], ngram_size=3) == set()
+
+    def test_disabled_returns_empty(self):
+        assert _banned_ngram_tokens([1, 2, 1], ngram_size=0) == set()
+
+    def test_size_one_bans_all_seen(self):
+        assert _banned_ngram_tokens([5, 7, 5], ngram_size=1) == {5, 7}
+
+    def test_sample_respects_ban_greedy(self):
+        # Greedy would pick token 2 (highest logit), but the bigram ban forbids it.
+        logits = torch.tensor([0.0, 1.0, 5.0, 0.5])
+        # generated [1,2,1]: bigram prefix (1,) previously continued with 2 -> 2
+        # banned. Highest non-banned logit is index 1 (1.0).
+        tok = sample_next_token(logits.clone(), temperature=0, generated_ids=[1, 2, 1],
+                   no_repeat_ngram_size=2)
+        assert tok != 2
+        assert tok == 1  # highest non-banned logit
+
+    def test_off_by_default_allows_repeat(self):
+        logits = torch.tensor([0.0, 1.0, 5.0, 0.5])
+        tok = sample_next_token(logits.clone(), temperature=0, generated_ids=[1, 2, 1])
+        assert tok == 2  # no ban -> greedy picks the max

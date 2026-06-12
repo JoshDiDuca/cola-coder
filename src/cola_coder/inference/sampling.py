@@ -26,6 +26,31 @@ import torch
 import torch.nn.functional as F
 
 
+def _banned_ngram_tokens(generated_ids: list[int], ngram_size: int) -> set[int]:
+    """Tokens that would complete an already-seen n-gram (no_repeat_ngram).
+
+    Given the last ``ngram_size - 1`` generated tokens as a prefix, return every
+    token that, if emitted next, would reproduce an n-gram already present in
+    ``generated_ids``. Banning these is the standard fix for the verbatim
+    repetition loops code models fall into (e.g. re-emitting the same line/block).
+
+    ngram_size <= 0 disables it; ngram_size == 1 bans any already-seen token.
+    """
+    if ngram_size <= 0 or not generated_ids:
+        return set()
+    n = ngram_size
+    if n == 1:
+        return set(generated_ids)
+    if len(generated_ids) < n:
+        return set()
+    prefix = tuple(generated_ids[-(n - 1):])
+    banned: set[int] = set()
+    for i in range(len(generated_ids) - n + 1):
+        if tuple(generated_ids[i:i + n - 1]) == prefix:
+            banned.add(generated_ids[i + n - 1])
+    return banned
+
+
 def sample_next_token(
     logits: torch.Tensor,
     temperature: float = 0.8,
@@ -34,6 +59,7 @@ def sample_next_token(
     min_p: float = 0.0,
     repetition_penalty: float = 1.1,
     generated_ids: list[int] | None = None,
+    no_repeat_ngram_size: int = 0,
 ) -> int:
     """Sample the next token from model output logits.
 
@@ -47,6 +73,10 @@ def sample_next_token(
                Recommended 0.05-0.1; pairs well with higher temperatures.
         repetition_penalty: Penalize tokens that appeared before. >1 = penalize.
         generated_ids: List of previously generated token IDs (for repetition penalty).
+        no_repeat_ngram_size: If > 0, forbid any token that would repeat an
+            n-gram of this size already present in generated_ids — a hard block
+            on verbatim repetition loops (the failure mode where a code model
+            re-emits the same line/block forever). 0 disables it; 3 is typical.
 
     Returns:
         The selected token ID (integer).
@@ -55,9 +85,17 @@ def sample_next_token(
     if repetition_penalty != 1.0 and generated_ids:
         logits = _apply_repetition_penalty(logits, generated_ids, repetition_penalty)
 
+    # No-repeat-ngram: hard-ban tokens that would reproduce a seen n-gram. Applied
+    # BEFORE the greedy/temperature paths so it constrains both. Skips the EOS/
+    # special-stop tokens is unnecessary — completing a stop n-gram is rare and the
+    # caller's stop handling runs after sampling.
+    if no_repeat_ngram_size > 0 and generated_ids:
+        for tid in _banned_ngram_tokens(generated_ids, no_repeat_ngram_size):
+            logits[tid] = float("-inf")
+
     # Temperature scaling
     if temperature == 0:
-        # Greedy: just pick the max
+        # Greedy: pick the max (over the non-banned tokens).
         return logits.argmax().item()
 
     logits = logits / temperature

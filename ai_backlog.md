@@ -112,6 +112,21 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **INFER-015** [inference/capability, medium] `done` (2026-06-12) — Added
+  `no_repeat_ngram_size` decoding to the generator — the standard hard block on
+  verbatim repetition loops (the failure mode where a code model re-emits the
+  same line/block forever, which rep-penalty alone doesn't reliably stop). New
+  pure `_banned_ngram_tokens(generated_ids, n)` returns every token that would
+  complete an already-seen n-gram given the last n-1 tokens; `sample_next_token`
+  sets those logits to -inf BEFORE the greedy/temperature paths (so it constrains
+  both), threaded through `generate`/`generate_stream` (default 0 = off → zero
+  behavior change for existing callers). 2024-25 best-practice decoding, fully
+  verifiable without a trained model. Tests: test_inference.py +8 (bigram/trigram
+  ban, unseen-prefix no-ban, too-short, disabled, size-1, greedy respects ban,
+  off-by-default allows repeat). Fresh-scan note: audited the attention KV-cache
+  (expand_cache + prefill causal mask via Transformer.forward start_pos==0) — all
+  correct. 285 generation + checkpoint green; ruff clean.
+
 - **DATA-040** [data-quality, low-medium] `done` (2026-06-12) — Follow-up to
   DATA-039: the docs HTML→Markdown converter flattened list items with
   `child.get_text(" ", strip=True)`, collapsing a `<pre>` CODE BLOCK inside a list

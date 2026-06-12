@@ -120,6 +120,7 @@ class CodeGenerator:
         repetition_penalty: float = 1.1,
         stop_tokens: list[str] | None = None,
         return_new_only: bool = False,
+        no_repeat_ngram_size: int = 0,
     ) -> str:
         """Generate code given a prompt.
 
@@ -133,6 +134,9 @@ class CodeGenerator:
                    min_p * max_token_prob (0 = disabled, try 0.05-0.1).
             repetition_penalty: Penalty for repeating tokens.
             stop_tokens: Stop generation when any of these tokens are generated.
+            no_repeat_ngram_size: If > 0, hard-block any token that would repeat
+                an n-gram of this size (fixes verbatim repetition loops; 3 typical,
+                0 = off).
             return_new_only: When True, return ONLY the completion (decode of the
                 newly generated tokens), not ``prompt + completion``. This is the
                 robust way to recover the reply when the prompt contains special
@@ -182,6 +186,7 @@ class CodeGenerator:
                 min_p=min_p,
                 repetition_penalty=repetition_penalty,
                 generated_ids=generated_ids,
+                no_repeat_ngram_size=no_repeat_ngram_size,
             )
 
             # Token-level stop (EOS / single-token stops) — exclude from output
@@ -233,6 +238,7 @@ class CodeGenerator:
         min_p: float = 0.0,
         repetition_penalty: float = 1.1,
         stop_tokens: list[str] | None = None,
+        no_repeat_ngram_size: int = 0,
     ) -> Generator[str, None, None]:
         """Generate code given a prompt, yielding tokens incrementally as they're produced.
 
@@ -298,6 +304,7 @@ class CodeGenerator:
                     min_p=min_p,
                     repetition_penalty=repetition_penalty,
                     generated_ids=generated_ids,
+                    no_repeat_ngram_size=no_repeat_ngram_size,
                 )
 
                 # Token-level stop (EOS / single-token stops)
