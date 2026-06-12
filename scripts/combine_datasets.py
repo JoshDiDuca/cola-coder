@@ -313,12 +313,18 @@ def run_pipeline(settings: dict, output_path: str):
             )
         )
 
+    # Carry per-chunk quality weights (prepare_data --score sidecars) through the
+    # mix ONLY when cross-dataset dedup did not run — dedup writes _temp_dedup_
+    # files with different row counts, so the original .weights.npy no longer
+    # aligns (realigning weights through deduplicate_pair is a separate task).
+    carry_weights = settings["dedup_method"] == "none"
     result = combiner.combine(
         datasets=ds_inputs,
         strategy=settings["strategy"],
         output_path=output_path,
         shuffle=True,
         seed=42,
+        carry_weights=carry_weights,
     )
 
     elapsed = time.time() - t0
@@ -351,6 +357,8 @@ def run_pipeline(settings: dict, output_path: str):
             "Chunks": f"{result.total_chunks:,}",
             "Tokens": f"{result.total_tokens:,} ({_format_tokens(result.total_tokens)})",
             **({"Dedup": f"{dedup_removed:,} duplicates removed"} if dedup_removed else {}),
+            **({"Quality weights": Path(result.weights_path).name}
+               if result.weights_path else {}),
             "Next step": "python scripts/train.py --config configs/tiny.yaml",
         },
     )

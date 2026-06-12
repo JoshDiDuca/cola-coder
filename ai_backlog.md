@@ -40,22 +40,18 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   across configs? enable qk_norm only for fresh runs? Verified wiring is correct
   either way (config→Attention / config→loss), so this is a tuning choice, not a bug.
 
-- **DATA-044** [data-quality, medium] `open` (complex — opt-in, lower value) —
-  Last parallel gap between `collect_data.py` (multi-source) and `prepare_data.py`
-  (single-source): prepare_data has `--score` → writes a per-chunk `.weights.npy`
-  sidecar for quality-weighted training; collect_data has no equivalent, so the
-  multi-source 70/20/10 mix trains UNWEIGHTED. Not a simple add: collect_data
-  tokenizes each source then hands chunks to `DatasetCombiner` which interleaves +
-  shuffles (a permutation) before writing the final .npy. To emit aligned weights
-  the combiner must score each chunk (or carry a precomputed weight) and apply the
-  SAME permutation to the weight array so `.weights.npy[i]` matches `train_data[i]`
-  — otherwise weights misalign and corrupt training silently (the exact hazard
-  DATA-043's dedup-before-score ordering avoids in prepare_data). Verified this
-  cycle that prepare_data's ordering is correct (dedup → score reads deduped file).
-  Implementation: thread an optional scorer through `DatasetCombiner`, score at
-  chunk-emit time, permute weights identically, write sidecar. Multi-file; opt-in
-  behind `--score` (default off, so no behavior change). Lower value than the
-  filter/dedup gaps since weighting is a refinement, not a correctness fix.
+- **DATA-044** [data-quality, medium] `open` (FOUNDATION DONE via DATA-047;
+  remaining scope reduced) — `collect_data.py` has no `--score` equivalent to
+  prepare_data's, so the multi-source 70/20/10 mix trains UNWEIGHTED. The hard
+  part — carrying per-chunk weights through `DatasetCombiner`'s interleave/shuffle
+  permutation with exact alignment — is now BUILT and tested (DATA-047). Remaining
+  for this item: (1) collect_data must produce a per-source weight signal — score
+  each source's chunks (decode chunk → quality_filter `score_code`, or score the
+  pre-tokenization text stream) and write a `<source>.weights.npy` sidecar; (2)
+  pass `carry_weights=True` to the `combiner.combine(...)` call in collect_data
+  (scripts/collect_data.py:444) behind a new `--score` flag. With the combiner
+  foundation done, this is now a smaller, single-script change. Lower value than
+  the filter/dedup gaps since weighting is a refinement, not a correctness fix.
 
 - **TOOL-011** [tooling/pipeline, low-medium] `open` (deferred — design decision)
   — Remaining `full_pipeline.py` divergence after TOOL-012: Stage 1
@@ -158,6 +154,28 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Done
+
+- **DATA-047** [data-quality/feature, medium] `done` (2026-06-12) — Weight-aware
+  `DatasetCombiner` (the DATA-044 foundation + an immediate fix on its own).
+  Combining datasets via `combine_datasets.py` SILENTLY DROPPED per-chunk quality
+  weights: a user who ran `prepare_data --score` on two language datasets, then
+  merged them, lost every `.weights.npy` — the merged set trained unweighted.
+  Fix: `combine(..., carry_weights=True)` loads each source's `.weights.npy`
+  sidecar (auto-detected via the prepare_data `<stem>.weights.npy` convention, or
+  explicit `DatasetInput.weights_path`), and all three strategies (concat /
+  interleave / weighted) now fill an output-weight array in LOCKSTEP with the
+  chunk array — weight placed at the same output index as its chunk, so it can't
+  drift — then the SAME shuffle permutation is applied to both, and an aligned
+  `<output stem>.weights.npy` is written (`CombineResult.weights_path`). Safe
+  fallbacks: a source missing its sidecar → neutral weight 1.0; a length-mismatched
+  sidecar → ignored with a warning; NO sidecars at all → no weight file written.
+  Wired into `combine_datasets.py` (carry_weights enabled when cross-dataset dedup
+  did NOT run — dedup's `_temp_dedup_` row changes would desync sidecars; realigning
+  weights through `deduplicate_pair` is left to a follow-up). Tests: 7 new in
+  test_combine.py (alignment holds through every strategy + shuffle via
+  constant-valued chunks; missing-sidecar neutral; no-sidecar skip; off-by-default;
+  max_chunks trims weights in lockstep). 36 combine + 77 combine/script/checkpoint
+  pass; ruff clean. Follow-up for full DATA-044: collect_data per-source scoring.
 
 - **DATA-045** [data-quality/security, medium] `done` (2026-06-12) — The secret
   gates (`check_no_obvious_secrets`, conservative; `check_no_hardcoded_secrets`,

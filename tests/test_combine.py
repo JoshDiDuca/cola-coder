@@ -59,6 +59,108 @@ def combiner():
 
 
 # ---------------------------------------------------------------------------
+# Weight-carry (DATA-044 foundation): per-chunk quality weights must follow
+# their chunk through the mix strategy AND the final shuffle.
+# ---------------------------------------------------------------------------
+
+def _weight_of(value: int) -> float:
+    """Deterministic map from a chunk's constant value to its quality weight."""
+    return value * 0.001
+
+
+def _make_constant_ds(tmp_path, name, values, with_weights=True):
+    """Create a dataset whose chunk k is filled entirely with values[k].
+
+    The constant fill lets a test recover which source chunk landed at each
+    output row (and thus the expected weight) after interleave + shuffle.
+    Writes a ``<name>.weights.npy`` sidecar with weight = _weight_of(value)
+    unless with_weights is False (simulating an unscored source).
+    """
+    data = np.array([[v] * CHUNK_SIZE for v in values], dtype=np.uint16)
+    p = tmp_path / f"{name}.npy"
+    np.save(str(p), data)
+    if with_weights:
+        w = np.array([_weight_of(v) for v in values], dtype=np.float32)
+        np.save(str(tmp_path / f"{name}.weights.npy"), w)
+    return str(p)
+
+
+class TestWeightCarry:
+    @pytest.mark.parametrize("strategy", ["concat", "interleave", "weighted"])
+    def test_weights_stay_aligned_with_chunks(self, combiner, tmp_path, strategy):
+        # Source A values 0..9, source B values 100..105 — disjoint, so every
+        # output row's source/value (hence expected weight) is recoverable.
+        a = _make_constant_ds(tmp_path, "a", list(range(10)))
+        b = _make_constant_ds(tmp_path, "b", list(range(100, 106)))
+        out = str(tmp_path / "combined.npy")
+        result = combiner.combine(
+            datasets=[DatasetInput(a, weight=0.6), DatasetInput(b, weight=0.4)],
+            strategy=strategy, output_path=out, shuffle=True, seed=7,
+            carry_weights=True,
+        )
+        assert result.weights_path is not None and Path(result.weights_path).exists()
+        combined = np.load(result.output_path)
+        weights = np.load(result.weights_path)
+        assert weights.shape == (len(combined),)
+        # Every output row: chunk is constant-valued, and its weight matches the
+        # source weight for that exact value — proves no drift through shuffle.
+        for i in range(len(combined)):
+            v = int(combined[i][0])
+            assert combined[i].min() == combined[i].max() == v
+            assert weights[i] == pytest.approx(_weight_of(v), abs=1e-6)
+
+    def test_missing_sidecar_gets_neutral_weight(self, combiner, tmp_path):
+        # A: scored (values 0..9 → small weights). B: NOT scored → neutral 1.0.
+        a = _make_constant_ds(tmp_path, "a", list(range(10)), with_weights=True)
+        b = _make_constant_ds(tmp_path, "b", list(range(100, 106)), with_weights=False)
+        out = str(tmp_path / "combined.npy")
+        result = combiner.combine(
+            datasets=[DatasetInput(a, weight=0.5), DatasetInput(b, weight=0.5)],
+            strategy="concat", output_path=out, shuffle=False, carry_weights=True,
+        )
+        combined = np.load(result.output_path)
+        weights = np.load(result.weights_path)
+        for i in range(len(combined)):
+            v = int(combined[i][0])
+            expected = _weight_of(v) if v < 100 else 1.0
+            assert weights[i] == pytest.approx(expected, abs=1e-6)
+
+    def test_no_sidecars_skips_weight_output(self, combiner, tmp_path):
+        a = _make_constant_ds(tmp_path, "a", list(range(10)), with_weights=False)
+        b = _make_constant_ds(tmp_path, "b", list(range(5)), with_weights=False)
+        out = str(tmp_path / "combined.npy")
+        result = combiner.combine(
+            datasets=[DatasetInput(a), DatasetInput(b)],
+            strategy="concat", output_path=out, carry_weights=True,
+        )
+        assert result.weights_path is None
+        assert not (tmp_path / "combined.weights.npy").exists()
+
+    def test_carry_weights_off_by_default(self, combiner, tmp_path):
+        a = _make_constant_ds(tmp_path, "a", list(range(10)))
+        out = str(tmp_path / "combined.npy")
+        result = combiner.combine(
+            datasets=[DatasetInput(a)], strategy="concat", output_path=out,
+        )
+        assert result.weights_path is None
+        assert not (tmp_path / "combined.weights.npy").exists()
+
+    def test_per_dataset_max_chunks_trims_weights_in_lockstep(self, combiner, tmp_path):
+        # max_chunks trims the array; the weights sidecar must trim identically.
+        a = _make_constant_ds(tmp_path, "a", list(range(20)))
+        out = str(tmp_path / "combined.npy")
+        result = combiner.combine(
+            datasets=[DatasetInput(a, max_chunks=5)],
+            strategy="concat", output_path=out, shuffle=False, carry_weights=True,
+        )
+        combined = np.load(result.output_path)
+        weights = np.load(result.weights_path)
+        assert len(combined) == 5 and len(weights) == 5
+        for i in range(5):
+            assert weights[i] == pytest.approx(_weight_of(int(combined[i][0])), abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
 # Test: concat strategy
 # ---------------------------------------------------------------------------
 
