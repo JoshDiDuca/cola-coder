@@ -1016,6 +1016,8 @@ class MasterMenu:
                  "detail": "scripts/run.py — auto-detects latest checkpoint + config"},
                 {"label": "Interactive Generation",
                  "detail": "scripts/generate.py — select checkpoint manually"},
+                {"label": "Multi-Turn Chat",
+                 "detail": "scripts/chat.py — conversational REPL (auto ChatML for _sft)"},
                 {"label": "Verified Generation (best-of-N)",
                  "detail": "scripts/generate.py --best-of N — N candidates, sandbox-verified, best wins"},
                 {"label": "Context-Aware Generation",
@@ -1036,12 +1038,14 @@ class MasterMenu:
             elif choice == 1:
                 self._interactive_generate()
             elif choice == 2:
-                self._best_of_n_generate()
+                self._multi_turn_chat()
             elif choice == 3:
-                self._context_aware_generate()
+                self._best_of_n_generate()
             elif choice == 4:
-                self._serve_api()
+                self._context_aware_generate()
             elif choice == 5:
+                self._serve_api()
+            elif choice == 6:
                 self._nano_benchmark()
 
     def _interactive_generate(self) -> None:
@@ -1054,6 +1058,18 @@ class MasterMenu:
 
         config = self._config_for_checkpoint(ckpt_path)
         self._run_script("generate.py", ["--checkpoint", ckpt_path, "--config", config])
+        self._pause()
+
+    def _multi_turn_chat(self) -> None:
+        """Conversational REPL with history (auto-selects ChatML for _sft)."""
+        _print_section_header("Multi-Turn Chat", "Conversational REPL with history")
+
+        ckpt_path = self._pick_checkpoint("Select checkpoint for chat:")
+        if ckpt_path is None:
+            return
+
+        config = self._config_for_checkpoint(ckpt_path)
+        self._run_script("chat.py", ["--checkpoint", ckpt_path, "--config", config])
         self._pause()
 
     def _best_of_n_generate(self) -> None:

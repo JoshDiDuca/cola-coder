@@ -210,6 +210,8 @@ class InteractiveChat:
         system_prompt: str = "You are a helpful coding assistant.",
         max_context_tokens: int = 1024,
         chat_format: Literal["alpaca", "chatml"] = "alpaca",
+        max_new_tokens: int = 256,
+        temperature: float = 0.7,
     ):
         """
         Args:
@@ -218,8 +220,12 @@ class InteractiveChat:
             max_context_tokens: Max tokens for context window
             chat_format: "alpaca" for a base model, "chatml" for an SFT
                 checkpoint trained via train_sft.py (INFER-011 format parity).
+            max_new_tokens: Max tokens generated per assistant turn.
+            temperature: Sampling temperature per turn.
         """
         self.generator = generator
+        self.max_new_tokens = max_new_tokens
+        self.temperature = temperature
         self.session = ChatSession(
             system_prompt=system_prompt,
             max_context_tokens=max_context_tokens,
@@ -284,8 +290,8 @@ class InteractiveChat:
 
             reply = self.generator.generate(
                 prompt,
-                max_new_tokens=256,
-                temperature=0.7,
+                max_new_tokens=self.max_new_tokens,
+                temperature=self.temperature,
                 stop_tokens=[IM_END],
                 return_new_only=True,
             )
@@ -293,8 +299,8 @@ class InteractiveChat:
 
         response = self.generator.generate(
             prompt,
-            max_new_tokens=256,
-            temperature=0.7,
+            max_new_tokens=self.max_new_tokens,
+            temperature=self.temperature,
             stop_tokens=[self.session.user_prefix.strip()],
         )
         return self._extract_reply(response, prompt)

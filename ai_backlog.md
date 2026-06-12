@@ -86,14 +86,6 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 
 
-- **UX-014** [ux/inference, low] `open` — Follow-up to INFER-011: `InteractiveChat`
-  now supports `chat_format="chatml"` but has NO live menu/script caller (only
-  constructed in tests). Wire an interactive-chat entry point (e.g. in
-  master_menu / a `chat.py` script) that builds an `InteractiveChat` from a
-  checkpoint+config, auto-selecting `chat_format="chatml"` when the checkpoint
-  dir ends in `_sft` (or a `--chat-format` override), else "alpaca". Small, but
-  best validated once an SFT checkpoint exists to confirm reply quality.
-
 - **OPS-001** [tooling, low] `open` (deferred for user) — storage split-brain:
   configs/storage.yaml → E:/cola-coder-data vs config.checkpoint.output_dir →
   ./checkpoints. Needs the user's decision; do not unilaterally resolve.
@@ -101,6 +93,26 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Done
+
+- **UX-014** [ux/inference, low] `done` (2026-06-12) — Follow-up to INFER-011:
+  `InteractiveChat` supported `chat_format="chatml"` but had NO live caller (only
+  constructed in tests), so the format-parity fix was unreachable. Added
+  `scripts/chat.py` — a multi-turn chat REPL that loads via the shared
+  `load_generator` (MoE + SFT-vocab aware) and starts `InteractiveChat`. New
+  module fn `resolve_chat_format(checkpoint, override)`: `auto` selects "chatml"
+  when any path component ends in `_sft` (the dir train_sft.py writes to), else
+  "alpaca"; `--chat-format {auto,alpaca,chatml}` overrides. Also made
+  `InteractiveChat` forward per-turn `max_new_tokens`/`temperature` to the
+  generator (previously hardcoded 256/0.7), so the script's `--max-tokens` /
+  `--temperature` flags are meaningful. Wired into master_menu's Generate &
+  Interact submenu ("Multi-Turn Chat" → chat.py, renumbered dispatch). Docs:
+  scripts-reference (60→62) + CLAUDE.md counts. Tests: test_chat_script.py (8 —
+  format resolution incl. override-wins and invalid→ValueError; sampling-param
+  forwarding for both formats + defaults); test_menu_script_wiring auto-validates
+  chat.py exists/flags/non-orphan; `chat.py --help` OK; checkpoint suite green;
+  full-tree ruff clean. NOTE: end-to-end reply QUALITY still wants a real SFT
+  checkpoint to confirm (no model trained yet) — the wiring and format selection
+  are locked regardless.
 
 - **INFER-011** [inference/consistency, medium] `done` (2026-06-12) —
   `multi_turn_chat`'s `ChatSession` only formatted prompts in ALPACA style

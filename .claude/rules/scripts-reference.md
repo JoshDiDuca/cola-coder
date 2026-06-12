@@ -1,4 +1,4 @@
-# Scripts Reference (60 total)
+# Scripts Reference (62 total)
 
 ## Pipeline & Orchestration
 | Script | Purpose |
@@ -40,6 +40,7 @@
 | Script | Purpose |
 |--------|---------|
 | `run.py` | Interactive REPL |
+| `chat.py` | Multi-turn chat REPL (history) — `--chat-format {auto,alpaca,chatml}` (auto picks chatml for `_sft` checkpoints), `--system`, `--temperature`, `--max-tokens`, `--max-context` |
 | `generate.py` | Interactive code generation — `--best-of N` (sandbox-verified best-of-N), `--language {auto,python,typescript}`, `--repo` (context-aware) |
 | `generate_instructions.py` | Instruction pairs from code (template/LLM/self-instruct modes) |
 | `generate_sft_data.py` | Generate instruction-following pairs |

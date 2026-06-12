@@ -39,8 +39,8 @@ src/cola_coder/
   tools/              Tool registry, agent executor
   memory/             Long-context memory management
   cli.py              Shared CLI styling (rich + questionary arrow-key menus, multi_select, weight_editor)
-scripts/              60 CLI entry points — all use `from cola_coder.cli import cli`, never direct Rich
-tests/                148 test files (~3350 tests)
+scripts/              62 CLI entry points — all use `from cola_coder.cli import cli`, never direct Rich
+tests/                150 test files (~3350 tests)
 docs/                 Educational guides (01-06) + deep-dives/
 vscode-extension/     TypeScript VS Code extension (see below)
 ```
