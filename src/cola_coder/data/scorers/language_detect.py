@@ -21,8 +21,16 @@ def is_typescript(code: str, metadata: dict[str, object] | None = None) -> bool:
             ext = "." + file_path.rsplit(".", 1)[-1].lower()
             if ext in TYPESCRIPT_EXTENSIONS:
                 return True
-    # Heuristic: TypeScript-specific keywords
-    ts_indicators = [": string", ": number", ": boolean", "interface ", "<T>", "as const"]
+    # Heuristic: TypeScript-only constructs (none appear in valid JS), so a
+    # ≥2-hit threshold rarely false-positives. The original 6-marker set missed
+    # very common TS that has no type annotations on the surface — enums, type
+    # aliases, access modifiers, optional members — causing TS files to be
+    # mis-tagged as not-TS and skipped from tsc scoring on this TS-primary repo.
+    ts_indicators = [
+        ": string", ": number", ": boolean", ": void", ": any", ": unknown",
+        "interface ", "enum ", "namespace ", "implements ", "readonly ",
+        "satisfies ", "<T>", "as const", "?:",
+    ]
     return sum(1 for ind in ts_indicators if ind in code) >= 2
 
 

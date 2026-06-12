@@ -112,6 +112,22 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-041** [data-quality, low-medium] `done` (2026-06-12) — `is_typescript`'s
+  CONTENT heuristic (language_detect.py — used by the LIVE tsc/eslint scorers and
+  the quality filter) only checked 6 markers (`: string`/`: number`/`: boolean`/
+  `interface `/`<T>`/`as const`), missing very common TS that carries no surface
+  type annotations — `enum`, access modifiers (`readonly`), optional members
+  (`?:`), `implements`, `namespace`, `satisfies`, `: void`/`: any`/`: unknown`. On
+  this TS-PRIMARY repo, such files (no metadata language/extension) were mis-tagged
+  not-TS and SKIPPED from tsc scoring → worse data-quality signal. Expanded the
+  indicator set with TS-ONLY constructs (no valid-JS false positives), keeping the
+  ≥2-hit threshold. Tests: test_language_detect_heuristic.py (10): enum+modifier,
+  interface+optional, implements+void, namespace+satisfies all detected; plain JS /
+  JS ternary (`a ? b : c` ≠ `?:`) / single-marker NOT flagged; metadata-extension
+  path unchanged. Fresh-scan note: tokenizer training (digit-split, tested),
+  whitespace/metadata transforms, and the live language_detect extension sets were
+  all verified correct. 624 scorer/data + checkpoint green; ruff clean.
+
 - **MODEL-009** [model/training, low-medium] `done` (2026-06-12) — GRPO curriculum
   temperature was applied (not a no-op) but used ABSOLUTE per-difficulty values
   `{easy:0.7, medium:0.8, hard:0.9}` that REPLACED the run's `temperature`, so a
