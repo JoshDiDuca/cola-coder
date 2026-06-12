@@ -102,6 +102,24 @@ def format_thinking_example(thinking: str, code: str) -> str:
     return f"{THINK_OPEN}{thinking}{THINK_CLOSE}\n{code}"
 
 
+def is_think_first_format(text: str) -> bool:
+    """True if ``text`` is in the canonical think-FIRST format.
+
+    Requires: the first non-whitespace content is ``<think>``, the block is
+    closed with ``</think>``, and there is real (answer) content after it. This
+    is exactly the structure ``format_thinking_example`` produces AND the
+    structure the GRPO reward's format bonus rewards — kept in ONE place so the
+    SFT-warmup CoT data and the RL reward can never silently disagree on what
+    "correct reasoning format" means (the format-parity class: INFER-011/BUG-110).
+    """
+    if THINK_OPEN not in text or THINK_CLOSE not in text:
+        return False
+    if not text.lstrip().startswith(THINK_OPEN):
+        return False
+    close_end = text.index(THINK_CLOSE) + len(THINK_CLOSE)
+    return bool(text[close_end:].strip())
+
+
 def strip_thinking(text: str) -> str:
     """Remove thinking tokens and their content from generated text.
 

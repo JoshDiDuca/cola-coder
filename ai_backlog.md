@@ -112,6 +112,23 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **MODEL-010** [model/training/consistency, low-medium] `done` (2026-06-12) —
+  Fresh scan of the reasoning CoT path (cot_data.py, thinking_tokens.py, reward.py)
+  found the format CONSISTENT but the consistency UNGUARDED. The SFT-warmup data
+  (`format_thinking_example` → `<think>…</think>\ncode`) and the GRPO reward's
+  format bonus (think-FIRST-then-code) independently defined "correct reasoning
+  format" via duplicated inline logic — if either drifted, the model would be
+  TRAINED on one shape and REWARDED for another (silent training inconsistency,
+  the format-parity class: INFER-011/BUG-110). Extracted the single predicate
+  `thinking_tokens.is_think_first_format(text)`; `compute_reward`'s format bonus
+  now routes through it (behavior-identical — existing reward-format tests stay
+  green). Tests: test_think_format_parity.py (8): predicate accepts canonical /
+  leading-ws, rejects code-before-think (BUG-102) / no-code-after / missing-tags /
+  unterminated; AND every built-in python+typescript CoT example satisfies the
+  reward predicate (cross-module guard). Scan also verified _generate_reasoning_trace
+  numbering and the CoT/GRPO format are end-to-end consistent. 259 reasoning +
+  checkpoint green; ruff clean. No behavior change — DRY + lock cross-module parity.
+
 - **DATA-041** [data-quality, low-medium] `done` (2026-06-12) — `is_typescript`'s
   CONTENT heuristic (language_detect.py — used by the LIVE tsc/eslint scorers and
   the quality filter) only checked 6 markers (`: string`/`: number`/`: boolean`/

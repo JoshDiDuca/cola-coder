@@ -18,7 +18,7 @@ Our reward function:
 import logging
 from concurrent.futures import ProcessPoolExecutor, TimeoutError as FuturesTimeoutError
 
-from .thinking_tokens import THINK_OPEN, THINK_CLOSE, extract_thinking
+from .thinking_tokens import extract_thinking, is_think_first_format
 from ..evaluation.runner import execute_code
 
 logger = logging.getLogger(__name__)
@@ -82,24 +82,14 @@ def compute_reward(
         reward += 1.0
 
     # Format bonus: reward the proper think-FIRST-then-code structure
-    # (<think>reasoning</think> followed by the actual answer code).
-    #
-    # The previous check (`think_end < len(generated_text) - 10`) only verified
-    # that 10+ characters — whitespace included — followed </think>. Despite the
-    # "thinking comes BEFORE the code" comment, it never confirmed that: output
-    # like `def f(): pass<think>...</think>   ` (code BEFORE the thinking, then
-    # trailing spaces) wrongly earned the bonus, so the model got no signal that
-    # reasoning must precede the answer. Same class as BUG-102 — a reward
-    # heuristic that contradicted its own docstring. Now require (1) the first
-    # non-whitespace content to be <think> (thinking-first) and (2) real
-    # non-whitespace content after </think> (the answer code).
-    if THINK_OPEN in generated_text and THINK_CLOSE in generated_text:
-        think_first = generated_text.lstrip().startswith(THINK_OPEN)
-        close_end = generated_text.index(THINK_CLOSE) + len(THINK_CLOSE)
-        code_follows = bool(generated_text[close_end:].strip())
-        if think_first and code_follows:
-            info["format_bonus"] = 0.1
-            reward += 0.1
+    # (<think>reasoning</think> followed by the actual answer code). The check
+    # lives in thinking_tokens.is_think_first_format so the SFT-warmup data
+    # (format_thinking_example) and this reward stay defined by ONE rule — they
+    # can't silently disagree on what "correct format" is (BUG-102 was a reward
+    # heuristic that contradicted its own docstring).
+    if is_think_first_format(generated_text):
+        info["format_bonus"] = 0.1
+        reward += 0.1
 
     # Length penalty: discourage excessively long thinking
     penalty = thinking_length_penalty(info["thinking_length"], max_thinking_tokens)
