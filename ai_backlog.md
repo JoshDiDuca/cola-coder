@@ -88,17 +88,6 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   ratio diverges from 1, the clip engages, and the constant-norm magnitude/LR
   interaction is sane. Needs a real/CPU model run; defer until convenient.
 
-- **BUG-114** [training-stability, low-medium] `open` — Defense-in-depth follow-up
-  to DATA-034: bf16 training (the RTX 4080 primary) runs `GradScaler(enabled=False)`,
-  so a NaN/Inf loss from ANY source (not just SFT all-ignored batches — e.g. a
-  pretrain z-loss spike, a bad sample) backprops to NaN weights and corrupts the
-  checkpoint with no safety net. DATA-034 removed the known SFT source; add a
-  cheap guard in BOTH train loops (trainer.py + train_sft.py): if
-  `not torch.isfinite(loss)`, log and SKIP that step's backward/optimizer.step
-  (don't poison weights). fp16 is already covered by GradScaler's inf/nan skip;
-  this closes the bf16 gap. Low-risk, but touches the hot training loop — validate
-  it doesn't change normal-step behavior.
-
 - **OPS-001** [tooling, low] `open` (deferred for user) — storage split-brain:
   configs/storage.yaml → E:/cola-coder-data vs config.checkpoint.output_dir →
   ./checkpoints. Needs the user's decision; do not unilaterally resolve.
@@ -106,6 +95,24 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Done
+
+- **BUG-114** [training-stability, medium] `done` (2026-06-12) — Defense-in-depth
+  follow-up to DATA-034: bf16 (the RTX 4080 primary) runs `GradScaler(enabled=False)`,
+  so a non-finite loss from ANY source (SFT all-ignored batch, a z-loss spike, a
+  bad sample, fp overflow) backprops to NaN weights and corrupts the checkpoint —
+  fp16 is saved by the GradScaler's inf/NaN skip, bf16 had NO net. Added a
+  `torch.isfinite(loss)` guard BEFORE the backward in BOTH loops:
+  (trainer.py) per-micro-batch skip + counter; if ALL micro-batches in a step are
+  non-finite, skip the optimizer/scheduler step entirely (weights untouched);
+  partial non-finite drops just those micro-batches and warns.
+  (train_sft.py) per-batch skip with a warn + end-of-run summary count; the
+  skipped batch contributes no grad to its accumulation window and isn't counted
+  in epoch_loss. Tests: test_nonfinite_loss_guard.py (6): behavioral — finite loss
+  updates weights, NaN loss leaves them UNCHANGED, and a control proving an
+  unguarded NaN step DOES corrupt every weight; static — both loops contain the
+  guard before .backward() and still parse. 389 training/SFT + checkpoint green;
+  train_sft --help OK; ruff clean. Closes the "never corrupt a checkpoint"
+  invariant gap on the primary precision.
 
 - **DATA-034** [data-quality/training-stability, high] `done` (2026-06-12) —
   `SFTDataset._load` (data/sft_dataset.py) skipped malformed/empty examples but

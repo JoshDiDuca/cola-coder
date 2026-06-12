@@ -321,6 +321,7 @@ class Trainer:
 
             step_loss = 0.0
             step_tokens = 0
+            nonfinite_micro = 0
 
             # Gradient accumulation: process multiple micro-batches
             for micro_step in range(accum_steps):
@@ -356,6 +357,15 @@ class Trainer:
 
                         scaled_loss = loss * inv_accum
 
+                    # bf16 runs with GradScaler disabled, so nothing catches a
+                    # non-finite loss before it backprops into the weights and
+                    # CORRUPTS the checkpoint (BUG-114). Guard explicitly: skip
+                    # this micro-batch's backward so NaN/Inf never enters .grad.
+                    # (fp16's GradScaler already skips on inf/NaN gradients.)
+                    if not torch.isfinite(loss):
+                        nonfinite_micro += 1
+                        continue
+
                     # Backward pass (compute gradients)
                     self.scaler.scale(scaled_loss).backward()
                 except RuntimeError as e:
@@ -377,19 +387,35 @@ class Trainer:
                 step_loss += loss.item()
                 step_tokens += input_ids.numel()
 
-            # Gradient clipping (prevents gradient explosion)
-            self.scaler.unscale_(self.optimizer)
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), cfg.grad_clip)
+            # If EVERY micro-batch had a non-finite loss, no backward ran, so
+            # there are no gradients to apply — skip the optimizer/scheduler step
+            # entirely (stepping on empty/None grads would be a no-op at best and
+            # mis-advance the LR schedule). The weights are left untouched (BUG-114).
+            if nonfinite_micro >= accum_steps:
+                cli.warn(
+                    f"Step {step}: all {accum_steps} micro-batches had non-finite "
+                    "loss — skipping update, weights unchanged."
+                )
+                step_skipped = True
+            else:
+                if nonfinite_micro:
+                    cli.warn(
+                        f"Step {step}: {nonfinite_micro}/{accum_steps} micro-batches "
+                        "had non-finite loss — those were dropped from this update."
+                    )
+                # Gradient clipping (prevents gradient explosion)
+                self.scaler.unscale_(self.optimizer)
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), cfg.grad_clip)
 
-            # Optimizer step (update weights).
-            # fp16 only: GradScaler skips the optimizer step when it finds
-            # inf/NaN gradients (and shrinks its scale). The LR schedule must
-            # not advance on skipped steps, or fp16 runs drift ahead of the
-            # cosine schedule relative to actual weight updates.
-            scale_before = self.scaler.get_scale()
-            self.scaler.step(self.optimizer)
-            self.scaler.update()
-            step_skipped = self.scaler.get_scale() < scale_before
+                # Optimizer step (update weights).
+                # fp16 only: GradScaler skips the optimizer step when it finds
+                # inf/NaN gradients (and shrinks its scale). The LR schedule must
+                # not advance on skipped steps, or fp16 runs drift ahead of the
+                # cosine schedule relative to actual weight updates.
+                scale_before = self.scaler.get_scale()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+                step_skipped = self.scaler.get_scale() < scale_before
 
             # Learning rate schedule step
             if not step_skipped:

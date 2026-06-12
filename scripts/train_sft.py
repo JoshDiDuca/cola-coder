@@ -320,6 +320,7 @@ def main() -> None:
 
     model.train()
     global_step = 0
+    nonfinite_batches = 0
     best_loss = float("inf")
 
     try:
@@ -354,7 +355,20 @@ def main() -> None:
                         )
                         scaled_loss = loss / args.gradient_accumulation
 
-                    scaler.scale(scaled_loss).backward()
+                    # BUG-114: bf16 runs with GradScaler disabled, so nothing
+                    # stops a non-finite loss from backpropagating into the
+                    # weights and corrupting the checkpoint. Never backward a
+                    # NaN/Inf loss; drop the batch from this accumulation window.
+                    if not torch.isfinite(loss):
+                        nonfinite_batches += 1
+                        cli.warn(
+                            f"Non-finite loss at epoch {epoch} batch {batch_idx} "
+                            "— skipping its backward (weights protected)."
+                        )
+                    else:
+                        scaler.scale(scaled_loss).backward()
+                        epoch_loss += loss.item()
+                        epoch_tokens += (labels != -100).sum().item()
 
                 except RuntimeError as e:
                     if "out of memory" in str(e).lower():
@@ -365,9 +379,6 @@ def main() -> None:
                         )
                         sys.exit(1)
                     raise
-
-                epoch_loss += loss.item()
-                epoch_tokens += (labels != -100).sum().item()
 
                 # Gradient accumulation step
                 if (batch_idx + 1) % args.gradient_accumulation == 0 or (
@@ -446,6 +457,12 @@ def main() -> None:
         if wandb_run is not None:
             wandb_run.finish()
 
+    if nonfinite_batches:
+        cli.warn(
+            f"{nonfinite_batches} batch(es) had a non-finite loss and were "
+            "skipped to protect the checkpoint — investigate the data/LR if "
+            "this count is non-trivial."
+        )
     cli.done("SFT training complete", extras={
         "Epochs": str(args.epochs),
         "Best loss": f"{best_loss:.4f}",
