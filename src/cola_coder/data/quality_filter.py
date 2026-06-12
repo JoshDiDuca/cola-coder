@@ -445,28 +445,59 @@ def check_has_some_documentation(content: str) -> tuple[bool, str]:
     return True, ""
 
 
-def check_no_hardcoded_secrets(content: str) -> tuple[bool, str]:
-    """Reject files that appear to contain hardcoded secrets.
+# HIGH-CONFIDENCE secret signatures: a literal provider token or a private-key
+# block. These are essentially never false positives (an actual `sk-…` key, a
+# GitHub PAT, an AWS AKIA id, or a PEM header), so they're safe to reject even in
+# CONSERVATIVE mode — leaking these into training data is a real exfiltration/
+# memorization risk (DATA-033). Note: the AWS pattern matches the KEY VALUE
+# (AKIA…), not the variable name, so `aws_access_key_id = os.getenv(...)` (good
+# code reading from env) is NOT flagged.
+_HIGH_CONFIDENCE_SECRET_PATTERNS = [
+    re.compile(r'-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----'),
+    re.compile(r'sk-[a-zA-Z0-9]{32,}'),          # OpenAI-style keys
+    re.compile(r'ghp_[A-Za-z0-9]{36}'),          # GitHub personal access tokens
+    re.compile(r'github_pat_[A-Za-z0-9_]{60,}'),  # GitHub fine-grained PAT
+    re.compile(r'xox[baprs]-[A-Za-z0-9-]{10,}'),  # Slack tokens
+    re.compile(r'AKIA[0-9A-Z]{16}'),             # AWS access key ID
+]
 
-    API keys, passwords, tokens left in code are both a security issue
-    and low-quality training data (the model might learn to reproduce them).
+# HEURISTIC signatures: a secret-shaped ASSIGNMENT. Higher false-positive risk
+# (placeholder passwords in examples/tests), so STRICT-only.
+_HEURISTIC_SECRET_PATTERNS = [
+    re.compile(r'(?:api[_-]?key|apikey)\s*[:=]\s*["\'][a-zA-Z0-9]{20,}', re.IGNORECASE),
+    re.compile(r'(?:password|passwd|pwd)\s*[:=]\s*["\'][^"\']{8,}', re.IGNORECASE),
+    re.compile(r'(?:secret|token)\s*[:=]\s*["\'][a-zA-Z0-9]{20,}', re.IGNORECASE),
+    re.compile(r'(?:aws_access_key_id|aws_secret_access_key)\s*[:=]', re.IGNORECASE),
+]
+
+
+def check_no_obvious_secrets(content: str) -> tuple[bool, str]:
+    """Reject files containing an UNAMBIGUOUS hardcoded secret.
+
+    High-confidence only (provider-prefixed tokens, private-key blocks, AWS
+    AKIA ids) — near-zero false positives, so this runs even in conservative
+    mode. Leaking a live credential into training data is both a security risk
+    and teaches the model to emit secret-shaped strings.
     """
-    secret_patterns = [
-        re.compile(r'(?:api[_-]?key|apikey)\s*[:=]\s*["\'][a-zA-Z0-9]{20,}', re.IGNORECASE),
-        re.compile(r'(?:password|passwd|pwd)\s*[:=]\s*["\'][^"\']{8,}', re.IGNORECASE),
-        re.compile(r'(?:secret|token)\s*[:=]\s*["\'][a-zA-Z0-9]{20,}', re.IGNORECASE),
-        re.compile(r'(?:aws_access_key_id|aws_secret_access_key)\s*[:=]', re.IGNORECASE),
-        re.compile(r'-----BEGIN (?:RSA |EC )?PRIVATE KEY-----'),
-        re.compile(r'sk-[a-zA-Z0-9]{32,}'),  # OpenAI-style keys
-        re.compile(r'ghp_[a-zA-Z0-9]{36}'),  # GitHub personal access tokens
-    ]
-
-    # Only check first 5K chars — secrets are usually near the top
-    sample = content[:5000]
-    for pattern in secret_patterns:
+    sample = content[:5000]  # secrets are usually near the top
+    for pattern in _HIGH_CONFIDENCE_SECRET_PATTERNS:
         if pattern.search(sample):
             return False, "hardcoded_secret"
+    return True, ""
 
+
+def check_no_hardcoded_secrets(content: str) -> tuple[bool, str]:
+    """Reject files that appear to contain hardcoded secrets (STRICT).
+
+    The high-confidence signatures PLUS looser assignment heuristics
+    (api_key/password/secret = "…"). The heuristics can false-positive on
+    placeholder/example values, so this fuller check is strict-only; conservative
+    mode uses check_no_obvious_secrets.
+    """
+    sample = content[:5000]
+    for pattern in (*_HIGH_CONFIDENCE_SECRET_PATTERNS, *_HEURISTIC_SECRET_PATTERNS):
+        if pattern.search(sample):
+            return False, "hardcoded_secret"
     return True, ""
 
 
@@ -558,6 +589,9 @@ def _build_checks(
             (check_not_data_file, {}),
             (check_comment_ratio, {}),
             (check_not_test_heavy, {}),
+            # Unambiguous secrets are "clearly bad" — reject even in conservative
+            # mode (DATA-033). The looser heuristic check stays strict-only.
+            (check_no_obvious_secrets, {}),
         ]
         if has_python:
             checks.append((check_python_parseable, {}))
@@ -845,6 +879,7 @@ _SCORE_MAP: dict[str, tuple[float, float]] = {
     "check_no_obvious_copy_paste":   (1.0, 0.2),
     "check_has_some_documentation":  (1.0, 0.4),
     "check_no_hardcoded_secrets":    (1.0, 0.0),
+    "check_no_obvious_secrets":      (1.0, 0.0),  # gate (DATA-033)
 }
 
 # check_length has two different fail scores depending on the sub-reason.

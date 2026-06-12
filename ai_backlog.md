@@ -97,6 +97,27 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-033** [data-quality/security, medium] `done` (2026-06-12) —
+  `check_no_hardcoded_secrets` was STRICT-ONLY, so in the DEFAULT conservative
+  filter mode files with live credentials (OpenAI `sk-…`, GitHub PATs, AWS keys,
+  PEM private-key blocks) flowed straight into the training set — both an
+  exfiltration/memorization risk and noise that teaches the model to emit
+  secret-shaped strings. Fixed by splitting secret signatures into two tiers:
+  `_HIGH_CONFIDENCE_SECRET_PATTERNS` (provider-prefixed tokens + private-key
+  headers + AWS `AKIA…` key VALUES — near-zero false positives) and
+  `_HEURISTIC_SECRET_PATTERNS` (looser `api_key/password/secret = "…"`
+  assignments). New `check_no_obvious_secrets` (high-confidence only) runs in
+  CONSERVATIVE mode and is registered as a scoring GATE (fail 0.0, DATA-032
+  capping applies); the fuller `check_no_hardcoded_secrets` (both tiers) stays
+  STRICT-only so placeholder/example passwords don't cause conservative false
+  positives. Verified: conservative now rejects+caps a real `sk-` key while
+  `aws_access_key_id = os.getenv(...)` (env read) and `password="changeme123"`
+  (placeholder) are NOT flagged conservatively (strict still catches the latter).
+  Tests: test_quality_filter.py +7 (openai/PEM/AKIA/ghp rejected+gated; env-read
+  & placeholder not FP'd conservatively; placeholder caught in strict). 644
+  data/security/scoring tests + checkpoint green; ruff clean. Found following up
+  the DATA-032 quality-filter scan.
+
 - **DATA-032** [data-quality, medium] `done` (2026-06-12) — `score_code`
   (quality_filter.py) computed the overall quality score as an UNWEIGHTED AVERAGE
   of all per-check scores, so a single catastrophic failure was masked by trivial
