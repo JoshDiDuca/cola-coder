@@ -62,6 +62,12 @@ def sample_next_token(
 
     logits = logits / temperature
 
+    # The model's preferred token BEFORE the top-k/top-p/min-p filters. Used as
+    # the fallback when those filters mask EVERYTHING to -inf (e.g. min_p > 1):
+    # argmax of an all -inf tensor returns index 0 — an arbitrary token — so we
+    # capture the real preference here instead.
+    fallback_token = int(logits.argmax())
+
     # Min-p filtering (confidence-scaled floor) — applied first so the floor
     # is computed on the full temperature-scaled distribution
     if min_p > 0.0:
@@ -79,9 +85,10 @@ def sample_next_token(
     probs = F.softmax(logits, dim=-1)
 
     # Safety: if filtering zeroed out all probabilities (NaN/Inf logits or
-    # overly aggressive top-k/top-p), fall back to greedy on the argmax
+    # overly aggressive top-k/top-p/min-p), fall back to the model's pre-filter
+    # preferred token (NOT argmax of the now all -inf `logits`, which is index 0).
     if probs.sum() == 0 or torch.isnan(probs.sum()) or torch.isinf(probs.sum()):
-        return logits.argmax().item()
+        return fallback_token
 
     return torch.multinomial(probs, num_samples=1).item()
 

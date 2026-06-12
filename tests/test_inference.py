@@ -62,6 +62,48 @@ class TestSampling:
         assert logits[1] == original[1]  # Not penalized
 
 
+class TestSamplingRobustness:
+    """Locks the safety fallback + keep-at-least-one invariants in
+    sample_next_token. These have zero prior coverage but sit on EVERY
+    generation step — a refactor that drops them would crash inference
+    (torch.multinomial on all-zero/NaN probs) or let top_p remove everything."""
+
+    def test_top_p_keeps_at_least_one_token(self):
+        # The top token alone exceeds p → exactly ONE token must survive (the
+        # shift in _top_p_filter forces this), never an empty nucleus.
+        logits = torch.tensor([10.0, 0.0, 0.0, 0.0])
+        filtered = _top_p_filter(logits.clone(), p=0.5)
+        finite = (filtered != float("-inf")).sum().item()
+        assert finite == 1
+        assert filtered.argmax().item() == 0  # the most-probable token is kept
+
+    def test_peaked_top_p_samples_the_top_token(self):
+        logits = torch.tensor([10.0, 0.0, 0.0, 0.0])
+        for _ in range(20):
+            tok = sample_next_token(logits.clone(), temperature=1.0, top_k=0, top_p=0.5)
+            assert tok == 0
+
+    def test_nan_logits_do_not_crash(self):
+        # An unstable model can emit NaN logits in bf16 inference. The safety
+        # fallback must return a valid token id instead of crashing multinomial.
+        logits = torch.tensor([1.0, float("nan"), 2.0, 0.5])
+        tok = sample_next_token(logits, temperature=1.0)
+        assert isinstance(tok, int) and 0 <= tok < 4
+
+    def test_min_p_above_one_degrades_gracefully(self):
+        # min_p > 1 masks even the argmax (threshold = min_p*max > max) → all
+        # -inf → softmax all-zero. The fallback returns the argmax, not a crash.
+        logits = torch.tensor([0.1, 5.0, 0.2, 0.3])
+        tok = sample_next_token(logits.clone(), temperature=1.0, top_k=0,
+                                top_p=1.0, min_p=1.5)
+        assert tok == 1  # greedy fallback on the original argmax
+
+    def test_inf_logits_do_not_crash(self):
+        logits = torch.tensor([float("inf"), 1.0, 2.0])
+        tok = sample_next_token(logits, temperature=1.0)
+        assert isinstance(tok, int) and 0 <= tok < 3
+
+
 class TestPassAtK:
     """Tests for pass@k metric computation."""
 

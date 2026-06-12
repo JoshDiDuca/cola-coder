@@ -96,6 +96,23 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **INFER-014** [inference/bug, low] `done` (2026-06-12) — `sample_next_token`'s
+  all-masked safety fallback (sampling.py) returned `logits.argmax()` on the
+  ALREADY-FILTERED logits. When the top-k/top-p/min-p filters mask everything to
+  -inf (e.g. `min_p > 1`, or NaN/Inf model logits in unstable bf16 inference),
+  argmax of an all -inf tensor returns index 0 — an arbitrary token — instead of
+  the model's actual preference. Fixed: capture `fallback_token` = argmax of the
+  post-temperature, PRE-filter logits and return that in the safety branch. Found
+  via a fresh scan of the sampling path that added the missing robustness tests:
+  the rest of the path (rep-penalty sign, min-p threshold, top-p keep-at-least-one,
+  the safety guard itself) was already correct, but the fallback token and the
+  guard/keep-one invariants had ZERO coverage. Tests: test_inference.py +5
+  (top_p keeps exactly one, peaked top_p samples the top token, NaN/Inf logits
+  don't crash, min_p>1 degrades to the true argmax). 177 inference + checkpoint
+  green; ruff clean. (Scan also verified clean+correct: dataset/collator,
+  language_modeling_loss per-sample weighting, preprocess doc-boundary eos/bos
+  packing, and the Muon optimizer + its tests — no issues found there.)
+
 - **BUG-114** [training-stability, medium] `done` (2026-06-12) — Defense-in-depth
   follow-up to DATA-034: bf16 (the RTX 4080 primary) runs `GradScaler(enabled=False)`,
   so a non-finite loss from ANY source (SFT all-ignored batch, a z-loss spike, a
