@@ -96,6 +96,24 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **EVAL-009** [eval/observability, medium] `done` (2026-06-12) — The HumanEval
+  orchestrator (scripts/evaluate.py) wrapped the whole generate→extract→grade
+  pipeline in `except Exception: pass`, so a HARNESS failure (generator crash,
+  OOM, sandbox misconfig, extraction bug) was silently counted as a model
+  failure. A 0% pass@k was therefore ambiguous: weak model OR broken harness, with
+  no signal to distinguish them — the exact "silent no-op masks a broken thing"
+  class this project keeps fixing. Fixed: extracted a testable
+  `_evaluate_problem(...) -> (num_correct, harness_errors)` that catches per-sample
+  exceptions, counts them SEPARATELY from genuine test failures (where
+  evaluate_solution returns (False, ...) WITHOUT raising), logs the first 3
+  (type+message), and the run prints a loud "pass@k likely DEFLATED" warning with
+  the total. The pass@k math (metrics.pass_at_k) and the sandboxed runner were
+  audited this scan and are correct — no change. Tests:
+  test_evaluate_harness_errors.py (5): all-pass→0 errors, test-failures≠harness
+  errors, generator crash & grader exception counted as harness errors, mixed.
+  evaluate.py --help OK; 346 eval/menu + checkpoint green; ruff clean. Found in
+  this cycle's evaluation-suite fresh scan.
+
 - **MODEL-006** [model/config-hygiene, low] `done` (2026-06-12) — Phantom config
   knob: `RoPEScalingConfig.original_max_seq_len` (default 4096) was NEVER read —
   `Transformer.__init__` hardcoded `original_max_seq_len=config.max_seq_len` when

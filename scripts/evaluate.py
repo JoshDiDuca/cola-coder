@@ -17,6 +17,51 @@ from cola_coder.cli import cli
 from cola_coder.model.config import get_storage_config
 
 
+def _evaluate_problem(
+    generator,
+    problem,
+    num_samples: int,
+    temperature: float,
+    extract_fn,
+    evaluate_fn,
+    max_new_tokens: int = 256,
+) -> tuple[int, int]:
+    """Generate and grade ``num_samples`` solutions for one problem.
+
+    Returns ``(num_correct, harness_errors)``. A *harness error* is an UNEXPECTED
+    exception during generation/extraction/grading (generator crash, OOM, sandbox
+    misconfig) — categorically different from a solution that simply fails its
+    tests (``evaluate_fn`` returns ``(False, ...)`` without raising). They are
+    counted and surfaced SEPARATELY so a broken harness is not silently read as a
+    weak model: previously every such error was swallowed and counted as a model
+    failure, so a 0% pass@k could mean either "model is bad" or "harness is
+    broken" with no way to tell.
+    """
+    num_correct = 0
+    harness_errors = 0
+    for sample_idx in range(num_samples):
+        try:
+            generated_text = generator.generate(
+                prompt=problem.prompt,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                top_k=50,
+                top_p=0.9,
+            )
+            function_code = extract_fn(generated_text, problem.entry_point)
+            passed, _output = evaluate_fn(problem, function_code)
+            if passed:
+                num_correct += 1
+        except Exception as e:  # noqa: BLE001 — categorize, don't crash the run
+            harness_errors += 1
+            if harness_errors <= 3:  # throttle: a flood would drown the report
+                cli.warn(
+                    f"Harness error on {getattr(problem, 'task_id', '?')} "
+                    f"sample {sample_idx}: {type(e).__name__}: {e}"
+                )
+    return num_correct, harness_errors
+
+
 def main():
     storage = get_storage_config()
 
@@ -191,32 +236,18 @@ def main():
     print()
 
     results = []
+    total_harness_errors = 0
 
     for i, problem in enumerate(problems):
-        num_correct = 0
-
-        for sample_idx in range(args.num_samples):
-            try:
-                # Generate a solution
-                generated_text = generator.generate(
-                    prompt=problem.prompt,
-                    max_new_tokens=256,
-                    temperature=args.temperature,
-                    top_k=50,
-                    top_p=0.9,
-                )
-
-                # Extract the function from the generated text
-                function_code = extract_function(generated_text, problem.entry_point)
-
-                # Test the solution
-                passed, output = evaluate_solution(problem, function_code)
-                if passed:
-                    num_correct += 1
-
-            except Exception:
-                # Count as failed
-                pass
+        num_correct, harness_errors = _evaluate_problem(
+            generator,
+            problem,
+            num_samples=args.num_samples,
+            temperature=args.temperature,
+            extract_fn=extract_function,
+            evaluate_fn=evaluate_solution,
+        )
+        total_harness_errors += harness_errors
 
         if num_correct > 0:
             cli.print(
@@ -240,6 +271,14 @@ def main():
     report = format_results(results, k_values=k_values)
     cli.rule("Results")
     cli.print(f"\n{report}")
+
+    if total_harness_errors:
+        cli.warn(
+            f"{total_harness_errors} sample(s) failed with HARNESS errors "
+            "(generation/extraction/sandbox), counted as failures — pass@k is "
+            "likely DEFLATED. Investigate the warnings above; a broken harness "
+            "reads as a weak model."
+        )
 
     # ---- Nano Benchmark (optional) ----
     try:
