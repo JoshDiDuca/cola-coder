@@ -1902,6 +1902,10 @@ class DataMenu:
             "--tokenizer", _tok,
             "--data-sources", str(derived),
         ]
+        if cli.confirm(
+            "Score code quality for weighted training? (--score; text/math stay neutral)"
+        ):
+            args.append("--score")
         self._master._run_script("collect_data.py", args)
         self._master._pause()
 

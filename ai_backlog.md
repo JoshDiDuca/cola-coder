@@ -40,19 +40,6 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   across configs? enable qk_norm only for fresh runs? Verified wiring is correct
   either way (config→Attention / config→loss), so this is a tuning choice, not a bug.
 
-- **DATA-044** [data-quality, medium] `open` (FOUNDATION DONE via DATA-047;
-  remaining scope reduced) — `collect_data.py` has no `--score` equivalent to
-  prepare_data's, so the multi-source 70/20/10 mix trains UNWEIGHTED. The hard
-  part — carrying per-chunk weights through `DatasetCombiner`'s interleave/shuffle
-  permutation with exact alignment — is now BUILT and tested (DATA-047). Remaining
-  for this item: (1) collect_data must produce a per-source weight signal — score
-  each source's chunks (decode chunk → quality_filter `score_code`, or score the
-  pre-tokenization text stream) and write a `<source>.weights.npy` sidecar; (2)
-  pass `carry_weights=True` to the `combiner.combine(...)` call in collect_data
-  (scripts/collect_data.py:444) behind a new `--score` flag. With the combiner
-  foundation done, this is now a smaller, single-script change. Lower value than
-  the filter/dedup gaps since weighting is a refinement, not a correctness fix.
-
 - **TOOL-011** [tooling/pipeline, low-medium] `open` (deferred — design decision)
   — Remaining `full_pipeline.py` divergence after TOOL-012: Stage 1
   `_stage_collect_data` runs `prepare_data.py` (code-only), NOT `collect_data.py
@@ -154,6 +141,26 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Done
+
+- **DATA-044** [data-quality, medium] `done` (2026-06-12) — CLOSED the last
+  collect_data-vs-prepare_data parity gap: the multi-source mix can now train
+  quality-WEIGHTED. Added `--score` to `collect_data.py` — after each source is
+  tokenized + deduped, the CODE source's chunks are scored into an aligned
+  `code_data.weights.npy` (scoring runs AFTER dedup so weights line up with the
+  surviving chunks), and `carry_weights=True` is passed to `combiner.combine(...)`
+  so DATA-047's weight-carrying produces an aligned `mixed_train_data.weights.npy`.
+  Only the code source is scored (the `code_scorer` judges CODE quality; running
+  it on prose/math would mis-weight them) — text/math carry neutral weight 1.0 via
+  the combiner's missing-sidecar fallback. DRY: extracted the decode→score→weight
+  loop prepare_data --score used into a shared `data/weight_scoring.py`
+  (`compute_chunk_weights` + `score_npy_to_weights`, feature-gate-aware) and
+  refactored prepare_data to call it, so both pipelines share ONE implementation /
+  identical weight semantics. Menu wired: the Mixed Data Collection menu now
+  prompts "Score code quality for weighted training? (--score)". Tests: 3 new in
+  test_weight_scoring.py (1:1 alignment; sidecar written + matches; feature-off →
+  (None,None), no sidecar). 113 menu/combine/scoring/quality tests + checkpoint
+  green; ruff clean. (Note: collect_data scores only code — extending quality
+  signals to text/math would need a prose/math scorer; out of scope.)
 
 - **DATA-047** [data-quality/feature, medium] `done` (2026-06-12) — Weight-aware
   `DatasetCombiner` (the DATA-044 foundation + an immediate fix on its own).

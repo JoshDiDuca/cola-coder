@@ -451,24 +451,17 @@ def main():
             from cola_coder.features.code_scorer import is_enabled as scorer_enabled
             if scorer_enabled():
                 from cola_coder.features.code_scorer import CodeScorer
+                from cola_coder.data.weight_scoring import compute_chunk_weights
                 scorer = CodeScorer()
 
-                # Load the data we just saved and score each chunk
-                data = np.load(output_file, mmap_mode="r")
-                num_chunks = data.shape[0]
-                weights = np.zeros(num_chunks, dtype=np.float32)
-
+                num_chunks = int(np.load(output_file, mmap_mode="r").shape[0])
                 cli.info("Chunks to score", f"{num_chunks:,}")
 
-                # We need the tokenizer to decode chunks back to text for scoring
-                from tqdm import tqdm as scoring_tqdm
-                for i in scoring_tqdm(range(num_chunks), desc="Scoring"):
-                    # Decode chunk back to text
-                    chunk_ids = data[i].tolist()
-                    text = tokenizer.decode(chunk_ids)
-                    # Score and convert to training weight
-                    result = scorer.score(text)
-                    weights[i] = scorer.score_to_weight(result)
+                # Shared decode→score→weight loop (also used by collect_data) so
+                # both pipelines produce identical quality-weight semantics.
+                weights = compute_chunk_weights(
+                    output_file, tokenizer, scorer, progress=True
+                )
 
                 # Save weights file
                 weights_path = str(Path(output_file).with_suffix(".weights.npy"))

@@ -166,6 +166,34 @@ def _maybe_dedup(npy_path: str, mode: str, tokenizer=None) -> None:
         cli.dim(f"  Dedup: no duplicates found ({result.mode})")
 
 
+def _maybe_score(npy_path: str, enabled: bool, tokenizer) -> bool:
+    """Score a tokenized .npy → aligned <stem>.weights.npy for weighted training.
+
+    Runs AFTER dedup so weights align with the surviving chunks (prepare_data's
+    dedup-before-score invariant). Uses the shared `score_npy_to_weights` helper
+    (same scorer/semantics as prepare_data --score). Returns True iff a weights
+    sidecar was written.
+
+    Only the CODE source is scored: the `code_scorer` feature judges CODE quality
+    (syntax/structure), so running it on prose (text) or math corpora would
+    mis-weight them. Unscored sources carry neutral weight 1.0 in the combine.
+    """
+    if not enabled:
+        return False
+    from cola_coder.data.weight_scoring import score_npy_to_weights
+
+    wpath, weights = score_npy_to_weights(npy_path, tokenizer, progress=True)
+    if wpath is None:
+        cli.warn(
+            "  --score requested but code_scorer is disabled/unavailable — "
+            "no weights written (this source trains with neutral weight 1.0). "
+            "Enable it in configs/features.yaml."
+        )
+        return False
+    cli.info("  Quality weights", f"mean {float(weights.mean()):.3f} → {Path(wpath).name}")
+    return True
+
+
 def _scan_downloaded_data(
     raw_dir: Path,
     config: dict,
@@ -296,6 +324,13 @@ def main() -> None:
              "duplicates). 'exact' (default, SHA-256) drops identical chunks; "
              "'minhash' also removes near-dups (needs datasketch); 'none' keeps all.",
     )
+    parser.add_argument(
+        "--score", action="store_true",
+        help="Score the CODE source's chunks (code_scorer) into an aligned "
+             ".weights.npy and carry per-chunk quality weights through the mix, "
+             "so the combined dataset trains quality-weighted (like "
+             "prepare_data --score). Text/math keep neutral weight 1.0.",
+    )
     args = parser.parse_args()
 
     # ── Load configs ──────────────────────────────────────────────────
@@ -360,6 +395,7 @@ def main() -> None:
             output_dir=output_dir, output_name="code_data",
         )
         _maybe_dedup(output_path, args.dedup, tokenizer=tokenizer)
+        _maybe_score(output_path, args.score, tokenizer)  # after dedup → weights align
         collected.append(DatasetInput(path=output_path, weight=weight, name="code"))
         cli.success(f"Code data saved: {output_path}")
 
@@ -443,9 +479,12 @@ def main() -> None:
         combined_path = str(Path(output_dir) / "mixed_train_data.npy")
         result = combiner.combine(
             collected, strategy="interleave", output_path=combined_path,
+            carry_weights=args.score,  # carry code's .weights.npy; text/math → 1.0
         )
         cli.success(f"Combined dataset: {result.output_path}")
         cli.info("Total chunks", f"{result.total_chunks:,}")
+        if result.weights_path:
+            cli.info("Quality weights", Path(result.weights_path).name)
     elif len(collected) == 1:
         cli.info("Single source", "No combining needed")
     else:
