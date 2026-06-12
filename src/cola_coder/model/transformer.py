@@ -34,7 +34,8 @@ def language_modeling_loss(
     token_ids: torch.Tensor,
     sample_weights: torch.Tensor | None = None,
     z_loss: float = 0.0,
-) -> torch.Tensor:
+    return_components: bool = False,
+) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
     """Next-token cross-entropy loss over a batch of sequences.
 
     Free function (not a method) so the trainer can compute logits through a
@@ -56,9 +57,16 @@ def language_modeling_loss(
             DIFFERENCES; the absolute scale can drift upward over a long run
             until bf16 precision degrades. Z-loss pulls the softmax
             normalizer toward 1, keeping logits bounded. 0 = disabled.
+        return_components: When True, return ``(total_loss, ce_loss)`` where
+            ``total_loss`` is the optimization objective (CE + z-loss, for
+            backward) and ``ce_loss`` is the pure cross-entropy (the
+            language-modeling METRIC). They differ only when ``z_loss > 0``.
+            Callers should log/track ``ce_loss`` so ``perplexity = exp(loss)``
+            and cross-config comparisons stay meaningful — the z-loss term is a
+            regularizer, not a language-modeling cost.
 
     Returns:
-        Scalar loss value.
+        Scalar total loss, or ``(total_loss, ce_loss)`` if ``return_components``.
     """
     shift_logits = logits[:, :-1, :].contiguous()
     shift_labels = token_ids[:, 1:].contiguous()
@@ -82,12 +90,15 @@ def language_modeling_loss(
         weights = sample_weights.to(per_sample.dtype)
         loss = (per_sample * weights).sum() / weights.sum().clamp_min(1e-8)
 
+    ce_loss = loss  # pure cross-entropy — the language-modeling METRIC
     if z_loss > 0.0:
         # log(Z) per position; float32 for the logsumexp to avoid bf16
         # overflow on exactly the runs where drift is the problem
         log_z = torch.logsumexp(shift_logits.float(), dim=-1)
         loss = loss + z_loss * (log_z ** 2).mean()
 
+    if return_components:
+        return loss, ce_loss
     return loss
 
 

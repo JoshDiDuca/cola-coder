@@ -344,9 +344,15 @@ class Trainer:
 
                         if weights is not None:
                             weights = weights.to(self.device, non_blocking=True)
-                        loss = language_modeling_loss(
+                        # total `loss` = optimization objective (CE + z-loss);
+                        # `ce_loss` = pure cross-entropy, the LM metric we log so
+                        # perplexity = exp(loss) stays honest and comparable
+                        # across configs (z-loss and the MoE load-balancing term
+                        # below are regularizers, not language-modeling costs).
+                        loss, ce_loss = language_modeling_loss(
                             logits, input_ids, weights,
                             z_loss=getattr(cfg, "z_loss", 0.0),
+                            return_components=True,
                         )
 
                         # MoE load-balancing aux loss (0 for dense models).
@@ -384,7 +390,7 @@ class Trainer:
                         ) from e
                     raise
 
-                step_loss += loss.item()
+                step_loss += ce_loss.item()  # log pure CE, not CE + z-loss
                 step_tokens += input_ids.numel()
 
             # If EVERY micro-batch had a non-finite loss, no backward ran, so

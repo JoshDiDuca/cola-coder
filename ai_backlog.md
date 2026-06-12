@@ -11,6 +11,21 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+- **MODEL-012** [model/config-consistency, low] `open` (user decision — changes
+  training behavior/repro) — The 2025-26 stabilizers `qk_norm: true` and
+  `z_loss: 1.0e-4` are set ONLY in `configs/4080_max.yaml`; tiny/small/medium/large
+  leave both at their defaults (off). Consequences: (a) smaller configs miss
+  cheap, broadly-beneficial stabilization (QK-Norm bounds attention logits; z-loss
+  prevents bf16 logit drift — both PaLM/OLMo2/Gemma2/Qwen3 standard); (b) smoke/CI
+  runs on tiny/small never exercise these code paths, so a regression there would
+  pass small-config tests. NOT auto-fixable: enabling `qk_norm` adds params
+  (`blocks.N.attn.{q,k}_norm.weight`) → existing tiny/small/medium checkpoints
+  could no longer resume (hard `_load_state_dict_tied` failure). `z_loss` is
+  backward-compatible (pure loss term, resumes fine) so could be added safely, but
+  it still shifts the user's tuned loss curves. Defer to user: enable z-loss
+  across configs? enable qk_norm only for fresh runs? Verified wiring is correct
+  either way (config→Attention / config→loss), so this is a tuning choice, not a bug.
+
 - **DATA-044** [data-quality, medium] `open` (complex — opt-in, lower value) —
   Last parallel gap between `collect_data.py` (multi-source) and `prepare_data.py`
   (single-source): prepare_data has `--score` → writes a per-chunk `.weights.npy`
@@ -129,6 +144,25 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Done
+
+- **MODEL-011** [model/training metric, medium] `done` (2026-06-12) — Reported
+  training loss conflated the optimization objective with the language-modeling
+  METRIC. `trainer.py` logged `loss.item()` where `loss` = CE + z-loss (and + MoE
+  aux), and `metrics.py:88` derives `perplexity = exp(avg_loss)` from it. So with
+  z-loss enabled (4080_max.yaml, z_loss=1e-4) the displayed perplexity was
+  INFLATED (z-loss term ≈ 0.02-0.09 on a ~1.5-2.0 loss → ~few-% ppl overestimate),
+  the checkpoint `loss` metadata was inflated, early-stopping compared an inflated
+  metric, and 4080_max's loss was incomparable to configs without z-loss. The
+  z-loss/MoE-aux terms are REGULARIZERS, not LM costs. Fix: `language_modeling_loss`
+  gains `return_components` → `(total_loss, ce_loss)`; trainer backprops `total`
+  (CE+z+aux) but logs `ce_loss` (pure CE) via `step_loss += ce_loss.item()`.
+  Validation path (trainer:629) already excluded z-loss — now training matches it.
+  Fresh-scan note: verified the whole "2025-26 techniques" commit (c7d996d) —
+  z-loss math, QK-Norm (per-head RMSNorm before RoPE, OLMo2/Gemma2 order),
+  min-p filter, top-k/top-p single-vs-batch parity — all correct, wired
+  (config→cfg→effect) and covered by test_modern_techniques.py. Tests: 2 new in
+  TestZLoss (ce==plain-CE & total>ce with z on; total==ce with z off). Full module
+  28 passed; training+resume+checkpoint green; ruff clean.
 
 - **TOOL-014** [tooling/bug, low] `done` (2026-06-12) — `data_stats.py`
   `_estimate_unique_tokens` extrapolated a sample's distinct-token count by

@@ -168,6 +168,27 @@ class TestZLoss:
         )
         assert torch.isfinite(loss)
 
+    def test_return_components_splits_metric_from_objective(self):
+        # The logged METRIC (perplexity = exp(loss)) must be pure CE, not the
+        # z-loss-augmented optimization objective — otherwise z-loss runs report
+        # an inflated perplexity and can't be compared to runs without z-loss.
+        torch.manual_seed(0)
+        model = Transformer(_tiny_config())
+        x = torch.randint(0, 64, (2, 16))
+        logits = model(x)
+        total, ce = language_modeling_loss(logits, x, z_loss=1e-2, return_components=True)
+        plain = language_modeling_loss(logits, x)  # pure CE, z_loss=0
+        # ce component equals the plain cross-entropy; total carries the extra term
+        torch.testing.assert_close(ce, plain)
+        assert total > ce
+
+    def test_return_components_equal_when_z_loss_off(self):
+        torch.manual_seed(0)
+        model = Transformer(_tiny_config())
+        x = torch.randint(0, 64, (2, 16))
+        total, ce = language_modeling_loss(model(x), x, z_loss=0.0, return_components=True)
+        torch.testing.assert_close(total, ce)
+
 
 # ── Muon optimizer ──────────────────────────────────────────────────────────
 
