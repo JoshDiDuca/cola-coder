@@ -113,6 +113,22 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-043** [data-quality/bug, medium] `done` (2026-06-12) — Parallel gap to
+  DATA-042: `collect_data.py` (multi-source path) applied NO chunk dedup before
+  tokenizing — it tokenized each source then combined via DatasetCombiner (which
+  doesn't dedup either), so 25-40% DUPLICATE chunks (raw corpora are 25-40% dups,
+  per the training rules' "exact SHA-256 chunk dedup, ON by default") flowed into
+  the multi-source training set. prepare_data.py dedups by default; collect_data
+  didn't — another divergence between the two Stage-1 paths. Fixed: new
+  `_maybe_dedup(npy_path, mode, tokenizer)` runs `dedup_npy_file` in place after
+  each source's tokenize_and_chunk; `--dedup {none,exact,minhash}` default "exact"
+  (matches prepare_data + the ON-by-default rule). Applied to ALL 3 sources
+  (exact chunk dedup is content-agnostic). Tests: test_collect_data_security.py +5
+  (none=no-op, exact collapses identical chunks, keeps unique, wired into all 3
+  sources, default=exact). collect_data --help OK; ruff + checkpoint green. With
+  DATA-042 (filter) + DATA-043 (dedup), the multi-source code path now matches
+  prepare_data's quality pipeline (filter → tokenize → dedup).
+
 - **DATA-042** [data-quality/bug, medium] `done` (2026-06-12) — `collect_data.py`
   (the MULTI-SOURCE path — Full Auto Pipeline / Pipeline Manager Stage 1) tokenized
   the CODE source with NO quality filtering: `stream_code_data → _maybe_scan_stream

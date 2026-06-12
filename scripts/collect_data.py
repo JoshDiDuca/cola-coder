@@ -142,6 +142,30 @@ def _maybe_quality_filter(iterator, filter_mode: str, languages: list[str], work
     )
 
 
+def _maybe_dedup(npy_path: str, mode: str, tokenizer=None) -> None:
+    """Deduplicate a tokenized .npy in place (raw corpora are 25-40%% duplicates).
+
+    'exact' (SHA-256, default) drops byte-identical chunks; 'minhash' also removes
+    near-dups (falls back to exact if datasketch is absent); 'none' is a no-op.
+    Mirrors prepare_data's dedup step, which collect_data previously skipped — so
+    the multi-source path was tokenizing all those duplicates into the training set.
+    """
+    if mode == "none":
+        return
+    from cola_coder.data.dedup import dedup_npy_file
+
+    result = dedup_npy_file(npy_path, mode=mode, tokenizer=tokenizer)
+    if result.removed > 0:
+        pct = 100.0 * result.removed / max(result.before, 1)
+        cli.info(
+            "  Dedup",
+            f"{result.before:,} → {result.after:,} chunks "
+            f"({result.removed:,} removed, {pct:.1f}%, {result.mode})",
+        )
+    else:
+        cli.dim(f"  Dedup: no duplicates found ({result.mode})")
+
+
 def _scan_downloaded_data(
     raw_dir: Path,
     config: dict,
@@ -266,6 +290,12 @@ def main() -> None:
              "data_sources.yaml code.filter, else 'conservative'. Text/math are "
              "not code-filtered.",
     )
+    parser.add_argument(
+        "--dedup", choices=["none", "exact", "minhash"], default="exact",
+        help="Per-source chunk dedup after tokenization (raw corpora are 25-40%% "
+             "duplicates). 'exact' (default, SHA-256) drops identical chunks; "
+             "'minhash' also removes near-dups (needs datasketch); 'none' keeps all.",
+    )
     args = parser.parse_args()
 
     # ── Load configs ──────────────────────────────────────────────────
@@ -329,6 +359,7 @@ def main() -> None:
             code_iter, tokenizer, chunk_size=seq_len,
             output_dir=output_dir, output_name="code_data",
         )
+        _maybe_dedup(output_path, args.dedup, tokenizer=tokenizer)
         collected.append(DatasetInput(path=output_path, weight=weight, name="code"))
         cli.success(f"Code data saved: {output_path}")
 
@@ -351,6 +382,7 @@ def main() -> None:
             text_iter, tokenizer, chunk_size=seq_len,
             output_dir=output_dir, output_name="text_data",
         )
+        _maybe_dedup(output_path, args.dedup, tokenizer=tokenizer)
         collected.append(DatasetInput(path=output_path, weight=weight, name="text"))
         cli.success(f"Text data saved: {output_path}")
 
@@ -373,6 +405,7 @@ def main() -> None:
             math_iter, tokenizer, chunk_size=seq_len,
             output_dir=output_dir, output_name="math_data",
         )
+        _maybe_dedup(output_path, args.dedup, tokenizer=tokenizer)
         collected.append(DatasetInput(path=output_path, weight=weight, name="math"))
         cli.success(f"Math data saved: {output_path}")
 

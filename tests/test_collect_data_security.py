@@ -163,3 +163,49 @@ class TestCodeQualityFiltering:
         assert "_maybe_quality_filter(code_iter" in text
         assert "_maybe_quality_filter(text_iter" not in text
         assert "_maybe_quality_filter(math_iter" not in text
+
+
+class TestCodeDedup:
+    """DATA-043: the multi-source path must dedup tokenized chunks (raw corpora
+    are 25-40% duplicates) — collect_data previously tokenized all duplicates
+    into the training set, unlike prepare_data which dedups by default."""
+
+    def _make_npy(self, tmp_path, rows):
+        import numpy as np
+        p = tmp_path / "d.npy"
+        np.save(str(p), np.array(rows, dtype=np.uint16))
+        return str(p)
+
+    def test_dedup_none_is_noop(self, tmp_path):
+        import numpy as np
+        mod = _load()
+        path = self._make_npy(tmp_path, [[1, 2, 3], [1, 2, 3], [4, 5, 6]])
+        mod._maybe_dedup(path, "none")
+        assert np.load(path).shape[0] == 3  # nothing removed
+
+    def test_dedup_exact_removes_identical_chunks(self, tmp_path):
+        import numpy as np
+        mod = _load()
+        path = self._make_npy(tmp_path, [[1, 2, 3], [1, 2, 3], [4, 5, 6], [1, 2, 3]])
+        mod._maybe_dedup(path, "exact")
+        out = np.load(path)
+        assert out.shape[0] == 2  # the 3 identical [1,2,3] chunks collapse to 1
+        rows = {tuple(r) for r in out.tolist()}
+        assert rows == {(1, 2, 3), (4, 5, 6)}
+
+    def test_dedup_keeps_unique_chunks(self, tmp_path):
+        import numpy as np
+        mod = _load()
+        path = self._make_npy(tmp_path, [[1, 1], [2, 2], [3, 3]])
+        mod._maybe_dedup(path, "exact")
+        assert np.load(path).shape[0] == 3  # all unique → kept
+
+    def test_dedup_wired_into_all_sources(self):
+        text = _SCRIPT.read_text(encoding="utf-8")
+        # exact dedup is content-agnostic — applied to code, text AND math.
+        assert text.count("_maybe_dedup(output_path, args.dedup") == 3
+
+    def test_dedup_default_is_exact(self):
+        # The CLI default must be 'exact' (matches the "ON by default" rule).
+        text = _SCRIPT.read_text(encoding="utf-8")
+        assert '"--dedup", choices=["none", "exact", "minhash"], default="exact"' in text
