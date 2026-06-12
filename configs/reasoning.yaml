@@ -49,6 +49,11 @@ reasoning:
   # Remove/comment clip_epsilon_high for symmetric (original) clipping.
   clip_epsilon: 0.2
   clip_epsilon_high: 0.28
+  # PPO inner epochs (μ): gradient steps per generated group, reusing the fixed
+  # old log-probs. 1 = single on-policy step (the importance ratio is exactly 1,
+  # so the clip bounds above are inert). >1 reuses the expensive generations for
+  # several updates — the ONLY regime where clip_epsilon(_high) actually engage.
+  ppo_epochs: 1
   max_thinking_tokens: 512  # Cap reasoning trace length (reward penalty above this)
   base_checkpoint: "./checkpoints/small/latest"  # Start from trained model
   # Reward function to use during GRPO training.

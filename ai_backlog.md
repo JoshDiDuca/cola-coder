@@ -89,6 +89,17 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 
 
+- **MODEL-008** [model/training, low-medium] `open` — Follow-up to MODEL-007:
+  (a) `grpo_clipped_surrogate` SUMS per-token surrogates, which is length-biased
+  (longer completions get proportionally larger loss) — Dr. GRPO normalizes by a
+  CONSTANT (e.g. max_new_tokens) instead to remove that bias. The codebase already
+  declares Dr. GRPO (advantage_norm="mean"), so the loss aggregation should match;
+  add a `length_norm` option (sum vs constant) defaulting to current behavior.
+  (b) The PPO clip path (ppo_epochs>1) is unit-tested but never validated in an
+  actual short GRPO run — do a tiny sandboxed smoke (few steps, ppo_epochs=2) to
+  confirm the ratio diverges from 1 and the clip engages as intended. Both need a
+  real/CPU model run; defer until convenient. Found in the MODEL-007 cycle.
+
 - **OPS-001** [tooling, low] `open` (deferred for user) — storage split-brain:
   configs/storage.yaml → E:/cola-coder-data vs config.checkpoint.output_dir →
   ./checkpoints. Needs the user's decision; do not unilaterally resolve.
@@ -96,6 +107,33 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Done
+
+- **MODEL-007** [model/training, high] `done` (2026-06-12) — GRPO's PPO objective
+  was both mis-formulated and inert. (a) The importance ratio was SEQUENCE-LEVEL:
+  `ratio = exp(Σ_t Δlogp)` = the PRODUCT of per-token ratios — over long
+  completions this explodes/vanishes and saturates the clip on nearly every
+  sample, destroying PPO's per-token credit assignment (reference GRPO/Dr.GRPO/
+  DAPO all clip PER TOKEN). (b) The trainer took ONE gradient step per generated
+  group with old log-probs recomputed from the SAME weights, so the ratio was
+  ALWAYS exactly 1.0 → `clip_epsilon` / `clip_epsilon_high` (the advertised DAPO
+  clip-higher) were DEAD CODE that never engaged. Fixed: new pure
+  `grpo_clipped_surrogate(new_logp, old_logp, A, clip_low, clip_high)` clips PER
+  TOKEN and SUMS (so at the 1-epoch default the gradient is byte-identical to the
+  old sequence-level one — zero dynamics change); `_completion_logprobs` returns
+  the per-token vector (`_completion_logprob_sum` delegates, old tests intact);
+  old policy stored as per-token detached tensors. New `ppo_epochs` param (config
+  `reasoning.ppo_epochs`, default 1) wraps the update in μ inner epochs reusing
+  the fixed old log-probs — the ONLY regime where the clip actually acts. Wired
+  through reasoning.yaml + train_reasoning.py (+ wiring test requires the kwarg).
+  ALSO fixed a PRE-EXISTING crash (failing on HEAD, unrelated to the above):
+  train_step did `total_loss.backward()` unconditionally, so a degenerate group
+  where NO member produced completion tokens (grad-less zero loss) raised
+  RuntimeError and killed the run — now guarded (skip the step). Tests:
+  test_grpo_token_surrogate.py (12 — per-token math, asymmetric DAPO clip, PPO
+  min-branch, not-sequence-level) + the 2 previously-failing parallel-gen
+  train_step tests now pass. 163 reasoning/reward + checkpoint green; ruff clean.
+  Found in this cycle's GRPO fresh scan. FOLLOW-UP: Dr.GRPO constant length-norm
+  (sum is length-biased) + a real GRPO smoke run to validate dynamics → MODEL-008.
 
 - **DATA-033** [data-quality/security, medium] `done` (2026-06-12) —
   `check_no_hardcoded_secrets` was STRICT-ONLY, so in the DEFAULT conservative

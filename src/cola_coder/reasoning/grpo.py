@@ -78,27 +78,73 @@ def compute_group_advantages(
     return centered / (rewards.std() + 1e-8)
 
 
-def _completion_logprob_sum(
+def _completion_logprobs(
     token_log_probs: torch.Tensor,
     prompt_len: int,
 ) -> torch.Tensor:
-    """Sum log-probs over the COMPLETION tokens only (mask the prompt).
+    """Per-token log-probs of the COMPLETION tokens only (mask the prompt).
 
     `token_log_probs[j]` scores token j+1 given tokens [:j+1]. The prompt is
     fixed context, not a sampled action, so under the policy only the completion
     tokens (indices >= prompt_len) count — they are scored by token_log_probs
-    indices >= prompt_len - 1. Summing the prompt tokens too (MODEL-004) is a
-    standard-GRPO deviation: it was harmless here because advantages are
-    mean-centered and the prompt is shared across the group, so the shared
-    prompt-token log-probs cancel in (current - old). Masking matches reference
-    GRPO and is robust to future non-centered / multi-step changes.
+    indices >= prompt_len - 1. Masking the prompt (MODEL-004) matches reference
+    GRPO; it was harmless before only because advantages are mean-centered and
+    the shared prompt log-probs cancel in (current - old).
 
-    Returns a 0-D tensor (0.0 when there are no completion tokens).
+    Returns a 1-D tensor of the completion token log-probs (empty when there are
+    no completion tokens).
     """
     start = max(prompt_len - 1, 0)
     if start >= token_log_probs.shape[0]:
-        return token_log_probs.new_zeros(())
-    return token_log_probs[start:].sum()
+        return token_log_probs.new_zeros((0,))
+    return token_log_probs[start:]
+
+
+def _completion_logprob_sum(
+    token_log_probs: torch.Tensor,
+    prompt_len: int,
+) -> torch.Tensor:
+    """Sum of the completion-token log-probs (see _completion_logprobs).
+
+    Returns a 0-D tensor (0.0 when there are no completion tokens).
+    """
+    return _completion_logprobs(token_log_probs, prompt_len).sum()
+
+
+def grpo_clipped_surrogate(
+    new_logp: torch.Tensor,
+    old_logp: torch.Tensor,
+    advantage: torch.Tensor | float,
+    clip_low: float,
+    clip_high: float,
+) -> torch.Tensor:
+    """Per-token PPO-clipped surrogate, SUMMED over completion tokens.
+
+    For each completion token: ratio r_t = exp(logπ_new,t - logπ_old,t), and
+    surrogate_t = min(r_t·A, clip(r_t, 1-clip_low, 1+clip_high)·A). Returns
+    Σ_t surrogate_t (a MAXIMIZATION objective — the caller negates it for the
+    loss).
+
+    Why per-token (not sequence-level): the old code used ONE ratio for the whole
+    sequence, exp(Σ_t Δlogp) = the PRODUCT of per-token ratios. Over a long
+    completion that product explodes/vanishes and saturates the clip on nearly
+    every sample, destroying PPO's per-token credit assignment. Reference
+    GRPO/Dr.GRPO/DAPO all clip PER TOKEN.
+
+    Why SUM (not mean): at ppo_epochs=1 the new policy == the old policy, so every
+    r_t ≡ 1 and the per-token gradient Σ_t A·∇logπ_new,t exactly equals the old
+    sequence-level gradient A·∇(Σ_t logπ_new,t) — i.e. the default behavior is
+    unchanged. The clip only diverges from a no-op once the weights move
+    (ppo_epochs > 1), which is precisely when DAPO clip-higher should engage.
+
+    Empty completion → 0.
+    """
+    if new_logp.numel() == 0:
+        return new_logp.new_zeros(())
+    ratio = torch.exp(new_logp - old_logp)
+    unclipped = ratio * advantage
+    clipped = torch.clamp(ratio, 1.0 - clip_low, 1.0 + clip_high) * advantage
+    return torch.min(unclipped, clipped).sum()
 
 
 class GRPOTrainer:
@@ -113,6 +159,7 @@ class GRPOTrainer:
         clip_epsilon: float = 0.2,
         clip_epsilon_high: float | None = None,
         advantage_norm: str = "std",
+        ppo_epochs: int = 1,
         max_new_tokens: int = 512,
         max_thinking_tokens: int = 256,
         device: str = "cuda",
@@ -137,6 +184,12 @@ class GRPOTrainer:
                 "mean" (Dr. GRPO, Liu et al. 2025: subtract mean only —
                 dividing by std over-weights near-zero-variance groups,
                 i.e. problems that are nearly always right or always wrong).
+            ppo_epochs: Number of gradient steps per generated group (PPO inner
+                epochs, μ). 1 (default) = single on-policy step, where the
+                importance ratio is exactly 1 and clipping is a no-op. >1 reuses
+                the (expensive) generations for several updates against the fixed
+                old policy, which is the ONLY regime where clip_epsilon /
+                clip_epsilon_high actually engage.
             max_new_tokens: Maximum tokens to generate per solution.
             max_thinking_tokens: Maximum thinking trace length for reward.
             device: "cuda" or "cpu".
@@ -161,6 +214,11 @@ class GRPOTrainer:
         self.clip_epsilon = clip_epsilon
         self.clip_epsilon_high = clip_epsilon_high
         self.advantage_norm = advantage_norm
+        # PPO inner epochs: gradient steps taken per generated group, reusing the
+        # FIXED old log-probs. With 1 (default) the ratio stays 1 and clipping is
+        # inert (pure REINFORCE+baseline). >1 reuses the expensive generations and
+        # lets the DAPO clip-higher bound actually take effect.
+        self.ppo_epochs = max(1, int(ppo_epochs))
         self.max_new_tokens = max_new_tokens
         self.max_thinking_tokens = max_thinking_tokens
 
@@ -251,8 +309,10 @@ class GRPOTrainer:
         # prompt out of the policy log-prob so only completion tokens count.
         prompt_len = len(self.tokenizer.encode(prompt, add_bos=True))
 
-        # Compute log probabilities of the generated tokens (old policy, pi_old)
-        log_probs_list = []
+        # Per-token completion log-probs under the OLD policy (pi_old), held fixed
+        # across all ppo_epochs. Stored as detached 1-D tensors (one per group
+        # member) so the PPO ratio can be computed PER TOKEN in the update.
+        old_token_logps: list[torch.Tensor] = []
         for output in generations:
             token_ids = self.tokenizer.encode(output, add_bos=True)
             input_tensor = torch.tensor([token_ids], device=self.device)
@@ -264,8 +324,9 @@ class GRPOTrainer:
                 token_log_probs = log_probs[0, :-1].gather(
                     1, input_tensor[0, 1:].unsqueeze(1)
                 ).squeeze(1)
-                total_log_prob = _completion_logprob_sum(token_log_probs, prompt_len).item()
-                log_probs_list.append(total_log_prob)
+                old_token_logps.append(
+                    _completion_logprobs(token_log_probs, prompt_len).detach().float()
+                )
 
         # Step 2: Compute rewards
         # ------------------------------------------------------------------
@@ -315,54 +376,60 @@ class GRPOTrainer:
 
         advantages = compute_group_advantages(rewards_tensor, norm=self.advantage_norm)
 
-        # Step 4: Policy gradient update
+        # Step 4: PPO policy update. Take ppo_epochs gradient steps reusing the
+        # FIXED old log-probs. Upper clip bound may be looser than the lower one
+        # (DAPO clip-higher) to counteract entropy collapse. At epoch 0 the ratio
+        # is exactly 1 (weights == pi_old) so the clip is inert; later epochs move
+        # the weights, making the per-token ratio diverge from 1 and the clip act.
         self.model.train()
-        self.optimizer.zero_grad()
+        eps_high = (
+            self.clip_epsilon_high
+            if self.clip_epsilon_high is not None
+            else self.clip_epsilon
+        )
 
-        total_loss = 0.0
-        for i in range(self.group_size):
-            token_ids = self.tokenizer.encode(generations[i], add_bos=True)
-            input_tensor = torch.tensor([token_ids], device=self.device)
+        last_loss = 0.0
+        for _epoch in range(self.ppo_epochs):
+            self.optimizer.zero_grad()
+            total_loss = 0.0
+            for i in range(self.group_size):
+                token_ids = self.tokenizer.encode(generations[i], add_bos=True)
+                input_tensor = torch.tensor([token_ids], device=self.device)
 
-            # Forward pass to get current policy log probs
-            with autocast(device_type="cuda", dtype=torch.bfloat16,
-                           enabled=self.device == "cuda"):
-                logits = self.model(input_tensor)
-                log_probs = F.log_softmax(logits, dim=-1)
-                token_log_probs = log_probs[0, :-1].gather(
-                    1, input_tensor[0, 1:].unsqueeze(1)
-                ).squeeze(1)
-                current_log_prob = _completion_logprob_sum(token_log_probs, prompt_len)
+                # Forward pass to get current policy per-token log probs
+                with autocast(device_type="cuda", dtype=torch.bfloat16,
+                               enabled=self.device == "cuda"):
+                    logits = self.model(input_tensor)
+                    log_probs = F.log_softmax(logits, dim=-1)
+                    token_log_probs = log_probs[0, :-1].gather(
+                        1, input_tensor[0, 1:].unsqueeze(1)
+                    ).squeeze(1)
+                    new_logp = _completion_logprobs(token_log_probs, prompt_len)
 
-            # Compute probability ratio (pi_new / pi_old)
-            old_log_prob = log_probs_list[i]
-            ratio = torch.exp(current_log_prob - old_log_prob)
+                # Per-token clipped surrogate (fp32 for a stable exp).
+                surrogate = grpo_clipped_surrogate(
+                    new_logp.float(), old_token_logps[i], advantages[i],
+                    self.clip_epsilon, eps_high,
+                )
+                total_loss = total_loss + (-surrogate) / self.group_size
 
-            # Clipped surrogate objective (PPO-style). Upper bound may be
-            # looser than the lower one (DAPO clip-higher) to counteract
-            # entropy collapse.
-            advantage = advantages[i]
-            eps_high = (
-                self.clip_epsilon_high
-                if self.clip_epsilon_high is not None
-                else self.clip_epsilon
-            )
-            unclipped = ratio * advantage
-            clipped = torch.clamp(ratio, 1 - self.clip_epsilon, 1 + eps_high) * advantage
-            loss = -torch.min(unclipped, clipped)
+            # Degenerate group: if no group member produced any completion tokens
+            # (e.g. the model emitted EOS immediately), total_loss is a grad-less
+            # zero — there is nothing to optimize, and calling backward() would
+            # raise. Skip the step instead of crashing the run.
+            if not (torch.is_tensor(total_loss) and total_loss.requires_grad):
+                last_loss = float(total_loss)
+                break
 
-            # Accumulate loss
-            total_loss += loss / self.group_size
-
-        # Backward and update
-        total_loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.5)
-        self.optimizer.step()
+            total_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.5)
+            self.optimizer.step()
+            last_loss = total_loss.item()
 
         # Return metrics
         num_correct = sum(1 for info in infos if info["correct"])
         return {
-            "loss": total_loss.item(),
+            "loss": last_loss,
             "mean_reward": mean_reward.item(),
             "num_correct": num_correct,
             "group_size": self.group_size,

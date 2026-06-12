@@ -462,6 +462,7 @@ def main():
         if args.clip_epsilon_high is not None
         else (float(cfg_clip_high) if cfg_clip_high is not None else None)
     )
+    ppo_epochs = int(_cfg("ppo_epochs", 1))
     max_thinking_tokens = int(_cfg("max_thinking_tokens", 256))
     parallel_generation = bool(_cfg("parallel_generation", False))
     parallel_rewards = bool(_cfg("parallel_rewards", False))
@@ -480,6 +481,10 @@ def main():
         "PPO clip",
         f"{clip_epsilon}"
         + (f" / {clip_epsilon_high} (clip-higher)" if clip_epsilon_high else " (symmetric)"),
+    )
+    cli.info(
+        "PPO epochs",
+        f"{ppo_epochs}" + (" (clip inert at 1)" if ppo_epochs <= 1 else " (clip active)"),
     )
     cli.info("Parallel generation", parallel_generation)
     cli.info("Parallel rewards", f"{parallel_rewards} (workers: {reward_workers})")
@@ -506,6 +511,7 @@ def main():
             clip_epsilon=clip_epsilon,
             clip_epsilon_high=clip_epsilon_high,
             advantage_norm=advantage_norm,
+            ppo_epochs=ppo_epochs,
             max_thinking_tokens=max_thinking_tokens,
             device=device,
             reward_fn=reward_name,
