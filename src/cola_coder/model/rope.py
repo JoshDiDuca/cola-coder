@@ -22,6 +22,8 @@ different speeds. The fast-spinning hands encode fine-grained position,
 the slow-spinning hands encode coarse position.
 """
 
+import math
+
 import torch
 
 
@@ -292,3 +294,21 @@ def get_rope_freqs(
     else:
         # No scaling — use original function
         return precompute_rope_freqs(dim, max_seq_len, theta, device)
+
+
+def yarn_attention_scale(factor: float) -> float:
+    """YaRN attention temperature factor (mscale), Peng et al. 2023, eq. for `t`.
+
+    YaRN doesn't just rescale RoPE frequencies — it also lowers the softmax
+    temperature so attention logits stay calibrated at the extended context.
+    The paper sets ``sqrt(1/t) = 0.1*ln(s) + 1`` where ``s`` is the extension
+    factor; this returns that ``mscale = 0.1*ln(factor) + 1.0``.
+
+    Apply it as ``attention_scale = (1/sqrt(head_dim)) * mscale**2`` (the logits
+    pick up ``mscale`` from both q and k in the reference cos/sin formulation,
+    hence the square). Returns 1.0 for ``factor <= 1`` (no extension → no temp
+    change), so non-YaRN paths are unaffected.
+    """
+    if factor <= 1.0:
+        return 1.0
+    return 0.1 * math.log(factor) + 1.0

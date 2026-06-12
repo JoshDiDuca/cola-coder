@@ -37,6 +37,7 @@ class GroupedQueryAttention(nn.Module):
         max_seq_len: int,
         dropout: float = 0.0,
         qk_norm: bool = False,
+        attn_logit_scale: float = 1.0,
     ):
         """
         Args:
@@ -49,6 +50,10 @@ class GroupedQueryAttention(nn.Module):
                 (Gemma 2/3, OLMo 2, Qwen3). Bounds attention logits so they
                 can't blow up mid-training — the main source of loss spikes
                 in deeper models — and tolerates higher learning rates.
+            attn_logit_scale: Extra multiplier on the softmax scale (1/sqrt(d)).
+                1.0 = standard. YaRN context extension passes ``mscale**2`` here
+                (MODEL-005) to lower the attention temperature at extended
+                context; see ``rope.yarn_attention_scale``.
         """
         super().__init__()
         assert n_heads % n_kv_heads == 0, (
@@ -60,7 +65,9 @@ class GroupedQueryAttention(nn.Module):
         self.n_groups = n_heads // n_kv_heads  # How many Q heads share each KV head
         self.head_dim = dim // n_heads
         self.max_seq_len = max_seq_len
-        self.scale = self.head_dim ** -0.5  # 1/sqrt(head_dim) for scaled dot-product
+        # 1/sqrt(head_dim) for scaled dot-product, times an optional YaRN
+        # temperature multiplier (mscale**2; 1.0 = standard attention).
+        self.scale = (self.head_dim ** -0.5) * attn_logit_scale
 
         # Projection matrices (no bias — modern transformers skip bias for efficiency)
         self.q_proj = nn.Linear(dim, n_heads * self.head_dim, bias=False)

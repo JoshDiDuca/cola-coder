@@ -39,16 +39,19 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   `truncate_or_pad=False` docstring says output is "shorter by up to 3" but it's
   actually LONGER by 3 — trivial doc nit, not fixed.)
 
-- **MODEL-005** [model/capability, low] `open` — YaRN context extension
-  (`precompute_rope_freqs_yarn`, rope.py) scales RoPE frequencies but omits
-  YaRN's attention temperature factor `mscale = 0.1*ln(factor)+1.0`, which the
-  paper applies to the attention logits (scores *= mscale) to keep them
-  calibrated at extended context. Without it, extended-context attention is
-  slightly mis-scaled (under-performs vs. reference YaRN). Tractable but
-  cross-module: the scale would have to flow from the rope/config layer into
-  `GroupedQueryAttention`'s SDPA `scale=` (attention.py), and only matters when
-  rope_scaling.type=="yarn" (stage 4, optional/auto-skipped). Validate at
-  extended context before/after. Found in this cycle's rope.py audit. Low pri.
+- **MODEL-006** [model/config-hygiene, low] `open` — Phantom config knob:
+  `RoPEScalingConfig.original_max_seq_len` (config.py, default 4096) is NEVER
+  read. `Transformer.__init__` passes `original_max_seq_len=config.max_seq_len`
+  to `get_rope_freqs` (transformer.py:271), so a user who sets a custom
+  `rope_scaling.original_max_seq_len` in YAML (e.g. extending a 2048-trained
+  model) is silently ignored — the YaRN wavelength partitions use
+  config.max_seq_len instead. Correct for the common case (config.max_seq_len ==
+  the original training length), but a silent divergence and a phantom knob (the
+  project bans these, cf. reasoning.md). Fix needs a small precedence decision:
+  honor the field when set, else fall back to config.max_seq_len — but the
+  dataclass default (4096) can't be distinguished from an explicit 4096, so
+  either change the sentinel to 0/None="use max_seq_len" or document the field as
+  advisory-only. Found in this cycle's MODEL-005 rope audit. Low pri.
 
 - **DATA-021** [data-quality/architecture, medium] `open` — The modular
   FilterPlugin + `DataPipeline` system (data/pipeline.py + data/filters/, registry
@@ -93,6 +96,27 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Done
+
+- **MODEL-005** [model/capability, low] `done` (2026-06-12) — YaRN context
+  extension (`precompute_rope_freqs_yarn`, rope.py) scaled RoPE frequencies but
+  omitted YaRN's attention temperature factor `mscale = 0.1*ln(factor)+1.0`
+  (Peng et al. 2023), which the paper applies to keep attention logits
+  calibrated at extended context. Without it, extended-context attention was
+  mis-scaled vs. reference YaRN. Fixed: new `rope.yarn_attention_scale(factor)`
+  returns mscale (1.0 for factor<=1); `GroupedQueryAttention` gained an
+  `attn_logit_scale` param folded into `self.scale = (head_dim**-0.5) * scale`;
+  `Transformer.__init__` now resolves rope scaling ONCE up-front (shared by the
+  freq table and attention), computing `attn_logit_scale = mscale**2` ONLY for
+  type=="yarn" and threading it through `TransformerBlock` to every attention
+  layer. Inert for type none/ntk/linear and factor<=1, so all existing
+  checkpoints are byte-for-byte unchanged (self.scale is a plain float, not in
+  state_dict → checkpoint invariants intact). Tests: test_yarn_attention_scale.py
+  (12 — mscale math, attention multiplier, transformer wiring incl. ntk/linear
+  leave temperature untouched, all blocks share the scale); checkpoint suite +
+  92 rope/attention/transformer tests green; full-tree ruff clean. Discovered
+  MODEL-006 (phantom `original_max_seq_len`) during the audit. NOTE: end-to-end
+  perplexity gain at extended context wants a real YaRN-extended checkpoint to
+  confirm; the wiring + scale math are locked regardless.
 
 - **UX-014** [ux/inference, low] `done` (2026-06-12) — Follow-up to INFER-011:
   `InteractiveChat` supported `chat_format="chatml"` but had NO live caller (only

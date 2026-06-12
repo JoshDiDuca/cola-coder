@@ -26,7 +26,7 @@ from .attention import GroupedQueryAttention
 from .config import ModelConfig
 from .feedforward import SwiGLUFFN
 from .normalization import RMSNorm
-from .rope import get_rope_freqs
+from .rope import get_rope_freqs, yarn_attention_scale
 
 
 def language_modeling_loss(
@@ -99,7 +99,13 @@ class TransformerBlock(nn.Module):
     (syntax, common tokens), later blocks learn complex patterns (logic, semantics).
     """
 
-    def __init__(self, config: ModelConfig, layer_idx: int = 0, is_moe: bool = False):
+    def __init__(
+        self,
+        config: ModelConfig,
+        layer_idx: int = 0,
+        is_moe: bool = False,
+        attn_logit_scale: float = 1.0,
+    ):
         super().__init__()
         # Pre-normalization (applied BEFORE each sub-layer)
         self.attn_norm = RMSNorm(config.dim)
@@ -113,6 +119,7 @@ class TransformerBlock(nn.Module):
             max_seq_len=config.max_seq_len,
             dropout=config.dropout,
             qk_norm=getattr(config, "qk_norm", False),
+            attn_logit_scale=attn_logit_scale,
         )
 
         # FFN: dense SwiGLU by default, or a Mixture-of-Experts FFN when this
@@ -201,10 +208,30 @@ class Transformer(nn.Module):
             self._moe_layer_set = set()
         self.is_moe = bool(self._moe_layer_set)
 
+        # Resolve RoPE scaling ONCE here — it drives both the precomputed freq
+        # table (below) and the YaRN attention temperature (MODEL-005). With
+        # type "none" / factor <= 1 this is inert, so dense non-extended models
+        # are unaffected.
+        scaling = getattr(config, "rope_scaling", None)
+        scaling_type = getattr(scaling, "type", "none") if scaling is not None else "none"
+        scaling_factor = getattr(scaling, "factor", 1.0) if scaling is not None else 1.0
+        if scaling_type == "none" or scaling_factor <= 1.0:
+            scaling_type, scaling_factor = "none", 1.0
+
+        # YaRN lowers the softmax temperature at extended context: logits scale
+        # by mscale**2 (mscale = 0.1*ln(factor)+1). Only for type "yarn"; other
+        # methods (ntk/linear) leave attention temperature unchanged → 1.0.
+        attn_logit_scale = (
+            yarn_attention_scale(scaling_factor) ** 2 if scaling_type == "yarn" else 1.0
+        )
+
         # Stack of transformer blocks
         # nn.ModuleList is like an array of layers that PyTorch tracks
         self.blocks = nn.ModuleList([
-            TransformerBlock(config, layer_idx=i, is_moe=i in self._moe_layer_set)
+            TransformerBlock(
+                config, layer_idx=i, is_moe=i in self._moe_layer_set,
+                attn_logit_scale=attn_logit_scale,
+            )
             for i in range(config.n_layers)
         ])
 
@@ -232,12 +259,8 @@ class Transformer(nn.Module):
         # base wavelength (500K for long-context configs like 4080_max),
         # and rope_scaling (YaRN/NTK/linear) extends a trained model's
         # context window (Stage 4). With scaling, the freq table covers the
-        # extended length (max_seq_len * factor).
-        scaling = getattr(config, "rope_scaling", None)
-        scaling_type = getattr(scaling, "type", "none") if scaling is not None else "none"
-        scaling_factor = getattr(scaling, "factor", 1.0) if scaling is not None else 1.0
-        if scaling_type == "none" or scaling_factor <= 1.0:
-            scaling_type, scaling_factor = "none", 1.0
+        # extended length (max_seq_len * factor). scaling_type/scaling_factor
+        # were resolved above (shared with the YaRN attention temperature).
         rope_len = int(config.max_seq_len * max(scaling_factor, 1.0))
         rope_freqs = get_rope_freqs(
             dim=config.head_dim,
