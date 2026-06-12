@@ -104,6 +104,14 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   environment (gguf package absent, EXPORT-010 fresh scan). Verify before
   shipping a fix.
 
+- **INFER-017** [inference/capability, low] `open` — Follow-up to INFER-016:
+  thread `no_repeat_ngram_size` through the best-of-N path
+  (`inference/best_of_n.generate_best_of_n` + its server `_best_of_generate`
+  helper + the `--best-of` CLI path in generate.py), and expose it in the VS Code
+  extension settings (`cola-coder.inline.*` / `chat.*`) + its FIM/chat request
+  payloads so inline completions can enable it. Low priority — best-of already
+  curbs repetition by candidate selection, and the field defaults off.
+
 - **OPS-001** [tooling, low] `open` (deferred for user) — storage split-brain:
   configs/storage.yaml → E:/cola-coder-data vs config.checkpoint.output_dir →
   ./checkpoints. Needs the user's decision; do not unilaterally resolve.
@@ -111,6 +119,21 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Done
+
+- **INFER-016** [inference/capability, low-medium] `done` (2026-06-12) — Wired
+  INFER-015's `no_repeat_ngram_size` to the user surface so it's actually
+  reachable (the INFER-011→UX-014 "core capability needs a caller" pattern). Added
+  the field (default 0 = off) to all 4 code-gen request bodies (GenerateRequest,
+  ChatCompletionRequest, CompletionRequest, FimRequest) and forwarded it at every
+  direct `base_gen.generate`/`generate_stream` call site (6: /generate, chat
+  non-stream+stream, completions non-stream+stream, FIM — FIM is the highest-value,
+  it feeds VS Code inline completions where loops are most visible). Added a
+  `--no-repeat-ngram` CLI flag to scripts/generate.py. Tests:
+  test_server_no_repeat_ngram.py (4): all models expose the field default-0,
+  settable, ≥6 call sites forward it, server parses. 61 server/script-help +
+  checkpoint green; --help OK; ruff clean. FOLLOW-UP: the best-of-N path
+  (`generate_best_of_n`) doesn't thread it (separate signature) — lower priority
+  since best-of already reduces repetition via candidate selection (INFER-017).
 
 - **INFER-015** [inference/capability, medium] `done` (2026-06-12) — Added
   `no_repeat_ngram_size` decoding to the generator — the standard hard block on

@@ -84,6 +84,14 @@ def main():
         default="auto",
         help="Verifier language for --best-of (default: auto-detect from prompt).",
     )
+    parser.add_argument(
+        "--no-repeat-ngram",
+        type=int,
+        default=0,
+        dest="no_repeat_ngram_size",
+        help="Block any token that would repeat an n-gram of this size "
+             "(stops verbatim repetition loops; 3 is typical, 0 = off).",
+    )
     args = parser.parse_args()
 
     if args.tokenizer is None:
@@ -264,6 +272,7 @@ def main():
                     temperature=args.temperature,
                     top_k=args.top_k,
                     top_p=args.top_p,
+                    no_repeat_ngram_size=args.no_repeat_ngram_size,
                 )
                 print(result)
             cli.rule("End")
