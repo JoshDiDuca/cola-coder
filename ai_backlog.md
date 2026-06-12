@@ -112,6 +112,21 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **MODEL-009** [model/training, low-medium] `done` (2026-06-12) — GRPO curriculum
+  temperature was applied (not a no-op) but used ABSOLUTE per-difficulty values
+  `{easy:0.7, medium:0.8, hard:0.9}` that REPLACED the run's `temperature`, so a
+  user's `--temperature` was silently ignored under `--problems curriculum`
+  (the "config silently doesn't apply" class) — and the docstring's "temperature
+  SCALING" was inaccurate. Fixed: `_CURRICULUM_TEMP_MULT = {easy:0.875, medium:1.0,
+  hard:1.125}` are now MULTIPLIERS of the base temperature (easy → tighter/exploit,
+  hard → looser/explore), so `--temperature` is honored; chosen so the default base
+  (0.8) reproduces the old 0.7/0.8/0.9 exactly (backward compatible). Extracted a
+  pure `_step_temperature(base, difficulty, curriculum)` helper and used it in the
+  train loop. Tests: test_curriculum_temperature.py (6): off→base, default
+  reproduces legacy absolutes, base honored, easy<medium<hard, unknown→base,
+  multipliers around 1.0. Fresh-scan note: the curriculum sort + per-difficulty
+  reporting were already correct. 100 grpo/reasoning + checkpoint green; ruff clean.
+
 - **TOOL-013** [test-coverage/regression-guard, low-medium] `done` (2026-06-12) —
   Fresh scan of the GRPO reward path (reward.py, rewards/combined.py,
   reward_registry.py) found the code CORRECT — python_exec runs tests sandboxed;

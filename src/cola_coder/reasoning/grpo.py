@@ -50,8 +50,25 @@ logger = logging.getLogger(__name__)
 
 # Difficulty ordering for curriculum temperature scaling
 _DIFFICULTY_ORDER = {"easy": 0, "medium": 1, "hard": 2}
-# Temperature multipliers per difficulty tier for curriculum learning
-_CURRICULUM_TEMP = {"easy": 0.7, "medium": 0.8, "hard": 0.9}
+# Per-difficulty temperature MULTIPLIERS (scale the run's base temperature).
+# Easy problems sample tighter (exploit the known-easy answer); hard problems
+# sample looser (explore). These are factors, not absolutes, so the user's
+# --temperature is honored — previously the curriculum used absolute values
+# {0.7, 0.8, 0.9} that REPLACED the base temperature, silently ignoring it.
+# Chosen so the default base (0.8) reproduces the old 0.7/0.8/0.9 exactly.
+_CURRICULUM_TEMP_MULT = {"easy": 0.875, "medium": 1.0, "hard": 1.125}
+
+
+def _step_temperature(base_temperature: float, difficulty: str, curriculum: bool) -> float:
+    """Per-step sampling temperature for curriculum learning.
+
+    Curriculum ON: scale the run's base temperature by the difficulty factor
+    (easy → tighter/exploit, hard → looser/explore). Curriculum OFF or an
+    unknown difficulty → the base temperature unchanged.
+    """
+    if not curriculum:
+        return base_temperature
+    return base_temperature * _CURRICULUM_TEMP_MULT.get(difficulty, 1.0)
 
 
 def compute_group_advantages(
@@ -549,10 +566,7 @@ class GRPOTrainer:
             for problem in tqdm(training_problems, desc=f"Epoch {epoch + 1}/{num_epochs}"):
                 # Curriculum learning: vary temperature by difficulty
                 difficulty = problem.get("difficulty", "medium")
-                if curriculum:
-                    step_temp = _CURRICULUM_TEMP.get(difficulty, temperature)
-                else:
-                    step_temp = temperature
+                step_temp = _step_temperature(temperature, difficulty, curriculum)
 
                 metrics = self.train_step(
                     prompt=problem["prompt"],
