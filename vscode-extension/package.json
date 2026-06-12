@@ -202,6 +202,11 @@
           "default": 0.2,
           "description": "Temperature for inline completions (lower = more deterministic)"
         },
+        "cola-coder.inline.noRepeatNgramSize": {
+          "type": "number",
+          "default": 3,
+          "description": "Block any token that would repeat an n-gram of this size in inline completions, preventing verbatim repetition loops (0 = off, 3 = typical)"
+        },
         "cola-coder.inline.languages": {
           "type": "array",
           "items": {

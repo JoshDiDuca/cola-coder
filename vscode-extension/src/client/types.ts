@@ -104,6 +104,9 @@ export interface FimRequest {
   temperature?: number;
   top_p?: number;
   top_k?: number;
+  /** Block tokens that would repeat an n-gram of this size (0 = off). Stops
+   *  inline completions falling into verbatim repetition loops. */
+  no_repeat_ngram_size?: number;
   language?: string | null;
   file_path?: string | null;
 }

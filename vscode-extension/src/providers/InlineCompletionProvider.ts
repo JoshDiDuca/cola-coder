@@ -124,6 +124,7 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
         suffix: fimContext.suffix,
         max_tokens: config.inlineMaxTokens,
         temperature: config.inlineTemperature,
+        no_repeat_ngram_size: config.inlineNoRepeatNgramSize,
         language: fimContext.language,
         file_path: fimContext.filePath,
       }, controller.signal);

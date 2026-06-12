@@ -21,6 +21,7 @@ export interface ColaCoderConfig {
   inlineDebounceMs: number;
   inlineMaxTokens: number;
   inlineTemperature: number;
+  inlineNoRepeatNgramSize: number;
   inlineLanguages: string[];
 
   // Chat
@@ -53,6 +54,7 @@ export function getConfig(): ColaCoderConfig {
     inlineDebounceMs: cfg.get<number>('inline.debounceMs', 300),
     inlineMaxTokens: cfg.get<number>('inline.maxTokens', 128),
     inlineTemperature: cfg.get<number>('inline.temperature', 0.2),
+    inlineNoRepeatNgramSize: cfg.get<number>('inline.noRepeatNgramSize', 3),
     inlineLanguages: cfg.get<string[]>('inline.languages', [
       'typescript', 'javascript', 'typescriptreact', 'javascriptreact', 'python',
     ]),

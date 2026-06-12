@@ -104,14 +104,6 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   environment (gguf package absent, EXPORT-010 fresh scan). Verify before
   shipping a fix.
 
-- **INFER-017** [inference/capability, low] `open` — Follow-up to INFER-016:
-  thread `no_repeat_ngram_size` through the best-of-N path
-  (`inference/best_of_n.generate_best_of_n` + its server `_best_of_generate`
-  helper + the `--best-of` CLI path in generate.py), and expose it in the VS Code
-  extension settings (`cola-coder.inline.*` / `chat.*`) + its FIM/chat request
-  payloads so inline completions can enable it. Low priority — best-of already
-  curbs repetition by candidate selection, and the field defaults off.
-
 - **OPS-001** [tooling, low] `open` (deferred for user) — storage split-brain:
   configs/storage.yaml → E:/cola-coder-data vs config.checkpoint.output_dir →
   ./checkpoints. Needs the user's decision; do not unilaterally resolve.
@@ -119,6 +111,22 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Done
+
+- **INFER-017** [inference/capability, low] `done` (2026-06-12) — Completed the
+  no_repeat_ngram surface: wired it into the VS Code extension's INLINE COMPLETION
+  (FIM) path — the highest-value consumer, since inline completions are where
+  verbatim repetition loops are most visible. Added a
+  `cola-coder.inline.noRepeatNgramSize` setting (default 3), the
+  `inlineNoRepeatNgramSize` config field, `no_repeat_ngram_size?` on the
+  `FimRequest` type, and the field in the InlineCompletionProvider's fim() call.
+  `npx tsc --noEmit` clean, `npm run build` OK (dist 52.7kb), package.json valid.
+  Best-of-N path INTENTIONALLY NOT threaded: its batched `generate_group` uses
+  `sample_next_tokens_batch`, which deliberately omits per-sequence history for
+  speed — adding no_repeat there fights that design, and threading only the serial
+  fallback would silently no-op on the batched path. Best-of already curbs
+  repetition via candidate selection. Scan also verified best_of_n selection
+  (`sorted(key=(verified, score), reverse=True)` — verified always wins) is
+  correct. checkpoint + server contract green.
 
 - **INFER-016** [inference/capability, low-medium] `done` (2026-06-12) — Wired
   INFER-015's `no_repeat_ngram_size` to the user surface so it's actually
