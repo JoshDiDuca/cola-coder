@@ -217,6 +217,39 @@ class TestFIMTransformSPM:
 
 
 # ===========================================================================
+# 4b. FIMTransform.apply — truncate_or_pad length semantics (DATA-025 doc fix)
+# ===========================================================================
+
+
+class TestFIMLengthSemantics:
+    """Locks the actual length behavior the docstrings now describe correctly:
+    truncate_or_pad=True → SAME length; False → LONGER by exactly 3 (the 3 FIM
+    markers, with no content dropped). The old doc claimed 'shorter by up to 3'."""
+
+    def _apply(self, ids, *, truncate_or_pad):
+        t = FIMTransform(fim_rate=1.0, psm_rate=1.0,
+                         truncate_or_pad=truncate_or_pad, seed=7)
+        return t.apply(ids, _make_tokenizer())
+
+    def test_truncate_true_preserves_length(self):
+        ids = _make_token_ids(50)
+        assert len(self._apply(ids, truncate_or_pad=True)) == len(ids)
+
+    def test_truncate_false_adds_exactly_three(self):
+        ids = _make_token_ids(50)
+        out = self._apply(ids, truncate_or_pad=False)
+        assert len(out) == len(ids) + 3  # 3 markers ADDED, nothing removed
+
+    def test_truncate_false_preserves_all_content_tokens(self):
+        ids = _make_token_ids(40)
+        out = self._apply(ids, truncate_or_pad=False)
+        specials = {_FIM_PREFIX_ID, _FIM_SUFFIX_ID, _FIM_MIDDLE_ID}
+        content = [t for t in out if t not in specials]
+        # truncate_or_pad=False drops no content — every original token survives.
+        assert sorted(content) == sorted(ids)
+
+
+# ===========================================================================
 # 5. FIMTransform.apply_to_text
 # ===========================================================================
 

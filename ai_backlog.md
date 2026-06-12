@@ -33,11 +33,11 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   thing via a per-`__getitem__` dataset wrapper. Only `prepare_fim_data.py`
   DOCSTRINGS mention it (no actual call). It IS tested in isolation, so unlike
   MixedDataset (DATA-002, deleted) I did NOT unilaterally remove it. Same
-  "integrate or remove" pattern as DATA-021. If kept, it should at least document
-  that `create_dataloader(fim_rate=...)` is the canonical trainer path (avoid a
-  future dev wiring both → double-FIM). Found this cycle. (Also noted: fim.py's
-  `truncate_or_pad=False` docstring says output is "shorter by up to 3" but it's
-  actually LONGER by 3 — trivial doc nit, not fixed.)
+  "integrate or remove" pattern as DATA-021. The integrate-or-remove DECISION is
+  still open (user). Its two doc sub-items are DONE (2026-06-12, see DATA-035):
+  FIMDataset now documents that `create_dataloader(fim_rate=...)` is the canonical
+  trainer path (double-FIM warning), and fim.py's `truncate_or_pad=False` length
+  docstring is corrected.
 
 - **DATA-021** [data-quality/architecture, medium] `open` — The modular
   FilterPlugin + `DataPipeline` system (data/pipeline.py + data/filters/, registry
@@ -95,6 +95,22 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Done
+
+- **DATA-035** [docs/data-quality, low] `done` (2026-06-12) — Corrected misleading
+  docstrings in the FIM data-augmentation path (the inline-completion / VS Code
+  ghost-text training format), found in a fresh scan of data/fim.py. (1) The
+  `FIMTransform` PSM docstring showed a garbled order (`[prefix_ids]` twice); now
+  states the correct StarCoder/OpenAI layout for both PSM
+  (`<fim_prefix> prefix <fim_suffix> suffix <fim_middle> middle`) and SPM. (2) The
+  `truncate_or_pad` docstring claimed `False` makes output "shorter by up to 3"
+  tokens — it's the OPPOSITE: `False` ADDS the 3 markers with no content removed,
+  so output is LONGER by exactly 3 (`True` slices content to len-3 to stay
+  constant). The CODE was always correct; only the docs misled. (3) Added a
+  double-FIM warning to FIMDataset pointing at the canonical
+  `create_dataloader(fim_rate=...)` trainer path (DATA-025 sub-item). Tests:
+  test_fim.py +3 (truncate True preserves length, False adds exactly 3, False
+  drops no content) — locks the real behavior so doc/code can't drift again. 76
+  FIM + checkpoint green; ruff clean.
 
 - **INFER-014** [inference/bug, low] `done` (2026-06-12) — `sample_next_token`'s
   all-masked safety fallback (sampling.py) returned `logits.argmax()` on the

@@ -25,6 +25,13 @@ if TYPE_CHECKING:
 class FIMDataset(Dataset):
     """Wraps an existing CodeDataset and adds on-the-fly FIM transformation.
 
+    NOTE (DATA-025): the TRAINER's canonical dynamic-FIM path is
+    ``data.dataset.create_dataloader(fim_rate=...)`` + ``FIMTrainingCollator``
+    (weight-preserving, collator-based). This dataset-wrapper variant does the
+    same FIM rearrangement per ``__getitem__`` and is provided for standalone
+    use; do NOT stack it on top of a dataloader that already applies FIM, or
+    each sample gets transformed twice (double-FIM, corrupt training data).
+
     Each call to __getitem__ independently decides (at random) whether to
     apply FIM, so the model sees a mix of standard and FIM examples every
     epoch — exactly as described in the Bavarian et al. paper.

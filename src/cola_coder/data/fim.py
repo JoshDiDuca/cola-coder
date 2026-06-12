@@ -38,11 +38,14 @@ class FIMTransform:
       - With probability (1 - fim_rate): left as-is (standard causal LM)
       - With probability fim_rate: rearranged into PSM or SPM format
 
-    For PSM:  [prefix_ids] [fim_prefix_id] [prefix_ids] [fim_suffix_id]
-              [suffix_ids] [fim_middle_id] [middle_ids]
-    Rewritten (canonical order stored in sequence):
-              [fim_prefix_id] [prefix_ids] [fim_suffix_id] [suffix_ids]
-              [fim_middle_id] [middle_ids]
+    The sequence is split into prefix | middle | suffix, then rearranged so the
+    middle (the part the model learns to predict) comes LAST, after both
+    surrounding contexts:
+
+      PSM:  [fim_prefix_id] prefix [fim_suffix_id] suffix [fim_middle_id] middle
+      SPM:  [fim_suffix_id] suffix [fim_prefix_id] prefix [fim_middle_id] middle
+
+    (StarCoder / OpenAI FIM convention; psm_rate controls the PSM↔SPM mix.)
     """
 
     # Middle must be between 10% and 90% of the full sequence length,
@@ -63,12 +66,13 @@ class FIMTransform:
                       0.0 = never apply FIM, 1.0 = always apply FIM.
             psm_rate: Probability of PSM vs SPM ordering.
                       1.0 = always PSM, 0.0 = always SPM.
-            truncate_or_pad: When True, the output is truncated/padded to the
-                             same length as the input so sequence length stays
-                             constant.  When False, the output may be slightly
-                             shorter by up to 3 tokens (the added special tokens
-                             replace 0 bytes so length grows by exactly 3 special
-                             tokens — truncate drops 3 content tokens to compensate).
+            truncate_or_pad: When True (default), the output is the SAME length
+                             as the input: the 3 FIM special tokens take the place
+                             of the last 3 content tokens (content is sliced to
+                             len-3 before the markers are inserted). When False,
+                             the 3 markers are ADDED with no content removed, so
+                             the output is LONGER than the input by exactly 3
+                             tokens. Use True for fixed-window training tensors.
             seed: Optional RNG seed for reproducible transforms (useful in tests).
         """
         if not 0.0 <= fim_rate <= 1.0:
