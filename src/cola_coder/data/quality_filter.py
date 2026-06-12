@@ -470,6 +470,15 @@ _HEURISTIC_SECRET_PATTERNS = [
     re.compile(r'(?:aws_access_key_id|aws_secret_access_key)\s*[:=]', re.IGNORECASE),
 ]
 
+# How much of a file to scan for secrets. Secrets are NOT only near the top —
+# AKIA ids in deployment scripts, PEM blocks appended to a file, or a key in a
+# config dict at line 300 all live in the body. All patterns above are
+# linear-time (literal prefixes + bounded char classes, no catastrophic
+# backtracking), so a full scan is O(n)-safe; the cap only bounds worst-case
+# cost on pathological multi-MB inputs (which the length/size gates usually
+# reject first anyway). 1 MB covers any realistic source file in full.
+_SECRET_SCAN_LIMIT = 1_000_000
+
 
 def check_no_obvious_secrets(content: str) -> tuple[bool, str]:
     """Reject files containing an UNAMBIGUOUS hardcoded secret.
@@ -479,7 +488,7 @@ def check_no_obvious_secrets(content: str) -> tuple[bool, str]:
     mode. Leaking a live credential into training data is both a security risk
     and teaches the model to emit secret-shaped strings.
     """
-    sample = content[:5000]  # secrets are usually near the top
+    sample = content[:_SECRET_SCAN_LIMIT]  # whole file — secrets aren't only at the top
     for pattern in _HIGH_CONFIDENCE_SECRET_PATTERNS:
         if pattern.search(sample):
             return False, "hardcoded_secret"
@@ -494,7 +503,7 @@ def check_no_hardcoded_secrets(content: str) -> tuple[bool, str]:
     placeholder/example values, so this fuller check is strict-only; conservative
     mode uses check_no_obvious_secrets.
     """
-    sample = content[:5000]
+    sample = content[:_SECRET_SCAN_LIMIT]
     for pattern in (*_HIGH_CONFIDENCE_SECRET_PATTERNS, *_HEURISTIC_SECRET_PATTERNS):
         if pattern.search(sample):
             return False, "hardcoded_secret"

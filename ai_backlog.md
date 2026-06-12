@@ -11,6 +11,20 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+- **DATA-046** [data-quality/robustness, low] `open` (latent — rarely reachable)
+  — `dedup.py` `_tokens_to_ngrams` returns an EMPTY n-gram list when a chunk's
+  content is shorter than `ngram_size` (char path: `len(text) < ngram_size`;
+  token path: `len(tokens) < ngram_size`). `_make_minhash` then builds a MinHash
+  with NO updates → a default/empty signature, and in `deduplicate_self_array`
+  every empty-signature chunk collides with the first (Jaccard treated as match),
+  so the 2nd+ short chunks get dropped as false near-dups even if their content
+  differs. Rarely reachable in practice because chunks are fixed seq_len (4096),
+  far larger than ngram_size — only a padded/near-empty tail chunk could trigger
+  it, and you'd need ≥2 such chunks for a collision (≤1-chunk data loss). Fix when
+  convenient: if a chunk yields zero n-grams, treat it as unique (skip the LSH
+  query/insert) or seed the signature with the chunk index. Low value; logged so
+  it isn't rediscovered. File: src/cola_coder/data/dedup.py:225-259, 405-411.
+
 - **MODEL-012** [model/config-consistency, low] `open` (user decision — changes
   training behavior/repro) — The 2025-26 stabilizers `qk_norm: true` and
   `z_loss: 1.0e-4` are set ONLY in `configs/4080_max.yaml`; tiny/small/medium/large
@@ -144,6 +158,25 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Done
+
+- **DATA-045** [data-quality/security, medium] `done` (2026-06-12) — The secret
+  gates (`check_no_obvious_secrets`, conservative; `check_no_hardcoded_secrets`,
+  strict) only scanned `content[:5000]` ("secrets are usually near the top"). But
+  credentials live in file BODIES too — AKIA ids in deployment scripts, PEM blocks
+  appended to a file, a key in a config dict at line 300 — and those flowed
+  straight into the training set, a real exfiltration/memorization risk (DATA-033
+  lineage). Fix: scan the whole file up to a new `_SECRET_SCAN_LIMIT` (1 MB). All
+  patterns are linear-time (literal prefixes + bounded char classes, no
+  catastrophic backtracking), verified before widening, so the full scan is
+  O(n)-safe; the 1 MB cap only bounds worst-case cost on pathological multi-MB
+  inputs (which length/size gates usually reject first). Fresh-scan note: the
+  "within-file MinHash dedup" known thread is ALREADY IMPLEMENTED
+  (`deduplicate_self_array` + `dedup_npy_file(mode="minhash")`, wired to
+  `--dedup minhash` in collect_data/prepare_data) — verified correct (greedy
+  keep-first LSH); do not re-investigate. Tests: 3 new (high-conf secret past
+  5000 chars caught; heuristic secret past 5000 caught in strict; 1.2 MB clean
+  file scans without crash/FP). 35 quality_filter + 91 checkpoint/security/filter
+  pass; ruff clean.
 
 - **INFER-018** [inference/partial-wiring, low-medium] `done` (2026-06-12) —
   Best-of-N generation silently DROPPED the `no_repeat_ngram_size` sampling
