@@ -51,3 +51,34 @@ class TestTokensInSyncWithCanonical:
         from cola_coder.tokenizer.train_tokenizer import SPECIAL_TOKENS
 
         assert _EOS in SPECIAL_TOKENS
+
+
+class TestNumCtx:
+    """EXPORT-012: the Modelfile must set PARAMETER num_ctx to the model's trained
+    context length, else Ollama silently caps it at its 2048 default — halving the
+    usable context of a 4096-trained model at deploy time."""
+
+    def _mf(self, tmp_path, **kw) -> str:
+        gguf = tmp_path / "m.gguf"
+        gguf.write_bytes(b"fake")
+        mf = OllamaExporter().create_modelfile(str(gguf), str(tmp_path), "cola-coder", **kw)
+        return Path(mf).read_text(encoding="utf-8")
+
+    def test_num_ctx_emitted_when_provided(self, tmp_path):
+        content = self._mf(tmp_path, num_ctx=4096)
+        assert "PARAMETER num_ctx 4096" in content
+
+    def test_num_ctx_reflects_seq_len(self, tmp_path):
+        assert "PARAMETER num_ctx 2048" in self._mf(tmp_path, num_ctx=2048)
+
+    def test_num_ctx_omitted_by_default(self, tmp_path):
+        # Backward-compatible: no num_ctx arg → no PARAMETER num_ctx line.
+        # (Check the PARAMETER line, not the bare token — the tmp dir path itself
+        # can contain "num_ctx".)
+        assert "PARAMETER num_ctx" not in self._mf(tmp_path)
+
+    def test_num_ctx_coerced_to_int(self, tmp_path):
+        # Defensive: a float seq_len shouldn't write "4096.0".
+        content = self._mf(tmp_path, num_ctx=4096.0)
+        assert "PARAMETER num_ctx 4096" in content
+        assert "4096.0" not in content

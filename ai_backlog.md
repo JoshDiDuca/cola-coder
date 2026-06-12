@@ -112,6 +112,20 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **EXPORT-012** [export/bug, medium] `done` (2026-06-12) — The generated Ollama
+  Modelfile set temperature/top_p/top_k/repeat_penalty/num_predict/stop but NOT
+  `num_ctx`. Ollama DEFAULTS num_ctx to 2048, so a checkpoint trained for a longer
+  context (4080_max = 4096) deployed via Ollama would silently run at HALF its
+  context window — long-file completions truncated, with no error. Fixed:
+  `OllamaExporter.create_modelfile(..., num_ctx=None)` emits
+  `PARAMETER num_ctx <n>` when given (int-coerced); export_model.py passes
+  `config.model.max_seq_len`. None = omit (backward compatible). The fresh scan
+  also VERIFIED clean+correct: quantize.py INT4 pack/dequant (padding trimmed) +
+  _model_size_mb (ao packed-param accounting), and the Ollama ChatML template +
+  stop tokens (already TOOL-006-fixed and tested). Tests: test_ollama_chatml.py +4
+  (num_ctx emitted/reflects seq_len/omitted-by-default/int-coerced). 72
+  ollama+export + checkpoint green; --help OK; ruff clean.
+
 - **EXPORT-010** [export/bug, medium] `done` (2026-06-12) — GGUF export silently
   lied about quantization. `SUPPORTED_QUANTIZATIONS` advertises `q4_k_m`/`q5_k_m`,
   but the built-in writer (used when the `gguf` package is absent) can't emit true

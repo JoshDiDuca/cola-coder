@@ -122,6 +122,7 @@ def action_ollama(
         str(gguf_path),
         str(output_dir),
         model_name="cola-coder",
+        num_ctx=config.model.max_seq_len,  # avoid Ollama's 2048 default truncating context
     )
     cli.success(f"Modelfile written to: {modelfile_path}")
     cli.info("Next step", f"ollama create cola-coder -f {modelfile_path}")

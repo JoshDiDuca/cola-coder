@@ -56,6 +56,7 @@ class OllamaExporter:
         gguf_path: str,
         output_dir: str,
         model_name: str = "cola-coder",
+        num_ctx: int | None = None,
     ) -> str:
         """Create a Modelfile for `ollama create`.
 
@@ -63,6 +64,11 @@ class OllamaExporter:
             gguf_path: Absolute or relative path to the exported .gguf file.
             output_dir: Directory to write the Modelfile into.
             model_name: The name to use with `ollama create <name>`.
+            num_ctx: The model's trained context length (max_seq_len). Ollama
+                DEFAULTS num_ctx to 2048, so without this a model trained for a
+                longer context (e.g. 4096) is silently truncated to 2048 at
+                deploy time. Pass config.model.max_seq_len. None = omit (Ollama
+                default).
 
         Returns:
             Absolute path to the generated Modelfile.
@@ -72,7 +78,7 @@ class OllamaExporter:
         output_dir_obj.mkdir(parents=True, exist_ok=True)
 
         modelfile_path = output_dir_obj / "Modelfile"
-        content = self._build_modelfile(gguf_path_obj, model_name)
+        content = self._build_modelfile(gguf_path_obj, model_name, num_ctx=num_ctx)
         modelfile_path.write_text(content, encoding="utf-8")
 
         # Also write a helper script
@@ -83,7 +89,9 @@ class OllamaExporter:
 
     # ── Private helpers ───────────────────────────────────────────────────────
 
-    def _build_modelfile(self, gguf_path: Path, model_name: str) -> str:
+    def _build_modelfile(
+        self, gguf_path: Path, model_name: str, num_ctx: int | None = None
+    ) -> str:
         """Build the Modelfile content string."""
         lines = [
             f"# Modelfile for {model_name}",
@@ -109,6 +117,13 @@ class OllamaExporter:
             f"PARAMETER stop {_IM_END}",
             f"PARAMETER stop {_EOS}",
         ]
+        if num_ctx is not None:
+            # Ollama defaults num_ctx to 2048; set the model's real trained
+            # context so longer-context checkpoints aren't silently truncated.
+            lines.insert(
+                lines.index("# Generation parameters") + 1,
+                f"PARAMETER num_ctx {int(num_ctx)}",
+            )
         return "\n".join(lines) + "\n"
 
     def _build_readme(self, modelfile_path: Path, model_name: str) -> str:
