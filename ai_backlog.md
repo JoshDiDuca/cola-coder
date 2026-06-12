@@ -112,6 +112,26 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-037** [data-quality/legal, medium] `done` (2026-06-12) — The GitHub
+  scraper detected a repo's license (`check_license`, github.py:~1249) but only
+  TAGGED it as metadata — it never REJECTED copyleft. The active gate was the
+  GitHub `license:` SEARCH query, which is optional per scrape profile and relies
+  on GitHub's own (sometimes-incomplete) detection; the `LicenseFilter` plugin
+  that would reject non-permissive files is unwired (DATA-021). So a GPL/LGPL/AGPL
+  repo that slipped the query filter had ALL its files extracted into the
+  permissive training corpus (a legal + data-quality risk — the model could
+  reproduce copyleft code verbatim). Fixed: added an ACTIVE post-clone gate in
+  `stream` — new pure `_is_copyleft_license(spdx)` rejects GPL/LGPL/AGPL families
+  (case-insensitive), and the loop `continue`s (skips file extraction) + logs.
+  Conservative: Unknown/NOASSERTION/permissive/MPL are NOT rejected here (left to
+  the query filter / downstream LicenseFilter — rejecting "Unknown" would drop
+  permissive repos the heuristic detector didn't recognize). Tests:
+  test_github_scraper.py +4 (GPL variants rejected, permissive/MPL allowed,
+  Unknown/None not rejected, gate wired+continues). Fresh-scan note: the routing
+  orchestrator's specialist path is an explicit TBD (always returns base_generator,
+  gated on trained specialists) — not a bug. 209 source/data + checkpoint green;
+  ruff clean.
+
 - **EXPORT-012** [export/bug, medium] `done` (2026-06-12) — The generated Ollama
   Modelfile set temperature/top_p/top_k/repeat_penalty/num_predict/stop but NOT
   `num_ctx`. Ollama DEFAULTS num_ctx to 2048, so a checkpoint trained for a longer

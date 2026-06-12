@@ -26,6 +26,7 @@ from cola_coder.data.sources.github import (
     RepoFilter,
     RepoProcessor,
     FILTER_PRESETS,
+    _is_copyleft_license,
 )
 
 
@@ -682,3 +683,39 @@ class TestScannerFailClosed:
         merged = a.merge(b)
         assert merged.scan_errors == ["yara: boom"]
         assert merged.had_errors
+
+
+# ---------------------------------------------------------------------------
+# Copyleft license gate (DATA-037)
+# ---------------------------------------------------------------------------
+
+class TestCopyleftLicenseGate:
+    """The scraper must reject GPL/LGPL/AGPL repos post-clone (defense in depth
+    beyond the optional GitHub `license:` query filter), but NOT drop permissive
+    or Unknown-licensed repos."""
+
+    def test_gpl_variants_rejected(self):
+        for lic in ("GPL-3.0", "GPL-2.0", "gpl-3.0", "LGPL-2.1", "AGPL-3.0",
+                    "GPL-3.0-or-later", "agpl-3.0"):
+            assert _is_copyleft_license(lic) is True, lic
+
+    def test_permissive_allowed(self):
+        for lic in ("MIT", "Apache-2.0", "BSD-3-Clause", "ISC", "Unlicense",
+                    "MPL-2.0", "Zlib", "BSL-1.0"):
+            assert _is_copyleft_license(lic) is False, lic
+
+    def test_unknown_and_none_not_rejected_here(self):
+        # Rejecting "Unknown" would drop permissive repos the heuristic detector
+        # didn't recognize — left to the query filter / downstream LicenseFilter.
+        for lic in ("Unknown", "NOASSERTION", "", None):
+            assert _is_copyleft_license(lic) is False, repr(lic)
+
+    def test_gate_is_wired_into_stream(self):
+        # Guard against the gate being silently removed from the clone loop.
+        from pathlib import Path
+        src = Path(__file__).parent.parent / "src" / "cola_coder" / "data" / "sources" / "github.py"
+        text = src.read_text(encoding="utf-8")
+        assert "_is_copyleft_license(spdx_id)" in text
+        # ...and that it actually skips (continue) rather than only logging.
+        gate = text.split("_is_copyleft_license(spdx_id)", 1)[1][:400]
+        assert "continue" in gate

@@ -42,6 +42,28 @@ _REPO_NAME_RE = re.compile(r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$")
 
 logger = logging.getLogger(__name__)
 
+# Strong-copyleft license families. Code under these MUST NOT enter a
+# permissively-licensed training corpus — the model could reproduce it verbatim
+# and propagate the copyleft obligation. The GitHub `license:` search filter is
+# the primary gate, but it's optional per scrape profile and relies on GitHub's
+# own (sometimes-incomplete) detection, so we enforce a post-clone gate too.
+_COPYLEFT_PREFIXES = ("GPL-", "LGPL-", "AGPL-", "GPL ", "AGPL ", "LGPL ")
+
+
+def _is_copyleft_license(spdx_id: str | None) -> bool:
+    """True if the SPDX id is a strong-copyleft license that must be rejected.
+
+    Matches GPL / LGPL / AGPL families (case-insensitive). Returns False for
+    permissive licenses, weak-copyleft (MPL), ``"Unknown"``, ``"NOASSERTION"``,
+    and None — those are left to the query filter / downstream LicenseFilter
+    (rejecting "Unknown" here would drop valid permissive repos whose license
+    text the heuristic detector didn't recognize).
+    """
+    if not spdx_id:
+        return False
+    up = spdx_id.strip().upper()
+    return any(up.startswith(p.upper()) for p in _COPYLEFT_PREFIXES)
+
 # ---------------------------------------------------------------------------
 # RepoFilter — rich filtering criteria
 # ---------------------------------------------------------------------------
@@ -1249,6 +1271,16 @@ class GitHubSource:
                     detected = self.processor.check_license(repo_path)
                     if detected:
                         spdx_id = detected
+
+                # Active copyleft gate: even if the GitHub `license:` query filter
+                # was absent or mis-detected, never extract files from a repo whose
+                # detected license is GPL/LGPL/AGPL into the permissive corpus.
+                if _is_copyleft_license(spdx_id):
+                    logger.warning(
+                        "  Skipping %s — copyleft license (%s) excluded from the "
+                        "permissive training corpus", full_name, spdx_id,
+                    )
+                    continue
 
                 # Extract files
                 file_count = 0
