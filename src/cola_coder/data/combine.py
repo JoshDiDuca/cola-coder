@@ -51,7 +51,7 @@ class CombineResult:
     total_chunks: int
     total_tokens: int
     sources: list[dict] = field(default_factory=list)
-    # Each source: {name, path, chunks_contributed, weight}
+    # Each source: {name, path, chunks_available, chunks_contributed, fraction, weight}
 
 
 class DatasetCombiner:
@@ -124,13 +124,15 @@ class DatasetCombiner:
         weights = np.array([ds.weight for ds in datasets], dtype=np.float64)
         weights /= weights.sum()
 
-        # Apply strategy
+        # Apply strategy — each returns (combined, per-source contribution counts)
         if strategy == "concat":
-            combined = self._concat(arrays, max_chunks)
+            combined, contributions = self._concat(arrays, max_chunks)
         elif strategy == "interleave":
-            combined = self._interleave(arrays, weights, max_chunks)
+            combined, contributions = self._interleave(arrays, weights, max_chunks)
         elif strategy == "weighted":
-            combined = self._weighted_sample(arrays, weights, max_chunks, seed)
+            combined, contributions = self._weighted_sample(
+                arrays, weights, max_chunks, seed
+            )
         else:
             raise ValueError(f"Unknown strategy: {strategy!r}")
 
@@ -145,11 +147,10 @@ class DatasetCombiner:
         out.parent.mkdir(parents=True, exist_ok=True)
         np.save(str(out), combined)
 
-        # Build per-source stats
-        # We track how many chunks each dataset contributed during combination
+        # Build per-source stats (actual chunks contributed, not just available)
         total_chunks = len(combined)
         total_tokens = total_chunks * chunk_size
-        sources = self._compute_sources(datasets, arrays, combined, weights)
+        sources = self._compute_sources(datasets, arrays, contributions, weights)
 
         logger.info(
             "Combined %d datasets -> %d chunks (%d tokens) at %s",
@@ -167,33 +168,36 @@ class DatasetCombiner:
         self,
         arrays: list[np.ndarray],
         max_chunks: int | None,
-    ) -> np.ndarray:
-        """Concatenate arrays end-to-end."""
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Concatenate arrays end-to-end. Returns (combined, contributions)."""
+        contributions = np.zeros(len(arrays), dtype=np.int64)
         if max_chunks is not None:
             # Trim arrays to fit within max_chunks total
             result_parts: list[np.ndarray] = []
             remaining = max_chunks
-            for arr in arrays:
+            for i, arr in enumerate(arrays):
                 take = min(len(arr), remaining)
                 if take <= 0:
                     break
                 result_parts.append(np.array(arr[:take]))
+                contributions[i] = take
                 remaining -= take
             if not result_parts:
                 chunk_size = arrays[0].shape[1]
-                return np.empty((0, chunk_size), dtype=arrays[0].dtype)
-            return np.concatenate(result_parts, axis=0)
+                return np.empty((0, chunk_size), dtype=arrays[0].dtype), contributions
+            return np.concatenate(result_parts, axis=0), contributions
         else:
-            # Read all into memory for concatenation
-            return np.concatenate([np.array(a) for a in arrays], axis=0)
+            for i, arr in enumerate(arrays):
+                contributions[i] = len(arr)
+            return np.concatenate([np.array(a) for a in arrays], axis=0), contributions
 
     def _interleave(
         self,
         arrays: list[np.ndarray],
         weights: np.ndarray,
         max_chunks: int | None,
-    ) -> np.ndarray:
-        """Weighted round-robin interleaving.
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Weighted round-robin interleaving. Returns (combined, contributions).
 
         With weights [0.7, 0.3], we take ~70% of chunks from dataset 0
         and ~30% from dataset 1, interleaved in a round-robin pattern.
@@ -227,7 +231,10 @@ class DatasetCombiner:
         actual_total = int(per_ds_target.sum())
         if actual_total == 0:
             chunk_size = arrays[0].shape[1]
-            return np.empty((0, chunk_size), dtype=arrays[0].dtype)
+            return (
+                np.empty((0, chunk_size), dtype=arrays[0].dtype),
+                np.zeros(n_datasets, dtype=np.int64),
+            )
 
         chunk_size = arrays[0].shape[1]
         result = np.empty((actual_total, chunk_size), dtype=arrays[0].dtype)
@@ -263,7 +270,8 @@ class DatasetCombiner:
                     # All datasets exhausted
                     break
 
-        return result[:out_idx]
+        # cursors[i] = chunks actually emitted from source i (the contribution).
+        return result[:out_idx], np.asarray(cursors, dtype=np.int64)
 
     def _weighted_sample(
         self,
@@ -271,8 +279,8 @@ class DatasetCombiner:
         weights: np.ndarray,
         max_chunks: int | None,
         seed: int,
-    ) -> np.ndarray:
-        """Random sampling with replacement based on weights."""
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Random sampling with replacement by weight. Returns (combined, contributions)."""
         rng = np.random.default_rng(seed)
         total_available = sum(len(a) for a in arrays)
         target = max_chunks if max_chunks is not None else total_available
@@ -288,22 +296,34 @@ class DatasetCombiner:
             chunk_idx = rng.integers(0, len(arrays[ds_i]))
             result[out_idx] = arrays[ds_i][chunk_idx]
 
-        return result
+        contributions = np.bincount(ds_choices, minlength=len(arrays)).astype(np.int64)
+        return result, contributions
 
     def _compute_sources(
         self,
         datasets: list[DatasetInput],
         arrays: list[np.ndarray],
-        combined: np.ndarray,
+        contributions: np.ndarray,
         weights: np.ndarray,
     ) -> list[dict]:
-        """Build per-source metadata for the result."""
+        """Build per-source metadata for the result.
+
+        ``chunks_contributed`` is how many chunks each source actually placed in
+        the OUTPUT (which, for interleave/weighted, differs from how many were
+        available); ``fraction`` is its realized share of the output — the number
+        to check against the requested ``weight`` to confirm the mix came out as
+        intended.
+        """
+        total = int(contributions.sum())
         sources = []
         for i, ds in enumerate(datasets):
+            contributed = int(contributions[i])
             sources.append({
                 "name": ds.name,
                 "path": ds.path,
                 "chunks_available": len(arrays[i]),
+                "chunks_contributed": contributed,
+                "fraction": (contributed / total) if total > 0 else 0.0,
                 "weight": float(weights[i]),
             })
         return sources

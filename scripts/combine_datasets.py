@@ -332,6 +332,16 @@ def run_pipeline(settings: dict, output_path: str):
             except OSError:
                 pass
 
+    # Per-source mix breakdown — lets the user confirm the realized ratio
+    # matches the requested weights (e.g. a 70/20/10 code/text/math mix).
+    if result.sources:
+        cli.print("\n[bold]Realized mix[/bold] (contributed / requested):")
+        for s in result.sources:
+            cli.print(
+                f"  {s['name']:<16} {s['chunks_contributed']:>9,} chunks  "
+                f"{s['fraction'] * 100:5.1f}%  (requested {s['weight'] * 100:.0f}%)"
+            )
+
     # Show result
     dedup_line = f"\nDedup:  {dedup_removed:,} duplicates removed" if dedup_removed else ""
     cli.done(

@@ -96,6 +96,26 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Done
 
+- **DATA-036** [data-quality/observability, low-medium] `done` (2026-06-12) —
+  Multi-source mixing (the 70/20/10 code/text/math ratios) had no way to VERIFY
+  the realized mix. `DatasetCombiner._compute_sources` reported `chunks_available`
+  (input size) while the `CombineResult.sources` docstring promised
+  `chunks_contributed` — and the contributed count was never computed (the comment
+  at combine() even said "we track how many chunks each dataset contributed", but
+  it didn't). So a user requesting 70/20/10 could not confirm it didn't silently
+  distort (the interleave code itself documents a prior 70/20/10→53/32/16 bug).
+  Fixed: each strategy (_concat/_interleave/_weighted_sample) now returns its
+  per-source contribution counts (concat=taken, interleave=emitted cursors,
+  weighted=bincount of choices); `_compute_sources` reports `chunks_contributed`
+  + `fraction` (realized share) alongside `chunks_available`; combine_datasets.py
+  now PRINTS a "Realized mix (contributed / requested)" breakdown so the ratio is
+  visible. The mixing math was already correct — this is pure observability. The
+  fresh scan also VERIFIED _interleave (ratio-exact via per_ds_target/cursor caps)
+  and _weighted_sample (rng.choice by weight) are correct. Tests: test_combine.py
+  +6 (sources carry contributed/fraction, contributions sum to total, concat
+  contributes all, interleave fraction≈weight, weighted skew correct, zero-weight
+  →0). 101 combine/mixing + checkpoint green; --help OK; ruff clean.
+
 - **DATA-035** [docs/data-quality, low] `done` (2026-06-12) — Corrected misleading
   docstrings in the FIM data-augmentation path (the inline-completion / VS Code
   ghost-text training format), found in a fresh scan of data/fim.py. (1) The

@@ -503,3 +503,62 @@ class TestErrors:
                 datasets=[DatasetInput(str(tmp_path / "flat.npy"))],
                 output_path=str(tmp_path / "bad.npy"),
             )
+
+
+# ---------------------------------------------------------------------------
+# Per-source contribution reporting (realized mix verification)
+# ---------------------------------------------------------------------------
+
+class TestSourceContributions:
+    """CombineResult.sources must report the ACTUAL realized mix
+    (chunks_contributed / fraction), not just chunks_available — so a user can
+    confirm a 70/20/10 request actually came out 70/20/10."""
+
+    def _two(self, combiner, tmp_datasets, strategy, wa, wb):
+        out = str(tmp_datasets["tmp_path"] / f"mix_{strategy}.npy")
+        return combiner.combine(
+            datasets=[
+                DatasetInput(tmp_datasets["a"]["path"], weight=wa, name="A"),
+                DatasetInput(tmp_datasets["b"]["path"], weight=wb, name="B"),
+            ],
+            strategy=strategy,
+            output_path=out,
+            seed=42,
+        )
+
+    def test_sources_carry_contributed_and_fraction(self, combiner, tmp_datasets):
+        r = self._two(combiner, tmp_datasets, "interleave", 0.7, 0.3)
+        for s in r.sources:
+            assert "chunks_contributed" in s and "fraction" in s
+            assert "chunks_available" in s
+
+    def test_contributions_sum_to_total(self, combiner, tmp_datasets):
+        for strat in ("concat", "interleave", "weighted"):
+            r = self._two(combiner, tmp_datasets, strat, 0.7, 0.3)
+            assert sum(s["chunks_contributed"] for s in r.sources) == r.total_chunks
+
+    def test_concat_contributes_everything(self, combiner, tmp_datasets):
+        r = self._two(combiner, tmp_datasets, "concat", 1.0, 1.0)
+        by = {s["name"]: s for s in r.sources}
+        assert by["A"]["chunks_contributed"] == 100  # all of dataset A
+        assert by["B"]["chunks_contributed"] == 50   # all of dataset B
+
+    def test_interleave_fraction_matches_weight(self, combiner, tmp_datasets):
+        r = self._two(combiner, tmp_datasets, "interleave", 0.7, 0.3)
+        by = {s["name"]: s for s in r.sources}
+        assert abs(by["A"]["fraction"] - 0.7) < 0.03
+        assert abs(by["B"]["fraction"] - 0.3) < 0.03
+
+    def test_weighted_fraction_matches_weight(self, combiner, tmp_datasets):
+        r = self._two(combiner, tmp_datasets, "weighted", 0.8, 0.2)
+        by = {s["name"]: s for s in r.sources}
+        # Sampling is stochastic; allow a wider band but the skew must be right.
+        assert by["A"]["fraction"] > by["B"]["fraction"]
+        assert abs(by["A"]["fraction"] - 0.8) < 0.07
+
+    def test_fraction_zero_when_empty(self, combiner, tmp_datasets):
+        # weight 0 for B → it should contribute ~0 in interleave (ratio-exact).
+        r = self._two(combiner, tmp_datasets, "interleave", 1.0, 0.0)
+        by = {s["name"]: s for s in r.sources}
+        assert by["B"]["chunks_contributed"] == 0
+        assert by["B"]["fraction"] == 0.0
