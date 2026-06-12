@@ -11,6 +11,23 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+- **DATA-044** [data-quality, medium] `open` (complex — opt-in, lower value) —
+  Last parallel gap between `collect_data.py` (multi-source) and `prepare_data.py`
+  (single-source): prepare_data has `--score` → writes a per-chunk `.weights.npy`
+  sidecar for quality-weighted training; collect_data has no equivalent, so the
+  multi-source 70/20/10 mix trains UNWEIGHTED. Not a simple add: collect_data
+  tokenizes each source then hands chunks to `DatasetCombiner` which interleaves +
+  shuffles (a permutation) before writing the final .npy. To emit aligned weights
+  the combiner must score each chunk (or carry a precomputed weight) and apply the
+  SAME permutation to the weight array so `.weights.npy[i]` matches `train_data[i]`
+  — otherwise weights misalign and corrupt training silently (the exact hazard
+  DATA-043's dedup-before-score ordering avoids in prepare_data). Verified this
+  cycle that prepare_data's ordering is correct (dedup → score reads deduped file).
+  Implementation: thread an optional scorer through `DatasetCombiner`, score at
+  chunk-emit time, permute weights identically, write sidecar. Multi-file; opt-in
+  behind `--score` (default off, so no behavior change). Lower value than the
+  filter/dedup gaps since weighting is a refinement, not a correctness fix.
+
 - **TOOL-011** [tooling/pipeline, low-medium] `open` (deferred — design decision)
   — Remaining `full_pipeline.py` divergence after TOOL-012: Stage 1
   `_stage_collect_data` runs `prepare_data.py` (code-only), NOT `collect_data.py
@@ -112,6 +129,18 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Done
+
+- **TOOL-014** [tooling/bug, low] `done` (2026-06-12) — `data_stats.py`
+  `_estimate_unique_tokens` extrapolated a sample's distinct-token count by
+  sqrt(data/sample) and capped at `2**20` (1,048,576). But .npy token data is
+  uint16 → at most 65,536 distinct ids, so the diagnostic could report a
+  physically IMPOSSIBLE unique-token count (more than the dtype can represent,
+  let alone the ~32K vocab). Fixed: cap at the dtype's range
+  (`2**(8*itemsize)` = 65536 for uint16) and never report below the count the
+  sample actually observed. Tests: test_data_stats_unique.py (4): small=exact,
+  uint8 ≤256, uint16 ≤65536, ≥ sample-observed. Fresh-scan note: verified
+  prepare_data's dedup-BEFORE-score ordering is correct (weights align with the
+  deduped data). data_stats --help OK; ruff + checkpoint green.
 
 - **DATA-043** [data-quality/bug, medium] `done` (2026-06-12) — Parallel gap to
   DATA-042: `collect_data.py` (multi-source path) applied NO chunk dedup before

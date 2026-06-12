@@ -70,11 +70,20 @@ def _estimate_unique_tokens(arr, sample_size: int = 500_000) -> int:
     # Reservoir-style: sample a flat slice
     indices = np.random.choice(arr.size, size=sample_size, replace=False)
     sample = arr.flat[indices]
-    unique_in_sample = np.unique(sample).size
-    # Scale up by ratio (rough estimate)
+    unique_in_sample = int(np.unique(sample).size)
+    # Scale up by ratio (rough sqrt-of-data-size heuristic for the long tail).
     scale = arr.size / sample_size
-    estimated = min(int(unique_in_sample * (scale**0.5)), 2**20)
-    return estimated
+    estimated = int(unique_in_sample * (scale**0.5))
+    # A token id can't exceed its dtype's range, so the TRUE distinct count is
+    # bounded by 2^(8*itemsize) — 65536 for uint16 token data. The old 2**20 cap
+    # let the extrapolation report an IMPOSSIBLE count (more uniques than the
+    # dtype can represent, let alone the vocab). Also never go below what the
+    # sample actually observed (a hard lower bound).
+    if np.issubdtype(arr.dtype, np.integer):
+        max_distinct = 2 ** (8 * arr.dtype.itemsize)
+    else:
+        max_distinct = 2 ** 20
+    return max(unique_in_sample, min(estimated, max_distinct))
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
