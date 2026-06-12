@@ -30,6 +30,7 @@ _REQUIRED_TRAINER_KWARGS = {
     "clip_epsilon_high",
     "advantage_norm",
     "ppo_epochs",
+    "length_norm",
     "max_thinking_tokens",
     "reward_fn",
     "parallel_generation",

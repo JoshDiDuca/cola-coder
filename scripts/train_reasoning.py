@@ -463,6 +463,7 @@ def main():
         else (float(cfg_clip_high) if cfg_clip_high is not None else None)
     )
     ppo_epochs = int(_cfg("ppo_epochs", 1))
+    length_norm = str(_cfg("length_norm", "sum"))
     max_thinking_tokens = int(_cfg("max_thinking_tokens", 256))
     parallel_generation = bool(_cfg("parallel_generation", False))
     parallel_rewards = bool(_cfg("parallel_rewards", False))
@@ -485,6 +486,10 @@ def main():
     cli.info(
         "PPO epochs",
         f"{ppo_epochs}" + (" (clip inert at 1)" if ppo_epochs <= 1 else " (clip active)"),
+    )
+    cli.info(
+        "Loss length-norm",
+        length_norm + (" (Dr. GRPO)" if length_norm == "constant" else " (legacy)"),
     )
     cli.info("Parallel generation", parallel_generation)
     cli.info("Parallel rewards", f"{parallel_rewards} (workers: {reward_workers})")
@@ -512,6 +517,7 @@ def main():
             clip_epsilon_high=clip_epsilon_high,
             advantage_norm=advantage_norm,
             ppo_epochs=ppo_epochs,
+            length_norm=length_norm,
             max_thinking_tokens=max_thinking_tokens,
             device=device,
             reward_fn=reward_name,

@@ -117,6 +117,7 @@ def grpo_clipped_surrogate(
     advantage: torch.Tensor | float,
     clip_low: float,
     clip_high: float,
+    length_norm: float | None = None,
 ) -> torch.Tensor:
     """Per-token PPO-clipped surrogate, SUMMED over completion tokens.
 
@@ -137,6 +138,14 @@ def grpo_clipped_surrogate(
     unchanged. The clip only diverges from a no-op once the weights move
     (ppo_epochs > 1), which is precisely when DAPO clip-higher should engage.
 
+    length_norm: if given (a positive constant L), divide the token-sum by L —
+    Dr. GRPO's length-bias-free normalization. The bare SUM (length_norm=None)
+    grows with completion length, so longer responses get a proportionally larger
+    gradient; GRPO's per-sequence 1/|o_i| over-corrects the other way. Dr. GRPO
+    (Liu et al. 2025) divides by a CONSTANT (typically the max generation length)
+    so every token contributes 1/L regardless of how long the sample is. Pass
+    None (default) to preserve the legacy magnitude.
+
     Empty completion → 0.
     """
     if new_logp.numel() == 0:
@@ -144,7 +153,10 @@ def grpo_clipped_surrogate(
     ratio = torch.exp(new_logp - old_logp)
     unclipped = ratio * advantage
     clipped = torch.clamp(ratio, 1.0 - clip_low, 1.0 + clip_high) * advantage
-    return torch.min(unclipped, clipped).sum()
+    surrogate = torch.min(unclipped, clipped).sum()
+    if length_norm:  # positive constant → Dr. GRPO normalization; None/0 → no-op
+        surrogate = surrogate / length_norm
+    return surrogate
 
 
 class GRPOTrainer:
@@ -160,6 +172,7 @@ class GRPOTrainer:
         clip_epsilon_high: float | None = None,
         advantage_norm: str = "std",
         ppo_epochs: int = 1,
+        length_norm: str = "sum",
         max_new_tokens: int = 512,
         max_thinking_tokens: int = 256,
         device: str = "cuda",
@@ -190,6 +203,12 @@ class GRPOTrainer:
                 the (expensive) generations for several updates against the fixed
                 old policy, which is the ONLY regime where clip_epsilon /
                 clip_epsilon_high actually engage.
+            length_norm: "sum" (default) sums the per-token surrogate (legacy
+                magnitude, length-biased toward longer completions); "constant"
+                divides by max_new_tokens (Dr. GRPO, Liu et al. 2025 — removes
+                the length bias so every token contributes 1/L). Switching to
+                "constant" shrinks the loss magnitude ~max_new_tokens×, so raise
+                the learning rate accordingly.
             max_new_tokens: Maximum tokens to generate per solution.
             max_thinking_tokens: Maximum thinking trace length for reward.
             device: "cuda" or "cpu".
@@ -219,7 +238,14 @@ class GRPOTrainer:
         # inert (pure REINFORCE+baseline). >1 reuses the expensive generations and
         # lets the DAPO clip-higher bound actually take effect.
         self.ppo_epochs = max(1, int(ppo_epochs))
+        # Loss length normalization: "sum" (legacy) or "constant" (Dr. GRPO,
+        # divide the token-sum by max_new_tokens to remove length bias). Resolved
+        # to the divisor passed into grpo_clipped_surrogate (None = plain sum).
+        self.length_norm = length_norm
         self.max_new_tokens = max_new_tokens
+        self._loss_length_divisor = (
+            float(max_new_tokens) if length_norm == "constant" else None
+        )
         self.max_thinking_tokens = max_thinking_tokens
 
         # Resolve the reward function
@@ -410,6 +436,7 @@ class GRPOTrainer:
                 surrogate = grpo_clipped_surrogate(
                     new_logp.float(), old_token_logps[i], advantages[i],
                     self.clip_epsilon, eps_high,
+                    length_norm=self._loss_length_divisor,
                 )
                 total_loss = total_loss + (-surrogate) / self.group_size
 

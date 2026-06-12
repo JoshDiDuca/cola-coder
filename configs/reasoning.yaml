@@ -54,6 +54,11 @@ reasoning:
   # so the clip bounds above are inert). >1 reuses the expensive generations for
   # several updates — the ONLY regime where clip_epsilon(_high) actually engage.
   ppo_epochs: 1
+  # GRPO loss length normalization. "sum" (default) sums the per-token surrogate
+  # (legacy magnitude, biased toward longer completions). "constant" divides by
+  # max_new_tokens (Dr. GRPO — removes length bias); shrinks the loss ~max_new_tokens×,
+  # so raise the learning rate if you switch.
+  length_norm: "sum"
   max_thinking_tokens: 512  # Cap reasoning trace length (reward penalty above this)
   base_checkpoint: "./checkpoints/small/latest"  # Start from trained model
   # Reward function to use during GRPO training.

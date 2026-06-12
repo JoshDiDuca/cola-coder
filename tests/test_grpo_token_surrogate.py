@@ -98,3 +98,61 @@ class TestGrpoClippedSurrogate:
         expected = 1.28 + torch.exp(torch.tensor(-0.5)).item()  # ≈ 1.8865
         assert abs(surr.item() - expected) < 1e-5
         assert abs(surr.item() - 2.0) > 0.1  # genuinely NOT the sequence-level value
+
+
+class TestLengthNorm:
+    """MODEL-008: optional Dr. GRPO constant length normalization."""
+
+    def test_none_is_plain_sum(self):
+        new = torch.tensor([-1.0, -2.0, -0.5])
+        old = new.clone()
+        assert grpo_clipped_surrogate(new, old, 2.0, 0.2, 0.28, length_norm=None).item() == 6.0
+
+    def test_constant_divides_the_sum(self):
+        # Same input, divided by L=3 → mean per token = 2.0.
+        new = torch.tensor([-1.0, -2.0, -0.5])
+        old = new.clone()
+        out = grpo_clipped_surrogate(new, old, 2.0, 0.2, 0.28, length_norm=3.0)
+        assert abs(out.item() - 2.0) < 1e-6
+
+    def test_zero_length_norm_falls_back_to_sum(self):
+        # length_norm=0 is falsy → no division (avoids a div-by-zero footgun).
+        new = torch.tensor([-1.0, -2.0])
+        old = new.clone()
+        assert grpo_clipped_surrogate(new, old, 1.0, 0.2, 0.28, length_norm=0).item() == 2.0
+
+    def test_length_norm_is_uniform_scaling_of_sum(self):
+        # Division is applied AFTER the per-token clip, so it's just a constant
+        # rescale of the summed surrogate (gradient direction unchanged).
+        new = torch.tensor([0.5, -0.5, 0.1])
+        old = torch.tensor([0.0, 0.0, 0.0])
+        s = grpo_clipped_surrogate(new, old, 1.0, 0.2, 0.28, length_norm=None)
+        n = grpo_clipped_surrogate(new, old, 1.0, 0.2, 0.28, length_norm=4.0)
+        assert abs(n.item() - s.item() / 4.0) < 1e-6
+
+
+def _tiny_trainer(length_norm: str, max_new_tokens: int = 384):
+    """Construct a real GRPOTrainer (no forward pass) to test divisor resolution."""
+    from unittest.mock import MagicMock
+
+    from cola_coder.model.config import ModelConfig
+    from cola_coder.model.transformer import Transformer
+    from cola_coder.reasoning.grpo import GRPOTrainer
+
+    model = Transformer(ModelConfig(
+        vocab_size=64, dim=32, n_layers=1, n_heads=4, n_kv_heads=2, max_seq_len=32,
+    ))
+    return GRPOTrainer(
+        model=model, tokenizer=MagicMock(), device="cpu",
+        length_norm=length_norm, max_new_tokens=max_new_tokens,
+    )
+
+
+class TestTrainerLengthNormWiring:
+    """The real constructor resolves length_norm → the surrogate divisor."""
+
+    def test_sum_mode_divisor_is_none(self):
+        assert _tiny_trainer("sum")._loss_length_divisor is None
+
+    def test_constant_mode_divisor_is_max_new_tokens(self):
+        assert _tiny_trainer("constant", max_new_tokens=384)._loss_length_divisor == 384.0

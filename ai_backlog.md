@@ -75,16 +75,18 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 
 
-- **MODEL-008** [model/training, low-medium] `open` — Follow-up to MODEL-007:
-  (a) `grpo_clipped_surrogate` SUMS per-token surrogates, which is length-biased
-  (longer completions get proportionally larger loss) — Dr. GRPO normalizes by a
-  CONSTANT (e.g. max_new_tokens) instead to remove that bias. The codebase already
-  declares Dr. GRPO (advantage_norm="mean"), so the loss aggregation should match;
-  add a `length_norm` option (sum vs constant) defaulting to current behavior.
-  (b) The PPO clip path (ppo_epochs>1) is unit-tested but never validated in an
-  actual short GRPO run — do a tiny sandboxed smoke (few steps, ppo_epochs=2) to
-  confirm the ratio diverges from 1 and the clip engages as intended. Both need a
-  real/CPU model run; defer until convenient. Found in the MODEL-007 cycle.
+- **MODEL-008** [model/training, low] `open` (part (a) done; (b) remains) —
+  Follow-up to MODEL-007. (a) DONE (2026-06-12): `grpo_clipped_surrogate` gained a
+  `length_norm` arg; GRPOTrainer `length_norm` config ("sum" legacy default vs
+  "constant" = Dr. GRPO ÷ max_new_tokens, removing the length bias of the bare
+  sum). Wired through reasoning.yaml + train_reasoning.py (+ wiring test). Default
+  "sum" preserves behavior. Tests: test_grpo_token_surrogate.py +6 (sum vs
+  constant, falsy=0 no-op, uniform-scaling, real trainer divisor resolution).
+  (b) STILL OPEN: the PPO clip path (ppo_epochs>1) and length_norm="constant" are
+  unit-tested but never validated in an actual short GRPO run — do a tiny
+  sandboxed smoke (few steps, ppo_epochs=2, both length_norm modes) to confirm the
+  ratio diverges from 1, the clip engages, and the constant-norm magnitude/LR
+  interaction is sane. Needs a real/CPU model run; defer until convenient.
 
 - **OPS-001** [tooling, low] `open` (deferred for user) — storage split-brain:
   configs/storage.yaml → E:/cola-coder-data vs config.checkpoint.output_dir →
