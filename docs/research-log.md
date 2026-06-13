@@ -7,6 +7,47 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-13 — Untrusted-code sandboxing best practices (SEC-012/013 epic)
+
+Searched frontier-lab / platform practices for executing untrusted (scraped +
+LLM-generated) code.
+
+### Hard reality: plain Docker on Windows is NOT "bulletproof"
+- 2026 consensus: a shared-kernel container is NOT sufficient isolation for
+  untrusted code — one kernel CVE = host escape. The production tier is
+  **kernel isolation**: gVisor (user-space kernel; Modal/Daytona) or Firecracker/
+  Kata microVMs (hardware VM; E2B). Isolation ladder: V8 isolate < Docker <
+  gVisor < Firecracker/Kata.
+- **Project-critical caveat:** gVisor / Firecracker / Kata are **NOT available on
+  Windows Docker Desktop / WSL2** (gVisor needs bare metal or nested-virt Linux).
+  Docker's stronger-isolation option there (Enhanced Container Isolation / Sysbox)
+  is **Business-license only**. And WSL2's own VM boundary has had documented
+  escapes (Trend Micro WSL2 Docker-Desktop VM-escape; Aug-2025 Docker Desktop
+  container-escape bug). So "completely bulletproof on this Windows host" is not
+  achievable with Docker alone — be honest about it.
+- **Verdict for cola-coder:** (1) maximally harden Docker (SEC-012) and treat it as
+  "raises the bar, not bulletproof"; reduce surface via offline + `--network=none`
+  + ephemeral; (2) for true kernel isolation, move untrusted execution to a
+  disposable Linux VM or a cloud sandbox (E2B/Modal/Daytona) behind the same
+  sandbox interface → **SEC-015**.
+
+### Highest-impact hardening to ADD (beyond non-root/read-only/no-net/pids+mem)
+1. Resource-exhaustion layer (most likely real failure for scraped/teacher code):
+   container-level wall-clock timeout → SIGKILL the whole cgroup; **bounded/truncated
+   stdout/stderr** (output-bomb); `ulimit fsize`; tmpfs size cap; `--memory-swap ==
+   --memory` + `--memory-swappiness=0`.
+2. **Custom deny-by-default seccomp** profile (Docker's default is a permissive
+   allow-list) + keep `--cap-drop=ALL` + `--security-opt=no-new-privileges`; custom
+   AppArmor if the WSL2 kernel supports it. → fold into SEC-012.
+3. Disposable-VM / cloud-sandbox backend for real kernel isolation. → SEC-015.
+4. Default-deny egress everywhere + verify ephemeral teardown (no state reuse).
+5. Keep host kernel + runc patched (named escape CVEs: runc CVE-2024-21626, kernel
+   CVE-2024-1086, Nov-2025 runc CVEs → runc ≥1.2.8/1.3.3/1.4.0-rc.3).
+- Sources: Northflank (untrusted-code platforms; Firecracker-vs-gVisor; E2B/Modal/
+  Daytona); Blaxel container-escape 2026; gVisor.dev (no-WSL2); Docker ECI docs;
+  Trend Micro WSL2 escape; The Register Aug-2025 Docker Desktop bug; HackTricks
+  container security.
+
 ## 2026-06-13 — Post-training & optimizer landscape (initial sweep)
 
 Searched: small-model training recipes (Qwen3/DeepSeek), Muon vs AdamW, on-policy

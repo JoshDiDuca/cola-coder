@@ -47,6 +47,29 @@ EVERY scenario. SEC-001/SEC-010 fixed timeout-kill + all-exit cleanup; the rest:
   SEC-012 hardened sandbox before any execution/tsc verification (teacher output is
   untrusted), and that remote-teacher prompts are secret-redacted (already in
   OpenAICompatibleTeacher). Wire as a hard requirement, with a test.
+- **SEC-015** [security/sandbox, high] `open` (the REAL bulletproof path — research
+  2026-06-13) — HONEST LIMITATION: plain Docker on this Windows Docker Desktop/WSL2
+  host CANNOT be made truly bulletproof (shared kernel; gVisor/Firecracker/Kata
+  microVMs — the 2026 isolation standard used by OpenAI Code Interpreter/E2B/Modal —
+  are unavailable on Windows; WSL2 itself has had VM escapes). SEC-012 maximally
+  hardens Docker ("raises the bar"), but for genuine kernel isolation the untrusted
+  execution must move OFF the Windows host. Action: design the sandbox behind a
+  clean `Sandbox` interface and add a pluggable backend for a **disposable Linux VM**
+  (Hyper-V/WSL guest treated as expendable, snapshot-reverted per run) or a **cloud
+  sandbox (E2B / Modal / Daytona)** that actually provides Firecracker/gVisor. Make
+  the backend configurable; default to hardened-Docker, document the upgrade. Also
+  add a **deny-by-default seccomp profile** to the Docker backend (Docker's default
+  is a permissive allow-list) — folded into SEC-012's scope. See docs/research-log.md.
+- **MODEL-029** [model/distillation, low] `open` — Reconcile + document the TWO
+  distillation modes so they're not confused: (a) EXISTING white-box logit KD in
+  `features/knowledge_distillation.py` + `features/distillation_helper.py` (KL on
+  soft teacher logits — requires the teacher in-process as an nn.Module with the
+  SAME tokenizer; GPU-heavy; can't use Qwen/DeepSeek whose tokenizer differs); (b)
+  NEW black-box/SeqKD in `distillation/teacher.py` (collect teacher TEXT via API —
+  tokenizer-agnostic, GPU-light, local-or-cloud Qwen/DeepSeek). They're
+  COMPLEMENTARY, not duplicate. Add a short note in both modules cross-referencing
+  the other + a docs section on when to use which. (Builds on the existing — likely
+  Fable 5 — white-box code; do not rewrite it.)
 
 ### UI — control + observability dashboard (LAST PRIORITY — user request 2026-06-13)
 Goal: a fast local UI to monitor/launch everything without always running. Background
