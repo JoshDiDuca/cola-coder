@@ -11,6 +11,32 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+### Ops / perf (2026-06-13)
+- **PERF-001** [ops/training-throughput, high] `open` — The autonomous loop's own heavy
+  CPU activity STARVES the live training. Diagnosed during a cycle: GPU at 99% util but
+  only **111 W / 320 W** (temp 40°C, not thermal) = data-starved (waiting on the 8
+  dataloader workers), with s/it degrading 10→48 under concurrent pytest/agent/command
+  load and RECOVERING (48→24) the moment heavy work stopped. ACTION/policy: while a
+  long CPU-bound pretraining run is live, keep cron cycles LIGHT — research (network) +
+  docs/backlog edits + tiny commits; DEFER pytest suites, parallel worktree agents, and
+  other heavy local compute (or run them in small bursts), since they 4× the training
+  wall-clock. Consider: lower the cron frequency during training, nice/affinity-pin the
+  trainer, or reduce num_workers if oversubscribed. The babysitter check itself is cheap.
+- **MODEL-035** [model/moe, medium] `open` (MoE research 2026-06-13) — Aux-loss-FREE
+  MoE load balancing (DeepSeek-V3): replace/augment the MoE router's auxiliary
+  load-balancing loss with per-expert BIAS terms updated from running load stats —
+  selection uses biased scores, gating weights use original scores. Stage-7 MoE only
+  (off the live dense run); touches features/moe_layer.py router → worktree.
+- **MODEL-036** [model/moe, medium] `open` (MoE research 2026-06-13) — Drop-Upcycling
+  for stage-7: upcycle dense→MoE with PARTIAL re-init of expert weights (not plain copy)
+  for better specialization; switch router to softmax-then-topK. Improves
+  upcycle_to_moe.py. Off the live dense run.
+- **IDEA-012** [research/moe, medium-potential] `open` (2026-06-13) — Domain-aligned
+  expert init: warm-start/bias upcycled MoE experts toward the project's semantic-router
+  domains (React/Next/GraphQL/Prisma/Zod/Testing) so experts specialize along the actual
+  specialist vision. Combines MoE upcycle (stage 7) + the domain router (stage 8) +
+  Drop-Upcycling partial re-init (MODEL-036).
+
 ### Training recovery (2026-06-13 — found during a real crash recovery)
 - **BUG-127** [tooling/training-recovery, critical] `done` (2026-06-13) — CRITICAL
   resume-recovery bug: `ps/cola-train-resume.ps1` passed `--resume <path>` via

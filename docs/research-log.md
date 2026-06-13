@@ -7,6 +7,32 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-13 — Mixture-of-Experts (rotate: architecture/MoE)
+
+- **DeepSeek-V3 aux-loss-FREE load balancing**: instead of an auxiliary load-balancing
+  loss (which fights task performance), use per-expert BIAS terms updated from running
+  load stats — expert SELECTION uses biased scores, gating WEIGHTS use the original
+  scores (preserves specialization). The 2026 standard; the project's MoE uses an
+  aux-loss → MODEL-035.
+- **Drop-Upcycling**: upcycle a dense model into MoE with PARTIAL re-initialization of
+  expert weights (not plain copy) → better expert specialization + faster knowledge
+  acquisition. Upgrade for the project's stage-7 upcycle. Also **softmax-then-topK**
+  routing beats topK-then-softmax, and higher granularity (more, smaller experts)
+  helps. → MODEL-036.
+- Shared experts (always-on, capture common knowledge) are now OPTIONAL — DeepSeek/
+  Llama-4 use them; Qwen3/OLMoE/GPT-oss skip them. The project's MoE has shared experts.
+- Sources: Upcycling LLMs into MoE (https://arxiv.org/abs/2410.07524); Drop-Upcycling
+  (https://arxiv.org/pdf/2502.19261); DeepSeekMoE (https://arxiv.org/html/2401.06066v1);
+  DeepSeek-V3 load balancing (https://medium.com/yugen-ai-technology-blog/deepseek-v3-advances-in-moe-load-balancing-and-multi-token-prediction-training-f6d68c59749c);
+  MoE survey (https://github.com/withinmiaov/A-Survey-on-Mixture-of-Experts-in-LLMs).
+- ORIGINAL idea → **IDEA-012**: domain-aligned expert init. The project trains a
+  SEMANTIC ROUTER (stage 8) over its domains (React/Next/GraphQL/Prisma/Zod/Testing)
+  and has MoE upcycling (stage 7). Warm-start / bias the upcycled experts toward those
+  router domains (initialize expert k from data routed to domain k, or add a
+  domain-prior to the router gate), so experts specialize along the project's actual
+  specialist vision instead of emerging arbitrarily. Combines MoE upcycle + the domain
+  router + Drop-Upcycling partial re-init.
+
 ## 2026-06-13 — Agentic coding / tool-use (rotate: agents)
 
 - Agentic coding = a multi-step loop (plan → act: write code / run tests / read output
