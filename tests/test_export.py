@@ -350,6 +350,114 @@ class TestQuantizationHelpers:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# 4b. gguf-package write path honesty (EXPORT-011)
+# ──────────────────────────────────────────────────────────────────────────────
+
+class _FakeGGMLType:
+    """Stand-in for gguf.GGMLQuantizationType with the values the writer uses."""
+    F32 = "F32"
+    F16 = "F16"
+    Q8_0 = "Q8_0"
+    Q4_K = "Q4_K"
+    Q5_K = "Q5_K"
+
+
+class _FakeGGUFWriter:
+    """Records add_tensor calls so we can assert data dtype matches raw_dtype.
+
+    The real gguf package writes ``data``'s bytes verbatim and tags them with
+    ``raw_dtype`` — it does NOT quantize. So passing F32 bytes tagged as Q8_0/
+    Q4_K produces a corrupt file. These tests assert the writer now hands over
+    bytes whose dtype actually matches the declared raw_dtype.
+    """
+
+    def __init__(self, *args, **kwargs):
+        self.tensors: list[tuple[str, np.ndarray, object]] = []
+        self.closed = False
+
+    # Metadata setters are no-ops for these tests.
+    def __getattr__(self, name):
+        if name.startswith("add_") and name != "add_tensor":
+            return lambda *a, **k: None
+        raise AttributeError(name)
+
+    def add_tensor(self, name, data, raw_dtype=None):
+        self.tensors.append((name, data, raw_dtype))
+
+    def write_header_to_file(self):
+        pass
+
+    def write_kv_data_to_file(self):
+        pass
+
+    def write_tensors_to_file(self):
+        pass
+
+    def close(self):
+        self.closed = True
+
+
+class TestGgufPackageWritePath:
+    """EXPORT-011: the gguf-package path must not tag F32 bytes as a quant type."""
+
+    def _patch_gguf(self, monkeypatch, writer):
+        import cola_coder.export.gguf_export as ge
+
+        # gguf is an optional dep; when absent these names don't exist on the
+        # module, so set them with raising=False (mocking the package path).
+        monkeypatch.setattr(ge, "GGUFWriter", lambda *a, **k: writer, raising=False)
+        monkeypatch.setattr(ge, "GGMLQuantizationType", _FakeGGMLType, raising=False)
+
+    def _exporter(self):
+        return GGUFExporter(_tiny_config())
+
+    def _mapped(self):
+        exporter = self._exporter()
+        return exporter._map_weight_names(_fake_state_dict(_tiny_config()))
+
+    @pytest.mark.parametrize(
+        "quant,expected_dtype",
+        [("f32", np.float32), ("f16", np.float16), ("q8_0", np.uint8)],
+    )
+    def test_data_dtype_matches_declared_raw_dtype(
+        self, monkeypatch, tmp_path, quant, expected_dtype
+    ):
+        writer = _FakeGGUFWriter()
+        self._patch_gguf(monkeypatch, writer)
+        exporter = self._exporter()
+        n = exporter._write_gguf_with_package(
+            self._mapped(), str(tmp_path / "out.gguf"), quant, vocab=None
+        )
+        assert n == len(writer.tensors)
+        dtype_for_tag = {
+            _FakeGGMLType.F32: np.float32,
+            _FakeGGMLType.F16: np.float16,
+            _FakeGGMLType.Q8_0: np.uint8,
+        }
+        for name, data, raw_dtype in writer.tensors:
+            # Norms/embeddings are forced to F32; quantizable tensors use `quant`.
+            if exporter._is_norm_or_embed(name):
+                assert raw_dtype == _FakeGGMLType.F32
+            # The byte layout MUST match what raw_dtype declares — this is the
+            # whole point of EXPORT-011 (no F32 bytes tagged as Q8_0).
+            assert data.dtype == dtype_for_tag[raw_dtype]
+
+    def test_kquant_raises_not_implemented_and_closes_writer(
+        self, monkeypatch, tmp_path
+    ):
+        for quant in ("q4_k_m", "q5_k_m"):
+            writer = _FakeGGUFWriter()
+            self._patch_gguf(monkeypatch, writer)
+            exporter = self._exporter()
+            with pytest.raises(NotImplementedError) as exc:
+                exporter._write_gguf_with_package(
+                    self._mapped(), str(tmp_path / "out.gguf"), quant, vocab=None
+                )
+            assert "llama-quantize" in str(exc.value)
+            assert writer.closed  # writer released before raising
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # 5. OllamaExporter
 # ──────────────────────────────────────────────────────────────────────────────
 
