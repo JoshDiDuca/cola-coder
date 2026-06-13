@@ -11,6 +11,63 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+- **INFER-014** [inference/correctness, high] `done` (2026-06-13) — Follow-up to
+  INFER-013: the GRPO batched group path `_generate_group_single_batch`
+  (`start_pos = prompt_len + step`) had the SAME unguarded KV-cache overflow — a
+  prompt+budget exceeding `config.max_seq_len` drove start_pos past the bound, so
+  the per-step `cache_k[:, start_pos:start_pos+1] = k` hit a zero-size slice
+  (dropped K/V → garbage rollouts, corrupting GRPO rewards). FIX: reuse
+  INFER-013's `_fit_context_window`/`_max_seq_len` to clamp the shared group
+  prompt once after encode (generator.py `_generate_group_single_batch`).
+  `generate_batch` is covered per-row via its delegation to `generate()`. Applied
+  DIRECTLY on main, not via the agent branch: that worktree branched from a stale
+  base lacking INFER-013, and a wholesale merge regressed the stop-token
+  streaming tests — a reminder that worktree agents can branch pre-recent-work, so
+  conflicted files need a 3-way resolution, never blind --theirs. Test:
+  test_parallel_generation.py::TestGenerateGroup +1 (max_seq_len=8, over-length
+  prompt runs cleanly); 85 inference/generator tests + ruff green.
+- **EVAL-021** [eval/correctness, high] `done` (2026-06-13, fresh evaluation-path
+  audit) — `CompletionBenchmark.score_single` (completion_benchmark.py) matched
+  required/forbidden regexes against `prefix + completion`, so any required
+  pattern ALREADY present in the prefix counted as satisfied regardless of the
+  model's actual output — a false-PASS that inflated the prefix-completion
+  benchmark (a prefix-echoing base model "passed" everything; the old
+  `test_run_all_fail` even documented the symptom with a loose `<0.5` assertion).
+  FIX: score the `completion` only (the benchmark's stated purpose — grading the
+  continuation). Built-in problems keep required patterns out of the prefix so
+  legit completions are unaffected; tightened `test_run_all_fail` to a precise
+  `<0.1`. Tests: test_completion_benchmark.py +2 prefix-leak regressions (required
+  + forbidden); 22 + broader eval (pass@k etc.) green. (metrics.py pass@k
+  estimator and runner sandbox were audited and found sound — no change.)
+- **DATA-049** [data-quality/correctness, medium] `done` (2026-06-13, fresh
+  data-sources audit) — `SWHClient.get_content_raw` (software_heritage.py)
+  returned `requests` `Response.text`, which decodes leniently and NEVER raises on
+  binary input — contradicting its own docstring and silently defeating the
+  `except UnicodeDecodeError: continue` binary-skip in `_walk_directory`. Binary
+  blobs (reachable in the `content_types=None` "all text files" mode) entered the
+  corpus as mojibake. FIX: decode `resp.content` as strict UTF-8 so binary raises
+  and is skipped as intended. Tests: test_swh.py +3 (binary rejected, valid UTF-8
+  decodes, stream skips binary); 38 SWH/source/security tests green. Note:
+  proposed-id collision (agent said DATA-041, which exists) → assigned DATA-049.
+- **TOK-001** [tokenizer/correctness, medium] `done` (2026-06-13, fresh tokenizer
+  audit) — `CodeTokenizer.encode_fim`/`fim_prompt` assumed `<|fim_*|>` tokens
+  exist, though the constructor treats them as OPTIONAL (only pad/bos/eos/unk
+  required). A tokenizer trained without FIM tokens left the FIM ids `None`, so
+  `encode_fim` emitted `[None] + prefix + [None] + suffix + [None]` — an invalid
+  id silently corrupting the stream, surfacing only as a downstream model
+  crash/garbage (contradicting the constructor's own "checks separately" comment).
+  FIX: added `has_fim_tokens()` predicate + `_require_fim_tokens()` guard raising a
+  clear `ValueError`; both helpers call it first. Tokenizers WITH FIM tokens
+  (every currently-trained one incl. the live run's) are unaffected — no numerics
+  change, safe for the live run. Tests: test_tokenizer_fim_missing.py +7; 17
+  tokenizer/fim tests green.
+- **TOOL-018** [tooling/bug, low] `open` (report-only finding from the TOK-001
+  audit) — `scripts/tokenizer_health.py` checks for special tokens named `<pad>`,
+  `<unk>`, `<bos>`, `<eos>` (no pipes), but cola-coder tokenizers use `<|pad|>`,
+  `<|unk|>`, `<|bos|>`, `<|eos|>` — so the health check's "Special tokens" section
+  reports all four as MISSING on a perfectly valid tokenizer (false alarm,
+  undermines trust in the tool). Fix: match the actual `<|...|>` names (and reuse
+  the tokenizer's own special-token accessors rather than hardcoded literals).
 - **INFER-013** [inference/correctness, high] `done` (2026-06-13, found in a fresh
   generator-path audit) — `CodeGenerator.generate`/`generate_stream` ignored
   `config.max_seq_len`, but the KV-cache + causal mask are sized for exactly
