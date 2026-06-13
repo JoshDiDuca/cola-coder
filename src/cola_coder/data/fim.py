@@ -48,8 +48,12 @@ class FIMTransform:
     (StarCoder / OpenAI FIM convention; psm_rate controls the PSM↔SPM mix.)
     """
 
-    # Middle must be between 10% and 90% of the full sequence length,
-    # so splits near the very beginning or very end are skipped.
+    # Bounds on WHERE the two split points may fall — both the prefix/middle
+    # and middle/suffix boundaries are drawn between 10% and 90% of the full
+    # sequence length, so splits never land in the very first or very last
+    # 10%. These bound the split-point indices, NOT the size of the middle
+    # span: because both points are drawn independently within that window,
+    # the resulting middle can be as small as a single token.
     MIN_MIDDLE_FRAC = 0.10
     MAX_MIDDLE_FRAC = 0.90
 
