@@ -113,11 +113,13 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   the server's `_gen_lock`. Enforce a small minimum effective debounce (or coalesce
   to the latest pending request) so a burst can't queue N fetches. Pairs with the
   server-side cap in INFER-024.
-- **EXT-004** [extension/bug, low] `open` (VS Code audit) — `FimFormatter` truncates
-  the prefix on a raw char offset (`fullText.slice(offset - MAX_PREFIX_CHARS, ...)`)
-  which can split a UTF-16 surrogate pair (emoji/CJK in a comment) and send a lone
-  surrogate to the server, corrupting tokenization. Non-ASCII files only. Fix: snap
-  the start forward off a low-surrogate boundary.
+- **EXT-004** [extension/bug, low] `done` (2026-06-13) — `FimFormatter` truncated the
+  prefix/suffix on raw char offsets, which could split a UTF-16 surrogate pair
+  (emoji/CJK in code) and send a lone surrogate to the server, corrupting
+  tokenization on non-ASCII files. FIX: `extractFimContext` now snaps the prefix
+  start forward off a low surrogate and pulls the suffix end back off a dangling
+  high surrogate (isHighSurrogate/isLowSurrogate helpers). `npx tsc --noEmit` +
+  esbuild clean. (Completes the VS Code extension audit batch EXT-001..004.)
 - **MODEL-015** [training/wiring, low-medium] `open` (optimizer report-only audit)
   — `trainer.py` does NOT pass `wsd_decay_fraction` to `create_scheduler`, so the
   WSD decay fraction is always the hardcoded default (0.2). A user adding
