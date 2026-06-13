@@ -10,6 +10,8 @@ from __future__ import annotations
 import time
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 from cola_coder.data.sources.software_heritage import (
     SoftwareHeritageSource,
@@ -200,6 +202,62 @@ class TestSWHClientRateLimit:
         result = client._rate_limited_get("https://example.com/test")
         assert result == {"ok": True}
         assert client.session.get.call_count == 2
+
+
+class TestGetContentRawBinary:
+    """DATA-041: get_content_raw must raise UnicodeDecodeError on binary blobs.
+
+    requests' ``resp.text`` does lenient, best-effort decoding and NEVER raises
+    on binary input, so binary files would leak into the corpus as mojibake and
+    the ``except UnicodeDecodeError`` skip in _walk_directory would be dead code.
+    The method decodes ``resp.content`` strictly so binary content is rejected.
+    """
+
+    def _client_returning(self, raw_bytes: bytes) -> SWHClient:
+        client = SWHClient(token="t")
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.headers = {}
+        resp.content = raw_bytes
+        resp.raise_for_status = MagicMock()
+        client._rate_limited_get_response = MagicMock(return_value=resp)
+        return client
+
+    def test_binary_content_raises_unicode_decode_error(self):
+        # PNG magic bytes + invalid UTF-8 continuation byte (0xFF).
+        client = self._client_returning(b"\x89PNG\r\n\x1a\n\xff\xfe\x00\x01")
+        with pytest.raises(UnicodeDecodeError):
+            client.get_content_raw("deadbeef")
+
+    def test_valid_utf8_content_decodes(self):
+        client = self._client_returning("héllo = 1\n".encode("utf-8"))
+        assert client.get_content_raw("cafe") == "héllo = 1\n"
+
+    def test_stream_skips_binary_file(self):
+        """A binary file (content raises) is skipped, valid files still yielded."""
+        source = SoftwareHeritageSource(
+            origins=[MOCK_ORIGIN_URL],
+            content_types=[".py", ".ts"],
+            token="t",
+        )
+        client = MagicMock(spec=SWHClient)
+        client.get_visits.return_value = MOCK_VISITS
+        client.get_snapshot.return_value = MOCK_SNAPSHOT
+        client.get_revision_directory.return_value = MOCK_ROOT_DIR
+        client.get_directory.return_value = MOCK_SRC_DIR
+
+        def get_content(sha1):
+            if sha1 == "cnt003":  # utils.ts -> pretend it's a binary blob
+                raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid")
+            return MOCK_FILE_CONTENTS.get(sha1, "")
+
+        client.get_content_raw.side_effect = get_content
+        source._client = client
+
+        records = list(source.stream())
+        paths = [r.metadata["path"] for r in records]
+        assert "src/main.py" in paths      # valid file still yielded
+        assert "src/utils.ts" not in paths  # binary file skipped, not mojibake
 
 
 # ---------------------------------------------------------------------------
