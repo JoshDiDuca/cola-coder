@@ -11,6 +11,29 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+- **DATA-047** [data-quality/security, high] `done` (2026-06-13, found in a fresh
+  scorer-path audit) — `CredentialScanner.process("strip")` leaked private-key /
+  certificate BODIES. The `Private Key` / `Certificate` regexes matched only the
+  single `-----BEGIN ... -----` header line, so strip mode (used by
+  `data/scorers/llm_judge.py` to scrub secrets out of untrusted scraped code
+  BEFORE sending it to an external LLM-judge API) replaced just the header and
+  forwarded every byte of key material. FIX: patterns now span the whole
+  `BEGIN..END` PEM block (`[\s\S]*?`, END optional so truncated header-only keys
+  still redact); per-line `scan()` detection and `reject`-mode behavior unchanged;
+  added PGP to recognized key types. Tests: test_credential_scanner.py +3
+  (full key body, truncated key, full cert body); 64 scorer/filter tests + ruff
+  green on main. Relates to the "treat scraped code as untrusted / scan secrets
+  before API calls" rules.
+- **DATA-048** [data-quality/cleanup, low] `open` (follow-ups from the DATA-047
+  audit) — (a) `credential_scanner.py` `scan()` is line-by-line while `strip` is
+  whole-text; fine for current single-line patterns but the two paths could
+  diverge for any future multiline pattern — consider unifying so detection and
+  redaction coverage can't drift. (b) The GitHub fine-grained PAT regex in
+  credential_scanner.py (`github_pat_..._{59}`) is stricter than
+  quality_filter.py:459 (`github_pat_[A-Za-z0-9_]{60,}`) — harmonize. (c)
+  quality_filter.py `check_avg_line_length`'s `if not lines` branch is dead
+  (`"".split("\n")` → `[""]`, never empty) — remove. All cosmetic/robustness, no
+  active exposure.
 - **BUG-120** [inference/correctness, medium] `done` (2026-06-13, found during a
   fresh inference-path scan) — `sample_next_token` (sampling.py) could emit a
   garbage token when `no_repeat_ngram_size > 0` banned the ENTIRE vocabulary: the
