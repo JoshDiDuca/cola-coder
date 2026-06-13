@@ -54,12 +54,29 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   exhausted-after-max); 36 modern + 17 surrogate tests + ruff green. Follow-up wiring:
   the train_reasoning loop should call train_step_resampled with a problem-set sampler
   when dynamic_sampling is on (small, → note in MODEL-032).
-- **IDEA-009** [research/inference, medium-potential] `open` (2026-06-13) — Adaptive
-  best-of-N budget driven by the sandbox verifier: generate a small initial batch (2);
-  if none VERIFY, expand ×2 up to a max; early-stop if the first candidate verifies
-  clean AND secure (SEC-017). Trades compute for accuracy only when needed (cheap
-  prompts cost 2 candidates, hard ones get the full budget). Reuses best-of-N + sandbox
-  verifier + security screen; pure inference (non-train, safe on main).
+- **IDEA-009** [research/inference, medium-potential] `done` (2026-06-13) — Adaptive
+  best-of-N budget. Added `generate_best_of_n_adaptive()`: generates an initial small
+  batch (default 2), verifies it, and grows ×`growth` up to `max_candidates`, EARLY-
+  STOPPING the moment a candidate both VERIFIES and is SECURE (SEC-017). Cheap prompts
+  cost `initial_candidates`; hard ones get the full budget — trades compute for
+  accuracy only when the verifier says it's needed (2026 test-time scaling). Extracted
+  shared `_build_candidates`/`_rank` helpers (DRY with fixed-N best-of-N — same verify
+  + secure-aware ranking). Pure inference (non-train, safe on main). Tests:
+  test_best_of_n.py::TestAdaptiveBudget +3 (early-stop on first verify, expand-to-cap
+  when none verify, secure-preferred on early-stop); 54 best_of_n/server tests + ruff
+  green. Follow-up: have the FastAPI /best-of-N path optionally use the adaptive variant.
+- **MODEL-033** [model/long-context, medium] `open` (long-context research 2026-06-13)
+  — LongRoPE2-style Stage-4 context extension: upgrade the YaRN path with mixed
+  context-window training that PRESERVES short-context accuracy (>98.5%) while adopting
+  rescaled RoPE for long sequences — so extending context doesn't regress the
+  1024-ctx pretraining. Pairs with MODEL-017 (YaRN formula review). Train-path
+  (model/rope + training) → worktree, validate before any merge.
+- **IDEA-010** [research/long-context, medium-potential] `open` (2026-06-13) —
+  Repo-level FIM: use the repo_context module to assemble a large multi-file context,
+  hold out a whole function in the middle, and train/eval FIM infill conditioned on the
+  full repo (PSM: repo-prefix + suffix), verified by the sandbox tsc against the real
+  repo. Combines long-context + FIM + repo_context + sandbox verifier; targets
+  IDE-ghost-text-in-a-real-codebase, and pairs with IDEA-007 (contamination-free eval).
 - **MODEL-032** [reasoning, medium] `open` (research 2026-06-13) — Difficulty-aware
   dynamic sampling: before a full GRPO rollout, run a cheap best-of-N probe per prompt
   and skip prompts predicted zero-variance (trivially all-pass / all-fail), spending

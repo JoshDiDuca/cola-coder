@@ -347,3 +347,42 @@ class TestSecurityAwareRanking:
         )
         assert result.best.verified is True
         assert "eval" in result.best.completion  # verified insecure beats unverified secure
+
+
+class TestAdaptiveBudget:
+    """IDEA-009: adaptive best-of-N grows the budget only as needed."""
+
+    def test_early_stop_when_first_batch_verifies(self):
+        from cola_coder.inference.best_of_n import generate_best_of_n_adaptive
+        gen = FakeGroupGenerator(["const x: number = 1;", "const y: number = 2;"])
+        runner = FakeTscRunner({})  # clean -> both verify
+        result = generate_best_of_n_adaptive(
+            gen, "// p", initial_candidates=2, max_candidates=6,
+            language="typescript", tsc_runner=runner,
+        )
+        assert len(result.candidates) == 2      # stopped after the first batch
+        assert len(gen.group_calls) == 1
+        assert result.best.verified
+
+    def test_expands_when_none_verify(self):
+        from cola_coder.inference.best_of_n import generate_best_of_n_adaptive
+        gen = FakeGroupGenerator(["const x: number = 1;", "const y: number = 2;"])
+        runner = FakeTscRunner({0: ["TS2322: e"], 1: ["TS2322: e"]})  # fail every batch
+        result = generate_best_of_n_adaptive(
+            gen, "// p", initial_candidates=2, max_candidates=6,
+            language="typescript", tsc_runner=runner,
+        )
+        assert len(result.candidates) == 6      # grew to the cap (2 -> 4 -> 6)
+        assert len(gen.group_calls) == 3
+        assert not result.best.verified
+
+    def test_prefers_secure_among_verified_on_early_stop(self):
+        from cola_coder.inference.best_of_n import generate_best_of_n_adaptive
+        gen = FakeGroupGenerator(["const a = eval(x);", "const b: number = 1;"])
+        runner = FakeTscRunner({})  # both verify clean
+        result = generate_best_of_n_adaptive(
+            gen, "// p", initial_candidates=2, max_candidates=6,
+            language="typescript", tsc_runner=runner,
+        )
+        assert result.best.details["secure"] is True
+        assert "eval" not in result.best.completion

@@ -150,15 +150,30 @@ def generate_best_of_n(
         tsc_runner=tsc_runner, execute_fn=execute_fn,
     )
 
+    candidates = _build_candidates(texts, verdicts, prompt, lang)
+    ranked = _rank(candidates)
+    logger.info(
+        "best-of-%d (%s via %s): %d/%d verified, best score %.3f",
+        num_candidates, lang, verifier_name,
+        sum(c.verified for c in ranked), len(ranked), ranked[0].score,
+    )
+    return BestOfNResult(
+        best=ranked[0], candidates=ranked, language=lang, verifier=verifier_name
+    )
+
+
+def _build_candidates(texts, verdicts, prompt: str, lang: str) -> "list[CandidateResult]":
+    """Build CandidateResults from generated texts + verifier verdicts.
+
+    Shared by the fixed-N and adaptive best-of-N paths. Each candidate gets a
+    heuristic-confidence score, a security flag (IDEA-008/SEC-017: scan the
+    COMPLETION, not the user-written prompt), and the combined hard/heuristic score.
+    """
     candidates: list[CandidateResult] = []
     for text, (verified, hard_score, details) in zip(texts, verdicts):
         heuristic = _heuristic_confidence(text, lang)
         details["heuristic_confidence"] = round(heuristic, 3)
         completion = _strip_prompt(text, prompt)
-        # Security signal (IDEA-008): scan the COMPLETION (not the prompt, which the
-        # user wrote) for dangerous patterns. Used as a secondary ranking key so a
-        # functionally-correct AND secure candidate is preferred over a
-        # functionally-correct but insecure one ("secure-pass best-of-N").
         dangers = scan_dangerous(completion)
         details["secure"] = not dangers
         if dangers:
@@ -172,19 +187,84 @@ def generate_best_of_n(
                 details=details,
             )
         )
+    return candidates
 
-    # Rank: functional correctness first (verified), then SECURE over insecure, then
-    # score. A verified candidate still beats an unverified one regardless of security;
-    # security only breaks ties among equally-verified candidates.
-    ranked = sorted(
+
+def _rank(candidates: "list[CandidateResult]") -> "list[CandidateResult]":
+    """Rank best-first by (verified, secure, score) — see module docstring."""
+    return sorted(
         candidates,
         key=lambda c: (c.verified, c.details.get("secure", True), c.score),
         reverse=True,
     )
+
+
+def generate_best_of_n_adaptive(
+    generator,
+    prompt: str,
+    *,
+    max_candidates: int = 8,
+    initial_candidates: int = 2,
+    growth: int = 2,
+    language: str = "auto",
+    tests: str | None = None,
+    max_new_tokens: int = 256,
+    temperature: float = 0.8,
+    top_k: int = 50,
+    top_p: float = 0.95,
+    min_p: float = 0.0,
+    no_repeat_ngram_size: int = 0,
+    timeout: float = 10.0,
+    tsc_runner=None,
+    execute_fn: "ExecuteFn | None" = None,
+) -> BestOfNResult:
+    """Adaptive-budget best-of-N (IDEA-009): grow the candidate count only as needed.
+
+    Generates an initial small batch and verifies it; if NO candidate both verifies
+    AND is secure, it generates more (×growth) up to ``max_candidates``, stopping
+    early the moment a verified+secure candidate appears. Cheap/easy prompts cost
+    ``initial_candidates``; hard ones get the full budget — trading compute for
+    accuracy only when the verifier says it's needed (2026 test-time-compute scaling).
+    Pure inference; same verification + ranking as generate_best_of_n.
+    """
+    if max_candidates < 1:
+        raise ValueError(f"max_candidates must be >= 1, got {max_candidates}")
+    if growth < 2:
+        raise ValueError(f"growth must be >= 2, got {growth}")
+    lang = detect_language(prompt) if language == "auto" else language
+
+    candidates: list[CandidateResult] = []
+    verifier_name = "none"
+    generated = 0
+    target = min(max(1, initial_candidates), max_candidates)
+    while generated < max_candidates:
+        batch = target - generated
+        texts = _generate_candidates(
+            generator, prompt, num_candidates=batch,
+            max_new_tokens=max_new_tokens, temperature=temperature,
+            top_k=top_k, top_p=top_p, min_p=min_p,
+            no_repeat_ngram_size=no_repeat_ngram_size,
+        )
+        verifier_name, verdicts = _run_hard_verifier(
+            lang, texts, tests=tests, timeout=timeout,
+            tsc_runner=tsc_runner, execute_fn=execute_fn,
+        )
+        candidates.extend(_build_candidates(texts, verdicts, prompt, lang))
+        generated = target
+        # Early stop: a verified AND secure candidate is good enough — don't spend
+        # more compute.
+        if any(c.verified and c.details.get("secure", True) for c in candidates):
+            break
+        next_target = min(generated * growth, max_candidates)
+        if next_target <= generated:
+            break  # already at the cap
+        target = next_target
+
+    ranked = _rank(candidates)
     logger.info(
-        "best-of-%d (%s via %s): %d/%d verified, best score %.3f",
-        num_candidates, lang, verifier_name,
-        sum(c.verified for c in ranked), len(ranked), ranked[0].score,
+        "adaptive best-of-N (%s via %s): used %d/%d candidates, %d verified, best %.3f",
+        lang, verifier_name, generated, max_candidates,
+        sum(c.verified for c in ranked), ranked[0].score,
     )
     return BestOfNResult(
         best=ranked[0], candidates=ranked, language=lang, verifier=verifier_name

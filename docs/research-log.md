@@ -7,6 +7,29 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-13 — Long context / context extension (rotate: long-context)
+
+- **YaRN** (NTK-by-parts + attention temperature) extends to 128K+ with low perplexity
+  loss — cola-coder already has a YaRN path (rope_scaling; MODEL-017 flagged reviewing
+  its interpolation formula). The 2026 upgrade is **LongRoPE2**: near-lossless 128K via
+  (1) the insight that high RoPE dims are under-trained, (2) evolutionary "needle-driven"
+  RoPE rescaling, (3) **mixed context-window training** that adopts rescaled RoPE for
+  long sequences while PRESERVING short-context accuracy (>98.5%). Llama.cpp v0.5 ships
+  integrated YaRN for 2M+ tokens.
+- Relevance: code models need repo-level context; cola-coder's Stage-4 context extension
+  (YaRN) + repo_context module + memory module are the building blocks. LongRoPE2's
+  short-context preservation matters (don't regress the 1024-ctx pretraining). → MODEL-033.
+- Sources: YaRN (https://arxiv.org/pdf/2309.00071); LongRoPE2
+  (https://arxiv.org/pdf/2502.20082); RoPE context-extension deep dive
+  (https://amaarora.github.io/posts/2025-09-21-rope-context-extension.html).
+- ORIGINAL idea → **IDEA-010**: repo-level FIM for long-context training/eval. Use the
+  repo_context module to assemble a large multi-file context, hold out a whole function
+  in the middle, and train/eval FIM infill conditioned on the full repo (PSM with repo
+  prefix + suffix). Verified by the sandbox tsc against the real repo. Combines
+  long-context + FIM + repo_context + sandbox verifier — directly targets the
+  IDE-ghost-text-in-a-real-codebase use case, and pairs with IDEA-007's
+  contamination-free eval.
+
 ## 2026-06-13 — Test-time compute scaling (rotate: inference/reasoning)
 
 - Test-time scaling = (1) aggregation (sample N → self-consistency / best-of-N with a
