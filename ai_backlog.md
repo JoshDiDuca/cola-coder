@@ -11,6 +11,31 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+- **INFER-013** [inference/correctness, high] `done` (2026-06-13, found in a fresh
+  generator-path audit) — `CodeGenerator.generate`/`generate_stream` ignored
+  `config.max_seq_len`, but the KV-cache + causal mask are sized for exactly
+  `max_seq_len`. Two failures, both reachable from `/v1/fim` (a moderately long
+  file's prefix+suffix easily exceeds seq_len): (1) prompt longer than seq_len →
+  prefill `cache_k[:, 0:seq_len] = k` raises a cryptic tensor-size RuntimeError
+  (500 on /v1/fim and /v1/completions); (2) generation crossing the window
+  mid-decode → write to a ZERO-SIZE slice is a silent no-op, so the new token's
+  K/V is dropped and the model reads stale cache → garbage output, no error (the
+  sneakier one). FIX: `_fit_context_window(token_ids, max_new_tokens,
+  max_seq_len)` left-truncates the prompt to the most recent `max_seq_len-1`
+  tokens (sliding window) and caps `max_new_tokens` to remaining slots; wired
+  into both methods via `_max_seq_len()` (returns 0 to disable when a stub model
+  lacks config, so no regression). Tests: test_generator_context_window.py (9 —
+  helper truncation/capping/exact-fit/disabled + 4 integration incl. real
+  16-slot Transformer that previously crashed); 87 inference tests + ruff green
+  on main.
+- **INFER-014** [inference/correctness, medium] `open` (follow-up from INFER-013)
+  — The GRPO batched generation path `_generate_group_single_batch`
+  (generator.py, `start_pos = prompt_len + step`) has the SAME unguarded
+  KV-cache overflow as INFER-013 but was left untouched because it's training-only
+  (reasoning RL rollouts), out of the inference-serving scope of that fix. Apply
+  the equivalent `_fit_context_window` clamp (or assert prompt_len +
+  max_new_tokens <= max_seq_len with a clear error) so long GRPO prompts can't
+  silently drop tokens or crash mid-rollout.
 - **DATA-047** [data-quality/security, high] `done` (2026-06-13, found in a fresh
   scorer-path audit) — `CredentialScanner.process("strip")` leaked private-key /
   certificate BODIES. The `Private Key` / `Certificate` regexes matched only the
