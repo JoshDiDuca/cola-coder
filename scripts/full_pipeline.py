@@ -48,6 +48,31 @@ STAGES = {
 }
 
 
+def _resolve_latest_checkpoint(ckpt_dir: Path) -> Path:
+    """Resolve the most recent checkpoint in ``ckpt_dir``.
+
+    Scans ``step_*`` directories directly rather than trusting the ``latest``
+    pointer file. The pointer can become stale (e.g. training restarted from
+    scratch in a dir that already has high-step checkpoints from a previous
+    run: the new ``step_00000000`` is numerically "oldest" and gets pruned by
+    ``max_checkpoints`` cleanup, but ``latest`` still points to the deleted
+    dir). Mirrors the audited Pipeline Manager
+    (pipeline_menu._stage_instruction_tune) and the project's stale-pointer
+    rule. Falls back to reading the ``latest`` pointer only when no ``step_*``
+    dir exists.
+    """
+    step_dirs = sorted(
+        [d for d in ckpt_dir.iterdir() if d.is_dir() and d.name.startswith("step_")],
+        key=lambda d: int(d.name.split("_")[1]),
+    ) if ckpt_dir.exists() else []
+    if step_dirs:
+        return step_dirs[-1]
+    latest = ckpt_dir / "latest"
+    if latest.exists() and latest.is_file():
+        return Path(latest.read_text(encoding="utf-8").strip())
+    return latest
+
+
 def run_stage(stage_num: int, config: Config, args: argparse.Namespace) -> bool:
     """Run a single pipeline stage.
 
@@ -200,7 +225,8 @@ def _stage_instruction_tune(config: Config, args: argparse.Namespace) -> None:
 
     venv = Path(".venv/Scripts/python")
     ckpt_dir = Path(config.checkpoint.output_dir)
-    latest = ckpt_dir / "latest"
+    # Resolve by scanning step_* dirs — the 'latest' pointer can be stale.
+    latest = _resolve_latest_checkpoint(ckpt_dir)
 
     instruction_data = Path("data/sft/instructions.jsonl")
     if not instruction_data.exists():
@@ -277,9 +303,10 @@ def _stage_train_reasoning(config: Config, args: argparse.Namespace) -> None:
 
     venv = Path(".venv/Scripts/python")
 
-    # Resolve the latest checkpoint produced by Stage 3 (pretrain)
+    # Resolve the latest checkpoint produced by Stage 3 (pretrain) by scanning
+    # step_* dirs directly — the 'latest' pointer can be stale.
     ckpt_dir = Path(config.checkpoint.output_dir)
-    latest = ckpt_dir / "latest"
+    latest = _resolve_latest_checkpoint(ckpt_dir)
     if not latest.exists():
         raise FileNotFoundError(
             f"No checkpoint found at {latest}. "
