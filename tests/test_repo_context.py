@@ -541,6 +541,65 @@ class TestRepoScannerGetRepoSummary:
         assert "tsconfig" in summary.lower()
 
 
+# ── BUG-123: resolved-vs-unresolved path key/lookup consistency ───────────────
+
+
+class TestRepoScannerPathCanonicalization:
+    """Regression for BUG-123.
+
+    import_graph / _file_tokens keys were built from the UNRESOLVED
+    ``str(self.root / rel_path)`` while lookups used ``.resolve()``d paths.
+    When the two path forms diverge (symlinks, Windows 8.3 short names) the
+    resolved lookup missed the unresolved key and the file was silently
+    dropped from the assembled context.  Both sides must now canonicalize
+    through ``.resolve()``.
+    """
+
+    def test_graph_and_token_keys_are_canonical(self, tmp_path):
+        """Every dict key must equal its own ``.resolve()``d form."""
+        _make_mini_project(tmp_path)
+        scanner = RepoScanner(tmp_path)
+        ctx = scanner.scan()
+
+        for key in ctx.import_graph:
+            assert key == str(Path(key).resolve())
+        for key in scanner._file_tokens:
+            assert key == str(Path(key).resolve())
+
+    def test_resolved_lookup_finds_unresolved_key(self, tmp_path, monkeypatch):
+        """A lookup whose raw path differs from the stored key still hits.
+
+        We simulate the symlink / 8.3-short-name divergence by feeding the
+        scanner an *unresolved* root (so the naive key would carry the
+        unresolved prefix) while the lookup path resolves to the real root.
+        After the fix both collapse to the same canonical form, so the
+        target file's import-graph and token entries are found.
+        """
+        _make_mini_project(tmp_path)
+
+        # Build the scanner against a non-canonical spelling of the root
+        # (``root/./`` resolves to ``root`` but is a different string).
+        noncanonical_root = tmp_path / "."
+        scanner = RepoScanner(noncanonical_root)
+        scanner.scan()
+
+        # The canonical absolute path of the target file.
+        target = scanner._resolve_file_path("src/hooks/useUser.ts")
+        canonical = str((tmp_path / "src" / "hooks" / "useUser.ts").resolve())
+        assert target == canonical
+
+        # Both the import graph and the token map must contain the file under
+        # the canonical key — i.e. the lookup does NOT silently miss.
+        assert target in scanner._context.import_graph
+        assert target in scanner._file_tokens
+        assert len(scanner._context.import_graph[target]) > 0
+
+        # End-to-end: the relative import (User type) survives into the context
+        # block, which would be dropped if the key/lookup forms mismatched.
+        result = scanner.get_context_for_file("src/hooks/useUser.ts")
+        assert "User" in result
+
+
 # ── ContextAwareGenerator (mock) ──────────────────────────────────────────────
 
 
