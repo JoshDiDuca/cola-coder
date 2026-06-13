@@ -11,6 +11,67 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+### Backlog fill 2026-06-13 (discovery batch — model / application / code)
+
+**Model & training quality**
+- **MODEL-020** [model/training, high] `open` — Online/curriculum data reweighting
+  (2025-26 data-centric). `data/mixing.py` has `MixingOptimizer` (the reweighting
+  math) but it's NOT wired into the trainer. Track running loss per source/difficulty
+  bucket and up-weight underfit buckets (reweight, don't hard-filter — preserve
+  diversity). Needs per-sample bucket tags or a multi-source dataloader. Stage it.
+- **MODEL-021** [model/training, medium] `open` — Weight EMA: maintain an exponential
+  moving average of params (ema_decay≈0.999, update post-optimizer-step), save an EMA
+  checkpoint alongside the raw one. EMA weights usually eval better — a cheap quality
+  win. Wire ema state into checkpoint.py save/load.
+- **MODEL-022** [model/inference, medium] `open` — Speculative decoding (draft-and-
+  verify) for lower inference latency on serve/REPL/FIM. Self-speculative or n-gram
+  draft fits a single-model setup. 2025 latency technique.
+- **MODEL-023** [model/eval-coverage, medium] `open` — Enable qk_norm + z_loss on
+  tiny/small configs (relates MODEL-012) so CI/smoke actually exercise those paths; a
+  regression in qk_norm/z_loss currently passes small-config tests. z_loss is
+  backward-compatible; qk_norm adds params (fresh runs only).
+
+**Application (VS Code extension + FastAPI server)**
+- **EXT-005** [extension/UX, medium] `open` — Surface training progress in the status
+  bar: poll a metrics endpoint / read the manifest to show "training: step N / loss X",
+  so an unattended run is monitorable from the editor. Fits the unattended workflow.
+- **EXT-006** [extension/robustness, low] `open` — HealthMonitor uses a fixed 5s poll;
+  add exponential backoff when disconnected (5→10→30s cap) + a "Cola-Coder: Reconnect
+  now" command so the user isn't stuck on the fixed interval after starting the server.
+- **EXT-007** [extension/perf, low] `open` — Cache inline FIM completions by
+  (prefix,suffix) hash in a small LRU; invalidate on edit. Cuts latency + server load
+  for the ghost-text hot path.
+- **INFER-024** [inference/robustness, medium] `open` — Server has no max-concurrency /
+  queue cap: requests pile up behind `_gen_lock` unboundedly. Add a bounded queue (429
+  when saturated) + per-request server-side timeout so a burst can't wedge latency.
+  Complements INFER-021.
+- **INFER-025** [inference/feature, low] `open` — `/v1/fim` (`FimRequest`) doesn't
+  expose `repetition_penalty` (generate() defaults 1.1); add it to the schema + forward
+  it, for parity with chat/completions and to let the extension tune ghost-text repetition.
+
+**Code / data / eval / docs**
+- **DATA-054** [data-quality, medium] `open` — Semantic (embedding/SimHash) dedup:
+  combine_datasets.py has MinHash near-dup; add an optional semantic pass to catch
+  paraphrase/near-clone code MinHash misses ("exact, near, semantic" levels). Flag-gated;
+  expensive.
+- **DATA-055** [data-quality, medium] `open` — Model-based data scoring: once a usable
+  checkpoint exists, use per-example perplexity/loss as a quality+difficulty signal to
+  drop the noisy high-ppl tail and/or build a curriculum. Closes the eval→data loop.
+- **EVAL-022** [eval/automation, medium] `open` — Wire periodic auto-eval into the
+  training loop (training_eval_history.py exists but is manual): every N steps run a tiny
+  held-out loss + a few completion probes → append to an eval-history JSONL, so
+  quality-over-time is visible and regressions surface early without manual runs.
+- **DOC-001** [docs, low] `open` — docs/deep-dives/fill-in-the-middle.md still documents
+  the deleted `FIMCollator` (removed in DATA-053); update it to the canonical
+  `dataset.FIMTrainingCollator` + `create_dataloader(fim_rate=...)` path and mention the
+  per-worker RNG reseed (DATA-052).
+- **TOOL-021** [tooling/UX, low] `open` — smoke_test.py uses a module-level
+  `FEATURE_ENABLED` toggle ("set FEATURE_ENABLED=False in smoke_test.py to skip") —
+  confusing leftover; replace with a documented `--skip-smoke` CLI flag / env var instead
+  of requiring users to edit the script.
+
+### Prior open/done items
+
 - **EXT-001** [extension/UX, medium] `done` (2026-06-13, fresh VS Code extension
   audit; tsc baseline clean) — `cola-coder.generateVerified` ran best-of-N
   (verifiedCandidates full generations + sandboxed tsc/python verification, 30s+)
