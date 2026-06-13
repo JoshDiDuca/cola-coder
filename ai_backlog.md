@@ -11,6 +11,71 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+- **SEC-001** [security/sandbox, high] `done` (2026-06-13, fresh curation-sandbox
+  audit) — The Docker sandbox did not actually enforce its timeout on untrusted
+  code. `DockerSandbox.run` (data/curation/docker_sandbox.py) relied on
+  `subprocess.run(timeout=…)`, which on `TimeoutExpired` kills only the
+  `docker run` CLIENT process — the daemon-managed container (and the untrusted
+  scraped code executing inside it) keeps running indefinitely; with `--rm` the
+  container is removed only when it EXITS, which a hung/malicious test command may
+  never do. So the sandbox's primary runtime control was defeated and cloned-repo
+  code could run unbounded on the host — exactly the "not monitoring the PC" risk.
+  FIX: launch each container with a unique `--name=cola-curation-<uuid4>` and, on
+  `TimeoutExpired`, force-remove it via `docker rm -f <name>` (new
+  `_force_remove_container`, best-effort/non-raising so cleanup failure never masks
+  the timeout result). `--network=none`, `--cap-drop=ALL`, `no-new-privileges`,
+  resource limits unchanged. Tests: test_curation.py +2 (mocked subprocess: run
+  carries --name + timeout issues `docker rm -f`; helper swallows errors); 48
+  pass. Follow-up hardening noted (force-remove on ALL exception paths + outer
+  wall-clock watchdog + read-only rootfs) — see SEC-002.
+- **SEC-002** [security/sandbox, medium] `open` (follow-up to SEC-001) — Further
+  Docker-sandbox hardening: also force-remove the container on any UNEXPECTED
+  exception path and on KeyboardInterrupt (not just TimeoutExpired); add an outer
+  wall-clock watchdog independent of subprocess timeout; consider `--read-only`
+  rootfs with an explicit writable `/tmp` tmpfs for the `run_with_install` copy
+  step. Defense-in-depth on the untrusted-code execution path.
+- **MEM-002** [memory/correctness, medium] `done` (2026-06-13, fresh memory audit)
+  — `MemoryManager._trim_session_log` (memory/manager.py) never actually trimmed
+  the rolling window. It used a `re.DOTALL` regex to split the file preamble from
+  the `## ` entries, but `.` matched newlines so the non-greedy capture swallowed
+  the first section bodies INTO the "header"; old entries were never dropped and
+  each trim re-appended the kept entries — DUPLICATING content and growing
+  `session_log.md` unbounded (silently inflating the retrieval corpus and the
+  on-disk log every interaction), the opposite of `session_log_max_entries`. FIX:
+  split on the first `## ` line (multiline anchor), keep the preamble, re-emit
+  exactly the last N sections. Tests: new test_memory_session_log.py +6 (window
+  size, recency, no-duplication, preamble preserved); 11 pass.
+- **BUG-122** [inference/correctness, high] `done` (2026-06-13, fresh load-path
+  audit) — `load_generator` (inference/loading.py) inspected the checkpoint for
+  vocab size and MoE config BEFORE resolving a `latest` pointer. Since
+  `checkpoints/<size>/latest` is a text pointer FILE (not a dir), the inspections
+  (`safe_open` on model.safetensors; `apply_moe_config_from_checkpoint` reading
+  moe_config.json) silently found nothing. For an upcycled MoE checkpoint loaded
+  via its DOCUMENTED `latest` path, MoE detection returned None → config stayed
+  dense → `Transformer` built dense FFNs → `load_model_only` crashed in
+  `_load_state_dict_tied` on unplaceable `experts.*` keys (even though
+  load_model_only itself resolves latest). Reachable from chat.py / serve.py /
+  smoke_test.py. FIX: resolve the pointer at the top of load_generator (same
+  pattern load_model_only uses). Tests: new test_loading.py +3; 25 pass.
+- **BUG-123** [inference/robustness, low] `open` (follow-up from the BUG-122 audit)
+  — In repo_context.py, `_file_tokens`/`import_graph` keys use unresolved
+  `str(self.root / rel_path)` while `_resolve_file_path`/`_resolve_import` return
+  `.resolve()`d paths. Currently harmless because `self.root` is pre-resolved, but
+  fragile under symlinks / Windows 8.3 short names — a key mismatch would drop
+  context files. Normalize both sides through `.resolve()`.
+- **SFT-001** [data-quality/correctness, high] `done` (2026-06-13, fresh SFT
+  audit) — `SFTDataset._tokenize_conversation` (data/sft_dataset.py)
+  right-truncated over-long conversations (`token_ids[:max_seq_len]`), keeping the
+  prompt and chopping the trailing assistant RESPONSE (which in ChatML sits at the
+  end). Any example whose prompt alone exceeded max_seq_len lost ALL its labeled
+  tokens → labels all -100 → `_load` then SILENTLY DISCARDED it as "no signal".
+  Net: long-context instruction examples — exactly what a 4096-seq coder model
+  most needs — vanished from the SFT set with no warning. FIX: build labels at
+  full length, then LEFT-truncate the prompt (keep BOS at pos 0 + the
+  max_seq_len-1 tail) so the response survives; labels sliced identically;
+  max_seq_len<=1 guarded. Rest of the masking path (multi-turn, boundary
+  alignment, EOS supervision, pad exclusion) verified correct. Tests:
+  test_sft_dataset_labels.py +4; 41 SFT tests pass.
 - **BUG-121** [reasoning/correctness, high] `done` (2026-06-13, fresh GRPO audit)
   — GRPO single-completion group produced NaN advantages that silently corrupted
   the policy. `compute_group_advantages(norm="std")` (grpo.py) divided
