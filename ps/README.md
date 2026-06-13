@@ -52,9 +52,20 @@ Run scripts from the `ps\` folder, e.g. `cd ps; .\cola-env-check.ps1`.
 |--------|--------------|
 | `cola-smoke.ps1` | Fast 8-check validation of a checkpoint (~30s) |
 | `cola-evaluate.ps1` | HumanEval pass@k |
+| `cola-eval-suite.ps1` | Run the full evaluation suite in sequence |
 | `cola-benchmark.ps1` | Throughput (tok/s) benchmark |
+| `cola-quality.ps1` | Auto quality report (syntax, types, tokens) |
+| `cola-safety.ps1` | Safety probes on generated code (secrets, dangerous patterns) |
+| `cola-compare.ps1` | Side-by-side comparison of two checkpoints |
 | `cola-lint.ps1` | `ruff check src\ scripts\ tests\` |
 | `cola-test.ps1` | `pytest tests\ -v` |
+
+## Tuning & specialists
+| Script | What it does |
+|--------|--------------|
+| `cola-vram.ps1` | Estimate VRAM for a config before training |
+| `cola-find-lr.ps1` | Learning-rate range finder |
+| `cola-router.ps1` | Train the semantic domain router (stage 8) |
 
 ## Export & docs
 | Script | What it does |

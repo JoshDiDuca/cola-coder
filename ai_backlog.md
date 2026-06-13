@@ -11,6 +11,43 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+### USER REQUEST 2026-06-13 — full PowerShell usability + menu testing
+Goal: every project workflow runnable from PowerShell with NO errors, and every
+menu entry verified to work. Scheduled agent: pick ONE TOOL-015* sub-item per
+cycle, build/extend the harness, fix any runtime errors found (log each as its
+own BUG-###), mark the sub-item done. These are tractable one-per-cycle.
+
+- **TOOL-015a** [tooling/test, high] `open` — Build a NON-INTERACTIVE menu-entry
+  smoke harness: a pytest that instantiates each sub-menu (DataMenu, TrainingMenu,
+  EvalMenu, ToolsMenu, PipelineMenu via `MasterMenu(tmp)`) and invokes each
+  menu-handler method with `cli.choose/confirm/print` monkeypatched to safe
+  defaults and `_run_script`/`_run_stage_script` stubbed (so nothing actually
+  trains/downloads), asserting NO unhandled exception is raised. Start with the
+  framework + ToolsMenu. Foundation enabled by BUG-116 (prompts already degrade
+  to defaults non-interactively). File: new tests/test_menu_entries_smoke.py.
+- **TOOL-015b** [tooling/test, high] `open` — Extend the TOOL-015a harness to
+  cover every DataMenu entry (collect/modify/score/inspect/prepare sub-menus).
+  Fix + log any handler that raises (e.g. stale paths, missing args).
+- **TOOL-015c** [tooling/test, high] `open` — Cover every TrainingMenu entry
+  (Pipeline Manager, Foundation, Pre-Training, Post-Training incl. MoE 7.5,
+  Alignment, Monitoring). Stub all `_run_script` calls. Fix/log failures.
+- **TOOL-015d** [tooling/test, high] `open` — Cover every EvalMenu + PipelineMenu
+  entry. Verify stage dispatch + artifact resolution don't raise on missing
+  checkpoints/data (should warn, not crash). Fix/log failures.
+- **TOOL-016** [tooling/UX, medium] `done` (2026-06-13) — PowerShell coverage:
+  added 7 wrappers so every common workflow has a direct shortcut (was 23 → 30):
+  cola-router (train_router), cola-vram (vram_estimate), cola-quality
+  (quality_report), cola-safety (safety_eval), cola-eval-suite (run_eval_suite),
+  cola-find-lr (find_lr), cola-compare (compare_models). All pass-throughs
+  (`@args`), `Split-Path -Parent $PSScriptRoot` pattern, ps/README.md updated, all
+  30 parse clean. Remaining un-wrapped (`upcycle_to_moe`) is niche and reachable
+  via cola-menu / cola-pipeline (stage 7) — not worth a dedicated wrapper.
+- **TOOL-017** [tooling/UX, low] `open` — Each `ps/cola-*.ps1` should fail fast
+  with a clear message if `.venv` is missing (currently `& .\.venv\Scripts\python`
+  errors cryptically). Add a shared guard (e.g. test the venv python path, print
+  "run cola-setup.ps1 first" and exit 1) — ideally via a small dot-sourced
+  `ps/_common.ps1` to stay DRY. Verify all scripts still parse + run.
+
 - **MODEL-012** [model/config-consistency, low] `open` (user decision — changes
   training behavior/repro) — The 2025-26 stabilizers `qk_norm: true` and
   `z_loss: 1.0e-4` are set ONLY in `configs/4080_max.yaml`; tiny/small/medium/large
