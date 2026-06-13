@@ -7,6 +7,29 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-13 — Evaluation (rotate: evaluation)
+
+- **HumanEval is saturated + contaminated** (frontier models ~93%, contamination
+  well-documented) — now just a ~90% qualification bar, not a selection signal.
+- 2026 real signals: **LiveCodeBench** (continuous, CONTAMINATION-FREE — sources
+  problems that POSTDATE training, so gains reflect real capability not memorization)
+  and **SWE-bench Verified** (300 curated real GitHub-issue tasks — agentic). Plus
+  HumanEval+ (more tests). Guidance: use only 2-3 benchmarks (avoid benchmark
+  overfitting) + build a **proprietary 100-500 example test set from production data**.
+- Relevance: refines EVAL-023. For cola-coder the contamination-free angle is the key
+  one — the model trains on scraped code, so a held-out eval must postdate/limit-out
+  the training set. The project's own GitHub scraper can build this. → IDEA-007.
+- Sources: LiveCodeBench (https://arxiv.org/pdf/2403.07974); SWE-Compass
+  (https://arxiv.org/pdf/2511.05459); DevBench (https://arxiv.org/pdf/2601.11895);
+  TokenMix "LLM Leaderboard 2026" (https://tokenmix.ai/blog/llm-leaderboard-2026);
+  lxt.ai LLM Benchmarks 2026 (https://www.lxt.ai/blog/llm-benchmarks/).
+- ORIGINAL idea → **IDEA-007**: self-refreshing CONTAMINATION-FREE eval. Use the
+  project's GitHub scraper to pull RECENT, license-clean TS/React files that postdate
+  the training cutoff, hold out the middle of each as a FIM task, and score the model's
+  infill with the SANDBOXED tsc/test verifier (LiveCodeBench philosophy, built from the
+  project's own scraper + FIM + sandbox). Refreshable each eval → gains can't be
+  memorization. Combines scraper + FIM + sandbox-verifier assets.
+
 ## 2026-06-13 — Data curation (rotate: data quality)
 
 - **Quality > quantity** is the dominant lesson (Phi-1 on 7B curated tokens beat

@@ -141,6 +141,8 @@ class TrainingMenu:
                  "detail": "Stage 7: Convert dense checkpoint to Mixture of Experts"},
                 {"label": "Fine-tune Upcycled MoE",
                  "detail": "Stage 7.5: Differentiate experts (low LR, short schedule)"},
+                {"label": "Generate Distillation Data",
+                 "detail": "Teacher (Qwen/DeepSeek local/cloud) → sandbox-verified SFT data"},
             ]
 
             choice = cli.choose("Post-Training:", options, allow_cancel=True)
@@ -157,6 +159,8 @@ class TrainingMenu:
                 self._moe_upcycling_menu()
             elif choice == 4:
                 self._moe_finetune_menu()
+            elif choice == 5:
+                self._generate_distillation_menu()
 
     def _alignment_menu(self) -> None:
         """Alignment: routing, reasoning, self-play."""
@@ -293,6 +297,66 @@ class TrainingMenu:
 
         if cli.confirm("Start generating instruction data?"):
             self._master._run_script("generate_instructions.py", args)
+            self._master._pause()
+
+    def _generate_distillation_menu(self) -> None:
+        """Generate SFT data by distilling from a teacher model (MODEL-024/028)."""
+        _print_section_header(
+            "Generate Distillation Data",
+            "Run prompts through a teacher (local Qwen/DeepSeek via Ollama, or cloud) "
+            "and keep sandbox-verified completions as SFT data",
+        )
+        cli.print(
+            "  Teacher is configured in [cyan]configs/distillation.yaml[/cyan] "
+            "(local Ollama/llama.cpp or cloud DeepSeek/OpenAI).\n"
+            "  Teacher output is UNTRUSTED — it is verified ONLY inside the sandbox "
+            "(SEC-014); remote prompts are secret-redacted.\n"
+        )
+
+        try:
+            prompts = input("  Prompts JSONL path: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            cli.warn("Cancelled.")
+            return
+        if not prompts:
+            cli.warn("No prompts path given; cancelled.")
+            return
+
+        try:
+            output = input("  Output JSONL [default: data/sft/distilled.jsonl]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            cli.warn("Cancelled.")
+            return
+        output = output or "data/sft/distilled.jsonl"
+
+        lang_choice = cli.choose(
+            "Language (for sandbox verification):",
+            [
+                {"label": "TypeScript", "detail": "tsc --strict rejection-sampling (recommended)"},
+                {"label": "None", "detail": "Keep all completions (no verification)"},
+            ],
+            allow_cancel=True,
+        )
+        if lang_choice is None:
+            return
+        language = "ts" if lang_choice == 0 else "none"
+
+        args = ["--prompts", prompts, "--output", output, "--language", language]
+        verify = language == "ts" and cli.confirm(
+            "Verify completions in the sandbox before keeping them?"
+        )
+        if verify:
+            args.append("--verify")
+
+        cli.kv_table({
+            "Prompts": prompts,
+            "Output": output,
+            "Language": language,
+            "Verify (sandboxed)": str(verify),
+        }, title="Distillation Data Config")
+
+        if cli.confirm("Start generating distillation data?"):
+            self._master._run_script("generate_distillation_data.py", args)
             self._master._pause()
 
     def _train_router_menu(self) -> None:

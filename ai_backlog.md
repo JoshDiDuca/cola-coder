@@ -201,10 +201,12 @@ cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N ve
   never-executes-completion); 23 distillation tests + ruff green; script --help smoke
   + ps parse OK. Remaining tiny follow-up: add a master-menu entry (→ MODEL-030;
   there's an existing distillation menu to extend).
-- **MODEL-030** [tooling/menu, low] `open` — Wire `generate_distillation_data.py` into
-  the master menu (project rule: every script needs a menu entry). There's an existing
-  distillation feature/menu (`features/knowledge_distillation.py`) to extend; add a
-  "Generate distillation data (teacher → SFT)" entry that runs the script.
+- **MODEL-030** [tooling/menu, low] `done` (2026-06-13) — Wired
+  `generate_distillation_data.py` into the master menu: TrainingMenu → Post-Training →
+  "Generate Distillation Data" (`_generate_distillation_menu`) prompts for prompts/
+  output/language/verify and runs the script. ruff clean; 96 menu-smoke tests green
+  (the new leaf cancels cleanly under stubs). Project rule (every script needs a menu
+  entry) satisfied for the distillation harness.
 - **MODEL-025** [model/training, high] `open` — **Adopt/validate Muon optimizer** as
   the default for small+ configs. Muon gives ~2× compute efficiency + ~33% memory
   savings vs AdamW and is data-efficient past the critical batch size (validated to
@@ -225,9 +227,19 @@ cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N ve
   tokens (pairs with DATA-055 model-based perplexity scoring to select the high-value
   tail and order easy→hard). Ref: Qwen3 multi-stage recipe (30T base → 5T HQ reasoning
   → long-context). Closes the eval→data loop.
-- **EVAL-023** [eval, low] `open` — Track harder 2026 code/agentic benchmarks beyond
-  the 62-problem HumanEval subset (the field has moved to agentic + repo-level evals).
-  Note for when the model is past ~step 10k and produces runnable code.
+- **EVAL-023** [eval, low] `open` (refined 2026-06-13 — see research-log) — HumanEval
+  is saturated/contaminated (a ~90% qualification bar, not a selection signal). Add
+  2026 real-signal evals: a **LiveCodeBench-style contamination-free** set (problems
+  postdating the training cutoff) and a **proprietary 100-500 held-out set** from the
+  project's own (recent, license-clean) scraped code; optionally SWE-bench-style
+  repo-level later. Use only 2-3 benchmarks (avoid overfitting). Defer until the model
+  produces runnable code (~step 10k+). See IDEA-007 for the contamination-free approach.
+- **IDEA-007** [research/eval, medium-potential] `open` (2026-06-13) — Self-refreshing
+  contamination-free eval: use the GitHub scraper to pull RECENT license-clean TS/React
+  files postdating the training cutoff, hold out the middle as a FIM task, and score
+  infill with the SANDBOXED tsc/test verifier (LiveCodeBench philosophy from the
+  project's own scraper + FIM + sandbox). Refreshable each eval so gains can't be
+  memorization. Combines scraper + FIM + sandbox-verifier assets.
 
 ### Backlog fill 2026-06-13 (discovery batch — model / application / code)
 
