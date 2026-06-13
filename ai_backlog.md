@@ -11,6 +11,62 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+- **DATA-052** [data-quality/training, high] `done` (2026-06-13, fresh
+  collator/FIM audit) — Dynamic FIM RNG was REPLICATED, not independent, across
+  DataLoader workers. `FIMTrainingCollator` builds its `FIMTransform` in the main
+  process with `seed=None`; with `persistent_workers=True` + `num_workers=8` (all
+  configs incl. the live run) the collator is pickled to each worker carrying an
+  IDENTICAL `random.Random` state, so all 8 workers made identical FIM decisions
+  (which samples FIM'd, PSM/SPM, split points) in lockstep — collapsing 8
+  independent augmentation streams into 1 and sharply reducing FIM diversity for
+  any `fim_rate>0` run (a real training-quality regression, not a crash). FIX:
+  `FIMTransform._ensure_worker_rng()` re-seeds once per worker on first use from
+  torch's distinct per-worker seed (mixed with base seed + worker id); no-op in
+  the main process / num_workers=0 so seeded reproducibility (tests) is preserved.
+  FIM is stochastic augmentation → safe on resume (no weight desync), so this was
+  landed despite the live run. Tests: test_fim.py::TestPerWorkerRngReseed +2;
+  60 FIM tests + ruff green. NOTE: the CURRENTLY-RUNNING process loaded the old
+  code, so it keeps replicated-RNG FIM until it restarts/reboots — see the
+  "restart?" decision surfaced to the user (run is only ~0.3% in).
+- **DATA-053** [data-quality/cleanup, low] `open` (from the DATA-052 audit,
+  zero-numeric-impact, deferred to avoid touching the live path mid-run) — (a)
+  `fim.py` `MIN/MAX_MIDDLE_FRAC` docstring claims the middle is bounded to 10-90%
+  of seq length; the constants actually bound the split-point INDICES and the
+  middle can be a single token — reword. (b) `collator.py` `FIMCollator` is
+  orphaned dead code (only its own test/docs reference it; the live path uses
+  `dataset.FIMTrainingCollator`) and its docstring still calls DATA-012
+  "optional/not wired" though DATA-012 is done — delete `FIMCollator` +
+  test_fim_collator.py, or mark deprecated.
+- **BUG-125** [tooling/pipeline, high] `done` (2026-06-13, fresh pipeline-scripts
+  audit) — `full_pipeline.py` Stage 6 (instruction-tune) and Stage 9
+  (train-reasoning) resolved the pretrained checkpoint via `ckpt_dir/"latest"`
+  directly. That pointer can be stale — it can reference a `step_*` dir later
+  pruned by `max_checkpoints` cleanup (notably when training restarts from scratch
+  in a dir already holding higher-step checkpoints) — so the stage would fine-tune
+  a deleted/older checkpoint or crash on load. The Pipeline Manager already scans
+  `step_*` dirs directly; full_pipeline had diverged. FIX: module-local
+  `_resolve_latest_checkpoint()` scans `step_*` (highest wins), falls back to the
+  pointer only when no step dir exists; wired into both stages. Tests:
+  test_full_pipeline_stage_args.py::TestStalePointerResolution +5; 13 pass.
+  (Audit class #5 stale references.)
+- **TOOL-020** [tooling/UX, medium] `done` (2026-06-13, fresh monitoring audit) —
+  `scripts/training_status.py` misreported a HEALTHY fresh run: `_describe_size`
+  used truthiness checks (`if step`, `if best_step`, `max_steps and step`) that
+  treat the valid value `0` as "missing". Very early in an unattended run (only
+  `step_00000000` saved, best loss at step 0) the CPU-only readout showed
+  `Latest step: ?`, `Progress: ?`, and dropped the `(step 0)` annotation — falsely
+  signalling "no progress" on a run that was fine. FIX: test `step is not None` /
+  `best_step is not None` (max_steps keeps its truthiness guard since 0/None means
+  "not configured"). Tests: new test_training_status.py +4 (verified failing
+  pre-fix). Sweep candidate: other monitoring code using `if value` for numeric
+  fields where 0 is legitimate.
+- **VALIDATION (2026-06-13):** First real checkpoint `step_00000500` validated
+  end-to-end on CPU through the hardened load path (`load_generator`, device=cpu):
+  weight-tying intact (`tok_emb.weight is output.weight`), no key mismatch, vocab
+  32768, ~100M params, tiny greedy generate ran without error. Confirms the
+  save→load→generate chain (incl. BUG-122/loading hardening) works on a genuine
+  artifact, not just synthetic ones. Op note: `CUDA_VISIBLE_DEVICES=""` does NOT
+  hide the GPU on this Windows/PyTorch build — use `-1`.
 - **SEC-009** [security/sandbox, high] `done` (2026-06-13, fresh curation-sandbox
   audit) (de-collided from a provisional "SEC-001" label used in the commit msg —
   SEC-001 was already taken by the 2026-06-11 in-stream-malware entry) — The
