@@ -231,20 +231,34 @@ class CrossDatasetDeduplicator:
 
         If a tokenizer is provided, decodes tokens to text first and uses
         character n-grams. Otherwise uses token-level n-grams directly.
+
+        DATA-046: a chunk SHORTER than ngram_size yields zero sliding-window
+        n-grams, so its MinHash signature is empty — and every empty signature
+        is identical, so distinct short chunks would all collide and be dropped
+        as false near-duplicates. When the window produces nothing but the
+        content is non-empty, fall back to the WHOLE content as a single gram so
+        distinct short chunks get distinct signatures (identical ones still
+        collide, which is correct). Truly empty content → empty list.
         """
         if tokenizer is not None:
             try:
                 text = tokenizer.decode(tokens.tolist())
                 # Character n-grams
-                return [text[i:i + self.ngram_size]
-                        for i in range(len(text) - self.ngram_size + 1)]
+                grams = [text[i:i + self.ngram_size]
+                         for i in range(len(text) - self.ngram_size + 1)]
+                if grams:
+                    return grams
+                return [text] if text else []
             except Exception:
                 pass
 
         # Fallback: token-level n-grams (convert to strings)
         tok_strs = [str(t) for t in tokens]
-        return [" ".join(tok_strs[i:i + self.ngram_size])
-                for i in range(len(tok_strs) - self.ngram_size + 1)]
+        grams = [" ".join(tok_strs[i:i + self.ngram_size])
+                 for i in range(len(tok_strs) - self.ngram_size + 1)]
+        if grams:
+            return grams
+        return [" ".join(tok_strs)] if tok_strs else []
 
     def _make_minhash(
         self,

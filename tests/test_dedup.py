@@ -141,6 +141,32 @@ class TestSelfMinHashDedup:
         assert removed == 1  # near-dup dropped
         assert len(deduped) == 2  # base + distinct kept
 
+    def test_short_distinct_chunks_not_falsely_collapsed(self):
+        # DATA-046: chunks SHORTER than ngram_size used to yield empty MinHash
+        # signatures that all collide — so distinct short chunks were wrongly
+        # dropped as near-dups. Rows of width 3 with ngram_size=5 hit that path.
+        data = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]], dtype=np.uint16)
+        dedup = CrossDatasetDeduplicator(method="minhash", threshold=0.8, ngram_size=5)
+        deduped, removed = dedup.deduplicate_self_array(data)
+        assert removed == 0  # all three are distinct — none should be dropped
+        assert len(deduped) == 3
+
+    def test_short_identical_chunks_still_deduped(self):
+        # The complement: identical short chunks must STILL collapse (Jaccard 1.0).
+        row = [1, 2, 3]
+        data = np.array([row, row, row], dtype=np.uint16)
+        dedup = CrossDatasetDeduplicator(method="minhash", threshold=0.8, ngram_size=5)
+        deduped, removed = dedup.deduplicate_self_array(data)
+        assert removed == 2
+        assert len(deduped) == 1
+
+    def test_tokens_to_ngrams_nonempty_for_short_input(self):
+        # Unit-level: a sub-ngram_size token array yields a (single) gram, not [].
+        dedup = CrossDatasetDeduplicator(method="minhash", ngram_size=5)
+        grams = dedup._tokens_to_ngrams(np.array([1, 2, 3], dtype=np.uint16))
+        assert grams and grams != [""]  # one whole-content gram, distinct per content
+        assert dedup._tokens_to_ngrams(np.array([], dtype=np.uint16)) == []
+
 
 class TestDedupNpyFile:
     """In-place file dedup — regression for DATA-004 (Windows mmap+replace lock).

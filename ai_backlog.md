@@ -11,20 +11,6 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
-- **DATA-046** [data-quality/robustness, low] `open` (latent — rarely reachable)
-  — `dedup.py` `_tokens_to_ngrams` returns an EMPTY n-gram list when a chunk's
-  content is shorter than `ngram_size` (char path: `len(text) < ngram_size`;
-  token path: `len(tokens) < ngram_size`). `_make_minhash` then builds a MinHash
-  with NO updates → a default/empty signature, and in `deduplicate_self_array`
-  every empty-signature chunk collides with the first (Jaccard treated as match),
-  so the 2nd+ short chunks get dropped as false near-dups even if their content
-  differs. Rarely reachable in practice because chunks are fixed seq_len (4096),
-  far larger than ngram_size — only a padded/near-empty tail chunk could trigger
-  it, and you'd need ≥2 such chunks for a collision (≤1-chunk data loss). Fix when
-  convenient: if a chunk yields zero n-grams, treat it as unique (skip the LSH
-  query/insert) or seed the signature with the chunk index. Low value; logged so
-  it isn't rediscovered. File: src/cola_coder/data/dedup.py:225-259, 405-411.
-
 - **MODEL-012** [model/config-consistency, low] `open` (user decision — changes
   training behavior/repro) — The 2025-26 stabilizers `qk_norm: true` and
   `z_loss: 1.0e-4` are set ONLY in `configs/4080_max.yaml`; tiny/small/medium/large
@@ -141,6 +127,23 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Done
+
+- **DATA-046** [data-quality/robustness, low] `done` (2026-06-13) — `dedup.py`
+  `_tokens_to_ngrams` returned an EMPTY n-gram list when a chunk's content was
+  shorter than `ngram_size`, so `_make_minhash` produced an empty signature; in
+  `deduplicate_self_array` all empty signatures collide (Jaccard treated as a
+  match), dropping distinct short chunks as false near-dups. Rarely hit (chunks
+  are normally fixed seq_len ≫ ngram_size) but a real silent-data-loss path for
+  short/padded-tail chunks. Fix: when the sliding window yields no grams but the
+  content is non-empty, fall back to the WHOLE content as a single gram —
+  distinct short chunks now get distinct signatures (identical ones still
+  collapse, which is correct); truly empty content → empty list. One-line change
+  in `_tokens_to_ngrams`, so it benefits every `_make_minhash` caller (self-dedup,
+  build_index, find_duplicates). Fresh-scan note: audited the SFT path
+  (sft_dataset label masking + train_sft loss shift `logits[:-1]`/`labels[1:]` +
+  right-pad collator) — all correct, no issue. Tests: 4 new in test_dedup.py
+  (short distinct chunks survive; short identical still dedup; ngrams non-empty
+  for short input, empty for empty). 23 dedup + checkpoint green; ruff clean.
 
 - **DATA-048** [tooling/staleness, low] `done` (2026-06-13) — Finished the
   per-dataset-dir migration BUG-117 started. Three runtime sites still resolved
