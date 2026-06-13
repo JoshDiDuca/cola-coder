@@ -11,6 +11,23 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+- **BUG-120** [inference/correctness, medium] `done` (2026-06-13, found during a
+  fresh inference-path scan) — `sample_next_token` (sampling.py) could emit a
+  garbage token when `no_repeat_ngram_size > 0` banned the ENTIRE vocabulary: the
+  greedy path (`temperature==0`) returns `logits.argmax()`, and argmax of an
+  all-`-inf` tensor is index 0 (an arbitrary `<unk>`/`<pad>`-class token); the
+  sampling path was protected by its `fallback_token`, but greedy was not. Common
+  trigger: deterministic completion (temp 0) + no-repeat-ngram on a short/looping
+  context where every candidate completes a seen n-gram. FIX: a ban now never
+  masks the whole vocab — `if 0 < len(banned) < logits.numel()` — so when banning
+  would leave nothing, the ban is skipped and the least-bad real token is kept
+  (strictly better than emitting <unk>). Fixes both greedy and sampling paths at
+  the source. Tests: test_inference.py::TestNoRepeatNgram +3 (greedy-all-banned →
+  real max not 0, sampling-all-banned → in-range token, partial-ban-still-applies);
+  26 inference tests + ruff green. Wiring verified end-to-end: server (all
+  request schemas) → generator (all 4 gen paths) → sampling all forward min_p /
+  repetition_penalty / no_repeat_ngram_size; only the best-of-N path omits
+  repetition_penalty by design (no per-candidate history).
 - **BUG-119** [training/robustness, high] `done` (2026-06-13) — `torch.compile`
   crashed training at step 0 instead of falling back to eager when its backend
   (Triton) is missing — common on Windows. `Trainer.__init__` called

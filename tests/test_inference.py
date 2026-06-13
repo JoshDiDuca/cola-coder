@@ -182,3 +182,39 @@ class TestNoRepeatNgram:
         logits = torch.tensor([0.0, 1.0, 5.0, 0.5])
         tok = sample_next_token(logits.clone(), temperature=0, generated_ids=[1, 2, 1])
         assert tok == 2  # no ban -> greedy picks the max
+
+    def test_greedy_all_banned_does_not_emit_garbage_token(self):
+        # ngram_size=1 bans every already-seen token. With all 4 vocab tokens
+        # seen, the ban would mask the ENTIRE vocab -> a naive argmax of an
+        # all -inf tensor returns index 0 (garbage). The all-vocab guard must
+        # skip the ban and fall back to the real greedy max (index 2).
+        logits = torch.tensor([0.0, 1.0, 5.0, 0.5])
+        tok = sample_next_token(
+            logits.clone(), temperature=0,
+            generated_ids=[0, 1, 2, 3], no_repeat_ngram_size=1,
+        )
+        assert tok == 2  # highest real logit, NOT 0
+
+    def test_sampling_all_banned_returns_valid_token(self):
+        # Same all-vocab-banned scenario on the stochastic path: must return a
+        # real in-range token, never a masked/garbage one.
+        logits = torch.tensor([0.0, 1.0, 5.0, 0.5])
+        toks = {
+            sample_next_token(
+                logits.clone(), temperature=1.0, top_k=0, top_p=1.0,
+                generated_ids=[0, 1, 2, 3], no_repeat_ngram_size=1,
+            )
+            for _ in range(50)
+        }
+        assert toks  # produced something
+        assert all(0 <= t < 4 for t in toks)
+
+    def test_partial_ban_still_applies(self):
+        # Guard must NOT disable bans that leave at least one option: token 2
+        # (the greedy max) is banned, so index 1 should win.
+        logits = torch.tensor([0.0, 1.0, 5.0, 0.5])
+        tok = sample_next_token(
+            logits.clone(), temperature=0,
+            generated_ids=[1, 2, 1], no_repeat_ngram_size=2,
+        )
+        assert tok == 1

@@ -90,8 +90,15 @@ def sample_next_token(
     # special-stop tokens is unnecessary — completing a stop n-gram is rare and the
     # caller's stop handling runs after sampling.
     if no_repeat_ngram_size > 0 and generated_ids:
-        for tid in _banned_ngram_tokens(generated_ids, no_repeat_ngram_size):
-            logits[tid] = float("-inf")
+        banned = _banned_ngram_tokens(generated_ids, no_repeat_ngram_size)
+        # Never ban the ENTIRE vocab: if every candidate would complete a seen
+        # n-gram, masking all of them makes the greedy path return argmax of an
+        # all -inf tensor (index 0 — a garbage <unk>/<pad> token), and forces the
+        # sampling path onto its all-masked fallback. Repeating the least-bad
+        # real token is strictly better, so skip the ban when it leaves nothing.
+        if 0 < len(banned) < logits.numel():
+            for tid in banned:
+                logits[tid] = float("-inf")
 
     # Temperature scaling
     if temperature == 0:
