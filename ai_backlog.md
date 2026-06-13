@@ -11,6 +11,73 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+- **EXT-001** [extension/UX, medium] `done` (2026-06-13, fresh VS Code extension
+  audit; tsc baseline clean) — `cola-coder.generateVerified` ran best-of-N
+  (verifiedCandidates full generations + sandboxed tsc/python verification, 30s+)
+  via `withProgress` with NO `cancellable` flag and `client.complete()` forwarding
+  no `AbortSignal` — so the Cancel button was absent and nothing could stop a slow
+  verified generation: the GPU stayed pinned and the status bar stuck in
+  "generating" until the orphaned request returned. FIX: `complete()` now
+  accepts+forwards a signal (`post()` already supported it); the progress is
+  `cancellable: true` and its token aborts an AbortController. `npx tsc --noEmit`
+  clean + esbuild bundle builds (dist/extension.js 53KB).
+- **EXT-002** [extension/bug, medium] `open` (VS Code audit) — `ServerManager.stop()`
+  resets `this.stopping=false` in a `finally` that can run BEFORE the process'
+  async `'exit'` event fires (esp. after the 5s SIGKILL timeout path, which
+  resolves immediately after `kill` without awaiting exit). The exit handler then
+  sees `!stopping` + a non-zero exit code and calls `_handleCrash()` → spurious
+  auto-restart of a server the user deliberately stopped (Windows-specific timing).
+  Fix: let the `'exit'` handler own clearing `stopping` (capture `wasStopping`
+  before clearing); resolve stop()'s wait only on the real `'exit'` event.
+- **EXT-003** [extension/bug, low] `open` (VS Code audit) — InlineCompletionProvider
+  (and the same pattern in ChatParticipant/LanguageModelProvider) registers
+  `token.onCancellationRequested(() => controller.abort())` without ever disposing
+  the subscription (no `finally`), and with `inline.debounceMs=0` issues an
+  unbounded FIM request per keystroke. Stale ghost text is already guarded by the
+  `token.isCancellationRequested` re-check, so impact is the listener/AbortController
+  retention + request pile-up. Fix: dispose the cancellation listener in a
+  `finally`; enforce a minimum effective debounce or skip if the token already fired.
+- **EXT-004** [extension/bug, low] `open` (VS Code audit) — `FimFormatter` truncates
+  the prefix on a raw char offset (`fullText.slice(offset - MAX_PREFIX_CHARS, ...)`)
+  which can split a UTF-16 surrogate pair (emoji/CJK in a comment) and send a lone
+  surrogate to the server, corrupting tokenization. Non-ASCII files only. Fix: snap
+  the start forward off a low-surrogate boundary.
+- **MODEL-015** [training/wiring, low-medium] `open` (optimizer report-only audit)
+  — `trainer.py` does NOT pass `wsd_decay_fraction` to `create_scheduler`, so the
+  WSD decay fraction is always the hardcoded default (0.2). A user adding
+  `training.wsd_decay_fraction` to a YAML would have it silently ignored — the
+  "phantom knob" class the rules warn about. NON-numerics-changing for the live
+  run (default already in effect; no config sets it), so safe to wire whenever.
+  The rest of the optimizer/scheduler audit found the LIVE path (bf16+AdamW+WSD)
+  SOUND: step-0 LR>0, decay starts at the right step, min_lr_ratio applied, no
+  param silently frozen, fp16 scaler-skip→no-scheduler-step invariant enforced.
+- **MODEL-016** [model/latent, low] `open` (model report-only audit) — Cached
+  multi-token decode has no causal mask: `attention.py` cached branch passes
+  `attn_mask=mask` with `is_causal` unset and `mask=None` for `start_pos>0`.
+  Correct ONLY because every decode step feeds exactly 1 token (verified). If any
+  future caller feeds >1 token at `start_pos>0` (chunked prefill, speculative
+  decode), queries would attend to future keys with no mask → silently wrong.
+  Latent (no current caller), inference-only, NOT live. Fix: `is_causal=(seq_len>1
+  and mask is None)` or build a rectangular causal mask in the cached branch.
+- **MODEL-017** [model/non-live, low] `open` (model report-only audit) — YaRN
+  `precompute_rope_freqs_yarn` (rope.py) uses a per-frequency Python loop with
+  `.item()` (slow, breaks tracing) and an interpolation-band `smooth` formula based
+  on the wavelength ratio rather than the standard YaRN linear ramp on the rotation
+  index — verify against the paper before any Stage-4 context-extension run. NOT
+  exercised by the live run (rope_scaling none) → safe to fix now.
+- **MODEL-018** [model/latent, low] `open` (model report-only audit) —
+  `attention.py` `expand_cache` (`cache_k[:1].expand(batch,...)`) is correct only
+  under its documented contract (batch=1 prefill ran first); no guard if called
+  with cache=None (silent no-op) or after a batch>1 prefill (wrongly collapses to
+  row 0). Used only by GRPO parallel generation, not pretraining. Add a contract
+  assertion. NOT live.
+- **MODEL-019** [model/design-note, info] `open` (model report-only audit) —
+  z_loss uses an unweighted token `.mean()` while CE uses the per-sample quality
+  weights; the live run uses both z_loss=1e-4 and `.weights.npy`, so low-quality
+  samples contribute equally to the (tiny, 1e-4) z-penalty. Defensible design
+  (z-loss is a logit-scale regularizer, not an LM cost) — flagged so the choice is
+  conscious. Changing it is NUMERICS-CHANGING for the live objective → do NOT
+  change mid-run; decide deliberately later.
 - **DATA-052** [data-quality/training, high] `done` (2026-06-13, fresh
   collator/FIM audit) — Dynamic FIM RNG was REPLICATED, not independent, across
   DataLoader workers. `FIMTrainingCollator` builds its `FIMTransform` in the main
