@@ -1,0 +1,56 @@
+# Distillation teacher config — pick ONE teacher (local or cloud) to generate
+# completions the small cola-coder student is then SFT-trained on (black-box /
+# sequence-level distillation; see src/cola_coder/distillation/). Enables MODEL-024.
+#
+# The teacher's TEXT outputs are collected (logits not needed → works across the
+# student's custom tokenizer), so a CLOUD teacher uses zero local GPU and a LOCAL
+# teacher can run on a spare GPU / CPU, off the training GPU.
+#
+# SECURITY: teacher-generated code is UNTRUSTED — verification must sandbox it
+# (SandboxedRunner / tsc). For REMOTE teachers, prompts are secret-redacted before
+# sending (redact_secrets). Never commit API keys — set them via env vars.
+
+teacher:
+  backend: openai_compatible      # the only implemented backend (covers local + cloud)
+  # --- choose your teacher by uncommenting ONE block below ---
+
+  # Local Qwen via Ollama (run: `ollama run qwen2.5-coder:7b`) — keyless, off-GPU on the trainer:
+  model: "qwen2.5-coder:7b"
+  base_url: "http://localhost:11434/v1"
+  api_key_env: null               # local servers need no key
+  timeout: 180.0
+  redact_secrets: true            # ignored for localhost (no leak surface)
+
+  # Local DeepSeek-Coder via Ollama:
+  # model: "deepseek-coder-v2:16b"
+  # base_url: "http://localhost:11434/v1"
+  # api_key_env: null
+
+  # Local via llama.cpp / vLLM / LM Studio (OpenAI-compatible server on some port):
+  # model: "Qwen2.5-Coder-7B-Instruct"
+  # base_url: "http://localhost:8000/v1"
+  # api_key_env: null
+
+  # Cloud — DeepSeek API (set DEEPSEEK_API_KEY in your environment):
+  # model: "deepseek-chat"
+  # base_url: "https://api.deepseek.com"
+  # api_key_env: "DEEPSEEK_API_KEY"
+  # redact_secrets: true          # scrub secrets out of prompts before the cloud call
+
+  # Cloud — OpenAI (set OPENAI_API_KEY):
+  # model: "gpt-4o-mini"
+  # base_url: "https://api.openai.com/v1"
+  # api_key_env: "OPENAI_API_KEY"
+
+  # Cloud — OpenRouter (any hosted model; set OPENROUTER_API_KEY):
+  # model: "qwen/qwen-2.5-coder-32b-instruct"
+  # base_url: "https://openrouter.ai/api/v1"
+  # api_key_env: "OPENROUTER_API_KEY"
+
+# Generation defaults for distillation completions (used by the upcoming
+# generate_distillation_data.py harness — MODEL-024 follow-up).
+generation:
+  max_tokens: 512
+  temperature: 0.7
+  verify: true                    # sandbox-verify (tsc/tests) before keeping a sample
+  keep_only_verified: true        # reject-sampling: SFT only on teacher outputs that pass

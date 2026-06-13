@@ -44,6 +44,27 @@ cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N ve
   with test-verification. Recipe: teacher GRPO → forward-KL warmup + OPD bridge →
   optional student sparse RL. Refs: Thinking Machines Lab OPD blog; arXiv 2604.00626
   (survey), 2604.13016 (recipe). Stage as a new pipeline step after SFT.
+  PROGRESS (2026-06-13): teacher backend landed — `src/cola_coder/distillation/`
+  with `OpenAICompatibleTeacher` (one backend covers LOCAL Qwen/DeepSeek via
+  Ollama/llama.cpp/vLLM AND cloud DeepSeek/OpenAI/OpenRouter — black-box/SeqKD so
+  it's tokenizer-agnostic + GPU-light; secret-redaction for remote endpoints) +
+  `build_teacher()` factory + configs/distillation.yaml + 15 tests. Remaining
+  sub-tasks: MODEL-027 (in-process HF teacher), MODEL-028 (generate-data harness),
+  then the OPD/SFT bridge + pipeline stage.
+- **MODEL-027** [model/distillation, medium] `open` — In-process HuggingFace teacher
+  backend (`backend: hf_local`) that loads Qwen/DeepSeek weights via transformers on
+  a CHOSEN device (e.g. the spare RTX 3080, never the training GPU), for users who'd
+  rather not run a server. The OpenAICompatibleTeacher already covers local via
+  Ollama/llama.cpp, so this is a convenience path; lazy-import transformers so it's
+  not a hard dep. Wire into `build_teacher()` (the `hf_local` branch currently raises
+  NotImplementedError with a pointer here).
+- **MODEL-028** [model/distillation, high] `open` — `scripts/generate_distillation_data.py`
+  harness: run a prompt set (instructions and/or FIM tasks) through the configured
+  teacher (configs/distillation.yaml), SANDBOX-verify each completion (tsc/tests via
+  SandboxedRunner — teacher output is untrusted), keep only verified ones
+  (reject-sampling, per IDEA-002), and write ChatML `{"messages":[...]}` JSONL that
+  train_sft.py consumes directly. Add a menu entry + ps wrapper (project convention).
+  This is the data-generation half that makes MODEL-024 usable end-to-end.
 - **MODEL-025** [model/training, high] `open` — **Adopt/validate Muon optimizer** as
   the default for small+ configs. Muon gives ~2× compute efficiency + ~33% memory
   savings vs AdamW and is data-efficient past the critical batch size (validated to
