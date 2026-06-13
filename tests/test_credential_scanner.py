@@ -147,6 +147,49 @@ class TestModes:
         processed = CredentialScanner(mode="reject").process(code)
         assert processed is None
 
+    def test_strip_redacts_full_private_key_body(self) -> None:
+        # Regression (DATA-047): strip mode used to redact only the BEGIN header
+        # line and leave the entire secret key body in the output. The whole PEM
+        # block (BEGIN..END) must be replaced so no key material survives.
+        pem = (
+            "before\n"
+            "-----BEGIN PRIVATE KEY-----\n"
+            "MIIEvQIBADANBgkqhkiGSECRETBODYLINE1\n"
+            "SECRETBODYLINE2morematerial\n"
+            "-----END PRIVATE KEY-----\n"
+            "after"
+        )
+        processed = CredentialScanner(mode="strip").process(pem)
+        assert processed is not None
+        assert "[REDACTED]" in processed
+        # No key material may leak through.
+        assert "SECRETBODYLINE1" not in processed
+        assert "SECRETBODYLINE2" not in processed
+        assert "-----BEGIN PRIVATE KEY-----" not in processed
+        assert "-----END PRIVATE KEY-----" not in processed
+        # Surrounding code is preserved.
+        assert "before" in processed
+        assert "after" in processed
+
+    def test_strip_redacts_truncated_private_key(self) -> None:
+        # A header with no END marker (truncated key) must still be redacted.
+        trunc = "-----BEGIN RSA PRIVATE KEY-----\nMIIETRUNCATEDBODY..."
+        processed = CredentialScanner(mode="strip").process(trunc)
+        assert processed is not None
+        assert "[REDACTED]" in processed
+        assert "-----BEGIN RSA PRIVATE KEY-----" not in processed
+
+    def test_strip_redacts_full_certificate_body(self) -> None:
+        cert = (
+            "-----BEGIN CERTIFICATE-----\n"
+            "MIIDXTCCAkWgAwIBAGIJALCERTBODY\n"
+            "-----END CERTIFICATE-----"
+        )
+        processed = CredentialScanner(mode="strip").process(cert)
+        assert processed is not None
+        assert processed.strip() == "[REDACTED]"
+        assert "CERTBODY" not in processed
+
     def test_clean_code_passes_all_modes(self) -> None:
         code = "const x: number = 42;"
         for mode in ("off", "warn", "strip", "reject"):

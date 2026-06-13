@@ -62,9 +62,15 @@ class CredentialScanner:
         (r"redis://[^\s\"'`]+", "Redis Connection String"),
         (r"mssql://[^\s\"'`]+", "MSSQL Connection String"),
 
-        # Cryptographic material
-        (r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----", "Private Key"),
-        (r"-----BEGIN CERTIFICATE-----", "Certificate"),
+        # Cryptographic material. Match the WHOLE PEM block (BEGIN..END), not
+        # just the header line, so strip mode redacts the secret key body too —
+        # otherwise process("strip") left every byte of the private key in the
+        # output and only blanked the header. `[\s\S]*?` spans newlines without
+        # needing a re.DOTALL flag; the END marker is optional so a truncated key
+        # (header only, no END) still matches and is redacted.
+        (r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----"
+         r"(?:[\s\S]*?-----END (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----)?", "Private Key"),
+        (r"-----BEGIN CERTIFICATE-----(?:[\s\S]*?-----END CERTIFICATE-----)?", "Certificate"),
 
         # Generic secrets (high-confidence patterns only)
         (r"""['"](?:password|passwd|pwd|secret|api_key|apikey|api_secret|access_token|auth_token)\s*['"]?\s*[:=]\s*['"][^'"]{8,}['"]""", "Hardcoded Secret"),
