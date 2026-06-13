@@ -11,6 +11,16 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+- **DATA-048** [tooling/staleness, low] `open` — Leftover hardcoded
+  `data/processed/train_data.npy` DEFAULT paths after the per-dataset-dir
+  migration (BUG-117): `features/crash_recovery.py:234`,
+  `features/data_quality_report.py:189`, `master_menu.py:1254` (router
+  `--source`), and `menus/data_menu.py:1432,1518` (`/ "processed"`). These are
+  overridable default suggestions, not detection logic, so they don't cause a
+  false "missing" — but on a fresh per-dataset-dir setup they point at a path
+  that won't exist. Fix: resolve via `DatasetResolver.get_dataset_dir()` /
+  `get_tokenizer_path()` like the rest of the pipeline. Low impact; batch them.
+
 - **DATA-046** [data-quality/robustness, low] `open` (latent — rarely reachable)
   — `dedup.py` `_tokens_to_ngrams` returns an EMPTY n-gram list when a chunk's
   content is shorter than `ngram_size` (char path: `len(text) < ngram_size`;
@@ -141,6 +151,45 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Done
+
+- **BUG-117** [tooling/UX, high] `done` (2026-06-13) — The master-menu Quick Start
+  reported `data: missing` even with a fully-prepared 13.78 GB `code_data.npy`
+  present, so it would re-run collection/prep and re-download gigabytes. Root
+  cause: `_detect_pipeline_status` (master_menu.py:333) scanned the LEGACY
+  `data_dir/processed/*.npy`, but datasets actually live in the per-dataset dir
+  (`data/<dataset-name>/`) — the SAME resolver the tokenizer check already used
+  (line 328), so tokenizer showed "ready" while data showed "missing". It also
+  counted `.weights`/`.scores` SIDECARS as extra "datasets". Fix: scan
+  `DatasetResolver.get_dataset_dir()` first (excluding sidecars), fall back to the
+  legacy `processed/` dir for older setups. Keeps the "N dataset(s)" string the
+  Quick Start gating (`"dataset" in status["data"]`) depends on. Follow-up
+  (DATA-048): a few stale `data/processed/train_data.npy` DEFAULT paths remain in
+  crash_recovery.py / data_quality_report.py / router data source — low impact
+  (overridable suggestions, not detection). Tests: 2 in test_menu_smoke.py
+  (resolver-dir dataset detected as "1 dataset(s)" w/ sidecars excluded; empty →
+  "missing"). 16 menu-smoke + checkpoint green; ruff clean.
+
+- **BUG-116** [tooling/Windows, high] `done` (2026-06-12) — Interactive CLI prompts
+  CRASHED the whole pipeline on Windows when run non-interactively. The user's Full
+  Pipeline run died at prepare_data's "overwrite existing data?" chooser with
+  `prompt_toolkit ... NoConsoleScreenBufferError: No Windows console found` —
+  `cli.choose` calls `questionary.select(...).ask()`, whose console error escaped
+  the `except ImportError` (only missing-questionary was caught), and the
+  numbered-menu fallback's `input()` would have `EOFError`-looped forever anyway.
+  Hits any script run as a pipeline subprocess / with redirected I/O / in a
+  terminal prompt_toolkit can't drive. Fix (cli.py): both `choose` and `confirm`
+  now catch the broad console error and fall through; `choose` gained a `default`
+  index and returns it (instead of crashing/looping) when stdin is unavailable
+  (`EOFError`); `prepare_data._resolve_output` passes `default=0` ("create new",
+  non-destructive) so automated runs proceed (pass `--output-name` to control).
+  Tests: 7 in test_cli_non_interactive.py (choose/confirm degrade to default; the
+  exact `_resolve_output` overwrite-chooser path no longer raises). Also (user ask)
+  brought the new `ps\` PowerShell scripts up to date: fixed the stale
+  `$PSScriptRoot\cola-coder` path (now `Split-Path -Parent $PSScriptRoot`),
+  dropped the obsolete hardcoded `tokenizer.json` (auto-resolves), added 7 scripts
+  for uncovered workflows (full pipeline, collect, sft, smoke, chat, env-check,
+  export) + a ps\README.md index — 23 scripts, all parse-clean; cola-env-check &
+  cola-lint verified end-to-end. 120 menu/pipeline/cli + checkpoint tests pass.
 
 - **ROUTER-001** [model/router quality, medium] `done` (2026-06-12) — Both routers
   (`MLPRouter`, `TransformerRouter` in features/router_model.py) mean-pooled over

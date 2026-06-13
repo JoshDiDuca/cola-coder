@@ -330,8 +330,26 @@ class MasterMenu:
             tokenizer_path = self._resolve_path(self.storage.tokenizer_path)
         status["tokenizer"] = "ready" if tokenizer_path.exists() else "missing"
 
-        data_dir = self._resolve_path(self.storage.data_dir) / "processed"
-        npy_files = list(data_dir.glob("*.npy")) if data_dir.exists() else []
+        # Datasets live in the per-dataset dir (the SAME resolver the tokenizer
+        # uses), not the legacy data_dir/processed/. The old check looked only at
+        # processed/, so it reported "missing" even with a fully-prepared dataset
+        # present (BUG-117) — and it counted .weights/.scores SIDECARS as extra
+        # "datasets". Scan the resolver dir first, fall back to processed/ for
+        # older setups, and exclude sidecars from the count.
+        def _real_npys(d: Path) -> list[Path]:
+            return [
+                f for f in d.glob("*.npy")
+                if ".weights" not in f.name and ".scores" not in f.name
+            ] if d.exists() else []
+
+        npy_files: list[Path] = []
+        try:
+            from cola_coder.data.dataset_resolver import DatasetResolver
+            npy_files = _real_npys(DatasetResolver.get_dataset_dir())
+        except Exception:
+            pass
+        if not npy_files:
+            npy_files = _real_npys(self._resolve_path(self.storage.data_dir) / "processed")
         status["data"] = f"{len(npy_files)} dataset(s)" if npy_files else "missing"
 
         ckpt_dir = self._resolve_path(self.storage.checkpoints_dir)

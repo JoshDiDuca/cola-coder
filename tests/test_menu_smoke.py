@@ -47,6 +47,44 @@ def test_master_menu_uses_cwd_when_no_root():
     assert menu.project_root == Path.cwd()
 
 
+# ── 1b. _detect_pipeline_status data detection (BUG-117) ──────────────────────
+
+def test_data_detected_from_resolver_dir(tmp_path, monkeypatch):
+    """BUG-117: datasets live in the per-dataset resolver dir, not data_dir/
+    processed/. A prepared dataset there must be DETECTED (was 'missing'), and
+    .weights/.scores sidecars must NOT be counted as datasets."""
+    import cola_coder.data.dataset_resolver as dr
+
+    ds = tmp_path / "javascript-python-typescript"
+    ds.mkdir()
+    (ds / "code_data.npy").write_bytes(b"\x00")           # a real dataset
+    (ds / "code_data.weights.npy").write_bytes(b"\x00")   # sidecar — excluded
+    (ds / "code_data.scores.npy").write_bytes(b"\x00")    # sidecar — excluded
+    monkeypatch.setattr(
+        dr.DatasetResolver, "get_dataset_dir", staticmethod(lambda *a, **k: ds)
+    )
+
+    menu = _make_menu(tmp_path)
+    status = menu._detect_pipeline_status()
+    assert status["data"] == "1 dataset(s)"  # not "missing", not "3 dataset(s)"
+    assert "dataset" in status["data"]  # contract used by Quick Start gating
+
+
+def test_data_missing_when_no_datasets(tmp_path, monkeypatch):
+    import cola_coder.data.dataset_resolver as dr
+
+    empty = tmp_path / "empty_ds"
+    empty.mkdir()
+    monkeypatch.setattr(
+        dr.DatasetResolver, "get_dataset_dir", staticmethod(lambda *a, **k: empty)
+    )
+    menu = _make_menu(tmp_path)
+    # Point the legacy data_dir/processed/ fallback at a non-existent dir too.
+    monkeypatch.setattr(menu.storage, "data_dir", str(tmp_path / "no_such"))
+    status = menu._detect_pipeline_status()
+    assert status["data"] == "missing"
+
+
 # ── 2. _pick_checkpoint with no checkpoints ───────────────────────────────────
 
 def test_pick_checkpoint_returns_none_when_no_checkpoints(tmp_path):
