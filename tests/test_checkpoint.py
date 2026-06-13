@@ -25,6 +25,8 @@ from cola_coder.training.checkpoint import (
     load_model_only,
     get_checkpoint_info,
     detect_latest_checkpoint,
+    find_resume_checkpoint,
+    architecture_mismatch,
     _maybe_resize_vocab,
 )
 from cola_coder.training.optimizer import create_optimizer, create_scheduler
@@ -548,6 +550,84 @@ class TestDetectLatestCheckpoint:
         assert result is not None
         path, info = result
         assert info["step"] == 500
+
+
+# ---------------------------------------------------------------------------
+# find_resume_checkpoint  (BUG-118: --auto-resume safety)
+# ---------------------------------------------------------------------------
+
+class TestFindResumeCheckpoint:
+    """--auto-resume must stay inside the config's OWN output_dir AND refuse
+    architecturally-incompatible checkpoints instead of crashing in load."""
+
+    @staticmethod
+    def _save_in(output_dir: Path, model_cfg: ModelConfig, step: int) -> None:
+        model = Transformer(model_cfg)
+        opt, sched = _make_training_state(model)
+        save_checkpoint(
+            model, opt, sched, step=step, loss=2.0,
+            config={"model": vars(model_cfg)}, output_dir=str(output_dir),
+        )
+
+    def test_only_picks_from_own_output_dir(self, tmp_path):
+        """A checkpoint in a SIBLING run dir must never be selected — even when
+        its architecture matches and its step is higher."""
+        cfg = _tiny_config()
+        # Sibling run "small" at a high step — must be ignored.
+        self._save_in(tmp_path / "small", cfg, step=100_000)
+        # This run "small_react_best" at a low step — must be the one chosen.
+        own = tmp_path / "small_react_best"
+        self._save_in(own, cfg, step=1000)
+
+        result = find_resume_checkpoint(str(own), model_config=vars(cfg))
+        assert result is not None
+        path, info = result
+        assert info["step"] == 1000
+        assert str(own) in path  # never the sibling
+
+    def test_refuses_architecture_mismatch_qk_norm(self, tmp_path):
+        """The BUG-118 scenario: a non-qk_norm checkpoint vs a qk_norm config is
+        refused (returns None) rather than handed back to crash in load."""
+        saved_cfg = _tiny_config()              # qk_norm defaults to False
+        own = tmp_path / "small_react_best"
+        self._save_in(own, saved_cfg, step=5000)
+
+        wants_qk_norm = _tiny_config()
+        wants_qk_norm.qk_norm = True            # architecture differs
+
+        result = find_resume_checkpoint(str(own), model_config=vars(wants_qk_norm))
+        assert result is None
+
+        # And the helper that drives the decision reports the offending field.
+        diffs = architecture_mismatch(
+            {"model": vars(saved_cfg)}.get("model"), vars(wants_qk_norm)
+        )
+        assert any("qk_norm" in d for d in diffs)
+
+    def test_resumes_when_architecture_matches(self, tmp_path):
+        own = tmp_path / "small_react_best"
+        cfg = _tiny_config()
+        self._save_in(own, cfg, step=2000)
+
+        result = find_resume_checkpoint(str(own), model_config=vars(cfg))
+        assert result is not None
+        assert result[1]["step"] == 2000
+
+    def test_no_model_config_skips_validation(self, tmp_path):
+        own = tmp_path / "run"
+        self._save_in(own, _tiny_config(), step=10)
+        result = find_resume_checkpoint(str(own))
+        assert result is not None
+        assert result[1]["step"] == 10
+
+    def test_missing_dir_returns_none(self, tmp_path):
+        assert find_resume_checkpoint(str(tmp_path / "nope")) is None
+
+    def test_architecture_mismatch_detects_core_fields(self):
+        base = vars(_tiny_config())
+        diffs = architecture_mismatch({**base, "dim": 999}, base)
+        assert any("dim" in d for d in diffs)
+        assert architecture_mismatch(base, dict(base)) == []
 
 
 # ---------------------------------------------------------------------------
