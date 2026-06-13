@@ -81,9 +81,10 @@ export class LanguageModelProvider implements vscode.Disposable {
             .join(''),
     }));
 
-    // Wire up cancellation
+    // Wire up cancellation (dispose the listener when the request settles so
+    // it isn't retained for the token's lifetime — EXT-003).
     const controller = new AbortController();
-    token.onCancellationRequested(() => controller.abort());
+    const cancelSub = token.onCancellationRequested(() => controller.abort());
 
     try {
       await this.client.chatStream(
@@ -106,6 +107,8 @@ export class LanguageModelProvider implements vscode.Disposable {
         logger.error(`LM Provider error: ${err}`);
         throw err;
       }
+    } finally {
+      cancelSub.dispose();
     }
   }
 

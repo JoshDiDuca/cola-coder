@@ -182,7 +182,9 @@ export class ChatParticipant implements vscode.Disposable {
     // ── Stream the response ────────────────────────────────────────────────
 
     const controller = new AbortController();
-    token.onCancellationRequested(() => controller.abort());
+    // Dispose the listener when the request settles (in finally) so it isn't
+    // retained for the token's lifetime — EXT-003.
+    const cancelSub = token.onCancellationRequested(() => controller.abort());
 
     // For /generate: echo the user's code prefix in a code block first
     if (isRawCompletion) {
@@ -255,6 +257,7 @@ export class ChatParticipant implements vscode.Disposable {
         stream.markdown(`\n\n**Error:** ${message}`);
       }
     } finally {
+      cancelSub.dispose();
       const elapsedSecs = (Date.now() - startedAt) / 1000;
       const tokensPerSec = deltaCount > 0 && elapsedSecs > 0.5
         ? Math.round(deltaCount / elapsedSecs)

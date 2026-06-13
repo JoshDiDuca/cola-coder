@@ -96,14 +96,23 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   process; `stop()` no longer clears `stopping`/nulls `process`, waits on the real
   `'exit'` (SIGKILL at 5s, 6s zombie fallback that leaves `stopping` set so no
   spurious restart). `npx tsc --noEmit` clean + esbuild bundle builds.
-- **EXT-003** [extension/bug, low] `open` (VS Code audit) — InlineCompletionProvider
-  (and the same pattern in ChatParticipant/LanguageModelProvider) registers
-  `token.onCancellationRequested(() => controller.abort())` without ever disposing
-  the subscription (no `finally`), and with `inline.debounceMs=0` issues an
-  unbounded FIM request per keystroke. Stale ghost text is already guarded by the
-  `token.isCancellationRequested` re-check, so impact is the listener/AbortController
-  retention + request pile-up. Fix: dispose the cancellation listener in a
-  `finally`; enforce a minimum effective debounce or skip if the token already fired.
+- **EXT-003** [extension/bug, low] `done` (2026-06-13, listener-dispose part) —
+  InlineCompletionProvider, ChatParticipant, and LanguageModelProvider registered
+  `token.onCancellationRequested(() => controller.abort())` without disposing the
+  subscription, leaking a listener + AbortController closure per request for the
+  token's lifetime. FIX: capture the Disposable and `dispose()` it in a `finally`
+  (InlineCompletion: also disposes on the early already-cancelled return; Chat:
+  folded into its existing finally). `npx tsc --noEmit` + esbuild clean. Remaining
+  sub-item (debounceMs=0 unbounded request pile-up) tracked as EXT-008 — the
+  stale-ghost-text case is already guarded by the token re-check, so this is the
+  lower-impact half.
+- **EXT-008** [extension/perf, low] `open` (follow-up from EXT-003) — With
+  `inline.debounceMs=0` the InlineCompletionProvider issues an unbounded FIM
+  request per keystroke; stale results are already discarded (token re-check) so
+  there's no wrong-output bug, but rapid typing piles up in-flight requests behind
+  the server's `_gen_lock`. Enforce a small minimum effective debounce (or coalesce
+  to the latest pending request) so a burst can't queue N fetches. Pairs with the
+  server-side cap in INFER-024.
 - **EXT-004** [extension/bug, low] `open` (VS Code audit) — `FimFormatter` truncates
   the prefix on a raw char offset (`fullText.slice(offset - MAX_PREFIX_CHARS, ...)`)
   which can split a UTF-16 surrogate pair (emoji/CJK in a comment) and send a lone

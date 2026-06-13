@@ -111,10 +111,14 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
     // underlying fetch is cancelled as soon as the token fires (i.e. the
     // user typed another character before we got a response).
     const controller = new AbortController();
-    token.onCancellationRequested(() => controller.abort());
+    // Capture the Disposable so we can release the listener once the request
+    // settles — otherwise every keystroke leaks a cancellation listener +
+    // AbortController closure for the lifetime of the token (EXT-003).
+    const cancelSub = token.onCancellationRequested(() => controller.abort());
 
     // Bail out early if already cancelled before we even start the request.
     if (token.isCancellationRequested) {
+      cancelSub.dispose();
       return undefined;
     }
 
@@ -150,6 +154,8 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
         logger.error(`Inline completion error: ${String(err)}`);
       }
       return undefined;
+    } finally {
+      cancelSub.dispose();
     }
   }
 
