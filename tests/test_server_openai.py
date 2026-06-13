@@ -424,6 +424,88 @@ def _sse_objects(body: str) -> list:
     return objs
 
 
+class TestStreamChunksLocked:
+    """INFER-021: stream_chunks_locked must hold the GPU lock ONLY around each
+    decode step, never across the network yield. The old SSE code wrapped the
+    whole stream loop — including the `yield` — in `async with _gen_lock`, so a
+    slow/paused streaming client kept the lock for the stream's entire lifetime,
+    blocking every other request (inline FIM completions and the extension's 5s
+    /health poll).
+    """
+
+    def test_lock_is_free_while_caller_holds_a_chunk(self) -> None:
+        import asyncio
+
+        from cola_coder.inference.server import stream_chunks_locked
+
+        async def scenario() -> None:
+            lock = asyncio.Lock()
+
+            async def never_disconnected() -> bool:
+                return False
+
+            def chunks():
+                yield "a"
+                yield "b"
+                yield "c"
+
+            agen = stream_chunks_locked(chunks(), lock, never_disconnected)
+
+            # Pull the first chunk. The helper has now yielded back to us, having
+            # RELEASED the lock around the decode step — so a competing task
+            # (a concurrent /generate or /health) must be able to grab it.
+            first = await agen.__anext__()
+            assert first == "a"
+            assert not lock.locked(), "GPU lock held across the network yield"
+
+            # A competing request can acquire and use the lock mid-stream.
+            async with lock:
+                competing_ran = True
+            assert competing_ran
+
+            # Streaming still completes correctly afterward.
+            rest = [c async for c in agen]
+            assert rest == ["b", "c"]
+            assert not lock.locked()
+
+        asyncio.run(scenario())
+
+    def test_disconnect_stops_pulling_and_closes_generator(self) -> None:
+        import asyncio
+
+        from cola_coder.inference.server import stream_chunks_locked
+
+        closed = {"value": False}
+
+        async def scenario() -> None:
+            lock = asyncio.Lock()
+            pulled = []
+
+            async def disconnected_after_first() -> bool:
+                # Connected for the first chunk, gone thereafter.
+                return len(pulled) >= 1
+
+            def chunks():
+                try:
+                    for tok in ("a", "b", "c"):
+                        yield tok
+                finally:
+                    closed["value"] = True
+
+            agen = stream_chunks_locked(
+                chunks(), lock, disconnected_after_first
+            )
+            async for c in agen:
+                pulled.append(c)
+
+            # Only the first chunk was delivered (disconnect detected next loop);
+            # the underlying generator was closed so its cleanup ran.
+            assert pulled == ["a"]
+
+        asyncio.run(scenario())
+        assert closed["value"], "underlying stream generator was not closed"
+
+
 class TestStreamingUsage:
     def test_chat_stream_emits_usage_when_requested(self, client: TestClient) -> None:
         resp = client.post(
