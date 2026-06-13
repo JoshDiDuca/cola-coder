@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import textwrap
+import threading
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -691,6 +692,263 @@ class TestDockerCleanupOnAllExitPaths:
         assert len(run_names) == 1
         assert len(rm_names) == 1
         assert run_names[0] == rm_names[0]
+
+
+class TestDockerSandboxHardening:
+    """SECURITY (SEC-012): the `docker run` argv must carry EVERY container
+    isolation control so untrusted scraped code is bulletproofed. We mock
+    subprocess (no Docker needed) and assert each flag is present, building on
+    the SEC-001/002 mocked-argv pattern. We never regress the unique --name +
+    force-remove behaviour.
+    """
+
+    @staticmethod
+    def _capture_run_argv(sandbox: DockerSandbox, tmp_path: Path,
+                          **run_kwargs) -> list[str]:
+        """Drive sandbox.run with a mocked subprocess.run and return the argv
+        of the `docker run` invocation."""
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, *args, **kwargs):
+            calls.append(cmd)
+
+            class _R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            return _R()
+
+        with patch.object(DockerSandbox, "is_available", return_value=True), \
+                patch("cola_coder.data.curation.docker_sandbox.subprocess.run",
+                      side_effect=fake_run):
+            sandbox.run(
+                repo_path=tmp_path,
+                command="echo hi",
+                image="alpine:latest",
+                **run_kwargs,
+            )
+
+        return next(c for c in calls if c[:2] == ["docker", "run"])
+
+    def test_runs_as_nonroot_user(self, tmp_path: Path) -> None:
+        argv = self._capture_run_argv(DockerSandbox(), tmp_path)
+        assert "--user" in argv
+        assert argv[argv.index("--user") + 1] == "65534:65534"
+
+    def test_read_only_rootfs(self, tmp_path: Path) -> None:
+        argv = self._capture_run_argv(DockerSandbox(), tmp_path)
+        assert "--read-only" in argv
+
+    def test_single_writable_tmpfs(self, tmp_path: Path) -> None:
+        argv = self._capture_run_argv(DockerSandbox(), tmp_path)
+        tmpfs_flags = [a for a in argv if a.startswith("--tmpfs=")]
+        # Exactly ONE small writable tmpfs for the workdir.
+        assert len(tmpfs_flags) == 1
+        assert tmpfs_flags[0].startswith("--tmpfs=/tmp:rw")
+        assert "size=64m" in tmpfs_flags[0]
+
+    def test_network_off(self, tmp_path: Path) -> None:
+        argv = self._capture_run_argv(DockerSandbox(), tmp_path)
+        assert "--network=none" in argv
+
+    def test_no_host_namespaces(self, tmp_path: Path) -> None:
+        argv = self._capture_run_argv(DockerSandbox(), tmp_path)
+        # Sharing a host namespace would defeat the sandbox entirely.
+        assert "--pid=host" not in argv
+        assert "--ipc=host" not in argv
+        assert "--net=host" not in argv
+        assert "--network=host" not in argv
+
+    def test_never_privileged_or_unconfined(self, tmp_path: Path) -> None:
+        argv = self._capture_run_argv(DockerSandbox(), tmp_path)
+        assert "--privileged" not in argv
+        joined = " ".join(argv)
+        assert "seccomp=unconfined" not in joined
+        assert "apparmor=unconfined" not in joined
+
+    def test_caps_dropped_and_no_new_privileges(self, tmp_path: Path) -> None:
+        argv = self._capture_run_argv(DockerSandbox(), tmp_path)
+        assert "--cap-drop=ALL" in argv
+        assert "--security-opt" in argv
+        assert argv[argv.index("--security-opt") + 1] == "no-new-privileges"
+
+    def test_pids_limit(self, tmp_path: Path) -> None:
+        argv = self._capture_run_argv(DockerSandbox(pid_limit=256), tmp_path)
+        assert "--pids-limit=256" in argv
+
+    def test_memory_and_swap_equal(self, tmp_path: Path) -> None:
+        argv = self._capture_run_argv(DockerSandbox(memory_limit="2g"), tmp_path)
+        # --memory-swap == --memory disables swap (no extra swap budget).
+        assert "--memory=2g" in argv
+        assert "--memory-swap=2g" in argv
+
+    def test_cpu_limit(self, tmp_path: Path) -> None:
+        argv = self._capture_run_argv(DockerSandbox(cpu_limit=1.5), tmp_path)
+        assert "--cpus=1.5" in argv
+
+    def test_ulimits_nofile_and_nproc(self, tmp_path: Path) -> None:
+        argv = self._capture_run_argv(DockerSandbox(), tmp_path)
+        assert "--ulimit=nofile=256:256" in argv
+        assert "--ulimit=nproc=256:256" in argv
+
+    def test_clean_environment_no_host_secrets(self, tmp_path: Path) -> None:
+        """No `-e` env flags unless the caller explicitly passes env."""
+        argv = self._capture_run_argv(DockerSandbox(), tmp_path)
+        assert "-e" not in argv
+
+    def test_explicit_env_is_forwarded(self, tmp_path: Path) -> None:
+        argv = self._capture_run_argv(
+            DockerSandbox(), tmp_path, env={"FOO": "bar"}
+        )
+        assert "-e" in argv
+        assert "FOO=bar" in argv
+
+    def test_no_storage_opt_size(self, tmp_path: Path) -> None:
+        """--storage-opt size is unsupported on Docker Desktop / overlay2, so
+        it must NOT be emitted (the tmpfs size cap is used instead)."""
+        argv = self._capture_run_argv(DockerSandbox(), tmp_path)
+        assert not any(a.startswith("--storage-opt") for a in argv)
+
+    def test_limits_are_configurable(self) -> None:
+        """All hardening knobs are constructor params with safe defaults."""
+        sandbox = DockerSandbox(
+            user="1000:1000",
+            read_only=False,
+            tmpfs_size="32m",
+            nofile_limit=128,
+            nproc_limit=64,
+            max_output_bytes=500,
+        )
+        assert sandbox.user == "1000:1000"
+        assert sandbox.read_only is False
+        assert sandbox.tmpfs_size == "32m"
+        assert sandbox.nofile_limit == 128
+        assert sandbox.nproc_limit == 64
+        assert sandbox.max_output_bytes == 500
+
+    def test_run_with_install_copies_into_tmpfs(self, tmp_path: Path) -> None:
+        """The code-copy step must target the writable tmpfs so install/test
+        work under --read-only rootfs."""
+        sandbox = DockerSandbox()
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, *args, **kwargs):
+            calls.append(cmd)
+
+            class _R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            return _R()
+
+        with patch.object(DockerSandbox, "is_available", return_value=True), \
+                patch("cola_coder.data.curation.docker_sandbox.subprocess.run",
+                      side_effect=fake_run):
+            sandbox.run_with_install(
+                repo_path=tmp_path,
+                install_cmd="npm install",
+                test_cmd="npm test",
+                image="node:20-slim",
+            )
+
+        run_cmd = next(c for c in calls if c[:2] == ["docker", "run"])
+        shell_command = run_cmd[-1]
+        # Copies into the tmpfs-backed workdir, not a read-only location.
+        assert "cp -r /code /tmp/workdir" in shell_command
+        assert "cd /tmp/workdir" in shell_command
+
+
+class TestDockerOutputCap:
+    """SECURITY (SEC-012): captured stdout/stderr must be bounded so a malicious
+    test cannot exhaust host memory with an output bomb."""
+
+    def test_output_is_truncated_past_cap(self, tmp_path: Path) -> None:
+        sandbox = DockerSandbox(max_output_bytes=100)
+        big = "A" * 10_000
+
+        def fake_run(cmd, *args, **kwargs):
+            class _R:
+                returncode = 0
+                stdout = big
+                stderr = big
+
+            return _R()
+
+        with patch.object(DockerSandbox, "is_available", return_value=True), \
+                patch("cola_coder.data.curation.docker_sandbox.subprocess.run",
+                      side_effect=fake_run):
+            code, stdout, stderr = sandbox.run(
+                repo_path=tmp_path, command="yes", image="alpine:latest"
+            )
+
+        assert code == 0
+        # Far smaller than the 10_000-byte bomb, and clearly marked truncated.
+        assert len(stdout.encode("utf-8")) < 10_000
+        assert "output truncated" in stdout
+        assert "output truncated" in stderr
+
+    def test_small_output_not_truncated(self, tmp_path: Path) -> None:
+        sandbox = DockerSandbox(max_output_bytes=1_000_000)
+
+        def fake_run(cmd, *args, **kwargs):
+            class _R:
+                returncode = 0
+                stdout = "hello\n"
+                stderr = ""
+
+            return _R()
+
+        with patch.object(DockerSandbox, "is_available", return_value=True), \
+                patch("cola_coder.data.curation.docker_sandbox.subprocess.run",
+                      side_effect=fake_run):
+            code, stdout, stderr = sandbox.run(
+                repo_path=tmp_path, command="echo hello", image="alpine:latest"
+            )
+
+        assert stdout == "hello\n"
+        assert "output truncated" not in stdout
+
+
+class TestDockerWatchdog:
+    """SECURITY (SEC-012): an outer wall-clock watchdog must arm on every run as
+    a belt-and-braces backstop to the subprocess timeout, and must be cancelled
+    once the call tears the container down (no leaked timers)."""
+
+    def test_watchdog_armed_and_cancelled(self, tmp_path: Path) -> None:
+        sandbox = DockerSandbox(timeout=5, watchdog_grace=10)
+        created: list[object] = []
+
+        real_timer = threading.Timer
+
+        def spy_timer(*args, **kwargs):
+            t = real_timer(*args, **kwargs)
+            created.append(t)
+            return t
+
+        def fake_run(cmd, *args, **kwargs):
+            class _R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            return _R()
+
+        with patch.object(DockerSandbox, "is_available", return_value=True), \
+                patch("cola_coder.data.curation.docker_sandbox.subprocess.run",
+                      side_effect=fake_run), \
+                patch("cola_coder.data.curation.docker_sandbox.threading.Timer",
+                      side_effect=spy_timer):
+            sandbox.run(repo_path=tmp_path, command="echo hi", image="alpine:latest")
+
+        # A watchdog timer was created and has been cancelled in the finally,
+        # so its scheduled action will never fire after the container is gone.
+        # (Timer.cancel sets the internal `finished` event; the daemon thread
+        # may take a moment to actually exit, so we assert on the flag, not on
+        # thread liveness which is racy.)
+        assert created, "no watchdog timer was armed"
+        assert created[0].finished.is_set()
 
 
 # ---------------------------------------------------------------------------

@@ -3,15 +3,23 @@
 Makes Docker OPTIONAL — if not installed, callers should fall back to
 subprocess mode with appropriate warnings.
 
-Security defaults:
-    - No network access (--network none)
-    - Memory limit (2GB)
-    - CPU limit (2 cores)
-    - PID limit (64)
+Security defaults (SEC-012 — bulletproof against untrusted code):
+    - Non-root user (--user 65534:65534 / nobody) — never runs as root
+    - Read-only root filesystem (--read-only) with exactly ONE small writable
+      tmpfs at /tmp (--tmpfs /tmp:rw,...,size=64m) for the workdir
+    - No network access (--network=none)
     - All Linux capabilities dropped (--cap-drop=ALL)
     - No privilege escalation (--security-opt no-new-privileges)
+      NEVER --privileged, NEVER seccomp=unconfined
+    - Fork-bomb protection (--pids-limit)
+    - Memory limit AND --memory-swap equal to it (swap disabled)
+    - CPU limit (--cpus)
+    - File-descriptor / process ulimits (--ulimit nofile, --ulimit nproc)
+    - No host namespaces shared (never --pid=host / --ipc=host / --net=host)
+    - Clean environment — host env/secrets are NOT forwarded into the container
     - Read-only code mount
-    - Timeout enforcement
+    - Captured stdout/stderr bounded to a max byte size (output-bomb defence)
+    - Timeout enforcement + an outer wall-clock watchdog
     - Container force-removed on EVERY exit path (timeout, error, interrupt,
       normal completion) so no untrusted code outlives ``run``
 """
@@ -21,6 +29,7 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import threading
 import uuid
 from pathlib import Path
 
@@ -34,6 +43,12 @@ DEFAULT_IMAGES = {
     "rust": "rust:1.77-slim",
 }
 
+# Unprivileged uid:gid present in virtually every Linux image (the "nobody"
+# user). Running untrusted code as this user — combined with --cap-drop=ALL and
+# no-new-privileges — means a container-escape would land as an unprivileged
+# account with no capabilities rather than as root.
+NOBODY_UID_GID = "65534:65534"
+
 
 class DockerSandbox:
     """Run code in isolated Docker containers.
@@ -46,6 +61,12 @@ class DockerSandbox:
                 command="npm test",
                 image="node:20-slim",
             )
+
+    All resource limits are constructor-configurable with safe defaults. The
+    sandbox is written to be compatible with Docker Desktop on Windows: only
+    flags broadly supported by that engine are used (``--storage-opt size`` is
+    deliberately NOT used because it is unsupported on the overlay2/Desktop
+    storage driver — the writable tmpfs is size-capped instead).
     """
 
     def __init__(
@@ -55,12 +76,32 @@ class DockerSandbox:
         pid_limit: int = 64,
         network: bool = False,
         timeout: int = 300,
+        *,
+        user: str = NOBODY_UID_GID,
+        read_only: bool = True,
+        tmpfs_size: str = "64m",
+        tmpfs_path: str = "/tmp",
+        nofile_limit: int = 256,
+        nproc_limit: int = 256,
+        max_output_bytes: int = 1_000_000,
+        watchdog_grace: int = 10,
     ):
         self.memory_limit = memory_limit
         self.cpu_limit = cpu_limit
         self.pid_limit = pid_limit
         self.network = network
         self.timeout = timeout
+        # SEC-012 hardening knobs (configurable, safe defaults):
+        self.user = user
+        self.read_only = read_only
+        self.tmpfs_size = tmpfs_size
+        self.tmpfs_path = tmpfs_path
+        self.nofile_limit = nofile_limit
+        self.nproc_limit = nproc_limit
+        self.max_output_bytes = max_output_bytes
+        # Extra seconds the outer wall-clock watchdog waits beyond the
+        # subprocess timeout before force-removing the container itself.
+        self.watchdog_grace = watchdog_grace
         self._docker_path: str | None = None
 
     @staticmethod
@@ -79,6 +120,86 @@ class DockerSandbox:
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return False
 
+    def _build_run_argv(self, container_name: str, image: str, command: str,
+                        env: dict[str, str] | None, repo_path: Path) -> list[str]:
+        """Assemble the hardened ``docker run`` argv.
+
+        Every entry here is a deliberate security control — see the module
+        docstring. Keep them in sync with the SEC-012 assertions in
+        tests/test_curation.py.
+        """
+        mount_path = str(repo_path).replace("\\", "/")
+
+        cmd = [
+            "docker", "run",
+            "--rm",
+            f"--name={container_name}",
+            # (1) non-root — drop from root to nobody.
+            "--user", self.user,
+            # (4) capabilities + no privilege escalation. NEVER --privileged
+            #     and NEVER --security-opt seccomp=unconfined.
+            "--cap-drop=ALL",
+            "--security-opt", "no-new-privileges",
+            # (5) fork-bomb cap.
+            f"--pids-limit={self.pid_limit}",
+            # (6) memory cap with swap disabled (swap == memory means no swap).
+            f"--memory={self.memory_limit}",
+            f"--memory-swap={self.memory_limit}",
+            # (7) CPU cap.
+            f"--cpus={self.cpu_limit}",
+            # (8) file-descriptor and process ulimits.
+            f"--ulimit=nofile={self.nofile_limit}:{self.nofile_limit}",
+            f"--ulimit=nproc={self.nproc_limit}:{self.nproc_limit}",
+        ]
+
+        # (2) read-only rootfs + exactly one small writable tmpfs for the
+        #     workdir/tmp. The code-copy step in run_with_install copies INTO
+        #     this tmpfs (/tmp/workdir), so install/test still work.
+        if self.read_only:
+            cmd.append("--read-only")
+            cmd.append(f"--tmpfs={self.tmpfs_path}:rw,size={self.tmpfs_size},mode=1777")
+
+        # (3) / (9) network off — and because we never pass --net=host/--pid=host
+        #     /--ipc=host, no host namespaces are shared.
+        if not self.network:
+            cmd.append("--network=none")
+
+        # Mount repo read-only at /code; work out of it.
+        cmd.extend(["-v", f"{mount_path}:/code:ro", "-w", "/code"])
+
+        # (10) clean environment: only EXPLICIT vars the caller asked for are
+        #      forwarded. The host's process environment (which may hold tokens,
+        #      HF_TOKEN, AWS creds, etc.) is never passed through — Docker does
+        #      not inherit the parent env into the container by default, and we
+        #      pass nothing implicitly.
+        if env:
+            for key, val in env.items():
+                cmd.extend(["-e", f"{key}={val}"])
+
+        # Image and command.
+        cmd.append(image)
+        cmd.extend(["sh", "-c", command])
+        return cmd
+
+    def _truncate_output(self, text: str) -> str:
+        """Bound captured output to ``max_output_bytes`` (output-bomb defence).
+
+        A malicious test can emit gigabytes to stdout/stderr to exhaust host
+        memory while we buffer it. ``subprocess.run`` already buffers fully, so
+        we cap the *returned* size and append a clear truncation marker so the
+        caller can tell the output was cut.
+        """
+        if self.max_output_bytes is None or self.max_output_bytes <= 0:
+            return text
+        encoded = text.encode("utf-8", errors="replace")
+        if len(encoded) <= self.max_output_bytes:
+            return text
+        clipped = encoded[: self.max_output_bytes].decode("utf-8", errors="replace")
+        return (
+            clipped
+            + f"\n...[output truncated: exceeded {self.max_output_bytes} bytes]"
+        )
+
     def run(
         self,
         repo_path: Path,
@@ -87,21 +208,22 @@ class DockerSandbox:
         timeout: int | None = None,
         env: dict[str, str] | None = None,
     ) -> tuple[int, str, str]:
-        """Run a command in a Docker container.
+        """Run a command in a hardened Docker container.
 
         Args:
             repo_path: Path to the repo to mount (read-only).
             command: Shell command to run inside the container.
             image: Docker image to use.
             timeout: Override default timeout (seconds).
-            env: Extra environment variables to pass.
+            env: Extra environment variables to pass (ONLY these — the host
+                environment is never forwarded).
 
         Returns:
-            Tuple of (exit_code, stdout, stderr).
+            Tuple of (exit_code, stdout, stderr). stdout/stderr are bounded to
+            ``max_output_bytes`` and carry a truncation marker if clipped.
 
         Raises:
             RuntimeError: If Docker is not available.
-            subprocess.TimeoutExpired: If the command exceeds timeout.
         """
         if not self.is_available():
             raise RuntimeError(
@@ -119,40 +241,23 @@ class DockerSandbox:
         # cleanup path below.
         container_name = f"cola-curation-{uuid.uuid4().hex}"
 
-        # Build docker run command.
-        # The container user stays root because npm/pip installs need a
-        # writable HOME and cache across arbitrary images — but with ALL
-        # capabilities dropped, no-new-privileges, resource limits, and
-        # (by default) no network, root-in-container has little to abuse.
-        cmd = [
-            "docker", "run",
-            "--rm",
-            f"--name={container_name}",
-            f"--memory={self.memory_limit}",
-            f"--cpus={self.cpu_limit}",
-            f"--pids-limit={self.pid_limit}",
-            "--cap-drop=ALL",
-            "--security-opt", "no-new-privileges",
-        ]
-
-        if not self.network:
-            cmd.append("--network=none")
-
-        # Mount repo read-only
-        # Convert Windows paths to Docker-compatible format
-        mount_path = str(repo_path).replace("\\", "/")
-        cmd.extend(["-v", f"{mount_path}:/code:ro", "-w", "/code"])
-
-        # Add environment variables
-        if env:
-            for key, val in env.items():
-                cmd.extend(["-e", f"{key}={val}"])
-
-        # Image and command
-        cmd.append(image)
-        cmd.extend(["sh", "-c", command])
+        cmd = self._build_run_argv(container_name, image, command, env, repo_path)
 
         logger.info("Docker run: %s", " ".join(cmd))
+
+        # (12) Outer wall-clock watchdog (belt-and-braces): independent of the
+        # subprocess timeout, a background timer force-removes the container if
+        # the whole call somehow overruns. subprocess.run's timeout only kills
+        # the `docker run` CLIENT — if that timeout machinery is ever defeated
+        # (a wedged client, a swallowed TimeoutExpired), this still tears the
+        # container down so untrusted code cannot outlive the call.
+        watchdog = threading.Timer(
+            effective_timeout + self.watchdog_grace,
+            self._force_remove_container,
+            args=(container_name,),
+        )
+        watchdog.daemon = True
+        watchdog.start()
 
         # Defense-in-depth (SEC-002): no container/`docker run` child may
         # outlive this method, regardless of how it exits.
@@ -167,7 +272,11 @@ class DockerSandbox:
                 text=True,
                 timeout=effective_timeout,
             )
-            return result.returncode, result.stdout, result.stderr
+            return (
+                result.returncode,
+                self._truncate_output(result.stdout),
+                self._truncate_output(result.stderr),
+            )
         except subprocess.TimeoutExpired:
             logger.warning(
                 "Docker command timed out after %ds: %s", effective_timeout, command
@@ -183,6 +292,8 @@ class DockerSandbox:
             logger.warning("Docker run interrupted; cleaning up container %s", container_name)
             raise
         finally:
+            # The watchdog is no longer needed once we are tearing down here.
+            watchdog.cancel()
             # Runs on every path: timeout, KeyboardInterrupt, unexpected
             # exception, AND normal completion (in case `--rm` did not fire).
             # `_force_remove_container` is best-effort and idempotent — if the
@@ -219,8 +330,11 @@ class DockerSandbox:
     ) -> tuple[int, str, str]:
         """Run install + test in a single container (writable copy).
 
-        Since the code mount is read-only, this copies code to /tmp/code first,
-        runs install, then runs tests. All in one container invocation.
+        Since the code mount is read-only AND the root filesystem is read-only,
+        this copies code into the writable tmpfs (under ``tmpfs_path``, e.g.
+        ``/tmp/workdir``) first, runs install, then runs tests — all in one
+        container invocation. The tmpfs is the only writable location, so the
+        copy target lives inside it.
 
         Args:
             repo_path: Path to repo on host.
@@ -236,9 +350,12 @@ class DockerSandbox:
         effective_test_timeout = test_timeout or self.timeout
         total_timeout = install_timeout + effective_test_timeout + 30  # buffer
 
-        # Combined command: copy, install, test
+        # Copy into the writable tmpfs (read-only rootfs makes everything else
+        # unwritable). HOME is also pointed at the tmpfs so package managers
+        # that need a writable cache/HOME (npm, pip) work under --user nobody.
+        workdir = f"{self.tmpfs_path}/workdir"
         combined = (
-            f"cp -r /code /tmp/workdir && cd /tmp/workdir && "
+            f"cp -r /code {workdir} && cd {workdir} && export HOME={self.tmpfs_path} && "
             f"timeout {install_timeout} {install_cmd} 2>&1 && "
             f"timeout {effective_test_timeout} {test_cmd} 2>&1"
         )
