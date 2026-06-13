@@ -12,6 +12,8 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $project = Split-Path -Parent $PSScriptRoot
+$py = Join-Path $project ".venv\Scripts\python.exe"
+if (-not (Test-Path $py)) { Write-Host "venv missing — run cola-setup.ps1 first." -ForegroundColor Red; exit 1 }
 Push-Location $project
 try {
     # Default workers: all CPU cores (up to 16)
