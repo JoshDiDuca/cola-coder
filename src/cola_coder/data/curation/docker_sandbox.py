@@ -12,6 +12,8 @@ Security defaults:
     - No privilege escalation (--security-opt no-new-privileges)
     - Read-only code mount
     - Timeout enforcement
+    - Container force-removed on EVERY exit path (timeout, error, interrupt,
+      normal completion) so no untrusted code outlives ``run``
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import uuid
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -108,6 +111,14 @@ class DockerSandbox:
         effective_timeout = timeout or self.timeout
         repo_path = repo_path.resolve()
 
+        # Unique container name so we can force-kill it on ANY exit path.
+        # Killing the `docker run` client process (what subprocess.run does on
+        # timeout) does NOT stop the container — the daemon keeps it (and the
+        # untrusted code inside) running. We must explicitly `docker rm -f` it
+        # by name. Generated ONCE here and reused for the run command and every
+        # cleanup path below.
+        container_name = f"cola-curation-{uuid.uuid4().hex}"
+
         # Build docker run command.
         # The container user stays root because npm/pip installs need a
         # writable HOME and cache across arbitrary images — but with ALL
@@ -116,6 +127,7 @@ class DockerSandbox:
         cmd = [
             "docker", "run",
             "--rm",
+            f"--name={container_name}",
             f"--memory={self.memory_limit}",
             f"--cpus={self.cpu_limit}",
             f"--pids-limit={self.pid_limit}",
@@ -142,6 +154,12 @@ class DockerSandbox:
 
         logger.info("Docker run: %s", " ".join(cmd))
 
+        # Defense-in-depth (SEC-002): no container/`docker run` child may
+        # outlive this method, regardless of how it exits.
+        #   - timeout      → return the timeout sentinel (the `finally` cleans up)
+        #   - KeyboardInterrupt → clean up, then re-raise so Ctrl-C still works
+        #   - any other exception → propagate, but clean up first via `finally`
+        #   - normal completion → `finally` is a harmless no-op if `--rm` fired
         try:
             result = subprocess.run(
                 cmd,
@@ -154,8 +172,41 @@ class DockerSandbox:
             logger.warning(
                 "Docker command timed out after %ds: %s", effective_timeout, command
             )
-            # Try to kill any lingering container
+            # Force-kill happens in `finally`; the timeout above only kills the
+            # `docker run` client, not the container the daemon is running.
+            # Without cleanup, untrusted code keeps executing past the timeout.
             return -1, "", f"Timeout after {effective_timeout}s"
+        except KeyboardInterrupt:
+            # A Ctrl-C mid-run must still tear down the container before the
+            # interrupt unwinds the stack — otherwise the daemon keeps running
+            # untrusted code after the Python process is gone.
+            logger.warning("Docker run interrupted; cleaning up container %s", container_name)
+            raise
+        finally:
+            # Runs on every path: timeout, KeyboardInterrupt, unexpected
+            # exception, AND normal completion (in case `--rm` did not fire).
+            # `_force_remove_container` is best-effort and idempotent — if the
+            # container already exited it is a harmless no-op.
+            self._force_remove_container(container_name)
+
+    @staticmethod
+    def _force_remove_container(name: str) -> None:
+        """Force-remove a (possibly still-running) container by name.
+
+        ``docker rm -f`` both kills and removes the container, so it stops
+        untrusted code that survived a client-side timeout. Best-effort: if
+        the container already exited (``--rm`` cleaned it up) the command is a
+        harmless no-op, and any failure is logged rather than raised so the
+        caller's result/exception still propagates.
+        """
+        try:
+            subprocess.run(
+                ["docker", "rm", "-f", name],
+                capture_output=True,
+                timeout=30,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+            logger.error("Failed to force-remove container %s: %s", name, exc)
 
     def run_with_install(
         self,
