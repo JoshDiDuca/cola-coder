@@ -75,6 +75,46 @@ def partition_stops(tokenizer, stop_tokens: list[str] | None) -> tuple[set[int],
     return single_stop_ids, string_stops
 
 
+def _fit_context_window(
+    token_ids: list[int],
+    max_new_tokens: int,
+    max_seq_len: int,
+) -> tuple[list[int], int]:
+    """Clamp prompt + generation length to the model's KV-cache capacity.
+
+    The KV-cache and causal mask are allocated for exactly ``config.max_seq_len``
+    positions (see ``CausalSelfAttention._init_cache`` / ``Transformer.causal_mask``).
+    Two failure modes exist without this guard, both reachable from the FIM
+    endpoint (a long file easily exceeds ``seq_len``):
+
+    * **Prompt longer than the window** — prefill does
+      ``cache_k[:, 0:seq_len] = k`` with ``seq_len > max_seq_len``, which raises a
+      cryptic ``RuntimeError`` ("expanded size ... must match existing size") and
+      500s the request.
+    * **Generation crosses the window mid-decode** — once
+      ``start_pos >= max_seq_len`` the write ``cache_k[:, start_pos:start_pos+1]``
+      targets a zero-size slice, so the new token's K/V is **silently dropped**
+      and the model reads stale cache — garbage output with no error.
+
+    Fix: left-truncate the prompt to the most recent ``max_seq_len - 1`` tokens
+    (keep at least one slot for a generated token, standard sliding-window
+    behaviour) and cap ``max_new_tokens`` so ``start_pos`` never reaches the
+    cache bound.
+
+    Returns ``(possibly_truncated_token_ids, capped_max_new_tokens)``.
+    """
+    if max_seq_len <= 0:
+        return token_ids, max_new_tokens
+    # Keep at least one position free for generation when truncating.
+    if len(token_ids) > max_seq_len - 1:
+        token_ids = token_ids[-(max_seq_len - 1):]
+    # start_pos for the i-th generated token is len(prompt) + i; the cache has
+    # room for indices [0, max_seq_len). Cap so the last write stays in range.
+    room = max_seq_len - len(token_ids)
+    capped = max(0, min(max_new_tokens, room))
+    return token_ids, capped
+
+
 class CodeGenerator:
     """Generate code using a trained transformer model."""
 
@@ -107,6 +147,15 @@ class CodeGenerator:
         far too early (e.g. ``";\\n"`` halted at the first ``;``).
         """
         return partition_stops(self.tokenizer, stop_tokens)
+
+    def _max_seq_len(self) -> int:
+        """KV-cache / causal-mask capacity = ``model.config.max_seq_len``.
+
+        Resolved defensively (0 disables the guard) so lightweight test stubs
+        without a full ``config`` still work; real ``Transformer`` always has it.
+        """
+        config = getattr(self.model, "config", None)
+        return int(getattr(config, "max_seq_len", 0) or 0)
 
     @torch.no_grad()  # Disable gradient computation (saves memory, faster)
     def generate(
@@ -150,6 +199,12 @@ class CodeGenerator:
         """
         # Encode the prompt
         token_ids = self.tokenizer.encode(prompt, add_bos=True)
+        # Clamp prompt + generation to the KV-cache window. Without this, a prompt
+        # longer than max_seq_len crashes prefill, and crossing the window mid-decode
+        # silently drops K/V writes → garbage output (see _fit_context_window).
+        token_ids, max_new_tokens = _fit_context_window(
+            token_ids, max_new_tokens, self._max_seq_len()
+        )
         input_ids = torch.tensor([token_ids], dtype=torch.long, device=self.device)
 
         # Partition stops: single-token stops (EOS + special tokens like
@@ -261,6 +316,12 @@ class CodeGenerator:
         """
         # Encode the prompt
         token_ids = self.tokenizer.encode(prompt, add_bos=True)
+        # Clamp prompt + generation to the KV-cache window (see generate() /
+        # _fit_context_window): a prompt longer than max_seq_len crashes prefill,
+        # and crossing the window mid-decode silently corrupts the cache.
+        token_ids, max_new_tokens = _fit_context_window(
+            token_ids, max_new_tokens, self._max_seq_len()
+        )
         input_ids = torch.tensor([token_ids], dtype=torch.long, device=self.device)
 
         # Partition stops (see generate() for why): single-token stops match at
