@@ -11,6 +11,73 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+### SECURITY — bulletproof the untrusted-code sandbox (HIGH — user mandate 2026-06-13)
+The sandbox that runs UNTRUSTED scraped/teacher-generated code (data/curation test
+execution + scoring, and now distillation verification) must be bulletproof for
+EVERY scenario. SEC-001/SEC-010 fixed timeout-kill + all-exit cleanup; the rest:
+
+- **SEC-012** [security/sandbox, high] `open` — Bulletproof-sandbox hardening epic for
+  `data/curation/docker_sandbox.py` + `data/scorers/sandbox.py` (SandboxedRunner).
+  Enforce ALL of, and add command-construction tests asserting each flag is present:
+  (1) **non-root** — `--user 65534:65534` (nobody), not root (current default);
+  (2) **read-only rootfs** `--read-only` + a single size-limited writable tmpfs
+  (`--tmpfs /tmp:rw,size=64m,noexec` and the workdir) — no other writable mounts;
+  (3) **no network** `--network=none` (verify applied; no DNS/egress);
+  (4) **caps/priv** `--cap-drop=ALL` + `--security-opt=no-new-privileges` (have) +
+  default seccomp (never `seccomp=unconfined`/`--privileged`);
+  (5) **fork-bomb** `--pids-limit` (e.g. 256);
+  (6) **memory** `--memory` + `--memory-swap` EQUAL (disable swap) + `--oom-kill-disable=false`;
+  (7) **cpu** `--cpus`; (8) **disk** `--storage-opt size=` where the driver supports it;
+  (9) **ulimits** `--ulimit nofile=` / `nproc=`;
+  (10) **no host namespaces** (never `--pid=host`/`--ipc=host`/`--net=host`);
+  (11) **no host env/secrets** passed in; clean minimal env;
+  (12) **output bomb** — cap captured stdout/stderr bytes;
+  (13) **wall-clock watchdog** independent of subprocess timeout (belt-and-braces on SEC-001);
+  (14) **pinned minimal image**, built offline, no extra tooling.
+  Test via mocked subprocess asserting the docker argv contains each flag (the SEC-001 pattern).
+- **SEC-013** [security/sandbox, high] `open` — FAIL-CLOSED audit: grep EVERY untrusted-code
+  execution call site (data/scorers/*, data/curation/*, reasoning/rewards/* incl.
+  TscRunner, and the new distillation verification) and prove NONE falls back to host
+  subprocess execution when Docker is unavailable — it must REFUSE (skip/score-0/raise),
+  never run untrusted code on the host. Any host-exec fallback is a critical fail-open
+  bug. Document the sandbox-default + the explicit-override path. Add a test that
+  simulates Docker-absent and asserts no host exec occurs.
+- **SEC-014** [security/distillation, high] `open` — Ensure MODEL-028's
+  generate_distillation_data.py routes EVERY teacher-generated completion through the
+  SEC-012 hardened sandbox before any execution/tsc verification (teacher output is
+  untrusted), and that remote-teacher prompts are secret-redacted (already in
+  OpenAICompatibleTeacher). Wire as a hard requirement, with a test.
+
+### UI — control + observability dashboard (LAST PRIORITY — user request 2026-06-13)
+Goal: a fast local UI to monitor/launch everything without always running. Background
+training so the UI need not stay open; open it to see all runs, start a train with
+options, and do most menu actions. MUST be fast, must NOT slow training, and must
+REUSE existing scripts/managers (no logic duplication) — a thin control+observability
+layer that launches DETACHED jobs (like cola-train-resume.ps1) and reads state from
+manifests / pipeline_runs/ / checkpoints / logs. First objectives (in order):
+
+- **UI-001** [ui/foundation, low] `open` — Scaffold a lightweight local web UI: a small
+  FastAPI control-plane app (separate from the inference serve.py so it never competes
+  with training/inference) + a static HTML/JS frontend (no heavy framework). Endpoints
+  read state and launch detached background jobs. Decide: extend an existing app vs new
+  `scripts/dashboard.py`. Background-job registry persisted to disk so the UI can close
+  and reopen and still see running/finished jobs.
+- **UI-002** [ui/training, low] `open` — See running + past training: read
+  training manifests, `train_*.err/.log`, checkpoints/<run>/step_* and pipeline_runs/
+  to show live step/loss/throughput/ETA and run history. Read-only; must not touch the
+  run. (Reuse training_status.py logic.)
+- **UI-003** [ui/training, low] `open` — Start a training run with options (config
+  picker, resume/fresh, max_steps, etc.) launched DETACHED (the cola-train-resume.ps1
+  pattern) so it survives the UI closing. Refuse to double-launch.
+- **UI-004** [ui/data, low] `open` — Download datasets: trigger collect_data.py /
+  prepare_data.py as background jobs with options; show progress + completion.
+- **UI-005** [ui/data, low] `open` — Scoring + data browsing: run score_data.py, and
+  browse prepared datasets + their .weights/.scores — view sample content and per-sample
+  scores. (Reuse DatasetResolver + the scorers; read-only browsing.)
+- **UI-006** [ui/parity, low] `open` — (Later) broaden toward full menu parity: pipeline
+  runs, eval, distillation control, export, etc. — incrementally, each reusing the
+  existing script/manager rather than reimplementing.
+
 ### Original ideas / hypotheses 2026-06-13 (cross-technique — see docs/research-log.md)
 These are RESEARCH hypotheses (validate in a worktree, off the live run), exploiting
 cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N verifier
