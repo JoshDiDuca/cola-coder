@@ -62,15 +62,22 @@ def parse_tool_call(text: str) -> list[dict[str, Any]]:
     for match in matches:
         try:
             parsed = json.loads(match)
-            if "name" in parsed:
-                calls.append(
-                    {
-                        "name": parsed["name"],
-                        "arguments": parsed.get("arguments", {}),
-                    }
-                )
         except json.JSONDecodeError:
             continue
+        # Model output is untrusted: a <tool_call> block can contain any valid
+        # JSON, including a bare scalar/list ("123", "true", "[1,2]"). Only a
+        # JSON object can be a tool call. Skip everything else — without this
+        # guard, `"name" in parsed` raises an uncaught TypeError on non-iterable
+        # scalars (int/float/bool/None) and crashes the whole agent loop.
+        if not isinstance(parsed, dict):
+            continue
+        if "name" in parsed:
+            calls.append(
+                {
+                    "name": parsed["name"],
+                    "arguments": parsed.get("arguments", {}),
+                }
+            )
 
     return calls
 
