@@ -124,9 +124,9 @@ def check_avg_line_length(content: str, max_avg: int = 200) -> tuple[bool, str]:
     averages 30-60 characters per line. If the average exceeds 200,
     it's almost certainly minified or auto-generated.
     """
+    # str.split("\n") always returns at least [""], so `lines` is never empty
+    # and len(lines) >= 1 — no division-by-zero guard needed here.
     lines = content.split("\n")
-    if not lines:
-        return False, "empty"
     avg_len = sum(len(line) for line in lines) / len(lines)
     if avg_len > max_avg:
         return False, f"minified (avg line {avg_len:.0f} chars)"
@@ -456,7 +456,11 @@ _HIGH_CONFIDENCE_SECRET_PATTERNS = [
     re.compile(r'-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----'),
     re.compile(r'sk-[a-zA-Z0-9]{32,}'),          # OpenAI-style keys
     re.compile(r'ghp_[A-Za-z0-9]{36}'),          # GitHub personal access tokens
-    re.compile(r'github_pat_[A-Za-z0-9_]{60,}'),  # GitHub fine-grained PAT
+    # GitHub fine-grained PAT: literal "github_pat_" + 22-char prefix + "_" +
+    # 59-char body. Kept in sync with the same pattern in
+    # data/scorers/credential_scanner.py (DATA-048) — both must match the real
+    # token shape, not a looser length-only heuristic.
+    re.compile(r'github_pat_[A-Za-z0-9_]{22}_[A-Za-z0-9]{59}'),
     re.compile(r'xox[baprs]-[A-Za-z0-9-]{10,}'),  # Slack tokens
     re.compile(r'AKIA[0-9A-Z]{16}'),             # AWS access key ID
 ]

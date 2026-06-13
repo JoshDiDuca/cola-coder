@@ -298,3 +298,28 @@ class TestSecretScanningInConservativeMode:
         ph = 'password = "changeme123"\n' + _CLEAN_BODY
         keep, reason = filter_code(ph, mode=FilterMode.STRICT, languages=["python"])
         assert keep is False and reason == "hardcoded_secret"
+
+    def test_github_fine_grained_pat_rejected_conservative(self):
+        # DATA-048: the GitHub fine-grained PAT pattern was harmonized to the
+        # correct shape — "github_pat_" + 22-char prefix + "_" + 59-char body —
+        # matching data/scorers/credential_scanner.py. A real-shaped token must
+        # still be caught as a high-confidence secret.
+        pat = "github_pat_" + "A" * 22 + "_" + "B" * 59
+        leaky = f'TOKEN = "{pat}"\n' + _CLEAN_BODY
+        keep, reason = filter_code(leaky, mode=FilterMode.CONSERVATIVE,
+                                   languages=["python"])
+        assert keep is False and reason == "hardcoded_secret"
+
+
+class TestAvgLineLengthEmptyContent:
+    """DATA-048(c): the removed `if not lines` branch was dead — str.split('\\n')
+    always returns at least ['']. Empty/whitespace content must not crash and
+    is not 'minified' (avg line length 0), so it passes this check."""
+
+    def test_empty_content_passes(self):
+        keep, reason = check_avg_line_length("")
+        assert keep is True and reason == ""
+
+    def test_blank_lines_pass(self):
+        keep, reason = check_avg_line_length("\n\n\n")
+        assert keep is True and reason == ""

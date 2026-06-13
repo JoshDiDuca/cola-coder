@@ -236,3 +236,40 @@ class TestCustomPatterns:
         result = scanner.scan('const t = "CUSTOM_ABCDEFGHIJ";')
         assert result.has_credentials
         assert any("Custom" in f.pattern_name for f in result.findings)
+
+
+class TestGithubFineGrainedPat:
+    """DATA-048(b): the fine-grained PAT pattern is the strict, correct shape
+    ("github_pat_" + 22-char prefix + "_" + 59-char body) and is harmonized with
+    data/quality_filter.py."""
+
+    def test_detects_real_shape(self) -> None:
+        pat = "github_pat_" + "A" * 22 + "_" + "B" * 59
+        result = CredentialScanner(mode="warn").scan(f'const t = "{pat}";')
+        assert result.has_credentials
+        assert any("Fine-Grained" in f.pattern_name for f in result.findings)
+
+
+class TestScanRedactionParity:
+    """DATA-048(a): scan() and strip-mode process() both run over the WHOLE
+    text now, so detection coverage and redaction coverage cannot diverge."""
+
+    def test_scan_detects_what_strip_redacts(self) -> None:
+        code = (
+            'line1\n'
+            'const aws = "AKIAIOSFODNN7EXAMPLE1";\n'
+            'const gh = "ghp_ABCDEFghijklmnop1234567890abcdefghij";\n'
+        )
+        scanner = CredentialScanner(mode="strip")
+        result = scanner.scan(code)
+        processed = scanner.process(code)
+        # Every credential scan flagged is also redacted by strip.
+        assert result.has_credentials
+        assert "AKIA" not in processed
+        assert "ghp_" not in processed
+        assert processed.count("[REDACTED]") == len(result.findings)
+
+    def test_line_numbers_preserved_after_whole_text_scan(self) -> None:
+        code = 'line1\nconst key = "AKIAIOSFODNN7EXAMPLE1";\nline3'
+        result = CredentialScanner(mode="warn").scan(code)
+        assert result.findings[0].line_number == 2

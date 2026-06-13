@@ -101,22 +101,28 @@ class CredentialScanner:
             return ScanResult(has_credentials=False)
 
         findings: list[CredentialFinding] = []
-        lines = code.split("\n")
 
-        for line_num, line in enumerate(lines, 1):
-            for pattern, name in self._compiled:
-                for match in pattern.finditer(line):
-                    matched_text = match.group(0)
-                    # Mask the match for safe logging
-                    if len(matched_text) > 8:
-                        masked = matched_text[:4] + "****" + matched_text[-4:]
-                    else:
-                        masked = "****"
-                    findings.append(CredentialFinding(
-                        pattern_name=name,
-                        line_number=line_num,
-                        masked_match=masked,
-                    ))
+        # Scan over the WHOLE text (not line-by-line) so detection coverage
+        # exactly matches the redaction in process()'s "strip" mode, which also
+        # runs pattern.sub over the whole text. A line-by-line scan would miss a
+        # future multiline pattern (e.g. a PEM PRIVATE KEY block) that strip
+        # would still redact — keeping both on the full text means detection and
+        # redaction can never diverge. Line numbers are derived from the match
+        # offset.
+        for pattern, name in self._compiled:
+            for match in pattern.finditer(code):
+                matched_text = match.group(0)
+                line_num = code.count("\n", 0, match.start()) + 1
+                # Mask the match for safe logging
+                if len(matched_text) > 8:
+                    masked = matched_text[:4] + "****" + matched_text[-4:]
+                else:
+                    masked = "****"
+                findings.append(CredentialFinding(
+                    pattern_name=name,
+                    line_number=line_num,
+                    masked_match=masked,
+                ))
 
         return ScanResult(
             has_credentials=len(findings) > 0,
