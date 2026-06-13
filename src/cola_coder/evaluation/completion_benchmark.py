@@ -530,20 +530,27 @@ class CompletionBenchmark:
         *,
         latency_ms: float = 0.0,
     ) -> CompletionResult:
-        """Score a single completion against a problem."""
-        full_text = problem.prefix + completion
+        """Score a single completion against a problem.
 
+        Patterns are matched against the model's COMPLETION only, never the
+        prefix it was handed. Matching against ``prefix + completion`` would
+        let a required pattern that already lives in the prefix produce a false
+        PASS even when the completion is empty, wrong, or just echoes the
+        prefix back (a common base-model behaviour) — silently inflating the
+        benchmark pass rate. The benchmark scores the *continuation*, so only
+        the continuation is searched.
+        """
         matched: list[str] = []
         missed: list[str] = []
         for pattern in problem.required_patterns:
-            if re.search(pattern, full_text):
+            if re.search(pattern, completion):
                 matched.append(pattern)
             else:
                 missed.append(pattern)
 
         forbidden_found: list[str] = []
         for pattern in problem.forbidden_patterns:
-            if re.search(pattern, full_text):
+            if re.search(pattern, completion):
                 forbidden_found.append(pattern)
 
         passed = len(missed) == 0 and len(forbidden_found) == 0
