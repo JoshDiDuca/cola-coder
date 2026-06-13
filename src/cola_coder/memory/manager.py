@@ -466,13 +466,16 @@ class MemoryManager:
         max_entries = self.config.session_log_max_entries
 
         if len(sections) > max_entries:
-            # Keep header + last N entries
-            header_match = re.match(r"^# .+\n\n.*?\n\n", content, re.DOTALL)
-            header = header_match.group(0) if header_match else "# Session Log\n\n"
+            # Keep the preamble (everything before the first "## " section) + the
+            # last N entries. A DOTALL regex here is wrong: it greedily swallows
+            # the first section bodies into the "header", so trimming never
+            # actually drops old entries and the log grows unboundedly.
+            split_at = re.search(r"(?m)^## ", content)
+            header = content[: split_at.start()] if split_at else "# Session Log\n\n"
             kept_sections = sections[-max_entries:]
-            new_content = header
+            new_content = header.rstrip("\n") + "\n\n"
             for title, body in kept_sections:
-                new_content += f"\n## {title}\n\n{body}\n"
+                new_content += f"## {title}\n\n{body}\n\n"
             self._write_file("session_log", new_content)
 
 
