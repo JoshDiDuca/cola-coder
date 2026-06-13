@@ -201,11 +201,14 @@ export class ColaCoderClient {
    *
    * OpenAI-compatible text completion endpoint.
    */
-  async complete(request: CompletionRequest): Promise<CompletionResponse> {
+  async complete(
+    request: CompletionRequest,
+    signal?: AbortSignal,
+  ): Promise<CompletionResponse> {
     return this.post<CompletionResponse>('/v1/completions', {
       ...request,
       stream: false,
-    });
+    }, signal);
   }
 
   /**

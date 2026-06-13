@@ -197,17 +197,26 @@ export async function activate(
         const response = await vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
+            cancellable: true,
             title:
               `Cola-Coder: verifying ${cfg.verifiedCandidates} candidates`
               + ` (${verifyLanguage})...`,
           },
-          () => client.complete({
-            prompt,
-            max_tokens: cfg.verifiedMaxTokens,
-            temperature: cfg.chatTemperature,
-            best_of: cfg.verifiedCandidates,
-            verify_language: verifyLanguage,
-          }),
+          (_progress, progressToken) => {
+            // Wire the Cancel button to abort the in-flight best-of-N request,
+            // which runs verifiedCandidates full generations + sandboxed
+            // verification server-side (30s+) and otherwise pins the GPU with
+            // no way to stop it. (vscode-extension audit, INFER/EXT bug.)
+            const controller = new AbortController();
+            progressToken.onCancellationRequested(() => controller.abort());
+            return client.complete({
+              prompt,
+              max_tokens: cfg.verifiedMaxTokens,
+              temperature: cfg.chatTemperature,
+              best_of: cfg.verifiedCandidates,
+              verify_language: verifyLanguage,
+            }, controller.signal);
+          },
         );
 
         const text = response.choices[0]?.text ?? '';
