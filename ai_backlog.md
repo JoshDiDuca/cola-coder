@@ -11,6 +11,30 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+### SECURITY — output guardrail + remaining items
+
+- **SEC-017** [security/output-guardrail, medium] `done` (2026-06-13, safety research)
+  — Functional≠secure (secure-pass@1 <12% even at functional pass@1 >50%). Extracted a
+  CANONICAL dangerous-code static scanner `security/code_patterns.py`
+  (`scan_dangerous`/`is_dangerous`) — the original Python-only safety_eval set
+  EXTENDED with TS/JS patterns (new Function, child_process, dangerouslySetInnerHTML,
+  document.write, vm.runInThisContext, pickle.loads, unsafe yaml.load), with
+  negative-lookbehind so benign `regex.exec(` isn't flagged. safety_eval now imports
+  it (DRY — single source of truth). Wired as a SECURITY SCREEN in the distillation
+  verifier (scripts/generate_distillation_data.py): completions with dangerous
+  patterns are rejected before being distilled (the Anthropic "filter at source"
+  philosophy — don't train the student on insecure code). Tests: test_code_patterns.py
+  +6 incl. precision (regex.exec not flagged) + DRY-shared assertion; 45 distillation/
+  pattern tests + 39 safety tests + ruff green. Follow-up IDEA-008 (secure best-of-N +
+  security-aware GRPO reward).
+- **IDEA-008** [research/safety, medium-potential] `open` (2026-06-13) — Security-aware
+  best-of-N + GRPO reward: use `security.code_patterns.is_dangerous` as a SECONDARY
+  signal in best_of_n (among functionally-correct candidates, prefer the secure one —
+  "secure-pass best-of-N") and as a small penalty in the GRPO reward
+  (reward = tsc/test pass − λ·dangerous) so the RL policy learns to avoid insecure
+  patterns. Reuses the SEC-017 scanner + existing verifier/reward (the latter is
+  train-path → worktree).
+
 ### SECURITY — bulletproof the untrusted-code sandbox (HIGH — user mandate 2026-06-13)
 The sandbox that runs UNTRUSTED scraped/teacher-generated code (data/curation test
 execution + scoring, and now distillation verification) must be bulletproof for

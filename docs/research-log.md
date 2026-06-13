@@ -7,6 +7,34 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-13 — Safety / guardrails (rotate: safety)
+
+- **Functional ≠ secure:** 2026 studies find secure-pass@1 stays <12% even when
+  functional pass@1 >50% — generated code that compiles / passes tests is often
+  INSECURE. So functional verification (tsc/tests) is NOT enough; add an OUTPUT
+  guardrail that screens generated code for dangerous patterns and prefers/keeps the
+  secure candidate.
+- Guardrail layers (LLM-Guard, LlamaFirewall, Azure Content Safety): input
+  (prompt-injection/jailbreak detection — fine-tuned BERT) + output (vulnerability/
+  dangerous-pattern scan, retry on fail). Anthropic: proactive PRETRAINING DATA
+  FILTERING (fix at the source) + Constitutional AI + lightweight pre-screening model.
+- Relevance: cola-coder already has malware scanners (yara/clamav/defender), a
+  CredentialScanner, and safety_eval's dangerous-pattern probes — but the latter was
+  Python-only and not reused. This cycle extracted a canonical TS/JS-extended
+  dangerous-code scanner and wired it as a security screen on DISTILLED data (don't
+  distill insecure code — the Anthropic "filter at source" philosophy). → SEC-017.
+- Sources: Confident AI LLM Guardrails guide
+  (https://www.confident-ai.com/blog/llm-guardrails-the-ultimate-guide-to-safeguard-llm-systems);
+  LlamaFirewall (https://arxiv.org/pdf/2505.03574); "How Secure is Secure Code
+  Generation?" (https://arxiv.org/pdf/2601.07084); OWASP LLM Prompt Injection Cheat
+  Sheet (https://cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html).
+- ORIGINAL idea → **IDEA-008**: security-aware best-of-N + GRPO reward. cola-coder's
+  best-of-N picks the functionally-best candidate (tsc/tests); add the dangerous-code
+  screen as a SECONDARY signal so among functionally-correct candidates it prefers the
+  SECURE one ("secure-pass best-of-N"), and add a small security penalty to the GRPO
+  reward (reward = test/tsc pass − λ·dangerous) so the RL policy learns to avoid
+  insecure patterns. Reuses the new scanner + the existing verifier/reward.
+
 ## 2026-06-13 — Evaluation (rotate: evaluation)
 
 - **HumanEval is saturated + contaminated** (frontier models ~93%, contamination

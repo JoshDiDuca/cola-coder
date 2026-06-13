@@ -86,6 +86,20 @@ def test_empty_completion_skipped():
     assert stats["teacher_errors"] == 2 and stats["kept"] == 1
 
 
+def test_security_screen_rejects_dangerous_completion():
+    # The CLI wires verify to reject dangerous patterns; here we use the same
+    # screen as the verifier to confirm dangerous teacher output is dropped.
+    from cola_coder.security.code_patterns import is_dangerous
+
+    teacher = _FakeTeacher(["const x = 1;", "import {exec} from 'child_process'; exec(cmd)"])
+    records, stats = generate_distillation_dataset(
+        teacher, ["safe", "dangerous"], verify=lambda c: not is_dangerous(c),
+    )
+    assert len(records) == 1
+    assert records[0]["messages"][-1]["content"] == "const x = 1;"
+    assert stats["rejected"] == 1
+
+
 def test_loop_never_executes_completion():
     # The completion is "malicious" code; with no verifier the loop must NOT run it.
     teacher = _FakeTeacher(["import os; os.system('rm -rf /')"])
