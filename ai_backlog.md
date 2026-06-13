@@ -88,12 +88,24 @@ own BUG-###), mark the sub-item done. These are tractable one-per-cycle.
   `test_data_menu_group_handlers_exist` (guards leaf-list drift). No leaf bugs
   found; suite 9→32 tests, all green on main, ruff clean. Inline `_run_script`
   dispatch arms (no dedicated handler) stay covered by the menu-open test.
-- **TOOL-015c** [tooling/test, high] `open` — Cover every TrainingMenu entry
-  (Pipeline Manager, Foundation, Pre-Training, Post-Training incl. MoE 7.5,
-  Alignment, Monitoring). Stub all `_run_script` calls. Fix/log failures.
-- **TOOL-015d** [tooling/test, high] `open` — Cover every EvalMenu + PipelineMenu
-  entry. Verify stage dispatch + artifact resolution don't raise on missing
-  checkpoints/data (should warn, not crash). Fix/log failures.
+- **TOOL-015c** [tooling/test, high] `done` (2026-06-13) — Added
+  `test_training_menu_leaf_runs_cleanly` parametrized over 27 TrainingMenu leaf
+  handlers across all 6 groups (Pipeline Manager incl. `_full_pipeline_menu`,
+  Foundation, Pre-Training incl. all 5 background-training actions, Post-Training
+  incl. MoE upcycle + MoE fine-tune 7.5, Alignment & Reasoning, Monitoring),
+  reusing `stubbed_leaf` + a `test_training_menu_group_handlers_exist` drift
+  guard. Every leaf cancels cleanly with prompts stubbed and no scripts run; no
+  wiring/render bugs surfaced.
+- **TOOL-015d** [tooling/test, high] `done` (2026-06-13) — Added
+  `test_eval_menu_leaf_runs_cleanly` (26 EvalMenu leaves) and
+  `test_pipeline_menu_leaf_runs_cleanly` (8 PipelineMenu leaves), each with a
+  `*_group_handlers_exist` drift guard. A dedicated `stubbed_pipeline_leaf`
+  fixture stubs `PipelineMenu._run_stage_script` (which RAISES on non-zero exit)
+  on top of the global `subprocess.run` stub, so no pipeline stage can
+  train/collect even if a leaf reaches dispatch. No leaf bugs; missing
+  checkpoints/data warn rather than crash. Full smoke suite now 96 tests, green
+  on main, ruff clean. (ToolsMenu leaves left as optional follow-up — its
+  top-level entries are already covered by TOOL-015a.)
 - **TOOL-016** [tooling/UX, medium] `done` (2026-06-13) — PowerShell coverage:
   added 7 wrappers so every common workflow has a direct shortcut (was 23 → 30):
   cola-router (train_router), cola-vram (vram_estimate), cola-quality
