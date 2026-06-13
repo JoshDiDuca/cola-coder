@@ -175,7 +175,9 @@ def _describe_size(size_dir: Path, show_curve: bool = True) -> None:
     )
 
     ppl = _perplexity(float(loss)) if loss is not None else None
-    progress = (step / max_steps) if (max_steps and step) else None
+    # Step 0 is a valid, freshly-saved checkpoint — only treat a *missing* step
+    # as unknown.  `max_steps` may legitimately be 0/None (not configured).
+    progress = (step / max_steps) if (max_steps and step is not None) else None
 
     # Estimate training time remaining (tokens/sec from manifest if available)
     progress_section = manifest.get("progress", {})
@@ -184,10 +186,11 @@ def _describe_size(size_dir: Path, show_curve: bool = True) -> None:
     # Build the kv table
     table: dict[str, str] = {
         "Checkpoints saved": str(len(step_dirs)),
-        "Latest step": f"{step:,}" if step else "?",
+        "Latest step": f"{step:,}" if step is not None else "?",
         "Latest loss": f"{loss:.4f}" if loss is not None else "?",
         "Perplexity": f"{ppl:.2f}" if ppl is not None else "?",
-        "Progress": _fmt_pct(progress) + (f"  ({step:,} / {max_steps:,} steps)" if max_steps else ""),
+        "Progress": _fmt_pct(progress)
+        + (f"  ({step:,} / {max_steps:,} steps)" if (max_steps and step is not None) else ""),
     }
 
     # Manifest-enriched fields
@@ -206,7 +209,9 @@ def _describe_size(size_dir: Path, show_curve: bool = True) -> None:
     best_loss = progress_section.get("best_loss")
     best_step = progress_section.get("best_step")
     if best_loss is not None:
-        table["Best loss"] = f"{best_loss:.4f}" + (f"  (step {best_step:,})" if best_step else "")
+        table["Best loss"] = f"{best_loss:.4f}" + (
+            f"  (step {best_step:,})" if best_step is not None else ""
+        )
 
     loss_history = progress_section.get("loss_history", {})
     if loss_history:
