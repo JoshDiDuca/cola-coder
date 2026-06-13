@@ -16,25 +16,23 @@ The sandbox that runs UNTRUSTED scraped/teacher-generated code (data/curation te
 execution + scoring, and now distillation verification) must be bulletproof for
 EVERY scenario. SEC-001/SEC-010 fixed timeout-kill + all-exit cleanup; the rest:
 
-- **SEC-012** [security/sandbox, high] `open` — Bulletproof-sandbox hardening epic for
-  `data/curation/docker_sandbox.py` + `data/scorers/sandbox.py` (SandboxedRunner).
-  Enforce ALL of, and add command-construction tests asserting each flag is present:
-  (1) **non-root** — `--user 65534:65534` (nobody), not root (current default);
-  (2) **read-only rootfs** `--read-only` + a single size-limited writable tmpfs
-  (`--tmpfs /tmp:rw,size=64m,noexec` and the workdir) — no other writable mounts;
-  (3) **no network** `--network=none` (verify applied; no DNS/egress);
-  (4) **caps/priv** `--cap-drop=ALL` + `--security-opt=no-new-privileges` (have) +
-  default seccomp (never `seccomp=unconfined`/`--privileged`);
-  (5) **fork-bomb** `--pids-limit` (e.g. 256);
-  (6) **memory** `--memory` + `--memory-swap` EQUAL (disable swap) + `--oom-kill-disable=false`;
-  (7) **cpu** `--cpus`; (8) **disk** `--storage-opt size=` where the driver supports it;
-  (9) **ulimits** `--ulimit nofile=` / `nproc=`;
-  (10) **no host namespaces** (never `--pid=host`/`--ipc=host`/`--net=host`);
-  (11) **no host env/secrets** passed in; clean minimal env;
-  (12) **output bomb** — cap captured stdout/stderr bytes;
-  (13) **wall-clock watchdog** independent of subprocess timeout (belt-and-braces on SEC-001);
-  (14) **pinned minimal image**, built offline, no extra tooling.
-  Test via mocked subprocess asserting the docker argv contains each flag (the SEC-001 pattern).
+- **SEC-012** [security/sandbox, high] `done` (2026-06-13) — DONE for the Docker
+  backend: `docker_sandbox.py` `_build_run_argv` now emits the full isolation profile
+  on every untrusted run — `--user 65534:65534` (nobody), `--read-only` + one
+  size-capped `--tmpfs=/tmp` (run_with_install copies there, HOME=/tmp), `--network=none`,
+  `--cap-drop=ALL` + `--security-opt no-new-privileges` (never privileged/unconfined),
+  `--pids-limit`, `--memory`==`--memory-swap` (swap off), `--cpus`, `--ulimit nofile/nproc`,
+  no host namespaces, clean env (no host secrets), output-bomb truncation, and an outer
+  wall-clock watchdog backing the subprocess timeout. SEC-001/010 cleanup preserved.
+  Limits constructor-configurable. 21 new tests (TestDockerSandboxHardening/OutputCap/
+  Watchdog); 72 curation tests + ruff green. Caveats (→ remain in SEC-015): `--storage-opt
+  size` unsupported on Docker Desktop overlay2 (mitigated by tmpfs cap); gVisor/runsc
+  unavailable on Windows; deny-by-default seccomp profile still TODO (→ SEC-015). Docker
+  is now maximally hardened but per research is "raised bar, not bulletproof" — true
+  kernel isolation needs SEC-015 (VM/cloud backend).
+  (Original SEC-012 checklist items 1-14 all landed in the Docker backend except
+  disk-quota/storage-opt (Docker Desktop overlay2 limitation), seccomp deny-by-default,
+  and pinned-offline-image — those carry into SEC-015.)
 - **SEC-013** [security/sandbox, high] `open` — FAIL-CLOSED audit: grep EVERY untrusted-code
   execution call site (data/scorers/*, data/curation/*, reasoning/rewards/* incl.
   TscRunner, and the new distillation verification) and prove NONE falls back to host
