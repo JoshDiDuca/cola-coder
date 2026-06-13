@@ -85,14 +85,17 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   accepts+forwards a signal (`post()` already supported it); the progress is
   `cancellable: true` and its token aborts an AbortController. `npx tsc --noEmit`
   clean + esbuild bundle builds (dist/extension.js 53KB).
-- **EXT-002** [extension/bug, medium] `open` (VS Code audit) — `ServerManager.stop()`
-  resets `this.stopping=false` in a `finally` that can run BEFORE the process'
-  async `'exit'` event fires (esp. after the 5s SIGKILL timeout path, which
-  resolves immediately after `kill` without awaiting exit). The exit handler then
-  sees `!stopping` + a non-zero exit code and calls `_handleCrash()` → spurious
-  auto-restart of a server the user deliberately stopped (Windows-specific timing).
-  Fix: let the `'exit'` handler own clearing `stopping` (capture `wasStopping`
-  before clearing); resolve stop()'s wait only on the real `'exit'` event.
+- **EXT-002** [extension/bug, medium] `done` (2026-06-13) — `ServerManager.stop()`
+  reset `this.stopping=false` in a `finally` that ran BEFORE the process' async
+  `'exit'` fired (the 5s SIGKILL-timeout path called `resolve()` immediately after
+  `kill`), so the exit handler saw `!stopping` + a non-zero code and called
+  `_handleCrash()` → spurious auto-restart of a deliberately-stopped server
+  (Windows timing). FIX: the `'exit'` handler now OWNS clearing `stopping`
+  (reads `wasStopping`, resets, decides crash from that) + a process-identity
+  guard (`this.process === proc`) so a late exit can't null a restart-spawned
+  process; `stop()` no longer clears `stopping`/nulls `process`, waits on the real
+  `'exit'` (SIGKILL at 5s, 6s zombie fallback that leaves `stopping` set so no
+  spurious restart). `npx tsc --noEmit` clean + esbuild bundle builds.
 - **EXT-003** [extension/bug, low] `open` (VS Code audit) — InlineCompletionProvider
   (and the same pattern in ChatParticipant/LanguageModelProvider) registers
   `token.onCancellationRequested(() => controller.abort())` without ever disposing

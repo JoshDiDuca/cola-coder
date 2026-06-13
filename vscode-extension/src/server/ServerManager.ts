@@ -74,25 +74,33 @@ export class ServerManager implements vscode.Disposable {
     this.healthMonitor.setState('starting');
 
     // Spawn the process
-    this.process = spawn(pythonPath, args, {
+    const proc = spawn(pythonPath, args, {
       cwd: projectRoot,
       env: { ...process.env, PYTHONUNBUFFERED: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    this.process = proc;
 
     // Capture output
-    this.process.stdout?.on('data', (data: Buffer) => {
+    proc.stdout?.on('data', (data: Buffer) => {
       logger.info(data.toString().trimEnd());
     });
-    this.process.stderr?.on('data', (data: Buffer) => {
+    proc.stderr?.on('data', (data: Buffer) => {
       logger.error(data.toString().trimEnd());
     });
 
-    // Handle unexpected exit
-    this.process.on('exit', (code) => {
+    // Handle exit. This handler OWNS clearing `stopping`: we read it into
+    // `wasStopping` and reset it here, so an intentional stop() can never be
+    // misread as a crash even when the process' async 'exit' fires after
+    // stop() has already returned (the SIGKILL-timeout race). The identity
+    // guard (`this.process === proc`) ensures a late exit from an old process
+    // can't null out a process a concurrent restart() has already spawned.
+    proc.on('exit', (code) => {
       logger.info(`Server process exited with code ${code}`);
-      this.process = null;
-      if (!this.stopping && code !== 0 && code !== null) {
+      if (this.process === proc) this.process = null;
+      const wasStopping = this.stopping;
+      this.stopping = false;
+      if (!wasStopping && code !== 0 && code !== null) {
         this._handleCrash();
       } else {
         this.healthMonitor.setState('disconnected');
@@ -117,24 +125,32 @@ export class ServerManager implements vscode.Disposable {
 
     logger.info('Stopping server...');
     const proc = this.process;
-    this.process = null;
+    // Mark stopping BEFORE the kill so the 'exit' handler (registered in
+    // start) treats the exit as intentional. Do NOT clear `stopping` or null
+    // `this.process` here — the 'exit' handler owns both, so the flag is still
+    // set when the (async) exit actually fires. Clearing it here is the race
+    // that produced spurious crash-restarts of a deliberately-stopped server.
     this.stopping = true;
 
-    try {
-      // Try graceful shutdown first (SIGTERM)
-      proc.kill('SIGTERM');
-
-      // Wait up to 5 seconds, then force kill
-      await new Promise<void>((resolve) => {
-        const timeout = setTimeout(() => {
-          if (!proc.killed) proc.kill('SIGKILL');
-          resolve();
-        }, 5000);
-        proc.on('exit', () => { clearTimeout(timeout); resolve(); });
+    // Try graceful shutdown (SIGTERM), escalate to SIGKILL after 5s, and
+    // resolve when the process actually exits. A hard fallback prevents stop()
+    // hanging forever if the process never exits (zombie) — in that case
+    // `stopping` stays set so no spurious restart fires.
+    proc.kill('SIGTERM');
+    await new Promise<void>((resolve) => {
+      const sigkillTimer = setTimeout(() => {
+        if (!proc.killed) proc.kill('SIGKILL');
+      }, 5000);
+      const hardFallback = setTimeout(() => {
+        clearTimeout(sigkillTimer);
+        resolve();
+      }, 6000);
+      proc.once('exit', () => {
+        clearTimeout(sigkillTimer);
+        clearTimeout(hardFallback);
+        resolve();
       });
-    } finally {
-      this.stopping = false;
-    }
+    });
 
     this.healthMonitor.setState('disconnected');
   }
