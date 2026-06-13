@@ -45,9 +45,12 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   queue cap: requests pile up behind `_gen_lock` unboundedly. Add a bounded queue (429
   when saturated) + per-request server-side timeout so a burst can't wedge latency.
   Complements INFER-021.
-- **INFER-025** [inference/feature, low] `open` — `/v1/fim` (`FimRequest`) doesn't
-  expose `repetition_penalty` (generate() defaults 1.1); add it to the schema + forward
-  it, for parity with chat/completions and to let the extension tune ghost-text repetition.
+- **INFER-025** [inference/feature, low] `done` (2026-06-13) — `/v1/fim` (`FimRequest`)
+  now exposes `repetition_penalty` (default 1.1) and the FIM handler forwards it to
+  `base_gen.generate` — parity with chat/completions (it was the only direct call site
+  that omitted it). Tests: test_server_no_repeat_ngram.py::TestFimExposesRepetitionPenalty
+  +3 (field present+default, settable, all 6 direct call sites forward it); 7 pass, ruff
+  clean. Server-only, does not touch training.
 
 **Code / data / eval / docs**
 - **DATA-054** [data-quality, medium] `open` — Semantic (embedding/SimHash) dedup:

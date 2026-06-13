@@ -206,6 +206,7 @@ class FimRequest(BaseModel):
     top_p: float = 0.9
     top_k: int = 50
     min_p: float = 0.0
+    repetition_penalty: float = 1.1
     no_repeat_ngram_size: int = 0
     language: str | None = None  # Metadata only — reserved for language-specific stops
     file_path: str | None = None
@@ -1000,6 +1001,7 @@ def create_app(
                 top_k=request.top_k,
                 top_p=request.top_p,
                 min_p=request.min_p,
+                repetition_penalty=request.repetition_penalty,
                 no_repeat_ngram_size=request.no_repeat_ngram_size,
                 stop_tokens=stop_tokens,
             )

@@ -44,3 +44,24 @@ class TestServerForwardsField:
 
     def test_server_still_parses(self):
         ast.parse(_SERVER.read_text(encoding="utf-8"))
+
+
+class TestFimExposesRepetitionPenalty:
+    """INFER-025: /v1/fim (FimRequest) must expose + forward repetition_penalty
+    for parity with the chat/completions endpoints (it previously defaulted to
+    1.1 with no way for the ghost-text client to tune it)."""
+
+    def test_fim_request_has_repetition_penalty(self):
+        assert "repetition_penalty" in FimRequest.model_fields
+        assert FimRequest.model_fields["repetition_penalty"].default == 1.1
+
+    def test_fim_request_field_is_settable(self):
+        assert FimRequest(prefix="a", suffix="b", repetition_penalty=1.3).repetition_penalty == 1.3
+
+    def test_all_direct_call_sites_forward_repetition_penalty(self):
+        # Same 6 direct base_gen.generate/generate_stream call sites as
+        # no_repeat_ngram_size: /generate, chat (non-stream+stream), completions
+        # (non-stream+stream), and FIM (the one INFER-025 added).
+        src = _SERVER.read_text(encoding="utf-8")
+        forwards = src.count("repetition_penalty=request.repetition_penalty")
+        assert forwards >= 6, f"only {forwards} call sites forward repetition_penalty"
