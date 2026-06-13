@@ -61,3 +61,44 @@ distillation, RLVR/GRPO/DAPO.
 - Relevance: validates cola-coder's staged pipeline; the "higher-quality reasoning
   stage" maps to a data curriculum + model-based quality scoring. → DATA-056 (with DATA-055).
 - Sources: ICLR'26 frontier-training notes; HuggingFace "Best Open-Source LLMs 2026".
+
+### Original ideas / hypotheses (cola-coder-specific cross-technique combinations)
+cola-coder has a rare asset combo most stacks lack: **dynamic FIM + sandbox test
+runner + TscRunner (tsc --strict) + best-of-N verification + per-sample quality
+weights + a Muon implementation**. These let us combine 2026 techniques in ways the
+generic recipes don't. All are HYPOTHESES to validate (worktree, off the live run),
+not committed approaches. → IDEA-001..005.
+
+- **IDEA-001 — FIM-RLVR (infill GRPO with execution/tsc reward).** Most RLVR does
+  full-program generation. Instead run GRPO where each prompt is a FIM task (real
+  code with the middle held out) and the verifiable reward is "does the infill make
+  the file type-check (tsc --strict) / pass its tests." This optimizes the *actual
+  deployment objective* (IDE ghost-text infill at temp~0.2), not full generation.
+  Reuses TscRunner + sandbox + GRPO + the FIM tokens. Prior art does FIM+RL
+  (DeepSeek-Coder, aiXcoder, IFIM@ICSE'26) but verifiable-reward FIM-GRPO is sharp
+  and directly fits this project. Hypothesis: beats full-gen GRPO for completion quality.
+- **IDEA-002 — Verified self-distillation bridge (VSD).** The 2026 OPD recipe wants a
+  "forward-KL warmup / dense bridge" before student RL, but cola-coder has no local
+  teacher. Use its EXISTING best-of-N + sandbox verifier to harvest the model's OWN
+  verified-correct completions, SFT on them (rejection-sampling RFT) as that bridge,
+  THEN GRPO. Research caveat (arXiv 2505.14216): self-distillation alone overfits and
+  underperforms RLVR — so use VSD strictly as a warmup INTO GRPO, plus the hybrid
+  finding (self-distill for update magnitude, RLVR for direction; arXiv 2601.18734).
+  No external teacher needed — a teacher-free OPD bridge from the project's own verifier.
+- **IDEA-003 — Online perplexity curriculum (live-loss reweighting).** Combine
+  MODEL-020 (online reweighting) + DATA-055 (model-based scoring): skip the separate
+  scoring pass and use the RUNNING model's per-chunk loss as a real-time
+  difficulty/quality signal — down-weight already-mastered low-loss chunks, focus
+  compute on high-loss-but-learnable ones (and flag near-zero-loss as likely dup/noise).
+  Closes the eval→data loop *during* training at ~zero extra cost.
+- **IDEA-004 — Suffix-guided speculative decoding for FIM.** For ghost-text the suffix
+  is KNOWN. Generic speculative decoding ignores this. Use the known suffix to bias/
+  verify draft tokens toward connecting cleanly to it — making spec-decoding both
+  faster AND more suffix-consistent for infill. Combines MODEL-022 + FIM; a
+  completion-specific decoding trick.
+- **IDEA-005 — Quality-weight × Muon interaction (theory).** Muon orthogonalizes the
+  gradient (Newton-Schulz); per-sample quality weights scale the loss. Open question:
+  does loss-level quality-weighting survive orthogonalization, or does Muon wash out
+  the per-sample magnitude? If the latter, weight at the data-SAMPLING level instead.
+  A small AdamW-vs-Muon × weighted-vs-unweighted ablation answers it; matters because
+  the project relies on .weights.npy AND wants to adopt Muon (MODEL-025).

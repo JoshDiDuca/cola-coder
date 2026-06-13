@@ -11,6 +11,28 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+### Original ideas / hypotheses 2026-06-13 (cross-technique — see docs/research-log.md)
+These are RESEARCH hypotheses (validate in a worktree, off the live run), exploiting
+cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N verifier
++ quality weights + Muon. Not committed approaches until validated.
+
+- **IDEA-001** [research/model, high-potential] `open` — FIM-RLVR: GRPO on FIM infill
+  tasks with a tsc-/test-execution verifiable reward (optimizes the real ghost-text
+  objective, not full generation). Reuses TscRunner + sandbox + GRPO + FIM tokens.
+- **IDEA-002** [research/post-training, high-potential] `open` — Verified
+  self-distillation bridge: harvest the model's own best-of-N sandbox-verified
+  completions as a rejection-sampling SFT bridge (teacher-free OPD), used as a warmup
+  INTO GRPO (self-distill alone overfits — pair with RLVR). 
+- **IDEA-003** [research/data, medium-potential] `open` — Online perplexity curriculum:
+  use the running model's per-chunk loss as a live difficulty/quality signal to
+  reweight on the fly (merges MODEL-020 + DATA-055; closes eval→data loop during training).
+- **IDEA-004** [research/inference, medium-potential] `open` — Suffix-guided
+  speculative decoding for FIM: use the KNOWN suffix to bias/verify draft tokens for
+  faster, more suffix-consistent infill (MODEL-022 + FIM).
+- **IDEA-005** [research/training, low-potential] `open` — Quality-weight × Muon
+  interaction ablation: does loss-level `.weights.npy` weighting survive Muon's
+  orthogonalization, or must it move to the sampling level? Gates MODEL-025 adoption.
+
 ### Research-grounded 2026-06-13 (from web research — see docs/research-log.md)
 
 - **MODEL-024** [model/post-training, high] `open` — **On-policy distillation (OPD)**,
