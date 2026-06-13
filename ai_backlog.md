@@ -65,6 +65,12 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   test_best_of_n.py::TestAdaptiveBudget +3 (early-stop on first verify, expand-to-cap
   when none verify, secure-preferred on early-stop); 54 best_of_n/server tests + ruff
   green. Follow-up: have the FastAPI /best-of-N path optionally use the adaptive variant.
+- **MODEL-034** [model/training, medium] `open` (Muon research 2026-06-13) — MuonClip
+  (Kimi-2): clip the Muon update (qk-clip) for smoother loss + stable large-scale
+  dynamics — the 2026 stability refinement on plain Muon. Layer onto MODEL-025 (adopt
+  Muon) once Muon is the default; muP scaling (MODEL-031) composes with Muon (tune LR +
+  weight-decay on tiny, transfer up). Train-path (optimizer) → worktree, validate
+  before any merge.
 - **MODEL-033** [model/long-context, medium] `open` (long-context research 2026-06-13)
   — LongRoPE2-style Stage-4 context extension: upgrade the YaRN path with mixed
   context-window training that PRESERVES short-context accuracy (>98.5%) while adopting
@@ -154,13 +160,18 @@ EVERY scenario. SEC-001/SEC-010 fixed timeout-kill + all-exit cleanup; the rest:
   completion as text without running it. Follow-up when other languages are added:
   ensure non-TS verifiers (python_exec) also route through the sandbox (they already
   do via SandboxedRunner per the SEC-013 audit).
-- **DATA-057** [data-quality, medium] `open` (research 2026-06-13) — Soft-dedup
-  reweighting (SoftDedup-style): when dedup.py's MinHash finds a near-duplicate
-  cluster, instead of HARD-dropping members, DOWN-weight them in `.weights.npy`
-  (weight ∝ 1/cluster_size) so rare info in the cluster survives while
-  over-representation is cut. Reuses the project's existing MinHash (dedup.py) +
-  per-sample quality weights + the loss's weighting — no new infra. Pairs with
-  DATA-055 (model-based scoring) and IDEA-003 (online curriculum).
+- **DATA-057** [data-quality, medium] `done` (2026-06-13) — Soft-dedup reweighting.
+  Added `CrossDatasetDeduplicator.compute_soft_weights(data) -> np.ndarray`: builds a
+  MinHash per row, indexes them in an LSH, and assigns each row weight 1/cluster_size
+  (cluster = near-dups within the Jaccard threshold). A cluster of k near-identical
+  chunks collectively contributes ~1 sample's worth of weight, so over-represented
+  content is down-weighted WITHOUT deleting rare info (SoftDedup). Multiply into the
+  training `.weights.npy` (the loss already applies per-sample weights). No-op
+  (all-ones) when datasketch is absent. Additive (new method, hard-dedup path
+  untouched), prep-time (off the live pretraining path → safe on main). Tests:
+  test_soft_dedup.py +4 (identical-trio→1/3 each, all-unique→1.0, empty, cluster-sum→1);
+  27 dedup tests + ruff green. Follow-up: a flag in score_data/combine_datasets to
+  fold these into the emitted weights. Validate alongside Muon (IDEA-005).
 - **SEC-015** [security/sandbox, high] `open` (the REAL bulletproof path — research
   2026-06-13) — HONEST LIMITATION: plain Docker on this Windows Docker Desktop/WSL2
   host CANNOT be made truly bulletproof (shared kernel; gVisor/Firecracker/Kata

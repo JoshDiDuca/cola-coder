@@ -284,6 +284,49 @@ class CrossDatasetDeduplicator:
                            tokenizer_path)
             return None
 
+    def compute_soft_weights(
+        self,
+        data: np.ndarray,
+        tokenizer=None,
+    ) -> np.ndarray:
+        """SoftDedup (DATA-057): per-row weight ∝ 1 / near-dup-cluster-size.
+
+        Instead of DROPPING near-duplicates (hard dedup), down-weight them: a chunk
+        in a cluster of k near-identical chunks gets weight 1/k, so the cluster
+        collectively contributes ~1 sample's worth of signal while no rare
+        information in it is deleted (SoftDedup, 2024+). Multiply the returned
+        weights into the training quality weights (`.weights.npy`); the loss already
+        applies per-sample weights.
+
+        Args:
+            data: 2-D token array, one chunk per row.
+            tokenizer: optional tokenizer for character n-grams (else token n-grams).
+
+        Returns:
+            float32 weights in (0, 1], one per row, aligned to ``data``. Returns
+            all-ones (no-op) when datasketch is unavailable — near-dup clusters
+            can't be detected without it.
+        """
+        n = len(data)
+        if n == 0:
+            return np.ones(0, dtype=np.float32)
+        if not self._use_minhash:
+            logger.warning(
+                "compute_soft_weights: datasketch unavailable — uniform weights"
+            )
+            return np.ones(n, dtype=np.float32)
+
+        minhashes = [self._make_minhash(data[i], tokenizer) for i in range(n)]
+        lsh = MinHashLSH(threshold=self.threshold, num_perm=self.num_perm)
+        for i, m in enumerate(minhashes):
+            lsh.insert(str(i), m)
+
+        weights = np.ones(n, dtype=np.float32)
+        for i, m in enumerate(minhashes):
+            cluster_size = max(1, len(lsh.query(m)))  # query includes row i itself
+            weights[i] = 1.0 / cluster_size
+        return weights
+
     def build_index(
         self,
         dataset_path: str,

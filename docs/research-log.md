@@ -7,6 +7,30 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-13 — Optimizers: Muon practical details (rotate: optimizers)
+
+- **muP scaling works for Muon too** — the same maximal-update parametrization that
+  transfers AdamW hyperparameters small→large works for Muon. So MODEL-025 (adopt
+  Muon) + MODEL-031 (muP) compose: tune LR + weight-decay on the TINY config and
+  transfer up the size ladder. Muon needs tuning over essentially just max-LR +
+  weight-decay.
+- Muon has the **lightest memory footprint** of common optimizers (only the first
+  moment — lighter than AdamW) — a real win on the 16 GB 4080.
+- **MuonClip** (Kimi-2, 1T params): clips the Muon/attention update (qk-clip) for
+  smoother loss curves + stable large-scale dynamics. The 2026 stability refinement
+  on top of plain Muon. → MODEL-034.
+- Hybrid convention (confirmed): Muon for 2-D matmul weights, AdamW for embeddings /
+  1-D params / norms — which cola-coder's optimizer.py grouping ALREADY follows
+  (verified in the earlier optimizer audit).
+- Sources: "Practical Efficiency of Muon for Pretraining" (https://arxiv.org/html/2505.02222v1);
+  MuLoCo (https://arxiv.org/abs/2505.23725); MuCon "Clipped Muon Updates"
+  (https://arxiv.org/html/2605.26459); Tyler Romero Muon guide
+  (https://www.tylerromero.com/translations/scientific-spaces/muon-optimizer-guide-quick-start-and-key-details/).
+- ORIGINAL idea: the project's quality-weights × Muon question (IDEA-005) gains
+  urgency — Muon orthogonalizes the gradient, so per-sample loss weighting may need
+  to move to the data-sampling level; the new DATA-057 soft-dedup weights are part of
+  that same `.weights.npy` signal, so validate them together under Muon.
+
 ## 2026-06-13 — Long context / context extension (rotate: long-context)
 
 - **YaRN** (NTK-by-parts + attention temperature) extends to 128K+ with low perplexity
