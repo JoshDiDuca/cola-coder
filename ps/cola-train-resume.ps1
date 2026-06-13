@@ -28,7 +28,12 @@ if (-not (Test-Path $Data)) { Write-Host "training data not found: $Data" -Foreg
 $running = Get-Process python* -ErrorAction SilentlyContinue
 if ($running) { Write-Host "A python process is already running (PID $($running.Id -join ',')). Not relaunching." -ForegroundColor Yellow; exit 0 }
 
-$cmd = @("scripts\train.py", "--config", $Config, "--data", $Data)
+# Build a SINGLE, explicitly-quoted argument string. The project path contains a
+# space ("ai research"), and Start-Process -ArgumentList with an ARRAY does not
+# reliably re-quote elements — it split the --resume path at the space and crashed
+# argparse ("unrecognized arguments: research\cola-coder\..."). Quoting each path
+# value fixes resume-from-checkpoint.
+$argLine = "scripts\train.py --config `"$Config`" --data `"$Data`""
 $ckpt = Join-Path $project $OutputDir
 $own = @()
 if (Test-Path $ckpt) {
@@ -36,13 +41,13 @@ if (Test-Path $ckpt) {
 }
 if ($own.Count -gt 0) {
     $latest = ($own | Sort-Object { [int]($_.Name -replace 'step_','') })[-1].FullName
-    $cmd += @("--resume", $latest)
+    $argLine += " --resume `"$latest`""
     Write-Host "Resuming from $latest"
 } else {
     Write-Host "No checkpoint in $OutputDir yet -> fresh start (step 0)."
 }
 
-$p = Start-Process -FilePath $py -ArgumentList $cmd -WorkingDirectory $project `
+$p = Start-Process -FilePath $py -ArgumentList $argLine -WorkingDirectory $project `
     -RedirectStandardOutput "$project\train_small_react_best.log" `
     -RedirectStandardError  "$project\train_small_react_best.err" `
     -WindowStyle Hidden -PassThru

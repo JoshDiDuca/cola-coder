@@ -7,6 +7,29 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-13 — Agentic coding / tool-use (rotate: agents)
+
+- Agentic coding = a multi-step loop (plan → act: write code / run tests / read output
+  → adapt → repeat to a stop condition). On SWE-bench, agentic systems with EXECUTION
+  FEEDBACK beat zero-shot 3-5×; ~60% of open-source agents use the "Agent Loop" pattern.
+- "The harness matters more than the model" — same model swings 30-50 pts on
+  Terminal-Bench 2.0 depending on harness/toolset/retry policy. Key model capabilities:
+  reliable tool-use (don't hallucinate tool output), long-context coherence, and
+  adapting (not repeating) a failed subtask.
+- Relevance: cola-coder has tools/executor + an agent loop + the sandbox. The
+  execution-feedback loop is the highest-leverage agentic pattern and the project's
+  sandbox/tsc/test verifier is exactly the feedback signal. → IDEA-011.
+- Sources: "Agentic Systems Without the Hype"
+  (https://medium.com/codetodeploy/agentic-systems-without-the-hype-when-multi-step-llm-workflows-actually-improve-software-e1492ebdfacf);
+  awesome-harness-engineering (https://github.com/ai-boost/awesome-harness-engineering);
+  awesome-ai-agent-papers 2026 (https://github.com/VoltAgent/awesome-ai-agent-papers).
+- ORIGINAL idea → **IDEA-011**: self-repair execution loop for code generation — on a
+  failed tsc/test verification, feed the sandbox's ERROR OUTPUT back to the model as
+  context and regenerate (bounded retries), instead of just sampling more blind
+  candidates (best-of-N). Combines the agent loop + sandbox verifier + FIM; turns the
+  one-shot generator into a 2026-style execution-feedback agent. Also a GRPO signal:
+  reward solving-after-feedback.
+
 ## 2026-06-13 — Optimizers: Muon practical details (rotate: optimizers)
 
 - **muP scaling works for Muon too** — the same maximal-update parametrization that

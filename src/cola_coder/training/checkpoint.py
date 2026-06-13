@@ -89,6 +89,44 @@ class _ConfigEncoder(json.JSONEncoder):
         return super().default(o)
 
 
+def _atomic_replace_dir(
+    tmp_dir: Path,
+    final_dir: Path,
+    retries: int = 6,
+    base_delay: float = 0.5,
+) -> None:
+    """Replace ``final_dir`` with ``tmp_dir``, retrying transient Windows locks.
+
+    Checkpoint saves on Windows occasionally fail with PermissionError
+    (WinError 5) when an external process (Defender, the search indexer) is briefly
+    holding a handle on a just-written file during the rename. The lock is
+    transient, so retry with linear backoff rather than letting the exception crash
+    the entire training run. As a last resort, copy-then-remove (a copy can succeed
+    where an atomic rename is blocked). Raises the last error only if every attempt
+    AND the copy fallback fail.
+    """
+    import time
+
+    last_err: Exception | None = None
+    for attempt in range(retries):
+        try:
+            if final_dir.exists():
+                shutil.rmtree(final_dir)
+            tmp_dir.rename(final_dir)
+            return
+        except (PermissionError, OSError) as e:
+            last_err = e
+            time.sleep(base_delay * (attempt + 1))
+    # Fallback: copy the contents then drop the temp dir.
+    try:
+        shutil.copytree(tmp_dir, final_dir, dirs_exist_ok=True)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return
+    except (PermissionError, OSError) as e:
+        last_err = e
+    raise last_err if last_err is not None else RuntimeError("atomic replace failed")
+
+
 def save_checkpoint(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
@@ -177,10 +215,11 @@ def save_checkpoint(
     }
     (tmp_dir / "metadata.json").write_text(json.dumps(metadata, indent=2, cls=_ConfigEncoder))
 
-    # Atomic rename: tmp -> final (if final already exists, replace it)
-    if final_dir.exists():
-        shutil.rmtree(final_dir)
-    tmp_dir.rename(final_dir)
+    # Atomic rename tmp -> final, robust to transient Windows file locks (a
+    # PermissionError [WinError 5] during the rename — e.g. Defender/indexer
+    # momentarily holding a handle on a freshly-written file — used to CRASH the
+    # whole training run on an unattended box; retry + copy-fallback instead).
+    _atomic_replace_dir(tmp_dir, final_dir)
     ckpt_dir = final_dir
 
     # Write/update training manifest

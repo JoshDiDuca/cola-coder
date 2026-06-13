@@ -11,6 +11,31 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+### Training recovery (2026-06-13 — found during a real crash recovery)
+- **BUG-127** [tooling/training-recovery, critical] `done` (2026-06-13) — CRITICAL
+  resume-recovery bug: `ps/cola-train-resume.ps1` passed `--resume <path>` via
+  `Start-Process -ArgumentList` as an ARRAY; the project path contains a space
+  ("ai research"), which Start-Process did NOT re-quote, so argparse got a split path
+  and crashed (`unrecognized arguments: research\cola-coder\...step_00002000`). Effect:
+  EVERY reboot/crash recovery resuming from a checkpoint would have FAILED silently —
+  the babysitter "relaunches" but the process dies on startup. FIX: build a single
+  explicitly-quoted argument string (`--resume "<path>"`, config/data quoted too).
+  Verified live: relaunch resumed from step_00002000 and is progressing.
+- **BUG-126** [training/robustness, high] `done` (2026-06-13) — Checkpoint save crashed
+  the whole run on a transient Windows file lock: at step 2500 `save_checkpoint`'s
+  `tmp_dir.rename(final_dir)` raised `PermissionError [WinError 5]` (Defender/indexer
+  holding a handle on a freshly-written safetensors) → killed the unattended run (it
+  had reached loss 1.58 / ppl 4.9). FIX: `_atomic_replace_dir()` retries the
+  rmtree+rename with linear backoff (6×) + copytree-fallback, so a transient lock no
+  longer crashes training. Tests: test_checkpoint_atomic_replace.py +4; 40 checkpoint
+  tests + ruff green. Resume-compatible (load path unchanged) — applied before relaunch.
+- **IDEA-011** [research/agents, medium-potential] `open` (2026-06-13) — Self-repair
+  execution loop: on a failed tsc/test verification, feed the sandbox's ERROR OUTPUT
+  back to the model and regenerate (bounded retries) instead of blind best-of-N
+  resampling — the 2026 agentic execution-feedback pattern (3-5× over zero-shot on
+  SWE-bench). Combines agent loop + sandbox verifier + FIM; also a GRPO signal (reward
+  solving-after-feedback). Inference + reasoning (non-train).
+
 ### SECURITY — output guardrail + remaining items
 
 - **SEC-017** [security/output-guardrail, medium] `done` (2026-06-13, safety research)
