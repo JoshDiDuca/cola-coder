@@ -11,6 +11,32 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+- **BUG-119** [training/robustness, high] `open` (discovered 2026-06-13 during the
+  small_react_best run) — `torch.compile` crashes training at step 0 instead of
+  falling back to eager when its backend (Triton) is missing — common on Windows.
+  `Trainer.__init__` (trainer.py:124-137) calls `torch.compile(model)` inside a
+  try/except, BUT compilation is LAZY: the `InductorError: TritonMissing` fires on
+  the FIRST forward pass, past that try/except, killing the run. Workaround in use:
+  `COLA_NO_COMPILE=1` env var (now set by ps/cola-train-resume.ps1). Proper fix:
+  detect Triton/inductor availability up front (e.g. `import triton`) and skip
+  compile if absent with a clear log line; OR guard the first compiled
+  forward/backward and fall back to eager on InductorError. Add a test that
+  simulates a compile failure and asserts training continues in eager. Without
+  this, every Windows user without Triton hits a hard crash at step 0.
+- **BUG-118** [training/robustness, high] `open` (discovered 2026-06-13) —
+  `train.py --auto-resume` resumed from an architecturally-INCOMPATIBLE checkpoint.
+  For the `small_react_best` config (qk_norm=true, output_dir checkpoints/
+  small_react_best, empty) auto-resume latched onto the pre-existing
+  `checkpoints/small/step_00100000` (a different run, NO qk_norm) and crashed in
+  `_load_state_dict_tied` on the mismatched/extra keys. Auto-resume's
+  architecture-matching is too loose (doesn't account for qk_norm / full arch) and
+  searches beyond the config's own output_dir. Fix: restrict `--auto-resume`
+  detection to `config.checkpoint.output_dir` (the run's OWN dir), and/or validate
+  full architecture (dim, layers, heads, qk_norm, moe) before resuming — refuse +
+  warn on mismatch rather than crash. Workaround in use: ps/cola-train-resume.ps1
+  resumes only from the run's own step_* dirs (fresh if none). Relates to the
+  "latest pointer can be stale" rule in .claude/rules/checkpoints.md.
+
 ### USER REQUEST 2026-06-13 — full PowerShell usability + menu testing
 Goal: every project workflow runnable from PowerShell with NO errors, and every
 menu entry verified to work. Scheduled agent: pick ONE TOOL-015* sub-item per
