@@ -211,3 +211,96 @@ class TestTimeoutKillIsPidScoped:
 
         # An absurd / already-dead PID must never raise.
         _kill_proc_tree(2**31 - 1)
+
+
+class TestFailClosedWhenDockerUnavailable:
+    """SEC-013: requesting Docker isolation but having Docker unavailable must
+    FAIL CLOSED — never silently host-exec untrusted code."""
+
+    def test_docker_requested_unavailable_does_not_host_exec(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        from cola_coder.data.scorers.sandbox import (
+            RC_SANDBOX_UNAVAILABLE,
+            SandboxedRunner,
+        )
+
+        # Docker requested, but the daemon/binary is "absent".
+        with patch.object(SandboxedRunner, "_docker_available", return_value=False):
+            runner = SandboxedRunner(use_docker=True, timeout=5)
+            assert runner.use_docker is False  # fell back to non-docker dispatch
+
+            # Spy: prove _run_native is NEVER invoked (no host execution).
+            native_called: list[object] = []
+            monkeypatch.setattr(
+                runner,
+                "_run_native",
+                lambda *a, **k: native_called.append(a) or (_ for _ in ()).throw(
+                    AssertionError("host exec must not happen")
+                ),
+            )
+
+            # This command would create a marker file if it ran on the host.
+            marker = tmp_path / "PWNED"
+            result = runner.run(
+                ["python", "-c", f"open(r'{marker}', 'w').close()"],
+                cwd=tmp_path,
+            )
+
+        assert result.returncode == RC_SANDBOX_UNAVAILABLE
+        assert "fail closed" in result.stderr.lower()
+        assert not marker.exists(), "untrusted code was executed on the host!"
+        assert native_called == [], "_run_native should not have been called"
+        assert runner.get_run_summary()["errors"] == 1
+        assert runner.get_run_summary()["native_runs"] == 0
+
+    def test_explicit_opt_in_allows_native_fallback(
+        self, tmp_path: Path
+    ) -> None:
+        """allow_native_fallback=True is the documented, explicit escape hatch."""
+        from cola_coder.data.scorers.sandbox import SandboxedRunner
+
+        with patch.object(SandboxedRunner, "_docker_available", return_value=False):
+            runner = SandboxedRunner(
+                use_docker=True, timeout=5, allow_native_fallback=True
+            )
+            result = runner.run(["python", "-c", "print('ok')"], cwd=tmp_path)
+
+        assert result.returncode == 0
+        assert "ok" in result.stdout
+        assert runner.get_run_summary()["native_runs"] == 1
+
+    def test_native_mode_still_host_execs_by_design(self, tmp_path: Path) -> None:
+        """Plain native mode (Docker not requested) is the explicit host-exec
+        opt-in and must keep working — fail-closed only applies to Docker mode."""
+        from cola_coder.data.scorers.sandbox import SandboxedRunner
+
+        runner = SandboxedRunner(use_docker=False, timeout=5)
+        result = runner.run(["python", "-c", "print('native')"], cwd=tmp_path)
+        assert result.returncode == 0
+        assert "native" in result.stdout
+
+    def test_from_config_docker_unavailable_fails_closed(
+        self, tmp_path: Path
+    ) -> None:
+        from cola_coder.data.scorers.sandbox import (
+            RC_SANDBOX_UNAVAILABLE,
+            SandboxedRunner,
+        )
+        from cola_coder.data.scorers.security import SecurityConfig, SecurityMode
+
+        config = SecurityConfig(mode=SecurityMode.DOCKER)
+        with patch.object(SandboxedRunner, "_docker_available", return_value=False):
+            runner = SandboxedRunner.from_config(config)
+            result = runner.run(["python", "-c", "print(1)"], cwd=tmp_path)
+        assert result.returncode == RC_SANDBOX_UNAVAILABLE
+
+    def test_log_status_reports_fail_closed(self) -> None:
+        from cola_coder.data.scorers.sandbox import SandboxedRunner
+
+        with patch.object(SandboxedRunner, "_docker_available", return_value=False):
+            runner = SandboxedRunner(use_docker=True, timeout=10)
+            status = runner.log_status()
+        assert status["fail_closed"] is True
+        assert status["allow_native_fallback"] is False
+        assert status["docker_connected"] is False
