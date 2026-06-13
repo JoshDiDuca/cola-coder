@@ -146,8 +146,16 @@ def estimate_vram(
             gpu_vram_gb = props.total_memory / 1e9
             fits_training = total_training < gpu_vram_gb * 0.95  # 95% safety margin
             fits_inference = total_inference < gpu_vram_gb * 0.95
-    except ImportError:
-        pass
+    except Exception:  # noqa: BLE001
+        # torch absent (ImportError) OR a broken/partial CUDA install where
+        # is_available() is True but get_device_properties() raises RuntimeError.
+        # The breakdown math is GPU-independent, so a probe failure must never
+        # crash callers (e.g. scripts/vram_estimate.py) — just skip the fit check
+        # and leave the gpu_* / fits_* fields as None, same as the no-GPU path.
+        gpu_name = None
+        gpu_vram_gb = None
+        fits_training = None
+        fits_inference = None
 
     return VRAMEstimate(
         model_weights_gb=model_weights_gb,
