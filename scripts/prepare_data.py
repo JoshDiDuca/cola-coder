@@ -113,7 +113,13 @@ def _resolve_output(
             "detail": f"{ds['size']}  |  {ds['date']}",
         })
 
-    choice = cli.choose("What would you like to do?", options, allow_cancel=True)
+    # default=0 ("create new") so a NON-interactive run (pipeline subprocess,
+    # redirected I/O, or a terminal with no console buffer — Windows
+    # NoConsoleScreenBufferError) proceeds non-destructively instead of crashing.
+    # Pass --output-name to pick a target explicitly in automated runs.
+    choice = cli.choose(
+        "What would you like to do?", options, allow_cancel=True, default=0
+    )
 
     if choice is None:
         cli.dim("Cancelled.")

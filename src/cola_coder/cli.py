@@ -385,6 +385,7 @@ class CLI:
         options: list[dict[str, str]],
         *,
         allow_cancel: bool = False,
+        default: int | None = None,
     ) -> int | None:
         """Show an arrow-key navigable menu and return the selected index.
 
@@ -396,10 +397,19 @@ class CLI:
             options: List of dicts with 'label' and optional 'detail' keys.
             allow_cancel: If True, adds a "Cancel" option and returns None
                           if selected.
+            default: Index returned when there is NO interactive console (run as
+                a pipeline subprocess, redirected I/O, or an unsupported
+                terminal). Prevents a hard crash / infinite input loop. If None,
+                falls back to "cancel" (None) when allow_cancel else the first
+                option (0).
 
         Returns:
             Index of selected option, or None if cancelled.
         """
+        non_interactive_default = (
+            default if default is not None
+            else (None if allow_cancel else 0)
+        )
         try:
             import questionary
             from questionary import Style
@@ -438,6 +448,12 @@ class CLI:
             return result
 
         except ImportError:
+            pass
+        except Exception:
+            # No usable interactive console (redirected I/O, pipeline subprocess,
+            # or a terminal prompt_toolkit can't drive → NoConsoleScreenBufferError
+            # on Windows). Fall through to the numbered menu, which itself
+            # degrades to `non_interactive_default` if stdin is also unavailable.
             pass
 
         # ── Fallback: numbered menu (questionary not installed) ──────────────
@@ -480,12 +496,17 @@ class CLI:
         while True:
             try:
                 raw = input("  Select [1-{}]: ".format(max_choice)).strip()
+            except EOFError:
+                # No interactive stdin (pipeline subprocess / redirected input):
+                # use the caller's non-interactive default instead of looping.
+                return non_interactive_default
+            try:
                 choice = int(raw)
                 if 1 <= choice <= max_choice:
                     if allow_cancel and choice == max_choice:
                         return None
                     return choice - 1
-            except (ValueError, EOFError):
+            except ValueError:
                 pass
             if _HAS_RICH:
                 _console.print(f"  [red]Please enter a number 1-{max_choice}[/red]")
@@ -524,6 +545,11 @@ class CLI:
             return result if result is not None else default
 
         except ImportError:
+            pass
+        except Exception:
+            # No usable interactive console (redirected I/O / pipeline subprocess
+            # / unsupported terminal). Fall through to the input() prompt, which
+            # returns `default` on EOFError.
             pass
 
         # ── Fallback: plain input (questionary not installed) ────────────────
