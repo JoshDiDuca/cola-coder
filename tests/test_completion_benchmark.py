@@ -114,6 +114,34 @@ class TestScoreSingle:
         assert result.passed is False
         assert len(result.forbidden_found) == 1
 
+    def test_required_pattern_in_prefix_does_not_count(self, bench):
+        # Regression: scoring must look at the COMPLETION only. A required
+        # pattern that already lives in the prefix must NOT count as satisfied
+        # when the model's actual completion is junk — otherwise the benchmark
+        # silently inflates pass rates (a prefix-echoing base model would
+        # "pass" everything).
+        problem = CompletionProblem(
+            task_id="prefix_leak",
+            prefix="def f(x):\n    if x:\n        return x\n    ",
+            required_patterns=[r"return\s+x"],  # already present in the prefix
+        )
+        result = bench.score_single(problem, "zzz nonsense not code")
+        assert result.passed is False
+        assert result.missed_patterns == [r"return\s+x"]
+
+    def test_forbidden_pattern_in_prefix_does_not_trip(self, bench):
+        # The mirror case: a forbidden pattern sitting in the prefix must not
+        # fail a clean completion.
+        problem = CompletionProblem(
+            task_id="prefix_forbidden",
+            prefix="def f():\n    # eval is mentioned here\n    ",
+            required_patterns=[r"return\s+1"],
+            forbidden_patterns=[r"\beval\b"],
+        )
+        result = bench.score_single(problem, "return 1\n")
+        assert result.passed is True
+        assert result.forbidden_found == []
+
     def test_score_by_id(self, bench):
         result = bench.score("complete_add", "return a + b\n")
         assert result.task_id == "complete_add"
@@ -131,12 +159,15 @@ class TestRun:
         assert report.passed + report.failed == report.total
 
     def test_run_all_fail(self, bench):
-        # Note: a few problems (abstract method, protocol) have "pass" as a valid answer.
-        # "pass\n" also matches fibonacci because memo[n] appears in the prefix.
-        # So we just assert the majority fail.
+        # Scoring is against the COMPLETION only, so "pass\n" only passes the
+        # two problems where `pass` is genuinely a valid answer (abstract
+        # method, protocol). Everything else fails — pass rate must be tiny.
         report = bench.run(always_wrong_generator)
-        assert report.passed < report.total
-        assert report.pass_rate < 0.5
+        passing = [r.task_id for r in report.results if r.passed]
+        assert set(passing) <= {"complete_abstract_method", "complete_protocol"}, (
+            f"'pass' should only satisfy abstract/protocol stubs, got {passing}"
+        )
+        assert report.pass_rate < 0.1
 
     def test_by_difficulty_populated(self, bench):
         report = bench.run(always_wrong_generator)
