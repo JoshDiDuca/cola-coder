@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import uuid
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -108,6 +109,12 @@ class DockerSandbox:
         effective_timeout = timeout or self.timeout
         repo_path = repo_path.resolve()
 
+        # Unique container name so we can force-kill it on timeout. Killing the
+        # `docker run` client process (what subprocess.run does on timeout) does
+        # NOT stop the container — the daemon keeps it (and the untrusted code
+        # inside) running. We must explicitly `docker rm -f` it by name.
+        container_name = f"cola-curation-{uuid.uuid4().hex}"
+
         # Build docker run command.
         # The container user stays root because npm/pip installs need a
         # writable HOME and cache across arbitrary images — but with ALL
@@ -116,6 +123,7 @@ class DockerSandbox:
         cmd = [
             "docker", "run",
             "--rm",
+            f"--name={container_name}",
             f"--memory={self.memory_limit}",
             f"--cpus={self.cpu_limit}",
             f"--pids-limit={self.pid_limit}",
@@ -154,8 +162,30 @@ class DockerSandbox:
             logger.warning(
                 "Docker command timed out after %ds: %s", effective_timeout, command
             )
-            # Try to kill any lingering container
+            # Force-kill the lingering container — the timeout above only kills
+            # the `docker run` client, not the container the daemon is running.
+            # Without this, untrusted code keeps executing past the timeout.
+            self._force_remove_container(container_name)
             return -1, "", f"Timeout after {effective_timeout}s"
+
+    @staticmethod
+    def _force_remove_container(name: str) -> None:
+        """Force-remove a (possibly still-running) container by name.
+
+        ``docker rm -f`` both kills and removes the container, so it stops
+        untrusted code that survived a client-side timeout. Best-effort: if
+        the container already exited (``--rm`` cleaned it up) the command is a
+        harmless no-op, and any failure is logged rather than raised so the
+        timeout result still propagates.
+        """
+        try:
+            subprocess.run(
+                ["docker", "rm", "-f", name],
+                capture_output=True,
+                timeout=30,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+            logger.error("Failed to force-remove container %s: %s", name, exc)
 
     def run_with_install(
         self,
