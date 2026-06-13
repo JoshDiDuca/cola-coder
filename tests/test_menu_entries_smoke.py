@@ -1,4 +1,4 @@
-"""TOOL-015a/b: menus and their leaf options must run cleanly (no crash).
+"""TOOL-015a/b/c/d: menus and their leaf options must run cleanly (no crash).
 
 Non-interactive smoke harness. Constructs each sub-menu and calls its entry
 method(s) with ALL interactive prompts stubbed to "cancel" and ALL
@@ -15,7 +15,15 @@ handler is exercised past option-list construction down to its early-return
 cancel path. This catches leaf-level render/wiring crashes that the menu-open
 test cannot reach.
 
-Deeper per-leaf coverage of the other sub-menus is tracked as TOOL-015c/d.
+TOOL-015c extends the same per-leaf coverage to every TrainingMenu leaf (the
+6 groups: Pipeline Manager, Foundation, Pre-Training, Post-Training, Alignment
+& Reasoning, Monitoring & Tools).
+
+TOOL-015d extends it to every EvalMenu leaf and every PipelineMenu leaf. The
+PipelineMenu leaves dispatch real stages via ``_run_stage_script`` (which raises
+on non-zero exit, unlike ``_run_script``); the pipeline leaf fixture additionally
+stubs ``_run_stage_script`` so no stage ever executes/trains even if a leaf were
+to reach dispatch.
 """
 
 from __future__ import annotations
@@ -35,6 +43,7 @@ from cola_coder.features.menus import (
     ToolsMenu,
     TrainingMenu,
 )
+from cola_coder.features.menus.pipeline_menu import PipelineMenu as _PipelineMenuCls
 
 
 class _Canceler:
@@ -107,9 +116,9 @@ def test_all_submenus_constructible(tmp_path):
 def stubbed_leaf(stubbed, monkeypatch):
     """`stubbed` plus a stubbed builtins.input.
 
-    Several DataMenu leaves prompt with bare `input()` (not via cli). Under
-    pytest stdin is captured, so a real `input()` raises OSError rather than
-    EOFError. The leaf handlers all wrap `input()` in `try/except (EOFError,
+    Several leaves prompt with bare `input()` (not via cli). Under pytest stdin
+    is captured, so a real `input()` raises OSError rather than EOFError. The
+    leaf handlers all wrap `input()` in `try/except (EOFError,
     KeyboardInterrupt)` to mean "cancel", so we raise EOFError to drive every
     text prompt down that same cancel path — keeping the smoke test purely
     interaction-free.
@@ -169,3 +178,178 @@ def test_data_menu_group_handlers_exist():
     handler named here is an attribute of DataMenu."""
     for leaf in _DATA_LEAVES:
         assert callable(getattr(DataMenu, leaf, None)), leaf
+
+
+# ── TOOL-015c: drive every TrainingMenu LEAF option through its handler ──────
+
+
+# Every TrainingMenu leaf reachable from the 6 group menus. The group menus
+# (_foundation_menu, _pretraining_menu, _post_training_menu, _alignment_menu,
+# _monitoring_menu) are loops that dispatch by cli.choose() index; with prompts
+# stubbed to cancel they exit on the first pass, so we invoke each group menu
+# AND each terminal leaf handler directly to exercise them past option-list
+# construction. _background_training_menu is itself a dispatch loop (covered),
+# and its individual actions (start/stop/status/schedule/remove) are listed as
+# leaves too. _train_size_menu has a `resume` default so it is callable bare.
+# Pipeline Manager (group 0) delegates to PipelineMenu, covered by TOOL-015d.
+_TRAINING_LEAVES = [
+    # Group menus (dispatch loops)
+    "_foundation_menu",
+    "_pretraining_menu",
+    "_post_training_menu",
+    "_alignment_menu",
+    "_monitoring_menu",
+    # Foundation (Stage 1-2)
+    "_train_tokenizer",
+    # Pre-Training (Stage 3)
+    "_train_size_menu",
+    "_resume_training_menu",
+    "_background_training_menu",
+    "_start_background_training",
+    "_stop_background_training",
+    "_show_background_status",
+    "_schedule_overnight_training",
+    "_remove_overnight_schedule",
+    # Post-Training (Stage 4-7)
+    "_extend_context_menu",
+    "_generate_instructions_menu",
+    "_instruction_tuning_menu",
+    "_moe_upcycling_menu",
+    "_moe_finetune_menu",
+    # Alignment & Reasoning (Stage 8-9)
+    "_train_router_menu",
+    "_train_reasoning",
+    "_self_play_training_menu",
+    # Monitoring & Tools
+    "_vram_estimate_menu",
+    "_lr_finder_menu",
+    "_training_dashboard",
+    "_eval_history_menu",
+    # Legacy full-pipeline launcher (reachable via Pipeline Manager)
+    "_full_pipeline_menu",
+]
+
+
+@pytest.mark.parametrize("leaf", _TRAINING_LEAVES)
+def test_training_menu_leaf_runs_cleanly(stubbed_leaf, tmp_path, leaf):
+    """Each TrainingMenu leaf option reaches its handler and returns without
+    raising when every prompt is cancelled/defaulted (TOOL-015c)."""
+    master = MasterMenu(project_root=tmp_path)
+    training = TrainingMenu(master)
+    getattr(training, leaf)()
+
+
+def test_training_menu_group_handlers_exist():
+    """Guard: the leaf list stays in sync with the dispatch table — every
+    handler named here is an attribute of TrainingMenu."""
+    for leaf in _TRAINING_LEAVES:
+        assert callable(getattr(TrainingMenu, leaf, None)), leaf
+
+
+# ── TOOL-015d: drive every EvalMenu LEAF option through its handler ──────────
+
+
+# Every EvalMenu leaf reachable from the 5 group menus and the top-level menu.
+# Group menus (_benchmarks_menu, _router_eval_menu, _quality_menu,
+# _compare_menu) are dispatch loops; the top-level menu() also dispatches to
+# _safety_eval_menu / _routing_accuracy_menu / _contamination_menu directly.
+# The top-level Training Status entry delegates to ToolsMenu (covered by 015a).
+_EVAL_LEAVES = [
+    # Group menus (dispatch loops)
+    "_benchmarks_menu",
+    "_router_eval_menu",
+    "_quality_menu",
+    "_compare_menu",
+    # Benchmarks
+    "_ts_benchmark_menu",
+    "_ts_quick_benchmark",
+    "_ts_react_benchmark",
+    "_python_humaneval_menu",
+    "_python_completion_benchmark",
+    "_benchmark_menu",
+    "_run_eval_suite_menu",
+    "_inference_profiler_menu",
+    # Router Evaluation
+    "_domain_detection_test",
+    "_router_accuracy",
+    "_router_specialist_benchmark",
+    # Quality & Regression
+    "_smoke_test_menu",
+    "_regression_test_menu",
+    "_quality_report_menu",
+    "_model_card_menu",
+    # Compare
+    "_compare_checkpoints_menu",
+    "_compare_models_menu",
+    "_checkpoint_diff_menu",
+    "_checkpoint_info_menu",
+    # Top-level direct entries
+    "_safety_eval_menu",
+    "_routing_accuracy_menu",
+    "_contamination_menu",
+]
+
+
+@pytest.mark.parametrize("leaf", _EVAL_LEAVES)
+def test_eval_menu_leaf_runs_cleanly(stubbed_leaf, tmp_path, leaf):
+    """Each EvalMenu leaf option reaches its handler and returns without
+    raising when every prompt is cancelled/defaulted (TOOL-015d)."""
+    master = MasterMenu(project_root=tmp_path)
+    evalm = EvalMenu(master)
+    getattr(evalm, leaf)()
+
+
+def test_eval_menu_group_handlers_exist():
+    """Guard: the leaf list stays in sync with the dispatch table — every
+    handler named here is an attribute of EvalMenu."""
+    for leaf in _EVAL_LEAVES:
+        assert callable(getattr(EvalMenu, leaf, None)), leaf
+
+
+# ── TOOL-015d: drive every PipelineMenu LEAF option through its handler ──────
+
+
+@pytest.fixture
+def stubbed_pipeline_leaf(stubbed_leaf, monkeypatch):
+    """`stubbed_leaf` plus a stubbed PipelineMenu._run_stage_script.
+
+    PipelineMenu stage handlers run real scripts via `_run_stage_script`, which
+    (unlike `_run_script`) RAISES on non-zero exit. With every prompt cancelled
+    the leaves return before dispatching a stage, but we stub `_run_stage_script`
+    defensively so that even if a leaf reached `_execute_stage`/`_dispatch_stage`
+    no actual training/collection script would ever run.
+    """
+    monkeypatch.setattr(_PipelineMenuCls, "_run_stage_script", lambda *a, **k: None)
+
+
+# Every PipelineMenu leaf reachable from the top-level Pipeline Manager menu.
+# All are dispatch handlers that either prompt (and cancel) or short-circuit on
+# an empty runs list. _full_auto profiles hardware (read-only) then cancels at
+# the mode prompt; _legacy_pipeline delegates to TrainingMenu._full_pipeline_menu.
+_PIPELINE_LEAVES = [
+    "_full_auto",
+    "_create_run",
+    "_resume_run",
+    "_view_runs",
+    "_run_single_stage",
+    "_reset_to_stage",
+    "_delete_run",
+    "_legacy_pipeline",
+]
+
+
+@pytest.mark.parametrize("leaf", _PIPELINE_LEAVES)
+def test_pipeline_menu_leaf_runs_cleanly(stubbed_pipeline_leaf, tmp_path, leaf):
+    """Each PipelineMenu leaf option reaches its handler and returns without
+    raising when every prompt is cancelled/defaulted, and without executing any
+    real pipeline stage (TOOL-015d)."""
+    master = MasterMenu(project_root=tmp_path)
+    pipeline = PipelineMenu(master)
+    getattr(pipeline, leaf)()
+
+
+def test_pipeline_menu_group_handlers_exist():
+    """Guard: the leaf list stays in sync with the dispatch table — every
+    handler named here is an attribute of PipelineMenu."""
+    for leaf in _PIPELINE_LEAVES:
+        assert callable(getattr(PipelineMenu, leaf, None)), leaf
