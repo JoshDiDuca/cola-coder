@@ -2,7 +2,8 @@
 
 Loads a trained BPE tokenizer and runs a battery of health checks:
 - Vocab size matches expected
-- Special tokens are present (<pad>, <unk>, <bos>, <eos>, <think>, </think>)
+- Special tokens are present (<|pad|>, <|unk|>, <|bos|>, <|eos|>, plus optional
+  FIM and reasoning tokens)
 - Encode/decode roundtrip fidelity on sample code
 - Average token length on representative code snippets
 
@@ -22,6 +23,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT / "src"))
 
 from cola_coder.cli import cli  # noqa: E402
+from cola_coder.tokenizer.train_tokenizer import SPECIAL_TOKENS  # noqa: E402
 
 
 # ── Sample code snippets for token-length analysis ────────────────────────────
@@ -53,16 +55,20 @@ const average = (arr) => sum(arr) / arr.length;
 """,
 ]
 
-# Known special tokens for cola-coder
-_EXPECTED_SPECIAL_TOKENS = [
-    "<pad>",
-    "<unk>",
-    "<bos>",
-    "<eos>",
-]
+# Required special tokens for cola-coder, derived from the canonical
+# SPECIAL_TOKENS list in tokenizer/train_tokenizer.py so this check can never
+# drift from what the tokenizer is actually trained with. The four core tokens
+# (<|pad|>, <|bos|>, <|eos|>, <|unk|>) are exactly the ones CodeTokenizer
+# validates as required on load; the FIM tokens (<|fim_*|>) are optional.
+_REQUIRED_SPECIAL_TOKENS = [t for t in SPECIAL_TOKENS if "fim" not in t]
+_FIM_SPECIAL_TOKENS = [t for t in SPECIAL_TOKENS if "fim" in t]
 
-# Thinking tokens (reasoning module — optional)
-_OPTIONAL_SPECIAL_TOKENS = ["<think>", "</think>"]
+# Reasoning thinking tokens — only present after reasoning training (optional).
+_THINKING_SPECIAL_TOKENS = ["<think>", "</think>"]
+
+# All optional tokens: present on a fully-featured tokenizer, absent on a
+# base one. Their absence is a note, not a failure.
+_OPTIONAL_SPECIAL_TOKENS = _FIM_SPECIAL_TOKENS + _THINKING_SPECIAL_TOKENS
 
 
 # ── Health check functions ─────────────────────────────────────────────────────
@@ -80,14 +86,14 @@ def _check_vocab_size(tokenizer, expected: int | None) -> tuple[bool, str]:
 def _check_special_tokens(tokenizer) -> tuple[bool, str]:
     """Check that required special tokens are present."""
     vocab = tokenizer.get_vocab()
-    missing = [t for t in _EXPECTED_SPECIAL_TOKENS if t not in vocab]
+    missing = [t for t in _REQUIRED_SPECIAL_TOKENS if t not in vocab]
     optional_missing = [t for t in _OPTIONAL_SPECIAL_TOKENS if t not in vocab]
     if missing:
         return False, f"Missing required special tokens: {missing}"
     note = ""
     if optional_missing:
         note = f" (optional missing: {optional_missing})"
-    return True, f"All {len(_EXPECTED_SPECIAL_TOKENS)} required special tokens present{note}"
+    return True, f"All {len(_REQUIRED_SPECIAL_TOKENS)} required special tokens present{note}"
 
 
 def _check_roundtrip(tokenizer) -> tuple[bool, str]:
