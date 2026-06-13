@@ -340,6 +340,45 @@ def _completion_after_prompt(result: str, prompt: str, tokenizer) -> str:
     return strip_prompt_prefix(result, decoded_prompt)
 
 
+async def stream_chunks_locked(stream_iter, lock, is_disconnected):
+    """Yield decoded chunks, holding ``lock`` only around each GPU decode step.
+
+    INFER-021: the SSE endpoints used to wrap the whole streaming loop — INCLUDING
+    the network ``yield`` — in ``async with _gen_lock``. Starlette applies
+    backpressure: a ``yield`` suspends until the chunk is flushed to the socket,
+    so a single slow/paused streaming client kept the GPU lock held for the
+    stream's entire lifetime, blocking EVERY other request (inline FIM
+    completions and the extension's 5s ``/health`` poll). Here the lock is
+    acquired only around each blocking step (``next(stream_iter)``) and RELEASED
+    before the chunk is handed to the caller, so the caller's network ``yield``
+    never holds the GPU. One GPU decode at a time is still serialized.
+
+    Args:
+        stream_iter: A sync iterator of decoded text chunks (CodeGenerator.
+            generate_stream). Pulled through ``asyncio.to_thread`` so a blocking
+            GPU step never stalls the event loop.
+        lock: The shared ``asyncio.Lock`` serializing GPU access.
+        is_disconnected: Async predicate (``Request.is_disconnected``) — stop
+            pulling tokens once the client has gone.
+
+    Yields:
+        Each decoded chunk, with the lock NOT held during the yield.
+    """
+    try:
+        while True:
+            async with lock:
+                chunk = await asyncio.to_thread(next, stream_iter, _STREAM_END)
+            if chunk is _STREAM_END:
+                break
+            if await is_disconnected():
+                break
+            yield chunk
+    finally:
+        # Close the underlying generator so its `finally: clear_caches()` runs
+        # promptly on client disconnect / GC instead of waiting for the GC.
+        stream_iter.close()
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # App factory
 # ══════════════════════════════════════════════════════════════════════════════
@@ -430,6 +469,17 @@ def create_app(
                 no_repeat_ngram_size=no_repeat_ngram_size,
             )
         return result.best.text
+
+    def _locked_stream_chunks(stream_iter, raw_request: Request):
+        """Pull decoded chunks, holding ``_gen_lock`` only per GPU decode step.
+
+        Thin binder over the module-level ``stream_chunks_locked`` (unit-tested
+        in isolation) with this app's GPU lock and the request's disconnect
+        predicate. See that helper for the INFER-021 backpressure rationale.
+        """
+        return stream_chunks_locked(
+            stream_iter, _gen_lock, raw_request.is_disconnected
+        )
 
     # ══════════════════════════════════════════════════════════════════════
     # Original endpoints (backward compat)
@@ -623,58 +673,50 @@ def create_app(
         chat_id = _chat_id()
         completion_text = ""
 
-        async with _gen_lock:
-            stream_iter = base_gen.generate_stream(
-                prompt=prompt,
-                max_new_tokens=request.max_tokens,
-                temperature=request.temperature,
-                top_k=request.top_k,
-                top_p=request.top_p,
-                min_p=request.min_p,
-                repetition_penalty=request.repetition_penalty,
-                no_repeat_ngram_size=request.no_repeat_ngram_size,
-                stop_tokens=request.stop,
-            )
+        stream_iter = base_gen.generate_stream(
+            prompt=prompt,
+            max_new_tokens=request.max_tokens,
+            temperature=request.temperature,
+            top_k=request.top_k,
+            top_p=request.top_p,
+            min_p=request.min_p,
+            repetition_penalty=request.repetition_penalty,
+            no_repeat_ngram_size=request.no_repeat_ngram_size,
+            stop_tokens=request.stop,
+        )
 
-            # Each next() runs a full GPU decode step — pull it through
-            # to_thread so the event loop stays responsive (a bare
-            # `for chunk in stream_iter` would block /health and every
-            # other request for the duration of each token).
-            prompt_text = prompt
-            first_chunk = True
+        # Each next() runs a full GPU decode step — _locked_stream_chunks holds
+        # the GPU lock around that step only (so a slow client's backpressure on
+        # the `yield` below never blocks other requests) and pulls it through
+        # to_thread so the event loop stays responsive.
+        prompt_text = prompt
+        first_chunk = True
 
-            while True:
-                chunk = await asyncio.to_thread(next, stream_iter, _STREAM_END)
-                if chunk is _STREAM_END:
-                    break
-                # Check for client disconnect
-                if await raw_request.is_disconnected():
-                    break
+        async for chunk in _locked_stream_chunks(stream_iter, raw_request):
+            # Skip the prompt echo on the first chunk
+            if first_chunk and chunk.startswith(prompt_text):
+                chunk = chunk[len(prompt_text):]
+                first_chunk = False
+                if not chunk:
+                    continue
+            else:
+                first_chunk = False
 
-                # Skip the prompt echo on the first chunk
-                if first_chunk and chunk.startswith(prompt_text):
-                    chunk = chunk[len(prompt_text):]
-                    first_chunk = False
-                    if not chunk:
-                        continue
-                else:
-                    first_chunk = False
-
-                completion_text += chunk
-                data = {
-                    "id": chat_id,
-                    "object": "chat.completion.chunk",
-                    "created": int(time.time()),
-                    "model": model_name,
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {"content": chunk},
-                            "finish_reason": None,
-                        }
-                    ],
-                }
-                yield f"data: {json.dumps(data)}\n\n"
+            completion_text += chunk
+            data = {
+                "id": chat_id,
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": model_name,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": chunk},
+                        "finish_reason": None,
+                    }
+                ],
+            }
+            yield f"data: {json.dumps(data)}\n\n"
 
         # Final chunk with finish_reason
         final_data = {
@@ -815,53 +857,49 @@ def create_app(
         cmpl_id = _completion_id()
         completion_text = ""
 
-        async with _gen_lock:
-            stream_iter = base_gen.generate_stream(
-                prompt=prompt,
-                max_new_tokens=request.max_tokens,
-                temperature=request.temperature,
-                top_k=request.top_k,
-                top_p=request.top_p,
-                min_p=request.min_p,
-                repetition_penalty=request.repetition_penalty,
-                no_repeat_ngram_size=request.no_repeat_ngram_size,
-                stop_tokens=request.stop,
-            )
+        stream_iter = base_gen.generate_stream(
+            prompt=prompt,
+            max_new_tokens=request.max_tokens,
+            temperature=request.temperature,
+            top_k=request.top_k,
+            top_p=request.top_p,
+            min_p=request.min_p,
+            repetition_penalty=request.repetition_penalty,
+            no_repeat_ngram_size=request.no_repeat_ngram_size,
+            stop_tokens=request.stop,
+        )
 
-            prompt_text = prompt
-            first_chunk = True
+        # GPU lock held per decode step only (see _locked_stream_chunks) so a
+        # slow client's backpressure on the network `yield` cannot block other
+        # requests.
+        prompt_text = prompt
+        first_chunk = True
 
-            while True:
-                chunk = await asyncio.to_thread(next, stream_iter, _STREAM_END)
-                if chunk is _STREAM_END:
-                    break
-                if await raw_request.is_disconnected():
-                    break
+        async for chunk in _locked_stream_chunks(stream_iter, raw_request):
+            # Skip prompt echo
+            if first_chunk and chunk.startswith(prompt_text):
+                chunk = chunk[len(prompt_text):]
+                first_chunk = False
+                if not chunk:
+                    continue
+            else:
+                first_chunk = False
 
-                # Skip prompt echo
-                if first_chunk and chunk.startswith(prompt_text):
-                    chunk = chunk[len(prompt_text):]
-                    first_chunk = False
-                    if not chunk:
-                        continue
-                else:
-                    first_chunk = False
-
-                completion_text += chunk
-                data = {
-                    "id": cmpl_id,
-                    "object": "text_completion",
-                    "created": int(time.time()),
-                    "model": model_name,
-                    "choices": [
-                        {
-                            "index": 0,
-                            "text": chunk,
-                            "finish_reason": None,
-                        }
-                    ],
-                }
-                yield f"data: {json.dumps(data)}\n\n"
+            completion_text += chunk
+            data = {
+                "id": cmpl_id,
+                "object": "text_completion",
+                "created": int(time.time()),
+                "model": model_name,
+                "choices": [
+                    {
+                        "index": 0,
+                        "text": chunk,
+                        "finish_reason": None,
+                    }
+                ],
+            }
+            yield f"data: {json.dumps(data)}\n\n"
 
         final_data = {
             "id": cmpl_id,
