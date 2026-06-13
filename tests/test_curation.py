@@ -13,6 +13,7 @@ import sys
 import textwrap
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -477,6 +478,63 @@ class TestDockerSandbox:
         )
         assert code == 0
         assert "world" in stdout
+
+
+class TestDockerTimeoutKillsContainer:
+    """SECURITY: a Docker run that exceeds the timeout must force-kill the
+    container. subprocess.run's timeout only kills the `docker run` *client* —
+    the daemon keeps the container (and the untrusted code inside it) running.
+    Without an explicit `docker rm -f`, the timeout control is defeated and
+    untrusted scraped code keeps executing indefinitely on the host.
+    """
+
+    def test_timeout_force_removes_container(self, tmp_path: Path) -> None:
+        sandbox = DockerSandbox(timeout=1)
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, *args, **kwargs):
+            calls.append(cmd)
+            # First call is the `docker run` — simulate it hanging past timeout.
+            if cmd[:2] == ["docker", "run"]:
+                raise subprocess.TimeoutExpired(cmd=cmd, timeout=1)
+            # Subsequent calls (is_available's `docker info`, the rm) succeed.
+
+            class _R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            return _R()
+
+        with patch.object(DockerSandbox, "is_available", return_value=True), \
+                patch("cola_coder.data.curation.docker_sandbox.subprocess.run",
+                      side_effect=fake_run):
+            code, stdout, stderr = sandbox.run(
+                repo_path=tmp_path,
+                command="sleep 999",
+                image="alpine:latest",
+            )
+
+        assert code == -1
+        assert "Timeout" in stderr
+
+        # The run command must have assigned a --name so the container is
+        # addressable, and a `docker rm -f <name>` must have been issued.
+        run_cmd = next(c for c in calls if c[:2] == ["docker", "run"])
+        name_flag = next(a for a in run_cmd if a.startswith("--name="))
+        container_name = name_flag.split("=", 1)[1]
+
+        rm_calls = [c for c in calls if c[:3] == ["docker", "rm", "-f"]]
+        assert rm_calls, "timeout did not force-remove the container"
+        assert container_name in rm_calls[0]
+
+    def test_force_remove_swallows_errors(self) -> None:
+        """_force_remove_container must never raise — a cleanup failure must not
+        mask the timeout result returned to the caller."""
+        with patch("cola_coder.data.curation.docker_sandbox.subprocess.run",
+                   side_effect=FileNotFoundError("docker gone")):
+            # Should not raise.
+            DockerSandbox._force_remove_container("cola-curation-deadbeef")
 
 
 # ---------------------------------------------------------------------------
