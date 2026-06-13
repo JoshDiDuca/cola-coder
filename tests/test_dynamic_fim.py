@@ -49,6 +49,15 @@ class TestFIMTrainingCollator:
         assert "weights" in batch
         assert batch["weights"].tolist() == [1.0, 2.0, 3.0, 4.0]
 
+    def test_empty_batch_does_not_crash(self):
+        # An empty example list must not raise IndexError (examples[0]) or
+        # RuntimeError (torch.stack([])). drop_last=True means the live
+        # training path never produces this, so the guard is zero-numeric-impact.
+        c = FIMTrainingCollator(fim_rate=1.0, fim_ids=_FIM_IDS, seed=0)
+        batch = c([])
+        assert batch["input_ids"].numel() == 0
+        assert "weights" not in batch
+
 
 class TestCreateDataloaderFIM:
     def _npy(self, tmp_path):

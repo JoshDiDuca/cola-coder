@@ -220,6 +220,13 @@ class FIMTrainingCollator:
         )
 
     def __call__(self, examples: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
+        if not examples:
+            # An empty batch would make `examples[0]` raise IndexError and
+            # `torch.stack([])` raise RuntimeError. The training DataLoader uses
+            # drop_last=True so it never feeds an empty list, but guard anyway so
+            # the collator is safe to reuse standalone. Zero impact on real
+            # batches, which are always non-empty.
+            return {"input_ids": torch.empty(0, dtype=torch.int64)}
         ids = []
         for ex in examples:
             t = ex["input_ids"]
