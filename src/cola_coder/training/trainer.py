@@ -21,6 +21,7 @@ of handling requests, it processes batches of training data and updates
 the model's weights based on how wrong its predictions were.
 """
 
+import importlib.util
 import os
 from pathlib import Path
 
@@ -37,6 +38,24 @@ from .metrics import TrainingMetrics
 from .optimizer import create_optimizer, create_scheduler
 from .early_stopping import EarlyStopping
 from .auto_eval import AutoEvaluator
+
+
+def _torch_compile_backend_ready(device: str) -> bool:
+    """Whether torch.compile's default (inductor) backend can actually run here.
+
+    Inductor needs Triton on CUDA. Triton is frequently absent on Windows, and
+    when it is, compilation does NOT fail at the ``torch.compile(model)`` call —
+    it is lazy and crashes on the FIRST forward pass with
+    ``InductorError: TritonMissing``, past any try/except around the compile
+    call. We probe with ``find_spec`` (no side-effecting import) so we can fall
+    back to eager cleanly up front instead of dying at step 0. (BUG-119)
+    """
+    if device != "cuda":
+        return False
+    try:
+        return importlib.util.find_spec("triton") is not None
+    except (ImportError, ValueError):
+        return False
 
 
 def _should_shuffle(data_path: str) -> bool:
@@ -126,15 +145,24 @@ class Trainer:
             and hasattr(torch, "compile")
             and os.environ.get("COLA_NO_COMPILE") != "1"
         ):
-            try:
-                # "default" mode: good speedup without extra VRAM overhead.
-                # "reduce-overhead" uses CUDA graphs which pre-allocate memory
-                # and can cause OOM on 16GB cards.
-                self.model = torch.compile(self.model, mode="default")
-                self._compiled = True
-                print("torch.compile enabled (default mode)")
-            except Exception as e:
-                print(f"torch.compile not available: {e}")
+            if not _torch_compile_backend_ready(self.device):
+                # Triton/inductor missing (common on Windows): compiling would
+                # crash on the first forward pass, not here. Stay in eager.
+                print(
+                    "torch.compile skipped: Triton (inductor backend) not "
+                    "found — training in eager mode. "
+                    "Set COLA_NO_COMPILE=1 to silence this check."
+                )
+            else:
+                try:
+                    # "default" mode: good speedup without extra VRAM overhead.
+                    # "reduce-overhead" uses CUDA graphs which pre-allocate memory
+                    # and can cause OOM on 16GB cards.
+                    self.model = torch.compile(self.model, mode="default")
+                    self._compiled = True
+                    print("torch.compile enabled (default mode)")
+                except Exception as e:
+                    print(f"torch.compile not available: {e}")
 
         # Create optimizer and scheduler (both selectable from config:
         # optimizer adamw|muon, lr_schedule cosine|wsd)

@@ -11,18 +11,19 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
-- **BUG-119** [training/robustness, high] `open` (discovered 2026-06-13 during the
-  small_react_best run) — `torch.compile` crashes training at step 0 instead of
-  falling back to eager when its backend (Triton) is missing — common on Windows.
-  `Trainer.__init__` (trainer.py:124-137) calls `torch.compile(model)` inside a
-  try/except, BUT compilation is LAZY: the `InductorError: TritonMissing` fires on
-  the FIRST forward pass, past that try/except, killing the run. Workaround in use:
-  `COLA_NO_COMPILE=1` env var (now set by ps/cola-train-resume.ps1). Proper fix:
-  detect Triton/inductor availability up front (e.g. `import triton`) and skip
-  compile if absent with a clear log line; OR guard the first compiled
-  forward/backward and fall back to eager on InductorError. Add a test that
-  simulates a compile failure and asserts training continues in eager. Without
-  this, every Windows user without Triton hits a hard crash at step 0.
+- **BUG-119** [training/robustness, high] `done` (2026-06-13) — `torch.compile`
+  crashed training at step 0 instead of falling back to eager when its backend
+  (Triton) is missing — common on Windows. `Trainer.__init__` called
+  `torch.compile(model)` inside a try/except, BUT compilation is LAZY: the
+  `InductorError: TritonMissing` fired on the FIRST forward pass, past that
+  try/except, killing the run. FIX: added `_torch_compile_backend_ready(device)`
+  in trainer.py — probes `importlib.util.find_spec("triton")` (no side-effecting
+  import) up front and skips compile with a clear "training in eager mode" log
+  line when Triton is absent, instead of crashing at step 0. The
+  `COLA_NO_COMPILE=1` env override still works (and stays set by
+  ps/cola-train-resume.ps1 as belt-and-braces). Tests:
+  tests/test_compile_backend_probe.py (4) — cpu→False, triton-missing→False,
+  triton-present→True, find_spec-raises→False. ruff + test_checkpoint green.
 - **BUG-118** [training/robustness, high] `open` (discovered 2026-06-13) —
   `train.py --auto-resume` resumed from an architecturally-INCOMPATIBLE checkpoint.
   For the `small_react_best` config (qk_norm=true, output_dir checkpoints/
