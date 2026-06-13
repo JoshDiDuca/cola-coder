@@ -17,14 +17,17 @@ menu entry verified to work. Scheduled agent: pick ONE TOOL-015* sub-item per
 cycle, build/extend the harness, fix any runtime errors found (log each as its
 own BUG-###), mark the sub-item done. These are tractable one-per-cycle.
 
-- **TOOL-015a** [tooling/test, high] `open` — Build a NON-INTERACTIVE menu-entry
-  smoke harness: a pytest that instantiates each sub-menu (DataMenu, TrainingMenu,
-  EvalMenu, ToolsMenu, PipelineMenu via `MasterMenu(tmp)`) and invokes each
-  menu-handler method with `cli.choose/confirm/print` monkeypatched to safe
-  defaults and `_run_script`/`_run_stage_script` stubbed (so nothing actually
-  trains/downloads), asserting NO unhandled exception is raised. Start with the
-  framework + ToolsMenu. Foundation enabled by BUG-116 (prompts already degrade
-  to defaults non-interactively). File: new tests/test_menu_entries_smoke.py.
+- **TOOL-015a** [tooling/test, high] `done` (2026-06-13) — Built the
+  non-interactive menu-entry smoke harness (tests/test_menu_entries_smoke.py): a
+  `stubbed` fixture monkeypatches every interactive prompt to cancel/empty
+  (`cli.choose`→None via a `_Canceler` that fails fast on infinite loops,
+  `confirm`→False, `multi_select`/`pick_languages`/`weight_editor`→empty) and
+  stubs `MasterMenu._run_script`/`_pause` + `subprocess.run` so nothing trains,
+  downloads, or shells out. Parametrized over every top-level entry across all 5
+  sub-menus (DataMenu/TrainingMenu/EvalMenu/ToolsMenu{menu,settings,training_status}/
+  PipelineMenu) asserting each OPENS and EXITS cleanly with no exception — catches
+  the BUG-117 render-crash class tree-wide. 8 tests pass; ruff + checkpoint green.
+  Follow-up TOOL-015b/c/d drive each individual leaf option through its handler.
 - **TOOL-015b** [tooling/test, high] `open` — Extend the TOOL-015a harness to
   cover every DataMenu entry (collect/modify/score/inspect/prepare sub-menus).
   Fix + log any handler that raises (e.g. stale paths, missing args).
