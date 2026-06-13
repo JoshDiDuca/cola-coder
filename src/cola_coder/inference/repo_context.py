@@ -458,7 +458,7 @@ class RepoScanner:
             if imp_ref.is_relative:
                 imp_abs = self._resolve_import(abs_path, imp_ref.source)
                 if imp_abs:
-                    exclude.add(str(imp_abs))
+                    exclude.add(self._canonical(imp_abs))
 
         similar = find_similar_files(
             target_tokens=target_tokens,
@@ -569,19 +569,25 @@ class RepoScanner:
         return None
 
     def _build_import_graph(self, file_tree: list[str]) -> dict[str, list[ImportRef]]:
-        """Parse imports for all code files in the repo."""
+        """Parse imports for all code files in the repo.
+
+        Keys are canonical (``.resolve()``d) absolute path strings so that
+        lookups from :meth:`get_context_for_file` — which canonicalize the
+        query path the same way — always match.  See ``_canonical``.
+        """
         graph: dict[str, list[ImportRef]] = {}
 
         for rel_path in file_tree:
             if Path(rel_path).suffix not in _CODE_EXTENSIONS:
                 continue
-            abs_path = str(self.root / rel_path)
+            abs_path = self.root / rel_path
+            key = self._canonical(abs_path)
             try:
-                content = Path(abs_path).read_text(encoding="utf-8", errors="replace")
-                graph[abs_path] = parse_imports(content)
+                content = abs_path.read_text(encoding="utf-8", errors="replace")
+                graph[key] = parse_imports(content)
             except OSError as exc:
                 logger.debug("Could not read %s: %s", abs_path, exc)
-                graph[abs_path] = []
+                graph[key] = []
 
         return graph
 
@@ -598,15 +604,16 @@ class RepoScanner:
         for rel_path in file_tree:
             if Path(rel_path).suffix not in _CODE_EXTENSIONS:
                 continue
-            abs_path = str(self.root / rel_path)
+            abs_path = self.root / rel_path
+            key = self._canonical(abs_path)
             try:
-                content = Path(abs_path).read_text(encoding="utf-8", errors="replace")
+                content = abs_path.read_text(encoding="utf-8", errors="replace")
                 # Split on anything that isn't alphanumeric — yields identifiers,
                 # keywords, type names as "tokens"
                 words = set(re.split(r"[^a-zA-Z0-9_$]+", content))
                 words.discard("")
                 # Use hash of each word string as the integer "token ID"
-                self._file_tokens[abs_path] = {hash(w) for w in words}
+                self._file_tokens[key] = {hash(w) for w in words}
             except OSError:
                 pass
 
@@ -629,12 +636,25 @@ class RepoScanner:
             return f"Project: {name} ({', '.join(shown)})"
         return f"Project: {name}"
 
+    @staticmethod
+    def _canonical(path: str | Path) -> str:
+        """Return the canonical absolute-path string used as a dict key.
+
+        BUG-123: ``import_graph`` / ``_file_tokens`` keys and the lookup paths
+        from ``get_context_for_file`` MUST pass through the same normalization,
+        otherwise — under symlinks or Windows 8.3 short names — a ``.resolve()``d
+        lookup would miss an unresolved key and the file would be silently
+        dropped from the assembled context.  ``.resolve()`` is that single
+        canonical form for both sides.
+        """
+        return str(Path(path).resolve())
+
     def _resolve_file_path(self, file_path: str) -> str:
-        """Resolve a file_path argument to an absolute path string."""
+        """Resolve a file_path argument to a canonical absolute path string."""
         p = Path(file_path)
-        if p.is_absolute():
-            return str(p.resolve())
-        return str((self.root / p).resolve())
+        if not p.is_absolute():
+            p = self.root / p
+        return self._canonical(p)
 
     def _resolve_import(self, source_abs: str, import_spec: str) -> Path | None:
         """Resolve a relative import specifier to an actual file path."""
