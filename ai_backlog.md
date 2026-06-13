@@ -65,11 +65,22 @@ EVERY scenario. SEC-001/SEC-010 fixed timeout-kill + all-exit cleanup; the rest:
   risk). For a single ~100M model the tractable choice is a **Medusa-style** self-
   speculative head (no separate draft model, GPU-light) over EAGLE-3 (higher
   acceptance, more involved). Train on the spare GPU.
-- **SEC-014** [security/distillation, high] `open` — Ensure MODEL-028's
-  generate_distillation_data.py routes EVERY teacher-generated completion through the
-  SEC-012 hardened sandbox before any execution/tsc verification (teacher output is
-  untrusted), and that remote-teacher prompts are secret-redacted (already in
-  OpenAICompatibleTeacher). Wire as a hard requirement, with a test.
+- **SEC-014** [security/distillation, high] `done` (2026-06-13) — Satisfied by the
+  MODEL-028 design: `generate_distillation_dataset` NEVER executes teacher output —
+  verification is an injected callable, and the CLI wires it to the SANDBOXED
+  `TscScorer` (→ SandboxedRunner, hardened by SEC-012, fail-closed by SEC-013/016).
+  Remote-teacher prompts are secret-redacted in `OpenAICompatibleTeacher`. A test
+  (`test_loop_never_executes_completion`) asserts the loop stores a "malicious"
+  completion as text without running it. Follow-up when other languages are added:
+  ensure non-TS verifiers (python_exec) also route through the sandbox (they already
+  do via SandboxedRunner per the SEC-013 audit).
+- **DATA-057** [data-quality, medium] `open` (research 2026-06-13) — Soft-dedup
+  reweighting (SoftDedup-style): when dedup.py's MinHash finds a near-duplicate
+  cluster, instead of HARD-dropping members, DOWN-weight them in `.weights.npy`
+  (weight ∝ 1/cluster_size) so rare info in the cluster survives while
+  over-representation is cut. Reuses the project's existing MinHash (dedup.py) +
+  per-sample quality weights + the loss's weighting — no new infra. Pairs with
+  DATA-055 (model-based scoring) and IDEA-003 (online curriculum).
 - **SEC-015** [security/sandbox, high] `open` (the REAL bulletproof path — research
   2026-06-13) — HONEST LIMITATION: plain Docker on this Windows Docker Desktop/WSL2
   host CANNOT be made truly bulletproof (shared kernel; gVisor/Firecracker/Kata
@@ -177,13 +188,23 @@ cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N ve
   Ollama/llama.cpp, so this is a convenience path; lazy-import transformers so it's
   not a hard dep. Wire into `build_teacher()` (the `hf_local` branch currently raises
   NotImplementedError with a pointer here).
-- **MODEL-028** [model/distillation, high] `open` — `scripts/generate_distillation_data.py`
-  harness: run a prompt set (instructions and/or FIM tasks) through the configured
-  teacher (configs/distillation.yaml), SANDBOX-verify each completion (tsc/tests via
-  SandboxedRunner — teacher output is untrusted), keep only verified ones
-  (reject-sampling, per IDEA-002), and write ChatML `{"messages":[...]}` JSONL that
-  train_sft.py consumes directly. Add a menu entry + ps wrapper (project convention).
-  This is the data-generation half that makes MODEL-024 usable end-to-end.
+- **MODEL-028** [model/distillation, high] `done` (2026-06-13) — Distillation
+  data-gen harness shipped. Core `distillation/generate.py`
+  `generate_distillation_dataset(teacher, prompts, verify=…, keep_only_verified=…)`
+  is teacher-agnostic + verifier-INJECTABLE (the loop never executes anything —
+  untrusted code runs only behind the injected sandboxed verifier, SEC-014) and
+  emits ChatML `{"messages":[...]}` for train_sft.py (the Generate→Filter shape of
+  2026 synthetic-data pipelines). `scripts/generate_distillation_data.py` wires it to
+  build_teacher(configs/distillation.yaml) + a sandboxed tsc verifier (rejection
+  sampling) + `ps/cola-distill-data.ps1`. Tests: test_distillation_generate.py +8
+  (ChatML output, system handling, rejection-sampling, teacher-error skip, empty-skip,
+  never-executes-completion); 23 distillation tests + ruff green; script --help smoke
+  + ps parse OK. Remaining tiny follow-up: add a master-menu entry (→ MODEL-030;
+  there's an existing distillation menu to extend).
+- **MODEL-030** [tooling/menu, low] `open` — Wire `generate_distillation_data.py` into
+  the master menu (project rule: every script needs a menu entry). There's an existing
+  distillation feature/menu (`features/knowledge_distillation.py`) to extend; add a
+  "Generate distillation data (teacher → SFT)" entry that runs the script.
 - **MODEL-025** [model/training, high] `open` — **Adopt/validate Muon optimizer** as
   the default for small+ configs. Muon gives ~2× compute efficiency + ~33% memory
   savings vs AdamW and is data-efficient past the critical batch size (validated to

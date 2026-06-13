@@ -18,6 +18,7 @@ teacher, secrets are redacted first (CredentialScanner) so the user's code can't
 leak to an external API.
 """
 
+from .generate import generate_distillation_dataset
 from .teacher import (
     OpenAICompatibleTeacher,
     Teacher,
@@ -30,4 +31,5 @@ __all__ = [
     "TeacherError",
     "OpenAICompatibleTeacher",
     "build_teacher",
+    "generate_distillation_dataset",
 ]

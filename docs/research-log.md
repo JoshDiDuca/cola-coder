@@ -7,6 +7,34 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-13 — Data curation (rotate: data quality)
+
+- **Quality > quantity** is the dominant lesson (Phi-1 on 7B curated tokens beat
+  models trained on 100× more; FineWeb's value is its filtering pipeline). Standard
+  pipeline: collect → heuristic filter → dedup → model-based quality filter → mixture
+  + curriculum. cola-coder already does most of this (filters, MinHash/exact dedup,
+  scorers, quality weights).
+- **SoftDedup (2024+)**: instead of HARD-deleting near-duplicates, REWEIGHT recurring
+  data down — preserves information while reducing over-representation. This maps
+  exactly onto cola-coder's existing `.weights.npy` per-sample weights + dedup.py
+  MinHash. → original idea **DATA-057**.
+- **Synthetic data = Generate→Critique→Filter** (3-stage). Frontier labs rewrite
+  math/code at scale (2.3-16B tokens) as synthetic pretraining data. This is exactly
+  the shape of the distillation harness shipped this cycle (MODEL-028): teacher
+  generates → sandbox verifies → keep verified. Validates the design.
+- Relevance: reinforces DATA-055 (model-based perplexity scoring) and IDEA-003
+  (online perplexity curriculum); adds DATA-057 (soft-dedup reweighting).
+- Sources: NVIDIA "Mastering LLM Techniques: Data Preprocessing"
+  (https://developer.nvidia.com/blog/mastering-llm-techniques-data-preprocessing/);
+  YuLan-Mini (https://arxiv.org/pdf/2412.17743); "Recycling the Web"
+  (https://arxiv.org/pdf/2506.04689); "Every Sample Matters: MoE + High-Quality Data
+  for Code LLMs" (https://arxiv.org/pdf/2503.17793).
+- ORIGINAL idea → **DATA-057**: soft-dedup reweighting — when dedup.py finds a
+  near-duplicate (MinHash), instead of dropping it, DOWN-weight it in `.weights.npy`
+  (weight ∝ 1/cluster_size). Preserves rare info in the cluster while cutting
+  over-representation; reuses the project's two existing mechanisms (MinHash + quality
+  weights) with no new infra. Combine with the loss's per-sample weighting.
+
 ## 2026-06-13 — Inference: speculative decoding (rotate: inference/decoding)
 
 - Speculative decoding (draft-and-verify) is now THE default inference-acceleration
