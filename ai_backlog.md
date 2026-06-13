@@ -11,8 +11,10 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
-- **SEC-001** [security/sandbox, high] `done` (2026-06-13, fresh curation-sandbox
-  audit) — The Docker sandbox did not actually enforce its timeout on untrusted
+- **SEC-009** [security/sandbox, high] `done` (2026-06-13, fresh curation-sandbox
+  audit) (de-collided from a provisional "SEC-001" label used in the commit msg —
+  SEC-001 was already taken by the 2026-06-11 in-stream-malware entry) — The
+  Docker sandbox did not actually enforce its timeout on untrusted
   code. `DockerSandbox.run` (data/curation/docker_sandbox.py) relied on
   `subprocess.run(timeout=…)`, which on `TimeoutExpired` kills only the
   `docker run` CLIENT process — the daemon-managed container (and the untrusted
@@ -27,13 +29,25 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   resource limits unchanged. Tests: test_curation.py +2 (mocked subprocess: run
   carries --name + timeout issues `docker rm -f`; helper swallows errors); 48
   pass. Follow-up hardening noted (force-remove on ALL exception paths + outer
-  wall-clock watchdog + read-only rootfs) — see SEC-002.
-- **SEC-002** [security/sandbox, medium] `open` (follow-up to SEC-001) — Further
-  Docker-sandbox hardening: also force-remove the container on any UNEXPECTED
-  exception path and on KeyboardInterrupt (not just TimeoutExpired); add an outer
-  wall-clock watchdog independent of subprocess timeout; consider `--read-only`
-  rootfs with an explicit writable `/tmp` tmpfs for the `run_with_install` copy
-  step. Defense-in-depth on the untrusted-code execution path.
+  wall-clock watchdog + read-only rootfs) — see SEC-010.
+- **SEC-010** [security/sandbox, medium] `done` (2026-06-13, de-collided from a
+  provisional "SEC-002" label — SEC-002 was taken by the 2026-06-11 entry) —
+  Defense-in-depth follow-up to SEC-009: force-remove the sandbox container on
+  ALL exit paths, not just TimeoutExpired. FIX: `DockerSandbox.run` now wraps the
+  run in try/except/finally with the unique `--name` generated once and reused
+  everywhere — cleanup (`docker rm -f`) runs on timeout, any unexpected exception,
+  KeyboardInterrupt (caught, cleaned up, re-raised), AND normal completion (in
+  case `--rm` didn't fire). No container or `docker run` child can outlive
+  `DockerSandbox.run`. Security flags + success-path return contract unchanged.
+  Tests: test_curation.py TestDockerCleanupOnAllExitPaths +5 (normal/exception/
+  pre-propagation/KeyboardInterrupt/name-reuse); 53 pass. Read-only rootfs
+  DEFERRED → SEC-011 (sandbox runs as root with writable HOME for npm/pip; `run_
+  with_install` copies into /tmp/workdir, so `--read-only` risks breaking it).
+- **SEC-011** [security/sandbox, low] `open` (deferred from SEC-010) — Consider
+  `--read-only` rootfs + an explicit writable `/tmp` tmpfs for the sandbox, plus
+  an outer wall-clock watchdog independent of subprocess timeout. Needs care: the
+  curation sandbox currently runs as root with a writable HOME for npm/pip and
+  `run_with_install` copies code into /tmp/workdir.
 - **MEM-002** [memory/correctness, medium] `done` (2026-06-13, fresh memory audit)
   — `MemoryManager._trim_session_log` (memory/manager.py) never actually trimmed
   the rolling window. It used a `re.DOTALL` regex to split the file preamble from
@@ -57,12 +71,25 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   load_model_only itself resolves latest). Reachable from chat.py / serve.py /
   smoke_test.py. FIX: resolve the pointer at the top of load_generator (same
   pattern load_model_only uses). Tests: new test_loading.py +3; 25 pass.
-- **BUG-123** [inference/robustness, low] `open` (follow-up from the BUG-122 audit)
-  — In repo_context.py, `_file_tokens`/`import_graph` keys use unresolved
-  `str(self.root / rel_path)` while `_resolve_file_path`/`_resolve_import` return
-  `.resolve()`d paths. Currently harmless because `self.root` is pre-resolved, but
-  fragile under symlinks / Windows 8.3 short names — a key mismatch would drop
-  context files. Normalize both sides through `.resolve()`.
+- **BUG-123** [inference/robustness, low] `done` (2026-06-13) — In repo_context.py,
+  `_file_tokens`/`import_graph` keys used unresolved `str(self.root / rel_path)`
+  while `_resolve_file_path`/`_resolve_import` returned `.resolve()`d paths —
+  fragile under symlinks / Windows 8.3 short names (a key mismatch would silently
+  drop context files). FIX: new `RepoScanner._canonical()` helper normalizes BOTH
+  key-building and every lookup (resolve-paths, import-exclude set) through
+  `.resolve()`. Behavior unchanged on already-canonical roots (no regression).
+  Tests: test_repo_context.py +2 (keys canonical; resolved lookup finds the
+  entry); 71 pass.
+- **BUG-124** [tooling/robustness, low] `done` (2026-06-13, fresh features scan) —
+  `estimate_vram()` (features/vram_estimator.py) guarded its `torch.cuda` probe
+  with `except ImportError` only — not the realistic broken-CUDA case
+  (`is_available()` True but `get_device_properties()` raises `RuntimeError` on a
+  driver/version mismatch), so `scripts/vram_estimate.py` crashed with an uncaught
+  traceback instead of printing a (GPU-independent) estimate. FIX: broadened to
+  `except Exception` and degrade to the no-GPU path (gpu_/fits_ fields = None),
+  matching the defense already in hardware_profiler.py. Tests: new
+  test_vram_estimator.py +3 (broken probe, no-CUDA, GPU-independent breakdown);
+  29 pass.
 - **SFT-001** [data-quality/correctness, high] `done` (2026-06-13, fresh SFT
   audit) — `SFTDataset._tokenize_conversation` (data/sft_dataset.py)
   right-truncated over-long conversations (`token_ids[:max_seq_len]`), keeping the
@@ -117,8 +144,10 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   (module had zero coverage) — parametrized scalars never raise + skip-but-continue
   + valid-call parsing; 39 tools tests + ruff green. (Note: agent proposed TOOL-018,
   renumbered to TOOL-019 — TOOL-018 is the tokenizer_health names bug.)
-- **INFER-014** [inference/correctness, high] `done` (2026-06-13) — Follow-up to
-  INFER-013: the GRPO batched group path `_generate_group_single_batch`
+- **INFER-023** [inference/correctness, high] `done` (2026-06-13, de-collided from
+  a provisional "INFER-014" label — INFER-013/014 were taken by 2026-06-12
+  entries) — Follow-up to INFER-022 (the context-window clamp): the GRPO batched
+  group path `_generate_group_single_batch`
   (`start_pos = prompt_len + step`) had the SAME unguarded KV-cache overflow — a
   prompt+budget exceeding `config.max_seq_len` drove start_pos past the bound, so
   the per-step `cache_k[:, start_pos:start_pos+1] = k` hit a zero-size slice
@@ -155,8 +184,9 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   and is skipped as intended. Tests: test_swh.py +3 (binary rejected, valid UTF-8
   decodes, stream skips binary); 38 SWH/source/security tests green. Note:
   proposed-id collision (agent said DATA-041, which exists) → assigned DATA-049.
-- **TOK-001** [tokenizer/correctness, medium] `done` (2026-06-13, fresh tokenizer
-  audit) — `CodeTokenizer.encode_fim`/`fim_prompt` assumed `<|fim_*|>` tokens
+- **TOK-002** [tokenizer/correctness, medium] `done` (2026-06-13, de-collided from
+  a provisional "TOK-001" label — TOK-001 was taken by the 2026-06-11 entry)
+  — `CodeTokenizer.encode_fim`/`fim_prompt` assumed `<|fim_*|>` tokens
   exist, though the constructor treats them as OPTIONAL (only pad/bos/eos/unk
   required). A tokenizer trained without FIM tokens left the FIM ids `None`, so
   `encode_fim` emitted `[None] + prefix + [None] + suffix + [None]` — an invalid
@@ -167,15 +197,19 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   (every currently-trained one incl. the live run's) are unaffected — no numerics
   change, safe for the live run. Tests: test_tokenizer_fim_missing.py +7; 17
   tokenizer/fim tests green.
-- **TOOL-018** [tooling/bug, low] `open` (report-only finding from the TOK-001
-  audit) — `scripts/tokenizer_health.py` checks for special tokens named `<pad>`,
-  `<unk>`, `<bos>`, `<eos>` (no pipes), but cola-coder tokenizers use `<|pad|>`,
-  `<|unk|>`, `<|bos|>`, `<|eos|>` — so the health check's "Special tokens" section
-  reports all four as MISSING on a perfectly valid tokenizer (false alarm,
-  undermines trust in the tool). Fix: match the actual `<|...|>` names (and reuse
-  the tokenizer's own special-token accessors rather than hardcoded literals).
-- **INFER-013** [inference/correctness, high] `done` (2026-06-13, found in a fresh
-  generator-path audit) — `CodeGenerator.generate`/`generate_stream` ignored
+- **TOOL-018** [tooling/bug, low] `done` (2026-06-13, from the TOK-002 audit) —
+  `scripts/tokenizer_health.py` checked for special tokens named `<pad>`/`<unk>`/
+  `<bos>`/`<eos>` (no pipes), but cola-coder tokenizers use `<|pad|>` etc., so the
+  "Special tokens" check falsely reported all four MISSING on valid tokenizers.
+  FIX: derive the required/optional token lists from the canonical `SPECIAL_TOKENS`
+  in `tokenizer/train_tokenizer.py` (the same source CodeTokenizer validates
+  against) — required = the 4 piped core tokens, optional = FIM + think tokens —
+  so it can't false-alarm or drift if tokens are renamed. Tests: new
+  test_tokenizer_health.py +4 (imports; piped form; passes on real tokenizer
+  fixture; matches canonical core); green.
+- **INFER-022** [inference/correctness, high] `done` (2026-06-13, de-collided from
+  a provisional "INFER-013" label — INFER-013 was taken by the 2026-06-12 entry;
+  fixed by INFER-023 follow-up for the GRPO path) — `CodeGenerator.generate`/`generate_stream` ignored
   `config.max_seq_len`, but the KV-cache + causal mask are sized for exactly
   `max_seq_len`. Two failures, both reachable from `/v1/fim` (a moderately long
   file's prefix+suffix easily exceeds seq_len): (1) prompt longer than seq_len →
@@ -191,16 +225,9 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   helper truncation/capping/exact-fit/disabled + 4 integration incl. real
   16-slot Transformer that previously crashed); 87 inference tests + ruff green
   on main.
-- **INFER-014** [inference/correctness, medium] `open` (follow-up from INFER-013)
-  — The GRPO batched generation path `_generate_group_single_batch`
-  (generator.py, `start_pos = prompt_len + step`) has the SAME unguarded
-  KV-cache overflow as INFER-013 but was left untouched because it's training-only
-  (reasoning RL rollouts), out of the inference-serving scope of that fix. Apply
-  the equivalent `_fit_context_window` clamp (or assert prompt_len +
-  max_new_tokens <= max_seq_len with a clear error) so long GRPO prompts can't
-  silently drop tokens or crash mid-rollout.
-- **DATA-047** [data-quality/security, high] `done` (2026-06-13, found in a fresh
-  scorer-path audit) — `CredentialScanner.process("strip")` leaked private-key /
+- **DATA-050** [data-quality/security, high] `done` (2026-06-13, de-collided from
+  a provisional "DATA-047" label — DATA-047 was taken by the 2026-06-12 entry) —
+  `CredentialScanner.process("strip")` leaked private-key /
   certificate BODIES. The `Private Key` / `Certificate` regexes matched only the
   single `-----BEGIN ... -----` header line, so strip mode (used by
   `data/scorers/llm_judge.py` to scrub secrets out of untrusted scraped code
@@ -212,16 +239,18 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   (full key body, truncated key, full cert body); 64 scorer/filter tests + ruff
   green on main. Relates to the "treat scraped code as untrusted / scan secrets
   before API calls" rules.
-- **DATA-048** [data-quality/cleanup, low] `open` (follow-ups from the DATA-047
-  audit) — (a) `credential_scanner.py` `scan()` is line-by-line while `strip` is
-  whole-text; fine for current single-line patterns but the two paths could
-  diverge for any future multiline pattern — consider unifying so detection and
-  redaction coverage can't drift. (b) The GitHub fine-grained PAT regex in
-  credential_scanner.py (`github_pat_..._{59}`) is stricter than
-  quality_filter.py:459 (`github_pat_[A-Za-z0-9_]{60,}`) — harmonize. (c)
-  quality_filter.py `check_avg_line_length`'s `if not lines` branch is dead
-  (`"".split("\n")` → `[""]`, never empty) — remove. All cosmetic/robustness, no
-  active exposure.
+- **DATA-051** [data-quality/cleanup, low] `done` (2026-06-13, de-collided from a
+  provisional "DATA-048" label — DATA-048 was taken) — three follow-up cleanups
+  from the DATA-050 audit, all landed: (a) `credential_scanner.py` `scan()` now
+  scans the whole text like strip-mode `process()` (line numbers derived from
+  match offset), so detection and redaction coverage can't diverge for a future
+  multiline pattern; (b) the GitHub fine-grained PAT regex was harmonized —
+  `quality_filter.py` now uses the strict `github_pat_[A-Za-z0-9_]{22}_[A-Za-z0-9]{59}`
+  shape matching `credential_scanner.py`, with cross-reference comments; (c) the
+  dead `if not lines` branch in `check_avg_line_length` (`"".split("\n")`→`[""]`,
+  never empty) was removed. Tests: parity/PAT/empty-content cases across
+  test_credential_scanner.py + test_quality_filter.py; 74 green; DATA-050's
+  PEM-strip fix verified intact.
 - **BUG-120** [inference/correctness, medium] `done` (2026-06-13, found during a
   fresh inference-path scan) — `sample_next_token` (sampling.py) could emit a
   garbage token when `no_repeat_ngram_size > 0` banned the ENTIRE vocabulary: the
