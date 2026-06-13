@@ -82,6 +82,14 @@ def load_generator(
     checkpoint = Path(checkpoint)
     if not checkpoint.exists():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint}")
+    # Resolve a `latest` pointer file to the real checkpoint dir BEFORE inspecting
+    # it for vocab/MoE metadata. The pointer is a text file (not a dir), so reading
+    # `latest/model.safetensors` or `latest/moe_config.json` would silently miss —
+    # leaving the config dense and crashing load_state_dict on an upcycled MoE
+    # checkpoint. load_model_only resolves `latest` too, so this just aligns the
+    # pre-build inspection with the actual weights. (matches load_model_only.)
+    if checkpoint.name == "latest" and checkpoint.is_file():
+        checkpoint = Path(checkpoint.read_text(encoding="utf-8").strip())
     if not Path(config_path).exists():
         raise FileNotFoundError(f"Config not found: {config_path}")
 
