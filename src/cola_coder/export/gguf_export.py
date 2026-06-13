@@ -196,12 +196,14 @@ def _quantize_q4_k_m(tensor: torch.Tensor) -> np.ndarray:
 
     True Q4_K_M requires the complex K-quant format defined in llama.cpp.
     This implementation produces a Q8_0-compatible encoding rather than
-    trying to replicate the exact K-quant binary layout without the gguf
-    package.  When the `gguf` package IS available we delegate to its writer
-    which handles this correctly.
+    trying to replicate the exact K-quant binary layout. cola-coder does NOT
+    implement true K-quant packing in either the builtin or gguf-package path
+    (the package's ``raw_dtype`` only tags pre-packed bytes, it does not
+    quantize). For true K-quants, export f16/q8_0 and run llama.cpp's
+    ``llama-quantize``.
 
-    For offline use without the gguf package this gives a working (slightly
-    larger) file that llama.cpp can load as Q8_0.
+    For offline use this gives a working (slightly larger) file that llama.cpp
+    can load as Q8_0.
     """
     return _quantize_q8_0(tensor)
 
@@ -801,22 +803,36 @@ class GGUFExporter:
             if vocab["pad_id"] is not None:
                 writer.add_pad_token_id(int(vocab["pad_id"]))
 
-        # Map quantization string to GGMLQuantizationType
-        quant_map = {
-            "f32": GGMLQuantizationType.F32,
-            "f16": GGMLQuantizationType.F16,
-            "q8_0": GGMLQuantizationType.Q8_0,
-            "q4_k_m": GGMLQuantizationType.Q4_K,
-            "q5_k_m": GGMLQuantizationType.Q5_K,
+        # The gguf package's ``raw_dtype`` DECLARES that ``data`` is already in
+        # that format — it does NOT quantize. So we must hand it bytes that
+        # actually match the tag. We reuse the same dtype helpers as the builtin
+        # writer (_quantize_tensor) which return correctly-packed arrays, and map
+        # the resulting ggml type code to the package's GGMLQuantizationType.
+        # True K-quants need llama.cpp's K-quant packer, which this module does
+        # not implement, so we refuse rather than emit a corrupt file
+        # (EXPORT-011).
+        if quantization in ("q4_k_m", "q5_k_m"):
+            writer.close()
+            raise NotImplementedError(
+                f"'{quantization}' (true K-quant) packing is not implemented in "
+                "cola-coder's GGUF exporter. Export with quantization 'f16' (or "
+                "'q8_0') and run llama.cpp's 'llama-quantize' on the result for "
+                "true K-quants."
+            )
+
+        ggml_to_package = {
+            _GGML_TYPE_F32: GGMLQuantizationType.F32,
+            _GGML_TYPE_F16: GGMLQuantizationType.F16,
+            _GGML_TYPE_Q8_0: GGMLQuantizationType.Q8_0,
         }
-        quant_type = quant_map.get(quantization, GGMLQuantizationType.F16)
 
         for name, tensor in mapped.items():
-            data = tensor.float().cpu().numpy()
+            # Norm/embedding tensors always stay in f32 for accuracy.
             if self._is_norm_or_embed(name):
-                writer.add_tensor(name, data, raw_dtype=GGMLQuantizationType.F32)
+                arr, ttype = _to_f32(tensor), _GGML_TYPE_F32
             else:
-                writer.add_tensor(name, data, raw_dtype=quant_type)
+                arr, ttype = self._quantize_tensor(tensor, quantization)
+            writer.add_tensor(name, arr, raw_dtype=ggml_to_package[ttype])
 
         writer.write_header_to_file()
         writer.write_kv_data_to_file()
