@@ -438,6 +438,107 @@ def detect_latest_checkpoint(
     return (best_path, best_info) if best_path is not None else None
 
 
+# Architecture fields compared when deciding whether a checkpoint is safe to
+# resume into. These are the fields whose mismatch changes the model's
+# state-dict keys/shapes — i.e. the ones that would otherwise crash deep inside
+# _load_state_dict_tied. qk_norm in particular adds per-head norm parameters, so
+# a non-qk_norm checkpoint and a qk_norm config are NOT interchangeable.
+_RESUME_ARCH_FIELDS = ("dim", "n_layers", "n_heads", "n_kv_heads", "vocab_size", "qk_norm")
+
+
+def _moe_enabled(model_cfg: dict) -> bool:
+    """Whether a (possibly serialized) model config dict has MoE enabled."""
+    moe = model_cfg.get("moe")
+    if isinstance(moe, dict):
+        return bool(moe.get("enabled", False))
+    return bool(getattr(moe, "enabled", False)) if moe is not None else False
+
+
+def architecture_mismatch(saved_model: dict, model_config: dict) -> list[str]:
+    """Return the architecture fields that differ between a checkpoint's saved
+    model config and the current model config.
+
+    Compares the core architecture fields (dim, n_layers, n_heads, n_kv_heads,
+    vocab_size, qk_norm) plus MoE enabled/disabled. An empty list means the
+    architectures are compatible. This guard prevents resuming from an
+    architecturally-incompatible checkpoint, which would otherwise crash with a
+    cryptic key/shape error deep inside ``_load_state_dict_tied``.
+    """
+    diffs: list[str] = []
+    for f in _RESUME_ARCH_FIELDS:
+        if saved_model.get(f) != model_config.get(f):
+            diffs.append(
+                f"{f}: checkpoint={saved_model.get(f)!r} vs config={model_config.get(f)!r}"
+            )
+    saved_moe, cfg_moe = _moe_enabled(saved_model), _moe_enabled(model_config)
+    if saved_moe != cfg_moe:
+        diffs.append(f"moe.enabled: checkpoint={saved_moe} vs config={cfg_moe}")
+    return diffs
+
+
+def find_resume_checkpoint(
+    output_dir: str,
+    model_config: dict | None = None,
+) -> tuple[str, dict] | None:
+    """Find the latest checkpoint to ``--auto-resume`` from in a run's OWN dir.
+
+    Unlike :func:`detect_latest_checkpoint` (which scans every run directory
+    under a base ``checkpoints/`` dir to find ANY checkpoint for inference), this
+    looks ONLY inside ``output_dir`` — the config's own
+    ``checkpoint.output_dir``. Auto-resume must never latch onto a different
+    run's checkpoint (the BUG-118 crash: a qk_norm run resumed a non-qk_norm
+    ``checkpoints/small`` checkpoint and died in ``_load_state_dict_tied``).
+
+    Resolution scans ``step_*`` subdirs directly and takes the highest step,
+    rather than trusting the ``latest`` pointer file which can go stale (see
+    .claude/rules/checkpoints.md). The pointer is only consulted when no
+    ``step_*`` dirs exist.
+
+    When ``model_config`` is provided, the candidate's saved architecture is
+    validated against it; on mismatch the checkpoint is REFUSED (returns None
+    after a clear warning) so training starts fresh rather than crashing.
+
+    Returns:
+        Tuple of (checkpoint_path, metadata_dict), or None if there is no
+        compatible checkpoint in ``output_dir``.
+    """
+    base = Path(output_dir)
+    if not base.exists():
+        return None
+
+    step_dirs = sorted(
+        (d for d in base.glob("step_*") if d.is_dir()),
+        key=lambda d: int(d.name.split("_")[1]),
+    )
+    if step_dirs:
+        candidate = str(step_dirs[-1])
+    else:
+        latest_file = base / "latest"
+        if not latest_file.is_file():
+            return None
+        candidate = str(latest_file)
+
+    info = get_checkpoint_info(candidate)
+    if not info:
+        return None
+
+    if model_config is not None:
+        saved_model = info.get("config", {}).get("model", {})
+        diffs = architecture_mismatch(saved_model, model_config)
+        if diffs:
+            from ..cli import cli
+
+            cli.warn(
+                f"Auto-resume: checkpoint in {output_dir} is architecturally "
+                "incompatible with this config — refusing to resume (starting fresh)."
+            )
+            for d in diffs:
+                cli.dim(f"  {d}")
+            return None
+
+    return info.get("checkpoint_dir", candidate), info
+
+
 def _cleanup_old_checkpoints(
     output_dir: str, max_checkpoints: int, protected: str | None = None
 ):

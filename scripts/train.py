@@ -239,13 +239,19 @@ def main():
     except Exception as e:
         cli.fatal(f"Loading config: {e}")
 
-    # ---- Auto-resume: detect latest checkpoint matching this architecture ----
+    # ---- Auto-resume: detect latest checkpoint in THIS run's own output dir ----
+    # Restricted to config.checkpoint.output_dir so auto-resume can never latch
+    # onto a different run's checkpoint, and the candidate's architecture is
+    # validated (dim/layers/heads/vocab/qk_norm/moe) before resuming — a mismatch
+    # is refused with a clear warning rather than crashing in _load_state_dict_tied.
     resume_from = args.resume
     saved_data_path: str | None = None
     if args.auto_resume and not resume_from:
         try:
-            from cola_coder.training.checkpoint import detect_latest_checkpoint
-            result = detect_latest_checkpoint(model_config=vars(config.model))
+            from cola_coder.training.checkpoint import find_resume_checkpoint
+            result = find_resume_checkpoint(
+                config.checkpoint.output_dir, model_config=vars(config.model)
+            )
             if result is not None:
                 checkpoint_path, checkpoint_info = result
                 step = checkpoint_info.get("step", "?")
@@ -253,7 +259,7 @@ def main():
                 resume_from = checkpoint_path
                 saved_data_path = checkpoint_info.get("data_path")
             else:
-                cli.warn("Auto-resume: no matching checkpoint found, starting fresh")
+                cli.warn("Auto-resume: no compatible checkpoint found, starting fresh")
         except ImportError:
             cli.warn("Auto-resume: checkpoint module not available, starting fresh")
         except Exception as e:
