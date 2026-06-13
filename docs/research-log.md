@@ -7,6 +7,30 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-13 — Inference: speculative decoding (rotate: inference/decoding)
+
+- Speculative decoding (draft-and-verify) is now THE default inference-acceleration
+  layer of every serious 2026 LLM stack; 2-4× speedup at >80% draft acceptance, and
+  it's **mathematically lossless** (accepted tokens follow the exact target
+  distribution) so it does NOT change eval results — safe to add to serve/REPL/FIM.
+- SOTA: **EAGLE-3** (a small auto-regressive draft head conditioning on the target's
+  EARLY+MIDDLE+LATE hidden states — tri-layer fusion, +20-40% over EAGLE-2, reuses
+  the target's own representations so low memory) and **Medusa** (multiple parallel
+  decoding heads on a frozen backbone — simplest to bolt on, no separate draft model).
+  DeepSeek MTP (multi-token prediction) is the same family.
+- Relevance: refines MODEL-022. For a single ~100M model with a spare GPU, a
+  **Medusa-style head** (no separate draft model, GPU-light) is the most tractable;
+  EAGLE-3 is higher-acceptance but more involved. Lossless → no quality risk.
+- ORIGINAL idea → **IDEA-006**: train Medusa/EAGLE draft heads on the project's OWN
+  FIM data so the speculative *drafts* are FIM-aware (prefix+suffix conditioned),
+  and combine with IDEA-004 (the known suffix as an extra accept/verify signal) —
+  fast, suffix-consistent ghost-text. Self-speculative (heads on the same model),
+  so no second model and minimal extra VRAM.
+- Sources: PremAI "Speculative Decoding 2026"
+  (https://blog.premai.io/speculative-decoding-2-3x-faster-llm-inference-2026/);
+  EAGLE (https://arxiv.org/pdf/2401.15077); SyncSoft "EAGLE3/Medusa/DeepSeek-MTP 2026"
+  (https://www.syncsoft.ai/en/blog/speculative-decoding-eagle3-medusa-deepseek-mtp-chinese-chuhai-2026).
+
 ## 2026-06-13 — Untrusted-code sandboxing best practices (SEC-012/013 epic)
 
 Searched frontier-lab / platform practices for executing untrusted (scraped +

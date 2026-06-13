@@ -12,7 +12,12 @@ from cola_coder.data.scorers.language_detect import is_typescript
 from cola_coder.data.scorers.protocol import ScorerResult
 from cola_coder.data.scorers.sandbox import SandboxedRunner
 from cola_coder.data.scorers.utils import ScoreMapper
-from cola_coder.reasoning.rewards.tsc_runner import TscRunner
+from cola_coder.reasoning.rewards.tsc_runner import SANDBOX_UNAVAILABLE_CODE, TscRunner
+
+
+def _is_unverified(errors) -> bool:
+    """True if tsc did not actually run (sandbox unavailable) — SEC-016."""
+    return any(e.code == SANDBOX_UNAVAILABLE_CODE for e in errors)
 
 
 # Score mapping: error count -> quality score
@@ -59,6 +64,14 @@ class TscScorer:
             )
 
         errors = self._tsc.check(code)
+        if _is_unverified(errors):
+            # tsc could not run (sandbox unavailable) — do NOT score this as a
+            # clean 0-error perfect; fail closed so unverified code can't enter
+            # the corpus as high-quality (SEC-016).
+            return ScorerResult(
+                score=0.0, scorer_name=self.name,
+                details={"not_verified": True, "reason": "sandbox_unavailable"},
+            )
         num_errors = len(errors)
         has_syntax = any(e.code.startswith("TS1") for e in errors)
 
@@ -106,6 +119,12 @@ class TscScorer:
 
         for batch_idx, orig_idx in enumerate(ts_indices):
             file_errors = batch_results.get(batch_idx, [])
+            if _is_unverified(file_errors):
+                results[orig_idx] = ScorerResult(
+                    score=0.0, scorer_name=self.name,
+                    details={"not_verified": True, "reason": "sandbox_unavailable"},
+                )
+                continue
             num_errors = len(file_errors)
             has_syntax = any(e.code.startswith("TS1") for e in file_errors)
             score = _TSC_SCORE_MAP.map(num_errors)

@@ -46,15 +46,25 @@ EVERY scenario. SEC-001/SEC-010 fixed timeout-kill + all-exit cleanup; the rest:
   allow_host_execution); github clone is not code-exec. Tests:
   test_sandbox.py::TestFailClosedWhenDockerUnavailable +5 (Docker-absent → rc -3, no
   PWNED marker, _run_native never called); 97 sandbox+curation tests + ruff green.
-- **SEC-016** [security/scoring, medium] `open` (follow-up from the SEC-013 audit) —
-  Scoring-level fail-open: a negative sandbox returncode (-1 timeout, -2 error, new
-  -3 sandbox-unavailable) currently maps in TscScorer to "no errors → PERFECT score"
-  (and evaluation/runner treats it as a generic execution error). So if the sandbox
-  is unavailable, un-verified code can be SCORED HIGH and enter the corpus / pass
-  best-of-N. Fix: every scorer/verifier must treat a negative returncode as
-  skip / score-0 / not-verified, never as success. Add `-3` branches alongside the
-  existing -1/-2 handling. (Execution itself is correctly refused by SEC-013; this is
-  the outcome-mapping half.)
+- **SEC-016** [security/scoring, medium] `done` (2026-06-13) — Fixed the scoring-level
+  fail-open. `TscRunner.check`/`check_batch` now detect a NEGATIVE sandbox returncode
+  (tsc never ran — timeout -1 / error -2 / unavailable -3) and return a
+  `SANDBOX_UNAVAILABLE` sentinel error (severity=error, uncached) instead of an empty
+  list — so NO caller mistakes unverified code for "0 errors / clean / passing". This
+  fixes ALL consumers at the source (TscScorer, the GRPO TypeCheckReward,
+  batch_type_check, ts_benchmark, tools/executor — each sees a non-empty error list =
+  not-clean, never perfect/rewarded). TscScorer additionally detects the sentinel and
+  returns an explicit `not_verified` result with score 0.0 (never the old false-perfect
+  1.0). A real tsc run that finds type errors exits POSITIVE, so `returncode < 0`
+  unambiguously means "did not run". Tests: new test_tsc_failclosed.py +8 (sentinel
+  on -3/-2, not cached, clean run still 0 errors, real errors still parsed, scorer
+  0.0+not_verified vs clean 1.0); 145 tsc/sandbox/curation/reward tests + ruff green.
+- **MODEL-022** [model/inference, medium] `open` (refined 2026-06-13 — see research-log)
+  — Speculative decoding (draft-and-verify) for lower serve/REPL/FIM latency; now the
+  DEFAULT 2026 inference layer, 2-4× speedup, MATHEMATICALLY LOSSLESS (no eval/quality
+  risk). For a single ~100M model the tractable choice is a **Medusa-style** self-
+  speculative head (no separate draft model, GPU-light) over EAGLE-3 (higher
+  acceptance, more involved). Train on the spare GPU.
 - **SEC-014** [security/distillation, high] `open` — Ensure MODEL-028's
   generate_distillation_data.py routes EVERY teacher-generated completion through the
   SEC-012 hardened sandbox before any execution/tsc verification (teacher output is
@@ -132,6 +142,12 @@ cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N ve
 - **IDEA-004** [research/inference, medium-potential] `open` — Suffix-guided
   speculative decoding for FIM: use the KNOWN suffix to bias/verify draft tokens for
   faster, more suffix-consistent infill (MODEL-022 + FIM).
+- **IDEA-006** [research/inference, medium-potential] `open` (2026-06-13) — FIM-aware
+  self-speculative decoding: train Medusa/EAGLE draft heads on the project's OWN FIM
+  data so speculative drafts are prefix+suffix conditioned, and use the KNOWN suffix
+  (IDEA-004) as an extra accept/verify signal → fast, suffix-consistent ghost text.
+  Self-speculative (heads on the same model) so no second model + minimal VRAM;
+  lossless. Combines MODEL-022 + IDEA-004 + the project's FIM asset.
 - **IDEA-005** [research/training, low-potential] `open` — Quality-weight × Muon
   interaction ablation: does loss-level `.weights.npy` weighting survive Muon's
   orthogonalization, or must it move to the sampling level? Gates MODEL-025 adoption.

@@ -21,6 +21,15 @@ from cola_coder.data.scorers.sandbox import SandboxedRunner
 from cola_coder.data.scorers.tsconfig_factory import create_hardened_tsconfig
 
 
+# Sentinel diagnostic code emitted when tsc did NOT actually run (the sandbox
+# timed out / errored / was unavailable — SandboxedRunner returns a negative
+# returncode). Callers MUST treat this as "not verified" (never a clean / passing
+# result), closing the fail-open where unverified code was parsed as 0 errors and
+# scored PERFECT (SEC-016). A real tsc run that finds type errors exits with a
+# POSITIVE code, so `returncode < 0` unambiguously means "did not run".
+SANDBOX_UNAVAILABLE_CODE = "SANDBOX_UNAVAILABLE"
+
+
 @dataclass
 class TscError:
     """A single tsc diagnostic."""
@@ -30,6 +39,18 @@ class TscError:
     severity: str  # "error" or "warning"
     code: str      # e.g. "TS2322"
     message: str
+
+
+def _sandbox_unavailable_error(returncode: int) -> "TscError":
+    """Sentinel error returned when the sandbox did not execute tsc."""
+    return TscError(
+        file="", line=0, col=0, severity="error",
+        code=SANDBOX_UNAVAILABLE_CODE,
+        message=(
+            f"tsc did not run (sandbox unavailable/timeout, rc={returncode}); "
+            "code NOT verified — failing closed (SEC-016)"
+        ),
+    )
 
 
 class TscRunner:
@@ -100,6 +121,13 @@ class TscRunner:
                 file_hash=code_hash,
             )
 
+            # Fail closed: a negative returncode means the sandbox did not run
+            # tsc — do NOT parse (output is empty/an error msg) and do NOT cache
+            # (a later run may succeed). Return the sentinel so no caller mistakes
+            # unverified code for "0 errors / clean" (SEC-016).
+            if result.returncode < 0:
+                return [_sandbox_unavailable_error(result.returncode)]
+
             all_output = (result.stdout or "") + "\n" + (result.stderr or "")
             errors = self._parse_errors(all_output)
 
@@ -145,6 +173,12 @@ class TscRunner:
                 cwd=tmpdir,
                 label="tsc_batch",
             )
+
+            # Fail closed (SEC-016): sandbox did not run -> every file is
+            # unverified, not "clean".
+            if result.returncode < 0:
+                sentinel = _sandbox_unavailable_error(result.returncode)
+                return {i: [sentinel] for i in range(len(codes))}
 
             all_output = (result.stdout or "") + "\n" + (result.stderr or "")
             per_file = self._parse_per_file_errors(all_output)
