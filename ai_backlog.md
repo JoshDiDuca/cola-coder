@@ -55,9 +55,19 @@ own BUG-###), mark the sub-item done. These are tractable one-per-cycle.
   PipelineMenu) asserting each OPENS and EXITS cleanly with no exception — catches
   the BUG-117 render-crash class tree-wide. 8 tests pass; ruff + checkpoint green.
   Follow-up TOOL-015b/c/d drive each individual leaf option through its handler.
-- **TOOL-015b** [tooling/test, high] `open` — Extend the TOOL-015a harness to
-  cover every DataMenu entry (collect/modify/score/inspect/prepare sub-menus).
-  Fix + log any handler that raises (e.g. stale paths, missing args).
+- **TOOL-015b** [tooling/test, high] `done` (2026-06-13) — Extended the TOOL-015a
+  harness to leaf-level coverage of the DataMenu. All 23 leaf handlers across the
+  Collect/Modify/Score/Inspect/Prepare groups are invoked directly with every
+  prompt cancelled/defaulted via a new `stubbed_leaf` fixture (adds an
+  `input()`→EOFError stub on top of the existing `stubbed` fixture — bare
+  `input()` raises `OSError` under pytest's captured stdin, not the
+  EOFError/KeyboardInterrupt handlers catch as "cancel"), asserting each reaches
+  its handler and returns without raising — catching BUG-117 /
+  NoConsoleScreenBufferError-class leaf crashes the menu-open test can't reach.
+  Added `test_data_menu_leaf_runs_cleanly` (parametrized over all 23) +
+  `test_data_menu_group_handlers_exist` (guards leaf-list drift). No leaf bugs
+  found; suite 9→32 tests, all green on main, ruff clean. Inline `_run_script`
+  dispatch arms (no dedicated handler) stay covered by the menu-open test.
 - **TOOL-015c** [tooling/test, high] `open` — Cover every TrainingMenu entry
   (Pipeline Manager, Foundation, Pre-Training, Post-Training incl. MoE 7.5,
   Alignment, Monitoring). Stub all `_run_script` calls. Fix/log failures.
