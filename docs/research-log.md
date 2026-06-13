@@ -7,6 +7,29 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-13 — Test-time compute scaling (rotate: inference/reasoning)
+
+- Test-time scaling = (1) aggregation (sample N → self-consistency / best-of-N with a
+  verifier), (2) search (MCTS/beam), (3) iterative self-refine. Optimal allocation of
+  inference compute can beat scaling parameters for reasoning. cola-coder already has
+  best-of-N + a sandbox verifier — the missing piece is DYNAMIC budget allocation.
+- 2026 trend: **dynamic / adaptive** test-time compute — confidence- or
+  difficulty-aware budgets (e.g. "Deep Think with Confidence", DynScaling): spend MORE
+  candidates on hard prompts, fewer on easy ones; early-stop when a candidate is
+  confidently correct. Small models especially benefit from tool-integrated
+  self-verification (T1) — which cola-coder has (sandbox tsc/tests).
+- Relevance → IDEA-009: cola-coder's best-of-N uses a FIXED N. Make it adaptive.
+- Sources: "Scaling LLM Test-Time Compute Optimally..." (https://openreview.net/forum?id=4FWAwZtd2n);
+  "Deep Think with Confidence" (https://arxiv.org/pdf/2508.15260); DynScaling
+  (https://arxiv.org/pdf/2506.16043); T1 tool-integrated self-verification for small
+  LMs (https://arxiv.org/pdf/2504.04718).
+- ORIGINAL idea → **IDEA-009**: adaptive best-of-N budget driven by the sandbox
+  verifier. Generate a small initial batch (e.g. 2); if none VERIFY, expand the batch
+  (×2) up to a max; if the first candidate verifies clean AND secure (SEC-017),
+  early-stop. Trades compute for accuracy only when needed — cheap prompts cost 2
+  candidates, hard ones get the full budget. Reuses best-of-N + sandbox verifier +
+  the security screen; pure inference (non-train, safe on main).
+
 ## 2026-06-13 — Post-training RL: DAPO dynamic sampling (rotate: post-training)
 
 - **DAPO = clip-higher + dynamic sampling + token-level loss + overlong reward

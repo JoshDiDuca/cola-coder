@@ -30,7 +30,7 @@ to produce more solutions like the working ones.
 """
 
 import logging
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Callable, Union
 
 import torch
 import torch.nn.functional as F
@@ -235,6 +235,8 @@ class GRPOTrainer:
         parallel_rewards: bool = False,
         reward_workers: int = 4,
         security_penalty: float = 0.0,
+        dynamic_sampling: bool = False,
+        max_resample_attempts: int = 4,
     ):
         """
         Args:
@@ -327,6 +329,12 @@ class GRPOTrainer:
         # differentiates dangerous vs secure WITHIN a group, creating an advantage
         # signal toward secure completions without touching functional correctness.
         self.security_penalty = max(0.0, float(security_penalty))
+        # MODEL-026 (DAPO dynamic sampling): when a group collapses (all rewards
+        # equal → zero gradient), don't waste the step — redraw a fresh problem and
+        # retry, up to max_resample_attempts, via train_step_resampled(). Off by
+        # default (single-step behavior unchanged).
+        self.dynamic_sampling = bool(dynamic_sampling)
+        self.max_resample_attempts = max(1, int(max_resample_attempts))
 
         # Generator for producing solutions
         self.generator = CodeGenerator(model, tokenizer, device)
@@ -534,6 +542,46 @@ class GRPOTrainer:
             "pass_rate": num_correct / self.group_size,
             "num_security_penalized": num_penalized,
         }
+
+    def train_step_resampled(
+        self,
+        problem_sampler: "Callable[[], tuple[str, str]]",
+        temperature: float = 0.8,
+    ) -> dict:
+        """DAPO dynamic sampling (MODEL-026): retry on collapsed groups.
+
+        A GRPO group where every rollout gets the SAME reward (all-correct or
+        all-incorrect) has zero reward variance → zero gradient → a wasted step.
+        ``train_step`` already detects this and returns ``{"skipped": True}``.
+        Here we don't waste the step: draw a FRESH problem from ``problem_sampler``
+        and retry, up to ``max_resample_attempts``, returning the first informative
+        (non-skipped) step. This keeps the effective batch full of learning signal
+        (the DAPO "dynamic sampling" trick) without touching the PPO update path.
+
+        Args:
+            problem_sampler: zero-arg callable returning a ``(prompt, test_code)``
+                pair (e.g. a random draw over the problem set).
+            temperature: sampling temperature passed to ``train_step``.
+
+        Returns:
+            The step metrics dict, with ``resample_attempts`` = how many extra
+            problems were drawn (0 = the first was informative). If every attempt
+            collapsed, returns the last (skipped) metrics with
+            ``resample_exhausted: True``.
+        """
+        attempts = self.max_resample_attempts if self.dynamic_sampling else 1
+        metrics: dict = {}
+        for attempt in range(attempts):
+            prompt, test_code = problem_sampler()
+            metrics = self.train_step(prompt, test_code, temperature=temperature)
+            if not metrics.get("skipped"):
+                metrics["resample_attempts"] = attempt
+                return metrics
+        # All attempts collapsed (or dynamic sampling disabled and the one step
+        # collapsed): surface it so the caller can log the collapse rate.
+        metrics["resample_attempts"] = attempts - 1
+        metrics["resample_exhausted"] = True
+        return metrics
 
     def _problems_to_dicts(
         self,

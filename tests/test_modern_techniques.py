@@ -434,3 +434,39 @@ class TestSecurityPenalty:
         assert n == 1
         adv = compute_group_advantages(torch.tensor(adj), norm="mean")
         assert adv[2] < 0 < adv[0]  # dangerous gets negative advantage
+
+
+class TestDynamicSamplingResample:
+    """MODEL-026: DAPO dynamic sampling — resample on collapsed groups."""
+
+    def _trainer(self, dynamic, results):
+        from cola_coder.reasoning.grpo import GRPOTrainer
+        t = GRPOTrainer.__new__(GRPOTrainer)  # bypass __init__ (no model needed)
+        t.dynamic_sampling = dynamic
+        t.max_resample_attempts = 4
+        seq = list(results)
+        t.train_step = lambda prompt, test_code, temperature=0.8: seq.pop(0)
+        return t
+
+    def test_resamples_until_informative(self):
+        t = self._trainer(True, [
+            {"skipped": True}, {"skipped": True},
+            {"loss": 0.5, "mean_reward": 1.0},
+        ])
+        calls = []
+        m = t.train_step_resampled(lambda: (calls.append(1) or ("p", "tc")))
+        assert not m.get("skipped")
+        assert m["resample_attempts"] == 2
+        assert len(calls) == 3
+
+    def test_disabled_does_single_attempt(self):
+        t = self._trainer(False, [{"skipped": True}, {"loss": 1.0}])
+        m = t.train_step_resampled(lambda: ("p", "tc"))
+        assert m.get("resample_exhausted") is True
+        assert m["resample_attempts"] == 0  # only one attempt when disabled
+
+    def test_exhausted_after_max_attempts(self):
+        t = self._trainer(True, [{"skipped": True}] * 4)
+        m = t.train_step_resampled(lambda: ("p", "tc"))
+        assert m.get("resample_exhausted") is True
+        assert m["resample_attempts"] == 3

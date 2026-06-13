@@ -40,6 +40,26 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   test_modern_techniques.py::TestSecurityPenalty +3 (penalize-only-dangerous,
   zero-penalty no-op, negative-advantage-for-dangerous); 72 best_of_n + 69
   grpo/checkpoint + 57 surrogate/reward tests + ruff green.
+- **MODEL-026** [reasoning, medium] `done` (2026-06-13) — DAPO dynamic sampling
+  (resampling half). Added `GRPOTrainer.train_step_resampled(problem_sampler, …)`:
+  when a group collapses (zero reward variance → the existing `skipped:True` from the
+  BUG-121 guard), it redraws a FRESH problem and retries up to `max_resample_attempts`
+  (config `dynamic_sampling`/`max_resample_attempts`, off by default), returning the
+  first informative step with `resample_attempts` (or `resample_exhausted:True`). A
+  thin WRAPPER over the existing train_step — zero changes to the PPO/old-logps update
+  path (no numerics risk) and reasoning-only (off the live pretraining path). Completes
+  the DAPO stack (clip-higher + Dr.GRPO mean-norm + no-KL + token/length-norm +
+  collapse-skip were already present). Tests: test_modern_techniques.py::
+  TestDynamicSamplingResample +3 (resamples-until-informative, disabled-single-attempt,
+  exhausted-after-max); 36 modern + 17 surrogate tests + ruff green. Follow-up wiring:
+  the train_reasoning loop should call train_step_resampled with a problem-set sampler
+  when dynamic_sampling is on (small, → note in MODEL-032).
+- **IDEA-009** [research/inference, medium-potential] `open` (2026-06-13) — Adaptive
+  best-of-N budget driven by the sandbox verifier: generate a small initial batch (2);
+  if none VERIFY, expand ×2 up to a max; early-stop if the first candidate verifies
+  clean AND secure (SEC-017). Trades compute for accuracy only when needed (cheap
+  prompts cost 2 candidates, hard ones get the full budget). Reuses best-of-N + sandbox
+  verifier + security screen; pure inference (non-train, safe on main).
 - **MODEL-032** [reasoning, medium] `open` (research 2026-06-13) — Difficulty-aware
   dynamic sampling: before a full GRPO rollout, run a cheap best-of-N probe per prompt
   and skip prompts predicted zero-variance (trivially all-pass / all-fail), spending
