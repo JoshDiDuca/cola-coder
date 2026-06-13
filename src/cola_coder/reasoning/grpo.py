@@ -92,6 +92,15 @@ def compute_group_advantages(
     centered = rewards - rewards.mean()
     if norm == "mean":
         return centered
+    # std-norm: a group of size < 2 has no unbiased std (torch.std divides by
+    # N-1, so a single-completion group returns NaN, not 0). NaN advantages flow
+    # straight into the surrogate and corrupt the policy on backward(). A size-1
+    # group is also degenerate for GRPO — there is no group baseline — so its
+    # advantage is correctly zero. Return the (all-zero) centered tensor instead
+    # of dividing by a NaN std. The +1e-8 below already guards the all-equal
+    # (std==0) multi-element case.
+    if rewards.numel() < 2:
+        return centered
     return centered / (rewards.std() + 1e-8)
 
 
@@ -403,7 +412,11 @@ class GRPOTrainer:
         # step is pure noise that can corrupt weights without improving the policy.
         # Skip the update; log the skip so it's visible in training output.
         num_correct = sum(1 for info in infos if info["correct"])
-        if std_reward < 1e-4:
+        # NaN guard: a single-completion group makes torch.std() return NaN
+        # (unbiased std divides by N-1=0), and `NaN < 1e-4` is False — so without
+        # the isnan() check the degenerate group would slip past the skip and
+        # push a NaN/zero advantage into backward(). Treat NaN variance as a skip.
+        if torch.isnan(std_reward) or std_reward < 1e-4:
             print(
                 f"  [GRPO] Skipping update — zero reward variance "
                 f"(all {self.group_size} rewards = {mean_reward.item():.3f})"

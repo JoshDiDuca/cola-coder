@@ -385,3 +385,22 @@ class TestGroupAdvantages:
         std_adv = compute_group_advantages(rewards, norm="std")
         mean_adv = compute_group_advantages(rewards, norm="mean")
         assert std_adv.abs().max() > mean_adv.abs().max()
+
+    def test_std_norm_single_completion_group_is_not_nan(self):
+        # BUG-201: a size-1 group has no unbiased std (torch.std divides by
+        # N-1=0 -> NaN). The std-norm path used to return NaN, which would flow
+        # into the surrogate and corrupt the policy on backward(). A single
+        # completion has no group baseline so its advantage must be zero.
+        from cola_coder.reasoning.grpo import compute_group_advantages
+
+        for norm in ("std", "mean"):
+            adv = compute_group_advantages(torch.tensor([0.7]), norm=norm)
+            assert not torch.isnan(adv).any(), f"{norm}-norm produced NaN"
+            torch.testing.assert_close(adv, torch.zeros(1))
+
+    def test_std_norm_empty_group_is_not_nan(self):
+        from cola_coder.reasoning.grpo import compute_group_advantages
+
+        adv = compute_group_advantages(torch.tensor([]), norm="std")
+        assert adv.numel() == 0
+        assert not torch.isnan(adv).any()
