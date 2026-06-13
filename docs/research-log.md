@@ -7,6 +7,29 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-13 — Post-training RL: DAPO dynamic sampling (rotate: post-training)
+
+- **DAPO = clip-higher + dynamic sampling + token-level loss + overlong reward
+  shaping.** cola-coder's reasoning.yaml already has clip-higher (0.28), Dr.GRPO
+  mean-norm, token-level/length-norm options, and a zero-variance COLLAPSE GUARD
+  (skips groups where all rewards are equal — BUG-121). The remaining DAPO piece is
+  **dynamic sampling's RESAMPLING**: when a group collapses (all-correct/all-incorrect
+  → zero gradient), don't just skip — oversample/redraw prompts until the batch is
+  full of informative (std>0) groups, so no step is wasted. → MODEL-026 (still open;
+  needs a resample_fn + rollout refactor).
+- This cycle I implemented the related IDEA-008 GRPO half instead (smaller, completes
+  a partial item): a security penalty in the reward so RL avoids insecure code.
+- Sources: DAPO site (https://dapo-sia.github.io/); NVIDIA NeMo-RL DAPO walkthrough
+  (https://docs.nvidia.com/nemo/rl/latest/guides/dapo.html); "DAPO: GRPO on steroids"
+  (https://medium.com/@syed_hasan/dapo-decoupled-clip-and-dynamic-sampling-policy-optimization-grpo-on-steroids-9c571a0536f3);
+  TRL dynamic-sampling issue (https://github.com/huggingface/trl/issues/4764).
+- ORIGINAL idea → **MODEL-032**: difficulty-aware dynamic sampling using cola-coder's
+  best-of-N verifier as a *cheap pre-filter* — before a full GRPO rollout, run a
+  small best-of-N probe per prompt; skip prompts that are trivially all-pass or
+  all-fail (predicted zero-variance) and spend the rollout budget on
+  medium-difficulty prompts (predicted std>0). Combines best-of-N + GRPO + curriculum
+  to get DAPO's dynamic-sampling benefit without wasting full rollouts on collapsed groups.
+
 ## 2026-06-13 — Architecture (rotate: architecture)
 
 - **QK-Norm is now standard** (Qwen3, Gemma3, DeepSeek-V3, Gemini 2.0): per-head

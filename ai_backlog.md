@@ -27,16 +27,25 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   +6 incl. precision (regex.exec not flagged) + DRY-shared assertion; 45 distillation/
   pattern tests + 39 safety tests + ruff green. Follow-up IDEA-008 (secure best-of-N +
   security-aware GRPO reward).
-- **IDEA-008** [research/safety, medium-potential] `partial` (2026-06-13) —
-  Security-aware best-of-N + GRPO reward. DONE (inference half): best_of_n now ranks
-  by `(verified, secure, score)` — among equally-verified candidates the SECURE one
-  (no dangerous patterns, via the SEC-017 scanner on the completion) wins, and the
-  insecure candidate is flagged in `details["dangerous_patterns"]`. Security only
-  breaks ties — a verified-insecure candidate still beats an unverified-secure one
-  (functional correctness dominates). Tests: test_best_of_n.py::TestSecurityAwareRanking
-  +2; 72 best_of_n/server/pattern tests + ruff green. REMAINING (train-path → worktree,
-  not while the run is live): add a small security penalty to the GRPO reward
-  (reward = tsc/test pass − λ·dangerous) so the RL policy learns to avoid insecure code.
+- **IDEA-008** [research/safety, medium-potential] `done` (2026-06-13) —
+  Security-aware best-of-N + GRPO reward, BOTH halves landed. (inference) best_of_n
+  ranks by `(verified, secure, score)` — among equally-verified candidates the SECURE
+  one wins (insecure flagged in details); security only breaks ties. (RL) GRPOTrainer
+  gained `security_penalty` (default 0.0): `apply_security_penalty` subtracts λ from a
+  solution's reward when its completion has a dangerous pattern (SEC-017 scanner),
+  creating advantage signal toward secure completions without changing functional
+  correctness; `num_security_penalized` surfaced in step metrics. grpo.py is
+  reasoning-only (NOT the live pretraining path → safe on main). Tests:
+  test_best_of_n.py::TestSecurityAwareRanking +2 and
+  test_modern_techniques.py::TestSecurityPenalty +3 (penalize-only-dangerous,
+  zero-penalty no-op, negative-advantage-for-dangerous); 72 best_of_n + 69
+  grpo/checkpoint + 57 surrogate/reward tests + ruff green.
+- **MODEL-032** [reasoning, medium] `open` (research 2026-06-13) — Difficulty-aware
+  dynamic sampling: before a full GRPO rollout, run a cheap best-of-N probe per prompt
+  and skip prompts predicted zero-variance (trivially all-pass / all-fail), spending
+  the rollout budget on medium-difficulty prompts (std>0). Gets DAPO's dynamic-sampling
+  benefit (MODEL-026) without wasting full rollouts on collapsed groups; combines
+  best-of-N + GRPO + curriculum. reasoning-only (safe on main).
 - **MODEL-031** [model/training, medium] `open` (architecture research 2026-06-13) —
   muP / muTransfer: maximal-update parametrization so hyperparameters (LR, init scale)
   tuned on the TINY config transfer zero-shot up the size ladder

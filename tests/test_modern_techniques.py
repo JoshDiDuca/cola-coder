@@ -404,3 +404,33 @@ class TestGroupAdvantages:
         adv = compute_group_advantages(torch.tensor([]), norm="std")
         assert adv.numel() == 0
         assert not torch.isnan(adv).any()
+
+
+class TestSecurityPenalty:
+    """IDEA-008: GRPO security-penalty reward (apply_security_penalty)."""
+
+    def test_penalizes_only_dangerous(self):
+        from cola_coder.reasoning.grpo import apply_security_penalty
+        gens = ["const x = 1;", "const y = eval(z);", "import {exec} from 'child_process';"]
+        rewards = [1.0, 1.0, 1.0]
+        adj, n = apply_security_penalty(rewards, gens, penalty=0.5)
+        assert n == 2
+        assert adj == [1.0, 0.5, 0.5]
+
+    def test_zero_penalty_is_noop(self):
+        from cola_coder.reasoning.grpo import apply_security_penalty
+        gens = ["eval(x)", "ok"]
+        rewards = [1.0, 0.3]
+        adj, n = apply_security_penalty(rewards, gens, penalty=0.0)
+        assert adj == [1.0, 0.3] and n == 0
+
+    def test_creates_advantage_signal_toward_secure(self):
+        # All functionally correct (reward 1.0), but the dangerous one is penalized,
+        # so its group-relative advantage becomes negative (policy learns to avoid it).
+        import torch
+        from cola_coder.reasoning.grpo import apply_security_penalty, compute_group_advantages
+        gens = ["safe1", "safe2", "os.system('rm -rf /')"]
+        adj, n = apply_security_penalty([1.0, 1.0, 1.0], gens, penalty=0.5)
+        assert n == 1
+        adv = compute_group_advantages(torch.tensor(adj), norm="mean")
+        assert adv[2] < 0 < adv[0]  # dangerous gets negative advantage

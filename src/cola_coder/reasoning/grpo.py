@@ -71,6 +71,34 @@ def _step_temperature(base_temperature: float, difficulty: str, curriculum: bool
     return base_temperature * _CURRICULUM_TEMP_MULT.get(difficulty, 1.0)
 
 
+def apply_security_penalty(
+    rewards: list[float],
+    generations: list[str],
+    penalty: float,
+) -> tuple[list[float], int]:
+    """Subtract ``penalty`` from each reward whose generation has a dangerous
+    code pattern (IDEA-008/SEC-017). Returns (adjusted_rewards, num_penalized).
+
+    No-op when penalty <= 0. Used in GRPO so the policy is steered away from
+    insecure code (the "functional but insecure" gap) — it differentiates
+    dangerous vs secure completions within a group, creating advantage signal
+    toward secure ones without changing the functional reward.
+    """
+    if penalty <= 0:
+        return list(rewards), 0
+    from ..security.code_patterns import is_dangerous
+
+    adjusted: list[float] = []
+    penalized = 0
+    for r, gen in zip(rewards, generations):
+        if is_dangerous(gen):
+            adjusted.append(r - penalty)
+            penalized += 1
+        else:
+            adjusted.append(r)
+    return adjusted, penalized
+
+
 def compute_group_advantages(
     rewards: torch.Tensor,
     norm: str = "std",
@@ -206,6 +234,7 @@ class GRPOTrainer:
         parallel_generation: bool = False,
         parallel_rewards: bool = False,
         reward_workers: int = 4,
+        security_penalty: float = 0.0,
     ):
         """
         Args:
@@ -292,6 +321,12 @@ class GRPOTrainer:
         self.parallel_generation = parallel_generation
         self.parallel_rewards = parallel_rewards
         self.reward_workers = reward_workers
+        # IDEA-008: subtract this from a solution's reward when it contains a
+        # dangerous code pattern (SEC-017 scanner), so the policy learns to avoid
+        # insecure code. 0.0 (default) = off / backward compatible. The penalty
+        # differentiates dangerous vs secure WITHIN a group, creating an advantage
+        # signal toward secure completions without touching functional correctness.
+        self.security_penalty = max(0.0, float(security_penalty))
 
         # Generator for producing solutions
         self.generator = CodeGenerator(model, tokenizer, device)
@@ -402,6 +437,12 @@ class GRPOTrainer:
                 max_thinking_tokens=self.max_thinking_tokens,
             )
 
+        # IDEA-008: penalize dangerous (insecure) completions so the policy learns
+        # secure code. No-op when security_penalty == 0 (default).
+        rewards, num_penalized = apply_security_penalty(
+            rewards, generations, self.security_penalty
+        )
+
         # Step 3: Compute advantages (relative to group mean)
         rewards_tensor = torch.tensor(rewards, device=self.device)
         mean_reward = rewards_tensor.mean()
@@ -491,6 +532,7 @@ class GRPOTrainer:
             "num_correct": num_correct,
             "group_size": self.group_size,
             "pass_rate": num_correct / self.group_size,
+            "num_security_penalized": num_penalized,
         }
 
     def _problems_to_dicts(
