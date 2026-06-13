@@ -7,6 +7,27 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-13 — Architecture (rotate: architecture)
+
+- **QK-Norm is now standard** (Qwen3, Gemma3, DeepSeek-V3, Gemini 2.0): per-head
+  RMSNorm of Q/K before RoPE — reduces perplexity, improves convergence, and prevents
+  attention-logit explosion at depth > ~12 layers. **Validates cola-coder's existing
+  `qk_norm=true`** (small_react_best = 12 layers, 4080_max) → reinforces MODEL-023
+  (enable it on tiny/small too for CI coverage of the path).
+- **muP / muTransfer**: maximal-update parametrization lets you tune hyperparameters
+  (LR, init) on a SMALL proxy model and transfer them zero-shot to larger models —
+  directly relevant to cola-coder's size ladder (tiny→small→medium→4080_max). → MODEL-031.
+- Other 2026 arch advances noted (for later, non-urgent): nGPT (everything on the
+  unit hypersphere), hybrid attention (sliding-window + full), DAPE V2 position
+  encoding, MoE routing refinements (the project already has MoE upcycling).
+- Sources: QK-Norm overview (https://www.emergentmind.com/topics/query-key-normalization-qk-norm);
+  "Methods of improving LLM training stability" (https://arxiv.org/pdf/2410.16682);
+  "Transformer Architecture in 2026" (https://dev.to/jintukumardas/transformer-architecture-in-2026-from-attention-to-mixture-of-experts-moe-3d46);
+  Stanford "Rethinking the Primitives" (https://web.stanford.edu/~jksun/blog/llm-architecture.html).
+- ORIGINAL idea → already covered: the project's qk_norm+z_loss combo is exactly the
+  2026 stability stack; the actionable new item is muP hyperparameter transfer (MODEL-031)
+  to tune cheaply on tiny and transfer up the size ladder.
+
 ## 2026-06-13 — Safety / guardrails (rotate: safety)
 
 - **Functional ≠ secure:** 2026 studies find secure-pass@1 stays <12% even when

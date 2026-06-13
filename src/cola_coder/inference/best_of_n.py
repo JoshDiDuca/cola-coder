@@ -21,9 +21,10 @@ Verification is sandboxed end-to-end and language-aware:
 - No hard verifier available (e.g. tsc not installed) → SelfVerifier
   heuristics only
 
-The final ranking key is (verified, score): a candidate that passed the hard
-verifier always beats one that didn't; within a tier, score combines the hard
-verifier signal with SelfVerifier's heuristic confidence as a tie-breaker.
+The final ranking key is (verified, secure, score): a candidate that passed the
+hard verifier always beats one that didn't; within a verified tier, a SECURE
+candidate (no dangerous patterns — IDEA-008/SEC-017) beats an insecure one; then
+score combines the hard verifier signal with SelfVerifier's heuristic confidence.
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ from typing import Callable
 
 from ..data.scorers.language_detect import is_js_ts, is_typescript
 from ..data.scorers.utils import ScoreMapper
+from ..security.code_patterns import scan_dangerous
 # Shared with the FastAPI server's non-streaming strip — see text_utils.
 from .text_utils import strip_prompt_prefix as _strip_prompt
 
@@ -152,17 +154,33 @@ def generate_best_of_n(
     for text, (verified, hard_score, details) in zip(texts, verdicts):
         heuristic = _heuristic_confidence(text, lang)
         details["heuristic_confidence"] = round(heuristic, 3)
+        completion = _strip_prompt(text, prompt)
+        # Security signal (IDEA-008): scan the COMPLETION (not the prompt, which the
+        # user wrote) for dangerous patterns. Used as a secondary ranking key so a
+        # functionally-correct AND secure candidate is preferred over a
+        # functionally-correct but insecure one ("secure-pass best-of-N").
+        dangers = scan_dangerous(completion)
+        details["secure"] = not dangers
+        if dangers:
+            details["dangerous_patterns"] = dangers
         candidates.append(
             CandidateResult(
                 text=text,
-                completion=_strip_prompt(text, prompt),
+                completion=completion,
                 verified=verified,
                 score=_HARD_WEIGHT * hard_score + _HEURISTIC_WEIGHT * heuristic,
                 details=details,
             )
         )
 
-    ranked = sorted(candidates, key=lambda c: (c.verified, c.score), reverse=True)
+    # Rank: functional correctness first (verified), then SECURE over insecure, then
+    # score. A verified candidate still beats an unverified one regardless of security;
+    # security only breaks ties among equally-verified candidates.
+    ranked = sorted(
+        candidates,
+        key=lambda c: (c.verified, c.details.get("secure", True), c.score),
+        reverse=True,
+    )
     logger.info(
         "best-of-%d (%s via %s): %d/%d verified, best score %.3f",
         num_candidates, lang, verifier_name,

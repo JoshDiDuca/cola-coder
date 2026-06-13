@@ -27,13 +27,23 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   +6 incl. precision (regex.exec not flagged) + DRY-shared assertion; 45 distillation/
   pattern tests + 39 safety tests + ruff green. Follow-up IDEA-008 (secure best-of-N +
   security-aware GRPO reward).
-- **IDEA-008** [research/safety, medium-potential] `open` (2026-06-13) — Security-aware
-  best-of-N + GRPO reward: use `security.code_patterns.is_dangerous` as a SECONDARY
-  signal in best_of_n (among functionally-correct candidates, prefer the secure one —
-  "secure-pass best-of-N") and as a small penalty in the GRPO reward
-  (reward = tsc/test pass − λ·dangerous) so the RL policy learns to avoid insecure
-  patterns. Reuses the SEC-017 scanner + existing verifier/reward (the latter is
-  train-path → worktree).
+- **IDEA-008** [research/safety, medium-potential] `partial` (2026-06-13) —
+  Security-aware best-of-N + GRPO reward. DONE (inference half): best_of_n now ranks
+  by `(verified, secure, score)` — among equally-verified candidates the SECURE one
+  (no dangerous patterns, via the SEC-017 scanner on the completion) wins, and the
+  insecure candidate is flagged in `details["dangerous_patterns"]`. Security only
+  breaks ties — a verified-insecure candidate still beats an unverified-secure one
+  (functional correctness dominates). Tests: test_best_of_n.py::TestSecurityAwareRanking
+  +2; 72 best_of_n/server/pattern tests + ruff green. REMAINING (train-path → worktree,
+  not while the run is live): add a small security penalty to the GRPO reward
+  (reward = tsc/test pass − λ·dangerous) so the RL policy learns to avoid insecure code.
+- **MODEL-031** [model/training, medium] `open` (architecture research 2026-06-13) —
+  muP / muTransfer: maximal-update parametrization so hyperparameters (LR, init scale)
+  tuned on the TINY config transfer zero-shot up the size ladder
+  (tiny→small→medium→4080_max), avoiding expensive per-size LR sweeps. Touches model
+  init + optimizer LR scaling (train-path → worktree; validate via the tiny config).
+  Reinforced by the 2026 arch consensus; pairs with the project's existing
+  `_model_scale` size handling.
 
 ### SECURITY — bulletproof the untrusted-code sandbox (HIGH — user mandate 2026-06-13)
 The sandbox that runs UNTRUSTED scraped/teacher-generated code (data/curation test

@@ -313,3 +313,37 @@ class TestFeatureWrapper:
         result = feature.generate_best_of_n(gen, "def f", num_candidates=1,
                                             language="python")
         assert isinstance(result, BestOfNResult)
+
+
+class TestSecurityAwareRanking:
+    """IDEA-008/SEC-017: among equally-verified candidates, prefer the SECURE one."""
+
+    def test_secure_candidate_preferred_among_verified(self):
+        insecure = "const out = eval(userInput);"   # tsc-clean but dangerous (eval)
+        secure = "const total = 1 + 2;"
+        gen = FakeGroupGenerator([insecure, secure])
+        runner = FakeTscRunner({})  # no errors for any index -> both verify clean
+        result = generate_best_of_n(
+            gen, "// prompt", num_candidates=2,
+            language="typescript", tsc_runner=runner,
+        )
+        # Both pass the hard verifier, but the secure one must rank first.
+        assert all(c.verified for c in result.candidates)
+        assert result.best.details["secure"] is True
+        assert "eval" not in result.best.completion
+        flagged = [c for c in result.candidates if c.details.get("secure") is False]
+        assert flagged, "the eval() candidate should be marked insecure"
+        assert "eval() usage" in flagged[0].details.get("dangerous_patterns", [])
+
+    def test_security_only_breaks_ties_not_beats_verified(self):
+        # An UNVERIFIED-but-secure candidate must NOT beat a VERIFIED-but-insecure one;
+        # functional correctness dominates, security is only a secondary key.
+        insecure_ok = "const out = eval(x);"   # verifies (index 0, no errors)
+        secure_bad = "const y: number = 'str';"  # does NOT verify (index 1 has an error)
+        gen = FakeGroupGenerator([insecure_ok, secure_bad])
+        runner = FakeTscRunner({1: ["TS2322: type error"]})  # only index 1 fails
+        result = generate_best_of_n(
+            gen, "// p", num_candidates=2, language="typescript", tsc_runner=runner,
+        )
+        assert result.best.verified is True
+        assert "eval" in result.best.completion  # verified insecure beats unverified secure
