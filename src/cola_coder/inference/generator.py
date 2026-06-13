@@ -593,6 +593,15 @@ class CodeGenerator:
 
         # --- Phase 1: encode prompt ---
         token_ids = self.tokenizer.encode(prompt, add_bos=True)
+        # Clamp to the KV-cache window: in Phase 4 start_pos = prompt_len + step
+        # must stay < max_seq_len, else the per-step write cache_k[:, start_pos:
+        # start_pos+1] = k targets a zero-size slice — silently dropping the new
+        # token's K/V and reading stale cache → garbage. Same guard generate()/
+        # generate_stream() use (INFER-014). Prompt shared across the group, so
+        # clamp once here.
+        token_ids, max_new_tokens = _fit_context_window(
+            token_ids, max_new_tokens, self._max_seq_len()
+        )
         prompt_len = len(token_ids)
         input_ids = torch.tensor([token_ids], dtype=torch.long, device=self.device)
 

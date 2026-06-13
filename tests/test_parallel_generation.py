@@ -277,6 +277,28 @@ class TestGenerateGroup:
         )
         assert len(set(results)) == 1
 
+    def test_long_prompt_clamped_to_kv_window(self):
+        """INFER-014: the batched group path must clamp prompt + budget to the
+        KV-cache window. With max_seq_len=8 an 8-char prompt encodes to 9 tokens
+        (>8); without the clamp prefill writes cache_k[:, 0:9] into a cache sized
+        for 8 and crashes (and a generation crossing the window writes a zero-size
+        slice → silent garbage). The clamp left-truncates so it runs cleanly."""
+        from cola_coder.inference.generator import CodeGenerator
+
+        cfg = ModelConfig(
+            vocab_size=256, dim=64, n_layers=2, n_heads=4, n_kv_heads=2,
+            ffn_dim_multiplier=1.0, max_seq_len=8, dropout=0.0, rope_theta=10000.0,
+        )
+        model = Transformer(cfg)
+        model.eval()
+        gen = CodeGenerator(model=model, tokenizer=_make_tokenizer(), device="cpu")
+        # 8-char prompt -> 9 tokens with bos (> max_seq_len 8); oversized budget too.
+        results = gen.generate_group(
+            prompt="abcdefgh", num_completions=2, max_new_tokens=50, temperature=0
+        )
+        assert len(results) == 2
+        assert all(isinstance(r, str) for r in results)
+
     def test_fallback_on_oom(self):
         """generate_group falls back to serial generation on OOM."""
         gen = self._make_generator()
