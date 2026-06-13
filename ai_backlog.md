@@ -24,19 +24,22 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   ps/cola-train-resume.ps1 as belt-and-braces). Tests:
   tests/test_compile_backend_probe.py (4) — cpu→False, triton-missing→False,
   triton-present→True, find_spec-raises→False. ruff + test_checkpoint green.
-- **BUG-118** [training/robustness, high] `open` (discovered 2026-06-13) —
-  `train.py --auto-resume` resumed from an architecturally-INCOMPATIBLE checkpoint.
-  For the `small_react_best` config (qk_norm=true, output_dir checkpoints/
-  small_react_best, empty) auto-resume latched onto the pre-existing
-  `checkpoints/small/step_00100000` (a different run, NO qk_norm) and crashed in
-  `_load_state_dict_tied` on the mismatched/extra keys. Auto-resume's
-  architecture-matching is too loose (doesn't account for qk_norm / full arch) and
-  searches beyond the config's own output_dir. Fix: restrict `--auto-resume`
-  detection to `config.checkpoint.output_dir` (the run's OWN dir), and/or validate
-  full architecture (dim, layers, heads, qk_norm, moe) before resuming — refuse +
-  warn on mismatch rather than crash. Workaround in use: ps/cola-train-resume.ps1
-  resumes only from the run's own step_* dirs (fresh if none). Relates to the
-  "latest pointer can be stale" rule in .claude/rules/checkpoints.md.
+- **BUG-118** [training/robustness, high] `done` (2026-06-13) —
+  `train.py --auto-resume` resumed from an architecturally-INCOMPATIBLE checkpoint
+  (the `small_react_best` qk_norm config latched onto another run's non-qk_norm
+  `checkpoints/small/step_00100000` and crashed in `_load_state_dict_tied`). FIX:
+  new `find_resume_checkpoint(output_dir, model_config)` in checkpoint.py scans
+  ONLY the config's own `checkpoint.output_dir` (resolving by highest `step_*`
+  dir, never the stale `latest` pointer) and validates the candidate's saved
+  architecture via `architecture_mismatch()` (dim, n_layers, n_heads, n_kv_heads,
+  vocab_size, qk_norm, moe.enabled) — refusing with a clear `cli.warn` and
+  starting fresh instead of crashing. `scripts/train.py --auto-resume` now calls
+  it. `detect_latest_checkpoint` is unchanged (inference/eval callers legitimately
+  scan the whole `checkpoints/` tree). Tests: 6 new in
+  test_checkpoint.py::TestFindResumeCheckpoint (own-dir scoping, qk_norm-mismatch
+  refusal, match-resumes, no-config-skips, missing-dir, core-field mismatch);
+  test_checkpoint + test_training_resume (50) + ruff green on main. The
+  ps/cola-train-resume.ps1 wrapper remains as a belt-and-braces reboot helper.
 
 ### USER REQUEST 2026-06-13 — full PowerShell usability + menu testing
 Goal: every project workflow runnable from PowerShell with NO errors, and every
