@@ -1427,14 +1427,11 @@ class DataMenu:
             "Mix datasets with custom sampling ratios",
         )
 
-        data_dir = (
-            self._master._resolve_path(self._master.storage.data_dir)
-            / "processed"
-        )
-        npy_files = sorted(data_dir.glob("*.npy")) if data_dir.exists() else []
+        from cola_coder.data.dataset_resolver import DatasetResolver
+        npy_files = DatasetResolver.find_dataset_npys()
 
         if not npy_files:
-            cli.error(f"No .npy datasets found in {data_dir}")
+            cli.error(f"No .npy datasets found in {DatasetResolver.get_dataset_dir()}")
             cli.dim("Run a data preparation step first.")
             self._master._pause()
             return
@@ -1513,14 +1510,11 @@ class DataMenu:
         """Browse random samples from training data (inline inspection)."""
         import numpy as np
 
-        data_dir = (
-            self._master._resolve_path(self._master.storage.data_dir)
-            / "processed"
-        )
-        npy_files = list(data_dir.glob("*.npy")) if data_dir.exists() else []
+        from cola_coder.data.dataset_resolver import DatasetResolver
+        npy_files = DatasetResolver.find_dataset_npys()
 
         if not npy_files:
-            cli.error(f"No datasets found in {data_dir}")
+            cli.error(f"No datasets found in {DatasetResolver.get_dataset_dir()}")
             return
 
         # Pick a dataset

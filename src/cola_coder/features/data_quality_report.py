@@ -186,7 +186,7 @@ class DataQualityReport:
     Usage::
 
         dqr = DataQualityReport()
-        report = dqr.generate("data/processed/train_data.npy")
+        report = dqr.generate("data/<dataset-name>/code_data.npy")
         print(report.to_markdown())
     """
 

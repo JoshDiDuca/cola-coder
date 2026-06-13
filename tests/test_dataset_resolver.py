@@ -238,6 +238,58 @@ class TestGetDatasetDir:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# find_dataset_npys (BUG-117 / DATA-048 — single source of "where's the data")
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestFindDatasetNpys:
+    def test_finds_in_per_dataset_dir_excluding_sidecars(self, tmp_path: Path) -> None:
+        cfg = _write_sources(
+            tmp_path, {"code": {"enabled": True, "languages": ["python"]}}
+        )
+        data_root = tmp_path / "data"
+        with patch(
+            "cola_coder.data.dataset_resolver.get_storage_config",
+            return_value=_mock_storage(data_root),
+        ):
+            ds = DatasetResolver.get_dataset_dir(cfg)  # data_root/python (created)
+            (ds / "code_data.npy").write_bytes(b"\x00")
+            (ds / "code_data.weights.npy").write_bytes(b"\x00")  # sidecar
+            (ds / "code_data.scores.npy").write_bytes(b"\x00")   # sidecar
+            found = DatasetResolver.find_dataset_npys(cfg)
+
+        assert [p.name for p in found] == ["code_data.npy"]
+
+    def test_empty_when_nothing_prepared(self, tmp_path: Path) -> None:
+        cfg = _write_sources(
+            tmp_path, {"code": {"enabled": True, "languages": ["python"]}}
+        )
+        data_root = tmp_path / "data"
+        with patch(
+            "cola_coder.data.dataset_resolver.get_storage_config",
+            return_value=_mock_storage(data_root),
+        ):
+            assert DatasetResolver.find_dataset_npys(cfg) == []
+
+    def test_falls_back_to_legacy_processed_dir(self, tmp_path: Path) -> None:
+        cfg = _write_sources(
+            tmp_path, {"code": {"enabled": True, "languages": ["python"]}}
+        )
+        data_root = tmp_path / "data"
+        legacy = data_root / "processed"
+        legacy.mkdir(parents=True)
+        (legacy / "train_data.npy").write_bytes(b"\x00")
+        with patch(
+            "cola_coder.data.dataset_resolver.get_storage_config",
+            return_value=_mock_storage(data_root),
+        ):
+            # Per-dataset dir is empty → fall back to processed/.
+            found = DatasetResolver.find_dataset_npys(cfg)
+
+        assert [p.name for p in found] == ["train_data.npy"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # get_tokenizer_path / tokenizer_exists
 # ─────────────────────────────────────────────────────────────────────────────
 

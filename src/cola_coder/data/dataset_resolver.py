@@ -134,6 +134,33 @@ class DatasetResolver:
         return DatasetResolver.get_tokenizer_path(data_sources_path, config_path).exists()
 
     @staticmethod
+    def find_dataset_npys(
+        data_sources_path: str | Path = "configs/data_sources.yaml",
+        config_path: str | Path | None = None,
+    ) -> list[Path]:
+        """Real training-data ``.npy`` files for the active dataset, sorted.
+
+        Single source of truth for "where are the prepared datasets" — used by
+        the menu status panel, dataset inspector, combiner, and router-data
+        source so they all agree (BUG-117/DATA-048). Scans the per-dataset dir
+        first, falling back to the legacy ``storage.data_dir/processed/`` for
+        older setups. EXCLUDES ``.weights``/``.scores`` sidecars (they are not
+        datasets). Returns an empty list when nothing is prepared yet.
+        """
+        def _real(d: Path) -> list[Path]:
+            if not d.exists():
+                return []
+            return sorted(
+                f for f in d.glob("*.npy")
+                if ".weights" not in f.name and ".scores" not in f.name
+            )
+
+        found = _real(DatasetResolver.get_dataset_dir(data_sources_path, config_path))
+        if found:
+            return found
+        return _real(Path(get_storage_config().data_dir) / "processed")
+
+    @staticmethod
     def save_tokenizer_meta(
         tokenizer_path: Path,
         vocab_size: int,

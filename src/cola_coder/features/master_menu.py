@@ -331,25 +331,14 @@ class MasterMenu:
         status["tokenizer"] = "ready" if tokenizer_path.exists() else "missing"
 
         # Datasets live in the per-dataset dir (the SAME resolver the tokenizer
-        # uses), not the legacy data_dir/processed/. The old check looked only at
-        # processed/, so it reported "missing" even with a fully-prepared dataset
-        # present (BUG-117) — and it counted .weights/.scores SIDECARS as extra
-        # "datasets". Scan the resolver dir first, fall back to processed/ for
-        # older setups, and exclude sidecars from the count.
-        def _real_npys(d: Path) -> list[Path]:
-            return [
-                f for f in d.glob("*.npy")
-                if ".weights" not in f.name and ".scores" not in f.name
-            ] if d.exists() else []
-
-        npy_files: list[Path] = []
+        # uses), not the legacy data_dir/processed/ — and sidecars aren't datasets
+        # (BUG-117). DatasetResolver.find_dataset_npys is the single source of
+        # truth (per-dataset dir → legacy processed/ fallback, sidecars excluded).
         try:
             from cola_coder.data.dataset_resolver import DatasetResolver
-            npy_files = _real_npys(DatasetResolver.get_dataset_dir())
+            npy_files = DatasetResolver.find_dataset_npys()
         except Exception:
-            pass
-        if not npy_files:
-            npy_files = _real_npys(self._resolve_path(self.storage.data_dir) / "processed")
+            npy_files = []
         status["data"] = f"{len(npy_files)} dataset(s)" if npy_files else "missing"
 
         ckpt_dir = self._resolve_path(self.storage.checkpoints_dir)
@@ -1250,8 +1239,14 @@ class MasterMenu:
 
         if choice == 0:
             from cola_coder.data.dataset_resolver import DatasetResolver
+            datasets = DatasetResolver.find_dataset_npys()
+            if not datasets:
+                cli.error("No prepared .npy dataset found.")
+                cli.dim("Run a data preparation step first (Quick Start / Data menu).")
+                self._pause()
+                return
             self._run_script("generate_router_data.py", [
-                "--source", "data/processed/train_data.npy",
+                "--source", str(datasets[0]),
                 "--tokenizer", str(DatasetResolver.get_tokenizer_path()),
             ])
         elif choice == 1:

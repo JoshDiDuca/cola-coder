@@ -231,7 +231,7 @@ def wrap_training_with_recovery(trainer_fn, checkpoint_dir: str, model, optimize
             model=trainer.model,
             optimizer=trainer.optimizer,
             scheduler=trainer.scheduler,
-            data_path="data/processed/train_data.npy",
+            data_path="data/<dataset-name>/code_data.npy",
         )
 
     Args:

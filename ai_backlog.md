@@ -11,16 +11,6 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
-- **DATA-048** [tooling/staleness, low] `open` — Leftover hardcoded
-  `data/processed/train_data.npy` DEFAULT paths after the per-dataset-dir
-  migration (BUG-117): `features/crash_recovery.py:234`,
-  `features/data_quality_report.py:189`, `master_menu.py:1254` (router
-  `--source`), and `menus/data_menu.py:1432,1518` (`/ "processed"`). These are
-  overridable default suggestions, not detection logic, so they don't cause a
-  false "missing" — but on a fresh per-dataset-dir setup they point at a path
-  that won't exist. Fix: resolve via `DatasetResolver.get_dataset_dir()` /
-  `get_tokenizer_path()` like the rest of the pipeline. Low impact; batch them.
-
 - **DATA-046** [data-quality/robustness, low] `open` (latent — rarely reachable)
   — `dedup.py` `_tokens_to_ngrams` returns an EMPTY n-gram list when a chunk's
   content is shorter than `ngram_size` (char path: `len(text) < ngram_size`;
@@ -151,6 +141,22 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 ---
 
 ## Done
+
+- **DATA-048** [tooling/staleness, low] `done` (2026-06-13) — Finished the
+  per-dataset-dir migration BUG-117 started. Three runtime sites still resolved
+  data via the legacy `data_dir/processed/`, so on a per-dataset-dir setup they
+  failed or scanned the wrong place: `master_menu.py:1254` (router-data
+  `--source` hardcoded to `data/processed/train_data.npy` — generate_router_data
+  would error on the missing file), and `data_menu.py` `_combine_datasets` +
+  `_inspect_dataset` (both reported "No datasets found" with data present). DRY
+  fix: added `DatasetResolver.find_dataset_npys()` — ONE source of truth
+  (per-dataset dir → legacy `processed/` fallback, `.weights`/`.scores` sidecars
+  excluded, sorted) — and routed all four sites through it (incl. refactoring
+  BUG-117's inline scan). Router source now uses the first real dataset (warns +
+  aborts if none). Also updated 2 stale docstring examples
+  (crash_recovery/data_quality_report). Tests: 3 new in test_dataset_resolver.py
+  (per-dataset detection w/ sidecars excluded; empty → []; legacy fallback). 72
+  menu/data/resolver + checkpoint tests pass; ruff clean.
 
 - **BUG-117** [tooling/UX, high] `done` (2026-06-13) — The master-menu Quick Start
   reported `data: missing` even with a fully-prepared 13.78 GB `code_data.npy`
