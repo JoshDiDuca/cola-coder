@@ -82,11 +82,17 @@ own BUG-###), mark the sub-item done. These are tractable one-per-cycle.
   (`@args`), `Split-Path -Parent $PSScriptRoot` pattern, ps/README.md updated, all
   30 parse clean. Remaining un-wrapped (`upcycle_to_moe`) is niche and reachable
   via cola-menu / cola-pipeline (stage 7) — not worth a dedicated wrapper.
-- **TOOL-017** [tooling/UX, low] `open` — Each `ps/cola-*.ps1` should fail fast
-  with a clear message if `.venv` is missing (currently `& .\.venv\Scripts\python`
-  errors cryptically). Add a shared guard (e.g. test the venv python path, print
-  "run cola-setup.ps1 first" and exit 1) — ideally via a small dot-sourced
-  `ps/_common.ps1` to stay DRY. Verify all scripts still parse + run.
+- **TOOL-017** [tooling/UX, low] `done` (2026-06-13) — Every `ps/cola-*.ps1`
+  wrapper that invokes the venv interpreter now fails fast with the friendly
+  message "venv missing — run cola-setup.ps1 first." (red, exit 1) when
+  `.venv\Scripts\python.exe` is absent, instead of a cryptic downstream error.
+  The guard mirrors the `cola-train-resume.ps1` reference pattern (resolve `$py`
+  from `$project`, `Test-Path` check) and was added to 29 scripts.
+  `cola-setup.ps1` is exempt (it CREATES the venv); `cola-train-resume.ps1`
+  already had it. All 31 `ps/*.ps1` parse clean (verified via the PS
+  `Parser::ParseFile` AST check). Used the inline guard rather than a dot-sourced
+  `ps/_common.ps1` — 2 lines per script is simpler and keeps each wrapper
+  self-contained/copy-pastable (no load-order/relative-path coupling).
 
 - **MODEL-012** [model/config-consistency, low] `open` (user decision — changes
   training behavior/repro) — The 2025-26 stabilizers `qk_norm: true` and
