@@ -159,12 +159,18 @@ class SWHClient:
             The file content as a UTF-8 string.
 
         Raises:
-            UnicodeDecodeError: If the content is binary.
+            UnicodeDecodeError: If the content is binary (non-UTF-8 bytes).
         """
         url = f"{self.BASE_URL}/content/sha1:{content_sha1}/raw/"
         resp = self._rate_limited_get_response(url)
         resp.raise_for_status()
-        return resp.text
+        # Decode the raw bytes strictly. requests' ``resp.text`` performs
+        # lenient, best-effort decoding (charset-guessing + replacement chars)
+        # and NEVER raises on binary input — so binary blobs would leak into the
+        # corpus as mojibake, and the ``except UnicodeDecodeError`` skip in
+        # _walk_directory would be dead code. Decoding the bytes ourselves
+        # honours the documented contract: binary files raise and are skipped.
+        return resp.content.decode("utf-8")
 
     # -- Internal HTTP helpers -----------------------------------------------
 
