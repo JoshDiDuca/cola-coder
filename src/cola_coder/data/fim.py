@@ -83,7 +83,37 @@ class FIMTransform:
         self.fim_rate = fim_rate
         self.psm_rate = psm_rate
         self.truncate_or_pad = truncate_or_pad
+        self._base_seed = seed
         self._rng = random.Random(seed)
+        self._worker_seeded = False
+
+    def _ensure_worker_rng(self) -> None:
+        """Re-seed the RNG once per DataLoader worker (DATA-052).
+
+        ``FIMTrainingCollator`` is built in the main process and, with
+        ``persistent_workers=True``, pickled to each worker carrying the SAME
+        ``random.Random`` state — so all workers would otherwise make identical
+        FIM decisions (which samples are FIM'd, PSM/SPM choice, split points) in
+        lockstep, collapsing N independent augmentation streams into one. On
+        first use inside a worker we re-seed from torch's distinct per-worker
+        seed so each worker draws an independent stream. No-op in the main
+        process / ``num_workers=0``, preserving the seeded-reproducibility
+        contract relied on by tests.
+        """
+        if self._worker_seeded:
+            return
+        try:
+            import torch.utils.data as _tud
+
+            info = _tud.get_worker_info()
+        except Exception:
+            info = None
+        if info is not None:
+            base = 0 if self._base_seed is None else int(self._base_seed)
+            # info.seed is torch's per-worker seed (distinct per worker); mix it
+            # with our base seed and the worker id so streams can't coincide.
+            self._rng = random.Random((base * 1_000_003) ^ int(info.seed) ^ (info.id + 1))
+            self._worker_seeded = True
 
     # ------------------------------------------------------------------
     # Token-level API (used during training with already-tokenized data)
@@ -107,6 +137,7 @@ class FIMTransform:
         Returns:
             List of token IDs, same length as input when truncate_or_pad=True.
         """
+        self._ensure_worker_rng()
         if self._rng.random() >= self.fim_rate:
             return token_ids  # Not selected for FIM this sample
 
@@ -178,6 +209,7 @@ class FIMTransform:
             was_transformed is False when fim_rate skips the sample or the
             text is too short to split meaningfully.
         """
+        self._ensure_worker_rng()
         if self._rng.random() >= self.fim_rate:
             return text, False
 

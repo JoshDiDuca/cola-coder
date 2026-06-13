@@ -104,6 +104,45 @@ class TestFIMTokenStrings:
 # ===========================================================================
 
 
+class TestPerWorkerRngReseed:
+    """DATA-052: persistent DataLoader workers must NOT share one pickled RNG
+    (which would make all workers produce identical FIM splits in lockstep).
+    _ensure_worker_rng re-seeds each worker distinctly on first use, while the
+    main process (no worker_info) keeps its seeded-reproducible stream."""
+
+    def _fim_decisions(self, transform, tok, n=40):
+        # A signature of this RNG stream: the FIM'd output of n identical samples.
+        base = _make_token_ids(50)
+        return tuple(tuple(transform.apply(list(base), tok)) for _ in range(n))
+
+    def test_main_process_is_unchanged_and_reproducible(self, monkeypatch):
+        import torch.utils.data as tud
+        monkeypatch.setattr(tud, "get_worker_info", lambda: None)
+        tok = _make_tokenizer()
+        a = self._fim_decisions(FIMTransform(fim_rate=0.5, seed=123), tok)
+        b = self._fim_decisions(FIMTransform(fim_rate=0.5, seed=123), tok)
+        assert a == b  # same seed, main process -> identical (reproducible)
+
+    def test_two_workers_diverge(self, monkeypatch):
+        # Simulate two persistent workers that were handed the SAME pickled
+        # transform (same base seed) but have distinct torch worker seeds.
+        import torch.utils.data as tud
+        tok = _make_tokenizer()
+
+        def worker(worker_id, torch_seed):
+            t = FIMTransform(fim_rate=0.5, seed=None)  # live path uses seed=None
+            info = MagicMock()
+            info.id = worker_id
+            info.seed = torch_seed
+            monkeypatch.setattr(tud, "get_worker_info", lambda: info)
+            t._worker_seeded = False
+            return self._fim_decisions(t, tok)
+
+        w0 = worker(0, 111111)
+        w1 = worker(1, 222222)
+        assert w0 != w1  # distinct workers -> distinct FIM streams (the fix)
+
+
 class TestFIMTransformInit:
     def test_valid_rates(self):
         t = FIMTransform(fim_rate=0.5, psm_rate=0.5)
