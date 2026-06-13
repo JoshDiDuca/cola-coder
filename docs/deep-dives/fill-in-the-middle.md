@@ -574,37 +574,40 @@ Visualized:
   | bound   |  split points chosen here    |   | bound
 ```
 
-### FIMCollator (`src/cola_coder/data/collator.py`)
+### FIMTrainingCollator (`src/cola_coder/data/dataset.py`)
 
-The collator applies FIM during the batching step — right before data enters
-the model. This is useful when you want to apply FIM dynamically (different
-random splits each epoch) rather than pre-computing FIM during data prep.
+The canonical dynamic-FIM path applies FIM during the batching step — right
+before data enters the model — so a different random fraction of each batch is
+rearranged into FIM every epoch (StarCoder2-style), with no FIM baked into the
+.npy. `FIMTrainingCollator` is a thin DataLoader `collate_fn` around the
+canonical `FIMTransform`; it does **not** re-implement the split. `FIMTransform`
+reserves three content slots up front, so the output length exactly equals the
+input and the prediction target (`middle`) is never truncated.
+
+**Wiring (DATA-012, done):** dynamic train-time FIM is wired into the trainer via
+config — set `data.fim_rate` (e.g. `0.1`) and `create_dataloader(..., fim_rate=
+0.1)` automatically installs `FIMTrainingCollator` as the `collate_fn`. It
+auto-disables with a warning if the tokenizer lacks the `<|fim_*|>` tokens (see
+TOK-002). `fim_rate: 0.0` (default) is off.
 
 ```python
-class FIMCollator:
-    def __call__(self, examples):
-        batch = [self._apply_fim(ex["input_ids"]) for ex in examples]
-        return {"input_ids": torch.stack(batch)}
+from cola_coder.data.dataset import create_dataloader
 
-    def _apply_fim(self, tokens):
-        # Delegates to FIMTransform.apply (gates on fim_rate internally,
-        # preserves length); returns a tensor of the same dtype/device.
-        ids = self._transform.apply(tokens.tolist(), self._fim_ids)
-        return torch.tensor(ids, dtype=tokens.dtype, device=tokens.device)
+loader = create_dataloader(
+    data_path, batch_size=24, seq_len=1024,
+    fim_rate=0.1,            # 10% of each batch rearranged into FIM on the fly
+    tokenizer=tokenizer,     # needed for the <|fim_*|> marker ids
+)
 ```
 
-`FIMCollator` is a thin PyTorch/DataLoader adapter around the canonical
-`FIMTransform` — it does **not** re-implement the split. `FIMTransform` reserves
-three content slots up front, so the output length exactly equals the input and
-the prediction target (`middle`) is never truncated. (An earlier version
-hand-rolled the split and truncated `seq_len + 3` tokens back to `seq_len`,
-silently chopping the end of `middle`; that bug is fixed by delegation.)
+**Per-worker RNG (DATA-052):** with `persistent_workers=True` the collator is
+pickled to each DataLoader worker; `FIMTransform` re-seeds its RNG per worker on
+first use so the workers don't all produce identical FIM splits in lockstep.
 
-**Wiring note:** `FIMCollator` is *not* attached to `create_dataloader` by
-default. The default trainer path applies FIM at data-prep time
-(`scripts/prepare_fim_data.py`). To use dynamic train-time FIM, pass a
-`FIMCollator` as the DataLoader's `collate_fn` yourself (optional trainer
-plumbing is tracked as backlog item DATA-012).
+> Historical note: an earlier standalone `FIMCollator` in `data/collator.py` was
+> orphaned dead code (superseded by `FIMTrainingCollator`) and was removed in
+> DATA-053. Use `create_dataloader(fim_rate=...)` — that is the only supported
+> dynamic-FIM entry point.
 
 ---
 
@@ -717,17 +720,15 @@ function calculateDiscount(price: number, tier: "gold" | "silver" | "bronze") {
 
 FIM settings can appear in several places:
 
-**In the collator** (dynamic FIM at training time):
+**Via the dataloader** (dynamic FIM at training time — the canonical path):
 
 ```python
-from cola_coder.data.collator import FIMCollator
+from cola_coder.data.dataset import create_dataloader
 
-collator = FIMCollator(
-    fim_rate=0.5,          # 50% of samples get FIM
-    fim_prefix_id=4,       # <|fim_prefix|> token ID
-    fim_middle_id=5,       # <|fim_middle|> token ID
-    fim_suffix_id=6,       # <|fim_suffix|> token ID
-)
+# fim_rate installs FIMTrainingCollator as the collate_fn under the hood;
+# the marker ids come from the tokenizer.
+loader = create_dataloader(data_path, batch_size=24, seq_len=1024,
+                           fim_rate=0.5, tokenizer=tokenizer)
 ```
 
 **In the FIMTransform** (pre-computed FIM during data prep, or dynamic):
@@ -887,8 +888,8 @@ intuitive), and that works perfectly.
 
 - `src/cola_coder/data/fim.py` — `FIMTransform` class with token-level
   and text-level APIs, PSM/SPM mixing, line-boundary splits
-- `src/cola_coder/data/collator.py` — `FIMCollator` for dynamic FIM
-  during training batching
+- `src/cola_coder/data/dataset.py` — `FIMTrainingCollator` (the canonical
+  dynamic-FIM `collate_fn`, installed by `create_dataloader(fim_rate=...)`)
 - Special tokens: `<|fim_prefix|>`, `<|fim_suffix|>`, `<|fim_middle|>`
   — verified and cached by `setup_fim_tokenizer()`
 
