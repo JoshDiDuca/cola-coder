@@ -1,4 +1,4 @@
-"""TOOL-015a: every top-level menu must OPEN and EXIT cleanly (no crash).
+"""TOOL-015a/b: menus and their leaf options must run cleanly (no crash).
 
 Non-interactive smoke harness. Constructs each sub-menu and calls its entry
 method(s) with ALL interactive prompts stubbed to "cancel" and ALL
@@ -8,12 +8,19 @@ raised. This catches render / option-building crashes — e.g. the BUG-117
 across the whole menu tree, without running anything real (no training, no
 downloads, no nvidia-smi).
 
-Deeper per-leaf coverage (driving each individual menu option through its
-handler) is tracked as TOOL-015b/c/d.
+TOOL-015a covers the menu-OPEN level (each top-level sub-menu opens + exits).
+TOOL-015b extends this to every individual LEAF option of the DataMenu: each
+leaf handler is invoked directly with all prompts cancelled/defaulted, so the
+handler is exercised past option-list construction down to its early-return
+cancel path. This catches leaf-level render/wiring crashes that the menu-open
+test cannot reach.
+
+Deeper per-leaf coverage of the other sub-menus is tracked as TOOL-015c/d.
 """
 
 from __future__ import annotations
 
+import builtins
 import subprocess
 import types
 
@@ -91,3 +98,74 @@ def test_all_submenus_constructible(tmp_path):
     master = MasterMenu(project_root=tmp_path)
     for factory in (DataMenu, TrainingMenu, EvalMenu, ToolsMenu, PipelineMenu):
         assert factory(master) is not None
+
+
+# ── TOOL-015b: drive every DataMenu LEAF option through its handler ──────────
+
+
+@pytest.fixture
+def stubbed_leaf(stubbed, monkeypatch):
+    """`stubbed` plus a stubbed builtins.input.
+
+    Several DataMenu leaves prompt with bare `input()` (not via cli). Under
+    pytest stdin is captured, so a real `input()` raises OSError rather than
+    EOFError. The leaf handlers all wrap `input()` in `try/except (EOFError,
+    KeyboardInterrupt)` to mean "cancel", so we raise EOFError to drive every
+    text prompt down that same cancel path — keeping the smoke test purely
+    interaction-free.
+    """
+    monkeypatch.setattr(builtins, "input", lambda *a, **k: (_ for _ in ()).throw(EOFError()))
+
+
+# Every DataMenu LEAF reachable from the 5 group menus. The group menus
+# (_collect_data_menu, _modify_data_menu, ...) are loops that dispatch by the
+# cli.choose() index; with prompts stubbed to cancel they exit immediately, so
+# we invoke each leaf handler directly to exercise it past option construction.
+# Inline `_run_script(...)` dispatch arms have no dedicated handler (they are
+# covered by the menu-open test) and are intentionally omitted here.
+_DATA_LEAVES = [
+    # Collect Data
+    "_huggingface_wizard",
+    "_software_heritage_info",
+    "_scrape_docs_menu",
+    "_collect_text_data_menu",
+    "_collect_math_data_menu",
+    "_collect_github_artifacts_menu",
+    "_download_instruction_datasets_menu",
+    # Modify Data
+    "_combine_datasets_menu",
+    # Score & Filter
+    "_score_quality_menu",
+    "_score_hf_samples",
+    "_score_repos_menu",
+    "_train_quality_classifier_menu",
+    "_run_scoring_pipeline",
+    "_llm_judge_annotation",
+    "_train_judge_classifier",
+    "_apply_curriculum_ordering",
+    "_scan_malware_menu",
+    "_advanced_filters_info",
+    # Inspect & View
+    "_inspect_dataset",
+    # Prepare for Training
+    "_prepare_data_menu",
+    "_prepare_training_wizard",
+    "_prepare_mixed_data_menu",
+    "_prepare_repo_level_data_menu",
+]
+
+
+@pytest.mark.parametrize("leaf", _DATA_LEAVES)
+def test_data_menu_leaf_runs_cleanly(stubbed_leaf, tmp_path, leaf):
+    """Each DataMenu leaf option reaches its handler and returns without
+    raising when every prompt is cancelled/defaulted (BUG-117 leaf coverage)."""
+    master = MasterMenu(project_root=tmp_path)
+    data = DataMenu(master)
+    getattr(data, leaf)()
+
+
+def test_data_menu_group_handlers_exist():
+    """Guard: the leaf list stays in sync with the dispatch table — every
+    handler named here is an attribute of DataMenu."""
+    for leaf in _DATA_LEAVES:
+        assert callable(getattr(DataMenu, leaf, None)), leaf
