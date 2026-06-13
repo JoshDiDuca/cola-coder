@@ -481,11 +481,11 @@ class TestDockerSandbox:
 
 
 class TestDockerTimeoutKillsContainer:
-    """SECURITY: a Docker run that exceeds the timeout must force-kill the
-    container. subprocess.run's timeout only kills the `docker run` *client* —
-    the daemon keeps the container (and the untrusted code inside it) running.
-    Without an explicit `docker rm -f`, the timeout control is defeated and
-    untrusted scraped code keeps executing indefinitely on the host.
+    """SECURITY (SEC-001): a Docker run that exceeds the timeout must
+    force-kill the container. subprocess.run's timeout only kills the
+    `docker run` *client* — the daemon keeps the container (and the untrusted
+    code inside it) running. Without an explicit `docker rm -f`, the timeout
+    control is defeated and untrusted scraped code keeps executing on the host.
     """
 
     def test_timeout_force_removes_container(self, tmp_path: Path) -> None:
@@ -535,6 +535,162 @@ class TestDockerTimeoutKillsContainer:
                    side_effect=FileNotFoundError("docker gone")):
             # Should not raise.
             DockerSandbox._force_remove_container("cola-curation-deadbeef")
+
+
+class TestDockerCleanupOnAllExitPaths:
+    """SECURITY (SEC-002): defense-in-depth — no container/`docker run` child
+    may outlive ``DockerSandbox.run``. The container is force-removed on EVERY
+    exit path: normal completion, an unexpected exception, and Ctrl-C, in
+    addition to the SEC-001 timeout path. The unique name is generated once and
+    reused for the run command and every cleanup path.
+    """
+
+    @staticmethod
+    def _run_and_capture(sandbox: DockerSandbox, tmp_path: Path, run_side_effect):
+        """Drive sandbox.run with a mocked subprocess.run.
+
+        ``run_side_effect(cmd)`` decides what the `docker run` call does; the
+        follow-up `docker rm -f` always succeeds. Returns the recorded calls.
+        """
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, *args, **kwargs):
+            calls.append(cmd)
+            if cmd[:2] == ["docker", "run"]:
+                return run_side_effect(cmd)
+
+            class _R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            return _R()
+
+        with patch.object(DockerSandbox, "is_available", return_value=True), \
+                patch("cola_coder.data.curation.docker_sandbox.subprocess.run",
+                      side_effect=fake_run):
+            result = sandbox.run(
+                repo_path=tmp_path,
+                command="echo hi",
+                image="alpine:latest",
+            )
+        return calls, result
+
+    @staticmethod
+    def _assert_container_removed(calls: list[list[str]]) -> None:
+        """The same --name from `docker run` must be `docker rm -f`'d exactly."""
+        run_cmd = next(c for c in calls if c[:2] == ["docker", "run"])
+        name_flag = next(a for a in run_cmd if a.startswith("--name="))
+        container_name = name_flag.split("=", 1)[1]
+        assert container_name.startswith("cola-curation-")
+
+        rm_calls = [c for c in calls if c[:3] == ["docker", "rm", "-f"]]
+        assert rm_calls, "container was not force-removed"
+        assert container_name in rm_calls[0]
+
+    def test_normal_completion_force_removes_container(self, tmp_path: Path) -> None:
+        """On a clean exit, the `finally` still issues `docker rm -f` (belt and
+        braces in case `--rm` did not fire). The success-path return contract is
+        unchanged: (returncode, stdout, stderr)."""
+        sandbox = DockerSandbox(timeout=30)
+
+        class _Ok:
+            returncode = 0
+            stdout = "hi\n"
+            stderr = ""
+
+        calls, result = self._run_and_capture(sandbox, tmp_path, lambda cmd: _Ok())
+
+        assert result == (0, "hi\n", "")
+        self._assert_container_removed(calls)
+
+    def test_unexpected_exception_force_removes_container(self, tmp_path: Path) -> None:
+        """An unexpected error during the run must propagate, but only AFTER the
+        container is force-removed by the `finally`."""
+        sandbox = DockerSandbox(timeout=30)
+
+        def boom(cmd):
+            raise RuntimeError("docker exploded")
+
+        with pytest.raises(RuntimeError, match="docker exploded"):
+            self._run_and_capture(sandbox, tmp_path, boom)
+
+    def test_unexpected_exception_cleanup_runs_before_propagating(
+        self, tmp_path: Path
+    ) -> None:
+        """Verify the rm actually fired on the exception path (the test above
+        only proves the exception propagated)."""
+        sandbox = DockerSandbox(timeout=30)
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, *args, **kwargs):
+            calls.append(cmd)
+            if cmd[:2] == ["docker", "run"]:
+                raise RuntimeError("docker exploded")
+
+            class _R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            return _R()
+
+        with patch.object(DockerSandbox, "is_available", return_value=True), \
+                patch("cola_coder.data.curation.docker_sandbox.subprocess.run",
+                      side_effect=fake_run):
+            with pytest.raises(RuntimeError, match="docker exploded"):
+                sandbox.run(repo_path=tmp_path, command="echo hi", image="alpine:latest")
+
+        self._assert_container_removed(calls)
+
+    def test_keyboard_interrupt_force_removes_and_reraises(self, tmp_path: Path) -> None:
+        """A Ctrl-C mid-run must tear down the container AND still re-raise so
+        the interrupt is not swallowed."""
+        sandbox = DockerSandbox(timeout=30)
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, *args, **kwargs):
+            calls.append(cmd)
+            if cmd[:2] == ["docker", "run"]:
+                raise KeyboardInterrupt()
+
+            class _R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            return _R()
+
+        with patch.object(DockerSandbox, "is_available", return_value=True), \
+                patch("cola_coder.data.curation.docker_sandbox.subprocess.run",
+                      side_effect=fake_run):
+            with pytest.raises(KeyboardInterrupt):
+                sandbox.run(repo_path=tmp_path, command="echo hi", image="alpine:latest")
+
+        self._assert_container_removed(calls)
+
+    def test_container_name_is_reused_for_run_and_cleanup(self, tmp_path: Path) -> None:
+        """The unique name must be generated once and reused: the name on the
+        `docker run` command must be identical to the one `docker rm -f` targets
+        (SEC-002 robust-naming requirement)."""
+        sandbox = DockerSandbox(timeout=30)
+
+        class _Ok:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        calls, _ = self._run_and_capture(sandbox, tmp_path, lambda cmd: _Ok())
+
+        run_names = [
+            a.split("=", 1)[1]
+            for c in calls if c[:2] == ["docker", "run"]
+            for a in c if a.startswith("--name=")
+        ]
+        rm_names = [c[3] for c in calls if c[:3] == ["docker", "rm", "-f"]]
+        assert len(run_names) == 1
+        assert len(rm_names) == 1
+        assert run_names[0] == rm_names[0]
 
 
 # ---------------------------------------------------------------------------
