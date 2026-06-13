@@ -109,6 +109,45 @@ class CodeTokenizer:
             results = [ids + [self.eos_id] for ids in results]
         return results
 
+    def has_fim_tokens(self) -> bool:
+        """Return True only when all three FIM marker tokens are in the vocab.
+
+        FIM tokens are optional (unlike pad/bos/eos/unk, which the constructor
+        requires). Callers that need FIM — ``encode_fim``/``fim_prompt`` and the
+        dynamic-FIM auto-disable path in the trainer — gate on this so a
+        tokenizer trained without ``<|fim_*|>`` degrades gracefully instead of
+        emitting ``None`` token IDs.
+        """
+        return (
+            self.fim_prefix_id is not None
+            and self.fim_middle_id is not None
+            and self.fim_suffix_id is not None
+        )
+
+    def _require_fim_tokens(self) -> None:
+        """Raise a clear error if any FIM marker token is missing.
+
+        Without this guard a missing FIM token (id ``None``) flows straight into
+        the returned id list (``[self.fim_prefix_id] + ...``), silently
+        corrupting the sequence with a ``None`` that later crashes the model or
+        produces garbage — exactly the failure mode the constructor's required-
+        token check prevents for the core tokens.
+        """
+        if not self.has_fim_tokens():
+            missing = [
+                name for name, tid in (
+                    ("<|fim_prefix|>", self.fim_prefix_id),
+                    ("<|fim_middle|>", self.fim_middle_id),
+                    ("<|fim_suffix|>", self.fim_suffix_id),
+                ) if tid is None
+            ]
+            raise ValueError(
+                f"Tokenizer is missing FIM special tokens {missing}, so "
+                f"Fill-in-the-Middle encoding is unavailable. Retrain the "
+                f"tokenizer with cola-coder's SPECIAL_TOKENS, or gate FIM on "
+                f"has_fim_tokens() before calling this method."
+            )
+
     def encode_fim(self, prefix: str, suffix: str) -> list[int]:
         """Encode for Fill-in-the-Middle (FIM) format.
 
@@ -125,7 +164,11 @@ class CodeTokenizer:
 
         Returns:
             Token IDs in FIM format.
+
+        Raises:
+            ValueError: If the tokenizer lacks the ``<|fim_*|>`` marker tokens.
         """
+        self._require_fim_tokens()
         prefix_ids = self.tokenizer.encode(prefix).ids
         suffix_ids = self.tokenizer.encode(suffix).ids
         return (
@@ -144,7 +187,11 @@ class CodeTokenizer:
         STRIPPED — the model then sees no fill-in-the-middle structure at all.
         Keeping the marker strings means ``encode()`` re-recognises them as the
         FIM special tokens, so the model receives the intended FIM layout.
+
+        Raises:
+            ValueError: If the tokenizer lacks the ``<|fim_*|>`` marker tokens.
         """
+        self._require_fim_tokens()
         pfx = self.tokenizer.id_to_token(self.fim_prefix_id)
         sfx = self.tokenizer.id_to_token(self.fim_suffix_id)
         mid = self.tokenizer.id_to_token(self.fim_middle_id)
