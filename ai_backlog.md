@@ -33,13 +33,28 @@ EVERY scenario. SEC-001/SEC-010 fixed timeout-kill + all-exit cleanup; the rest:
   (Original SEC-012 checklist items 1-14 all landed in the Docker backend except
   disk-quota/storage-opt (Docker Desktop overlay2 limitation), seccomp deny-by-default,
   and pinned-offline-image — those carry into SEC-015.)
-- **SEC-013** [security/sandbox, high] `open` — FAIL-CLOSED audit: grep EVERY untrusted-code
-  execution call site (data/scorers/*, data/curation/*, reasoning/rewards/* incl.
-  TscRunner, and the new distillation verification) and prove NONE falls back to host
-  subprocess execution when Docker is unavailable — it must REFUSE (skip/score-0/raise),
-  never run untrusted code on the host. Any host-exec fallback is a critical fail-open
-  bug. Document the sandbox-default + the explicit-override path. Add a test that
-  simulates Docker-absent and asserts no host exec occurs.
+- **SEC-013** [security/sandbox, high] `done` (2026-06-13) — Fixed a CRITICAL
+  fail-open: `SandboxedRunner` (data/scorers/sandbox.py) silently dispatched to
+  `_run_native` (HOST execution of untrusted code) when Docker isolation was
+  REQUESTED but unavailable. Now FAILS CLOSED — returns `RC_SANDBOX_UNAVAILABLE=-3`
+  ("not executed, fail closed"), never host-execs, unless the new explicit
+  `allow_native_fallback` opt-in (off by default). Plain `native` mode (Docker not
+  requested) unchanged = the documented trusted-code host path. Full audit of every
+  other untrusted-exec call site: tsc_scorer/eslint_scorer/TscRunner/evaluation
+  runner/best_of_n all route through SandboxedRunner (fix inherited); TestRunner
+  already fails closed (raises if Docker down, host-exec needs explicit
+  allow_host_execution); github clone is not code-exec. Tests:
+  test_sandbox.py::TestFailClosedWhenDockerUnavailable +5 (Docker-absent → rc -3, no
+  PWNED marker, _run_native never called); 97 sandbox+curation tests + ruff green.
+- **SEC-016** [security/scoring, medium] `open` (follow-up from the SEC-013 audit) —
+  Scoring-level fail-open: a negative sandbox returncode (-1 timeout, -2 error, new
+  -3 sandbox-unavailable) currently maps in TscScorer to "no errors → PERFECT score"
+  (and evaluation/runner treats it as a generic execution error). So if the sandbox
+  is unavailable, un-verified code can be SCORED HIGH and enter the corpus / pass
+  best-of-N. Fix: every scorer/verifier must treat a negative returncode as
+  skip / score-0 / not-verified, never as success. Add `-3` branches alongside the
+  existing -1/-2 handling. (Execution itself is correctly refused by SEC-013; this is
+  the outcome-mapping half.)
 - **SEC-014** [security/distillation, high] `open` — Ensure MODEL-028's
   generate_distillation_data.py routes EVERY teacher-generated completion through the
   SEC-012 hardened sandbox before any execution/tsc verification (teacher output is
