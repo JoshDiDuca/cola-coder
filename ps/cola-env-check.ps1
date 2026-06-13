@@ -6,6 +6,8 @@
 ## Run this first on a new Windows machine to confirm the setup is good.
 $ErrorActionPreference = "Stop"
 $project = Split-Path -Parent $PSScriptRoot
+$py = Join-Path $project ".venv\Scripts\python.exe"
+if (-not (Test-Path $py)) { Write-Host "venv missing — run cola-setup.ps1 first." -ForegroundColor Red; exit 1 }
 Push-Location $project
 try {
     & .\.venv\Scripts\python scripts\env_check.py @args
