@@ -11,6 +11,41 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+### Research-grounded 2026-06-13 (from web research — see docs/research-log.md)
+
+- **MODEL-024** [model/post-training, high] `open` — **On-policy distillation (OPD)**,
+  the dominant 2026 post-training paradigm (DeepSeek-V4/Qwen3/Gemma-2/MiMo/GLM-5). At
+  small deployment size a teacher distilled through a dense OPD bridge BEATS direct
+  GRPO on the student. cola-coder does SFT+GRPO but no distillation — a major quality
+  lever for a ~100M model. Since there's no local teacher with logits, use a black-box
+  / self-distillation variant (OPSD/SDFT/GAD), or distill from a strong API teacher
+  with test-verification. Recipe: teacher GRPO → forward-KL warmup + OPD bridge →
+  optional student sparse RL. Refs: Thinking Machines Lab OPD blog; arXiv 2604.00626
+  (survey), 2604.13016 (recipe). Stage as a new pipeline step after SFT.
+- **MODEL-025** [model/training, high] `open` — **Adopt/validate Muon optimizer** as
+  the default for small+ configs. Muon gives ~2× compute efficiency + ~33% memory
+  savings vs AdamW and is data-efficient past the critical batch size (validated to
+  multi-billion scale). cola-coder ALREADY implements Muon (`optimizer.py`, audited
+  correct) but runs AdamW. Highest-leverage change for "best quality on limited
+  compute": run a tiny-config AdamW-vs-Muon head-to-head (loss@fixed-steps), then
+  default to Muon. Refs: arXiv 2502.16982 (Muon is Scalable), 2505.02222 (Practical
+  Efficiency). NOTE: changing the live run's optimizer is numerics-changing → worktree
+  + validate; apply to the NEXT run, not the in-flight one.
+- **MODEL-026** [reasoning, medium] `open` — Add **DAPO dynamic sampling** to GRPO:
+  drop prompt groups where all G samples are all-correct or all-incorrect (zero
+  advantage → zero gradient → wasted rollout compute), resampling to keep the
+  effective batch full. reasoning.yaml already has the other DAPO ingredients
+  (clip-higher 0.28, Dr.GRPO mean-norm, no-KL); this is the missing one. Touches
+  `reasoning/grpo.py` (training path → worktree). Ref: DAPO; llm-stats post-training-2026.
+- **DATA-056** [data-quality, medium] `open` — Qwen3-style **reasoning-stage data
+  curriculum**: after base pretraining, a higher-quality STEM/code stage with curated
+  tokens (pairs with DATA-055 model-based perplexity scoring to select the high-value
+  tail and order easy→hard). Ref: Qwen3 multi-stage recipe (30T base → 5T HQ reasoning
+  → long-context). Closes the eval→data loop.
+- **EVAL-023** [eval, low] `open` — Track harder 2026 code/agentic benchmarks beyond
+  the 62-problem HumanEval subset (the field has moved to agentic + repo-level evals).
+  Note for when the model is past ~step 10k and produces runnable code.
+
 ### Backlog fill 2026-06-13 (discovery batch — model / application / code)
 
 **Model & training quality**
