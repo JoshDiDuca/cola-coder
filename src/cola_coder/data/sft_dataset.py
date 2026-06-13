@@ -145,10 +145,6 @@ class SFTDataset(Dataset):
             formatted_text, add_bos=True, add_eos=True,
         )
 
-        # Truncate to max_seq_len
-        if len(token_ids) > self.max_seq_len:
-            token_ids = token_ids[: self.max_seq_len]
-
         # Build a character → is_assistant boolean map
         char_is_assistant = [False] * len(formatted_text)
         for start, end in assistant_spans:
@@ -187,6 +183,24 @@ class SFTDataset(Dataset):
                 # Check if the preceding labeled region was assistant content
                 if tok_idx > 0 and labels[tok_idx - 1] != -100:
                     labels[tok_idx] = token_ids[tok_idx]
+
+        # Truncate to max_seq_len. The assistant response — the ONLY supervised
+        # content — sits at the END of the sequence, so right-truncation
+        # (token_ids[:max_seq_len]) drops exactly the tokens we train on:
+        # any example whose prompt alone exceeds max_seq_len would lose its
+        # whole response and then get silently discarded by the no-label drop
+        # in _load. Instead truncate from the LEFT of the prompt, keeping BOS
+        # (position 0, where get_rope_freqs/the model expect it) plus the
+        # max_seq_len-1 most recent tokens so the response survives intact.
+        # Labels are sliced identically to stay token-aligned.
+        if len(token_ids) > self.max_seq_len:
+            tail = self.max_seq_len - 1  # reserve slot 0 for BOS
+            if tail > 0:
+                token_ids = [token_ids[0]] + token_ids[-tail:]
+                labels = [-100] + labels[-tail:]
+            else:  # max_seq_len <= 1: nothing trainable survives — drop in _load
+                token_ids = token_ids[: self.max_seq_len]
+                labels = labels[: self.max_seq_len]
 
         return token_ids, labels
 
