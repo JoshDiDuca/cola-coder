@@ -141,3 +141,68 @@ class TestStage9Reasoning:
         fp, calls = captured_cmd
         cmd = self._run(fp, calls, ["typescript"], tmp_path)
         assert "--group-size" in cmd and cmd[cmd.index("--group-size") + 1] == "16"
+
+
+class TestStalePointerResolution:
+    """Check #5 (Stale references): Stage 6/9 must resolve the checkpoint by
+    scanning step_* dirs, NOT by trusting the 'latest' pointer file, which can
+    point to a step that was pruned by max_checkpoints cleanup. Mirrors the
+    audited Pipeline Manager (pipeline_menu._stage_instruction_tune).
+    """
+
+    def test_resolver_prefers_highest_step_dir_over_stale_pointer(self, fp, tmp_path):
+        ck = tmp_path / "ck"
+        ck.mkdir()
+        (ck / "step_00000100").mkdir()
+        (ck / "step_00000500").mkdir()
+        # Stale pointer: points at a dir that was deleted by cleanup.
+        (ck / "latest").write_text(str(ck / "step_00000099"), encoding="utf-8")
+
+        resolved = fp._resolve_latest_checkpoint(ck)
+        assert resolved.name == "step_00000500"
+
+    def test_resolver_reads_pointer_when_no_step_dirs(self, fp, tmp_path):
+        ck = tmp_path / "ck"
+        ck.mkdir()
+        target = ck / "step_00000007"
+        (ck / "latest").write_text(str(target), encoding="utf-8")
+        assert fp._resolve_latest_checkpoint(ck) == target
+
+    def test_resolver_missing_dir_returns_latest_path(self, fp, tmp_path):
+        ck = tmp_path / "nope"
+        assert fp._resolve_latest_checkpoint(ck) == ck / "latest"
+
+    def test_stage9_uses_highest_step_not_stale_pointer(self, captured_cmd, tmp_path):
+        fp, calls = captured_cmd
+        ck = tmp_path / "ckpt"
+        ck.mkdir()
+        (ck / "step_00000300").mkdir()
+        (ck / "step_00000800").mkdir()
+        (ck / "latest").write_text(str(ck / "step_00000001"), encoding="utf-8")
+        args = types.SimpleNamespace(config="configs/4080_max.yaml", tokenizer=None)
+        fp._stage_train_reasoning(_cfg(["typescript"], 200000, str(ck)), args)
+        cmd = calls[-1]
+        ckpt = cmd[cmd.index("--base-checkpoint") + 1]
+        assert ckpt.endswith("step_00000800")
+
+    def test_stage6_uses_highest_step_not_stale_pointer(self, captured_cmd, tmp_path):
+        import os
+
+        fp, calls = captured_cmd
+        (tmp_path / "data" / "sft").mkdir(parents=True)
+        (tmp_path / "data" / "sft" / "instructions.jsonl").write_text("{}\n")
+        ck = tmp_path / "ck"
+        ck.mkdir()
+        (ck / "step_00000200").mkdir()
+        (ck / "step_00000900").mkdir()
+        (ck / "latest").write_text(str(ck / "step_00000002"), encoding="utf-8")
+        cwd = os.getcwd()
+        os.chdir(tmp_path)
+        try:
+            args = types.SimpleNamespace(config="configs/tiny.yaml", tokenizer=None)
+            fp._stage_instruction_tune(_cfg(["typescript"], 20000, str(ck)), args)
+            cmd = calls[-1]
+            ckpt = cmd[cmd.index("--checkpoint") + 1]
+            assert ckpt.endswith("step_00000900")
+        finally:
+            os.chdir(cwd)
