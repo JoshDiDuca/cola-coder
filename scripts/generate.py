@@ -152,6 +152,15 @@ def main():
     try:
         config = Config.from_yaml(args.config)
 
+        # The checkpoint is ground truth for its OWN architecture: override the
+        # config.model dims from its metadata.json so a wrong --config (e.g. the
+        # menu passing configs/tiny.yaml for a dim=768 run) can't build a
+        # mismatched model and crash load_state_dict (BUG-128).
+        from cola_coder.inference.loading import apply_model_config_from_checkpoint
+        if apply_model_config_from_checkpoint(config, args.checkpoint):
+            cli.dim(f"  Architecture from checkpoint: dim={config.model.dim}, "
+                    f"layers={config.model.n_layers}, heads={config.model.n_heads}")
+
         # Auto-detect vocab size from checkpoint — SFT checkpoints have extra ChatML tokens
         ckpt_vocab_size = config.model.vocab_size
         try:

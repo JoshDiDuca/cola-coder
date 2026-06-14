@@ -47,6 +47,25 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   the babysitter "relaunches" but the process dies on startup. FIX: build a single
   explicitly-quoted argument string (`--resume "<path>"`, config/data quoted too).
   Verified live: relaunch resumed from step_00002000 and is progressing.
+- **BUG-128** [inference/loading, high] `done` (2026-06-14) — USER-REPORTED crash: interactive
+  generation from the `small_react_best` checkpoint (dim=768) loaded with `configs/tiny.yaml`
+  (dim=512) → `load_state_dict` size-mismatch crash on every tensor; the user couldn't generate from
+  their own training checkpoint. ROOT CAUSE: generate.py built the model from the passed `--config`
+  yaml, trusting it over the checkpoint's real architecture. FIX: a checkpoint is ground truth for
+  its own architecture — new `apply_model_config_from_checkpoint(config, checkpoint)`
+  (inference/loading.py) reads the saved `metadata.json` model config and overrides `config.model`'s
+  scalar arch fields (dim/n_layers/n_heads/n_kv_heads/ffn_dim_multiplier/vocab_size/max_seq_len/
+  rope_theta/qk_norm/...) BEFORE the model is built; nested dicts (rope_scaling/moe) skipped (handled
+  elsewhere). Wired into generate.py + the central `load_generator` (serve/smoke_test/RFT all robust).
+  Reads checkpoint metadata only (no checkpoint.py change) → main-safe. Tests:
+  test_apply_model_config.py +5 incl. one reproducing the EXACT crash against the real checkpoint
+  metadata (tiny 512 → corrected 768); ruff green. FOLLOW-UP: BUG-129 — also fix the menu's config
+  selection so it doesn't pass tiny.yaml for non-tiny checkpoints (the loading fix already makes
+  generation work regardless, but the menu should pick the right config for clarity).
+- **BUG-129** [tooling/menu, medium] `open` (2026-06-14) — the interactive-generation menu passed
+  `configs/tiny.yaml` for a `small_react_best` checkpoint (root cause of the BUG-128 crash, now
+  mitigated in the loader). The menu should resolve the config from the checkpoint's run / metadata
+  (or the `auto/<name>.yaml`) rather than defaulting to tiny.yaml. Menu/tooling → main-safe.
 - **BUG-126** [training/robustness, high] `done` (2026-06-13) — Checkpoint save crashed
   the whole run on a transient Windows file lock: at step 2500 `save_checkpoint`'s
   `tmp_dir.rename(final_dir)` raised `PermissionError [WinError 5]` (Defender/indexer

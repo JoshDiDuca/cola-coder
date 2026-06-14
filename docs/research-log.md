@@ -7,6 +7,46 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Secure code generation (rotate: safety) + BUG-128 fix
+
+Sources:
+- On Fixing Insecure AI-Generated Code (fine-tuning + prompting) — https://arxiv.org/html/2605.05867v1
+- Security Vulnerabilities in AI-Generated Code: large-scale GitHub analysis — https://arxiv.org/abs/2510.26103
+- SecureCode: multi-turn dataset for security-aware codegen — https://arxiv.org/html/2512.18542
+- Constitutional Spec-Driven Development (security by construction) — https://arxiv.org/html/2602.02584
+
+Findings:
+- **~45% of AI-generated code fails security tests** (86% vulnerable to XSS, 88% to log injection)
+  across GPT-5/Gemini/DeepSeek etc. on CWE-Top-25 scenarios — AI code is measurably less secure.
+  Reinforces the project's screen-everything stance (scan_dangerous, secure-pass@k, RFT security gate).
+- **Mitigations that work:** negative-example prompting, CoT, and FINE-TUNING on secure exemplars
+  (LoRA). cola-coder's RFT (MODEL-045) already enforces a security gate on kept samples — so its
+  self-distilled SFT data is secure-by-construction, a fine-tuning mitigation by default.
+- **Constitutional / spec-driven** security embeds CWE constraints into the spec layer — but those
+  specs are themselves a prompt-injection surface (26% of agent skills had exploitable vulns), tying
+  back to SEC-019 (the project's injection scanner on retrieved content).
+
+**Implemented this cycle (BUG-128 — user-reported crash, main-safe):** the user tried interactive
+generation from the live `small_react_best` checkpoint (dim=768) but the menu passed
+`configs/tiny.yaml` (dim=512) → `load_state_dict` size-mismatch crash; they couldn't generate from
+their own checkpoint. Fix: a checkpoint is GROUND TRUTH for its architecture. New
+`apply_model_config_from_checkpoint(config, checkpoint)` (inference/loading.py) reads the saved
+`metadata.json` config and overrides `config.model`'s scalar arch fields (dim/layers/heads/kv/ffn/
+vocab/max_seq_len/rope_theta/qk_norm/...) before the model is built — so a wrong `--config` can't
+build a mismatched model. Wired into `generate.py` AND the central `load_generator` (so serve /
+smoke_test / RFT are all robust). +5 tests incl. one that reproduces the exact crash against the
+REAL checkpoint metadata (tiny dim 512 → corrected 768). Reads checkpoint metadata only (no
+checkpoint.py change) → main-safe. ruff green.
+
+**ORIGINAL cross-technique idea (no new id needed — folds into SEC backlog):** since RFT already
+gates on the security scanner, the REJECTED-for-insecurity completions are a free corpus of the
+model's OWN insecure patterns — pair each with the verifier-passed secure sibling for the same prompt
+to build (insecure→secure) contrastive SFT pairs (the fine-tuning mitigation the research validates),
+exactly IDEA-016's adversarial secure-FIM but sourced from real self-generated failures. Strengthens
+IDEA-016 with RFT-sourced data.
+
+---
+
 ## 2026-06-14 — Iterative self-improvement (STaR/ReST) (rotate: data curation)
 
 Sources:

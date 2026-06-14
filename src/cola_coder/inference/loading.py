@@ -57,6 +57,49 @@ def apply_moe_config_from_checkpoint(config, checkpoint: str | Path) -> bool:
     return _impl(config, checkpoint)
 
 
+# Scalar model-config fields that determine weight SHAPES / architecture. Nested
+# fields (rope_scaling, moe) are dicts handled elsewhere (apply_moe_*), so we skip
+# any dict value rather than clobber a config object with a raw dict.
+_ARCH_FIELDS = (
+    "dim", "n_layers", "n_heads", "n_kv_heads", "ffn_dim_multiplier",
+    "ffn_hidden_dim", "hidden_dim", "max_seq_len", "vocab_size", "rope_theta",
+    "norm_eps", "qk_norm", "dropout", "tie_embeddings",
+)
+
+
+def apply_model_config_from_checkpoint(config, checkpoint: str | Path) -> bool:
+    """Override ``config.model`` architecture from the checkpoint's metadata.json.
+
+    A checkpoint is the GROUND TRUTH for its own architecture. The ``--config`` yaml
+    a caller passes can be wrong (e.g. the menu selecting ``configs/tiny.yaml`` for a
+    dim=768 run), which builds a mismatched model and crashes ``load_state_dict`` with
+    a size mismatch. Reading the saved config and applying its scalar architecture
+    fields makes generation/serving/eval robust to a wrong-config selection.
+
+    Returns True if a saved model config was found and applied.
+    """
+    checkpoint = Path(checkpoint)
+    # Resolve a `latest` pointer file to the real step dir before reading metadata.
+    if checkpoint.name == "latest" and checkpoint.is_file():
+        checkpoint = Path(checkpoint.read_text(encoding="utf-8").strip())
+    meta_path = checkpoint / "metadata.json"
+    if not meta_path.exists():
+        return False
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    saved = (meta.get("config") or {}).get("model")
+    if not isinstance(saved, dict):
+        return False
+    applied = False
+    for field in _ARCH_FIELDS:
+        if field in saved and not isinstance(saved[field], dict) and hasattr(config.model, field):
+            setattr(config.model, field, saved[field])
+            applied = True
+    return applied
+
+
 def load_generator(
     checkpoint: str | Path,
     config_path: str | Path,
@@ -102,6 +145,11 @@ def load_generator(
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
     config = Config.from_yaml(config_path)
+
+    # The checkpoint is ground truth for its architecture — apply its saved
+    # metadata.json dims so a wrong config_path can't build a mismatched model
+    # (BUG-128). Runs BEFORE the vocab/MoE detection below, which then refine it.
+    apply_model_config_from_checkpoint(config, checkpoint)
 
     # SFT/reasoning checkpoints carry extra tokens (ChatML, <think>) — size
     # the model from the checkpoint's embedding, not the config.
