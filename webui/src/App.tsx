@@ -26,6 +26,8 @@ import HealthPanel from './components/HealthPanel';
 import TokenizePanel from './components/TokenizePanel';
 import SftDataPanel from './components/SftDataPanel';
 import ScriptsCatalogPanel from './components/ScriptsCatalogPanel';
+import SystemInfoPanel from './components/SystemInfoPanel';
+import ConfigDiffPanel from './components/ConfigDiffPanel';
 
 interface Snapshot {
   training: TrainingStatus;
@@ -92,6 +94,7 @@ export default function App() {
       <main className="app-grid">
         <TrainingPanel training={snap?.training ?? null} />
         <SystemPanel system={snap?.system ?? null} />
+        <SystemInfoPanel />
         <HealthPanel />
         <CheckpointsPanel checkpoints={snap?.checkpoints ?? []} />
         <MetricsChartPanel />
@@ -102,6 +105,7 @@ export default function App() {
         <DataSourcesPanel />
         <SftDataPanel />
         <ConfigsPanel />
+        <ConfigDiffPanel />
         <PipelinePanel />
         <EvalsPanel />
         <LogsPanel />

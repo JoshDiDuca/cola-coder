@@ -30,7 +30,10 @@ import type {
   CompareResult,
   ModelCard,
   FeatureSetResult,
+  ConfigDiff,
+  SystemInfo,
   ApiError,
+  JsonValue,
 } from './types';
 
 async function j<T>(url: string, opts?: RequestInit): Promise<T> {
@@ -41,7 +44,11 @@ async function j<T>(url: string, opts?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
-function postJson(body: unknown): RequestInit {
+// Request bodies are keyed by string; values are JSON-serializable, and an
+// optional field may be `undefined` (JSON.stringify simply drops it).
+type JsonRequestBody = { [key: string]: JsonValue | undefined };
+
+function postJson(body: JsonRequestBody): RequestInit {
   return {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -98,8 +105,8 @@ export function runAction(action: string, args?: string[]): Promise<Job> {
 export function startTraining(
   config: string,
   resume?: string
-): Promise<Job | { error: string }> {
-  return j<Job | { error: string }>(
+): Promise<Job | ApiError> {
+  return j<Job | ApiError>(
     '/api/train/start',
     postJson({ config, resume })
   );
@@ -117,8 +124,14 @@ export function getPipelineRuns(): Promise<PipelineRun[]> {
   return j<PipelineRun[]>('/api/pipeline/runs');
 }
 
-export function getPipelineRun(path: string): Promise<unknown> {
-  return j<unknown>(`/api/pipeline/run?path=${encodeURIComponent(path)}`);
+// The backend (`read_pipeline_run`) returns either the full arbitrary
+// pipeline-run-state object or `{"error": str}`. There is no generated detail
+// schema (the run JSON is open-ended), so this is the sanctioned `JsonValue`
+// case: a string-keyed record of JSON, or an `ApiError`.
+export function getPipelineRun(path: string): Promise<Record<string, JsonValue> | ApiError> {
+  return j<Record<string, JsonValue> | ApiError>(
+    `/api/pipeline/run?path=${encodeURIComponent(path)}`
+  );
 }
 
 export function getEvals(): Promise<EvalResult[]> {
@@ -215,4 +228,14 @@ export function getModelCard(path: string): Promise<ModelCard | ApiError> {
 
 export function setFeature(key: string, enabled: boolean): Promise<FeatureSetResult | ApiError> {
   return j<FeatureSetResult | ApiError>('/api/features/set', postJson({ key, enabled }));
+}
+
+export function getConfigDiff(a: string, b: string): Promise<ConfigDiff | ApiError> {
+  return j<ConfigDiff | ApiError>(
+    `/api/config-diff?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`
+  );
+}
+
+export function getSystemInfo(): Promise<SystemInfo | ApiError> {
+  return j<SystemInfo | ApiError>('/api/system-info');
 }

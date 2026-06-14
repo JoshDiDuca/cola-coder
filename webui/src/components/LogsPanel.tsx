@@ -1,25 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { LogFile } from '../types';
 import { isApiError } from '../types';
+import { formatBytes, formatRelativeTime } from '../format';
 import { getLogs, getLog } from '../api';
 
 const LINE_OPTIONS = [100, 200, 500] as const;
 const DEFAULT_LINES = 200;
-
-function humanBytes(bytes: number): string {
-  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(2)} GB`;
-  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
-  if (bytes >= 1e3) return `${(bytes / 1e3).toFixed(0)} KB`;
-  return `${bytes} B`;
-}
-
-function relTime(mtime: number): string {
-  const secs = Date.now() / 1000 - mtime;
-  if (secs < 60) return 'just now';
-  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
-  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
-  return `${Math.floor(secs / 86400)}d ago`;
-}
 
 export default function LogsPanel() {
   const [logs, setLogs] = useState<LogFile[]>([]);
@@ -109,8 +95,8 @@ export default function LogsPanel() {
             {logs.map((lf) => (
               <tr key={lf.path}>
                 <td className="mono">{lf.name}</td>
-                <td className="right mono">{humanBytes(lf.size_bytes)}</td>
-                <td className="right mono">{relTime(lf.mtime)}</td>
+                <td className="right mono">{formatBytes(lf.size_bytes)}</td>
+                <td className="right mono">{formatRelativeTime(lf.mtime)}</td>
                 <td className="right">
                   <button className="btn" onClick={() => void loadTail(lf.path, lines)}>
                     view

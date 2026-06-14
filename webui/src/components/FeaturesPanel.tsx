@@ -1,25 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { FeaturesView, FeatureItem } from '../types';
 import { isApiError } from '../types';
+import { formatJsonValue } from '../format';
 import { getFeatures, setFeature } from '../api';
 
-function formatValue(value: unknown): string | null {
-  if (typeof value === 'boolean') return null;
-  if (value === null || value === undefined) return null;
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
-}
-
-function FeatureRow({
-  feat,
-  busy,
-  onToggle,
-}: {
+interface FeatureRowProps {
   feat: FeatureItem;
   busy: boolean;
   onToggle: (feat: FeatureItem) => void;
-}) {
-  const extra = formatValue(feat.value);
+}
+
+function FeatureRow({ feat, busy, onToggle }: FeatureRowProps) {
+  // Booleans are conveyed by the on/off toggle and dot; show only non-boolean
+  // values (numbers, strings, nested config) alongside the toggle.
+  const extra = typeof feat.value === 'boolean' || feat.value === null ? null : formatJsonValue(feat.value);
   return (
     <div className="row">
       <span className="mono">

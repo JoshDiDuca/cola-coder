@@ -1,24 +1,17 @@
 import { useCallback, useState } from 'react';
-import type { Checkpoint, ModelCard } from '../types';
+import type { Checkpoint, ModelCard, JsonValue } from '../types';
 import { isApiError } from '../types';
+import { formatParams, formatJsonValue } from '../format';
 import { getModelCard } from '../api';
 
 const MAX_ROWS = 30;
 
-function humanParams(n: number): string {
-  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
-  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
-  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
-  return String(n);
+interface KvTableProps {
+  title: string;
+  data: Record<string, JsonValue>;
 }
 
-function renderCell(value: unknown): string {
-  if (value === null || value === undefined) return '—';
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
-}
-
-function KvTable({ title, data }: { title: string; data: Record<string, unknown> }) {
+function KvTable({ title, data }: KvTableProps) {
   const entries = Object.entries(data);
   return (
     <div>
@@ -31,7 +24,7 @@ function KvTable({ title, data }: { title: string; data: Record<string, unknown>
             {entries.map(([k, v]) => (
               <tr key={k}>
                 <td className="k">{k}</td>
-                <td className="right mono">{renderCell(v)}</td>
+                <td className="right mono">{formatJsonValue(v)}</td>
               </tr>
             ))}
           </tbody>
@@ -41,7 +34,11 @@ function KvTable({ title, data }: { title: string; data: Record<string, unknown>
   );
 }
 
-export default function ModelCardPanel({ checkpoints }: { checkpoints: Checkpoint[] }) {
+interface ModelCardPanelProps {
+  checkpoints: Checkpoint[];
+}
+
+export default function ModelCardPanel({ checkpoints }: ModelCardPanelProps) {
   const rows = [...checkpoints].sort((a, b) => b.step - a.step).slice(0, MAX_ROWS);
 
   const [selectedPath, setSelectedPath] = useState<string>('');
@@ -104,7 +101,7 @@ export default function ModelCardPanel({ checkpoints }: { checkpoints: Checkpoin
               </div>
               <div className="row">
                 <span className="k">num_params</span>
-                <span className="v">{humanParams(card.num_params)}</span>
+                <span className="v">{formatParams(card.num_params)}</span>
               </div>
               <div className="row">
                 <span className="k">is_moe</span>

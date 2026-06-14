@@ -2,14 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { StorageView } from '../types';
 import { isApiError } from '../types';
 import { getStorage } from '../api';
-
-function humanBytes(bytes: number | null): string {
-  if (bytes === null) return '—';
-  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(2)} GB`;
-  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
-  if (bytes >= 1e3) return `${(bytes / 1e3).toFixed(0)} KB`;
-  return `${bytes} B`;
-}
+import { formatBytes } from '../format';
 
 export default function StoragePanel() {
   const [view, setView] = useState<StorageView | null>(null);
@@ -88,7 +81,7 @@ export default function StoragePanel() {
                       <span className={`dot ${e.exists ? 'live' : 'dead'}`} />
                     </td>
                     <td className="mono">{e.path}</td>
-                    <td className="right mono">{humanBytes(e.size_bytes)}</td>
+                    <td className="right mono">{formatBytes(e.size_bytes)}</td>
                   </tr>
                 ))}
               </tbody>

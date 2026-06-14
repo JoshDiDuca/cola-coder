@@ -1,21 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { isApiError, type SftFile, type SftPreview } from '../types';
 import { getSftFiles, getSftPreview } from '../api';
+import { formatBytes, formatInteger, formatJsonValue } from '../format';
 
 const PREVIEW_N = 10;
-
-function humanBytes(bytes: number): string {
-  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(2)} GB`;
-  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
-  if (bytes >= 1e3) return `${(bytes / 1e3).toFixed(0)} KB`;
-  return `${bytes} B`;
-}
-
-function cell(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'string') return value;
-  return JSON.stringify(value);
-}
 
 export default function SftDataPanel() {
   const [files, setFiles] = useState<SftFile[]>([]);
@@ -98,8 +86,8 @@ export default function SftDataPanel() {
                 <td>
                   <span className="tag">{f.kind}</span>
                 </td>
-                <td className="right mono">{f.num_records.toLocaleString()}</td>
-                <td className="right mono">{humanBytes(f.size_bytes)}</td>
+                <td className="right mono">{formatInteger(f.num_records)}</td>
+                <td className="right mono">{formatBytes(f.size_bytes)}</td>
                 <td className="right">
                   <button className="btn" onClick={() => void onView(f)}>
                     view
@@ -134,7 +122,7 @@ export default function SftDataPanel() {
                         <tr key={i}>
                           {preview.fields.map((field) => (
                             <td key={field} className="mono">
-                              {cell(rec[field])}
+                              {formatJsonValue(rec[field] ?? null)}
                             </td>
                           ))}
                         </tr>
@@ -143,7 +131,7 @@ export default function SftDataPanel() {
                   </table>
                 </div>
                 <div className="muted mono">
-                  {preview.count.toLocaleString()} records
+                  {formatInteger(preview.count)} records
                   {preview.truncated ? ' · preview truncated' : ''}
                 </div>
               </>

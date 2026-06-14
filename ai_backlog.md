@@ -87,11 +87,15 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   localize WHICH function carries a dangerous pattern, feeding the secure best-of-N tie-break.
 
 ### Tech-debt / standards (2026-06-14)
-- **TYPE-001** [tooling/quality, high] `in-progress` (2026-06-14) — Strict-typing overhaul per
-  `.claude/rules/typing.md`: Pydantic source-of-truth (`ui/schemas.py`) → generated `webui/src/types.gen.ts`
-  (drift-guarded), shared `webui/src/format.ts`, eliminate ALL `any`/`unknown`/`Record<string,unknown>` +
-  catch-all `fmt(unknown)`/`typeof` formatters across `webui/`. User-mandated. Started: typing rule +
-  CLAUDE.md + __init__ module/function-collision fix (system_info/tokenizer_info shadowing).
+- **TYPE-001** [tooling/quality, high] `done` (2026-06-14) — Strict-typing overhaul per
+  `.claude/rules/typing.md`. **55 Pydantic models** in `ui/schemas.py` (single source of truth) →
+  `scripts/gen_ts_types.py` generates `webui/src/types.gen.ts` (1:1, drift-guarded by a regen-equals test,
+  58 tests); `webui/src/types.ts` is now a thin re-export; shared `webui/src/format.ts` (formatBytes/
+  Integer/Float/Percent/Duration/RelativeTime/Params + one exhaustive `formatJsonValue(JsonValue)`).
+  ELIMINATED every `any`/`unknown`/`Record<string,unknown>` + catch-all `fmt(unknown)`/`typeof`/inline
+  `JSON.stringify`-display + per-component `humanBytes`/`fmtInt` across all 18 panels (6 parallel agents).
+  tsc --noEmit EXIT 0, vite build green. Open JSON typed via the one principled `JsonValue` union.
+  Follow-up TYPE-002: add FastAPI `response_model=` to endpoints for runtime 1:1 enforcement.
 
 ### Optimizers / training-stability (2026-06-14)
 - **EVAL-035** [eval, medium] `done` (2026-06-14) — Spectral-Alignment divergence-risk diagnostic

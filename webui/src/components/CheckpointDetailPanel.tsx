@@ -1,18 +1,44 @@
 import { useCallback, useState } from 'react';
-import type { Checkpoint, CheckpointDetail } from '../types';
+import type { Checkpoint, CheckpointDetail, JsonValue } from '../types';
 import { isApiError } from '../types';
+import { formatParams, formatInteger, formatJsonValue } from '../format';
 import { getCheckpointDetail } from '../api';
 
 const MAX_ROWS = 12;
 
-function humanParams(n: number): string {
-  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
-  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
-  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
-  return String(n);
+interface JsonKvTableProps {
+  title: string;
+  data: Record<string, JsonValue>;
 }
 
-export default function CheckpointDetailPanel({ checkpoints }: { checkpoints: Checkpoint[] }) {
+function JsonKvTable({ title, data }: JsonKvTableProps) {
+  const entries = Object.entries(data);
+  return (
+    <div>
+      <div className="card-title">{title}</div>
+      {entries.length === 0 ? (
+        <div className="muted">none</div>
+      ) : (
+        <table className="tbl">
+          <tbody>
+            {entries.map(([k, v]) => (
+              <tr key={k}>
+                <td className="k">{k}</td>
+                <td className="right mono">{formatJsonValue(v)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+interface CheckpointDetailPanelProps {
+  checkpoints: Checkpoint[];
+}
+
+export default function CheckpointDetailPanel({ checkpoints }: CheckpointDetailPanelProps) {
   const rows = [...checkpoints].sort((a, b) => b.step - a.step).slice(0, MAX_ROWS);
 
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -79,11 +105,11 @@ export default function CheckpointDetailPanel({ checkpoints }: { checkpoints: Ch
             <>
               <div className="row">
                 <span className="k">num_params</span>
-                <span className="v">{humanParams(detail.num_params)}</span>
+                <span className="v">{formatParams(detail.num_params)}</span>
               </div>
               <div className="row">
                 <span className="k">tensor_count</span>
-                <span className="v">{detail.tensor_count.toLocaleString()}</span>
+                <span className="v">{formatInteger(detail.tensor_count)}</span>
               </div>
               <div className="row">
                 <span className="k">is_moe</span>
@@ -116,10 +142,7 @@ export default function CheckpointDetailPanel({ checkpoints }: { checkpoints: Ch
               </div>
 
               {detail.is_moe && detail.moe_config && (
-                <div>
-                  <div className="card-title">moe_config</div>
-                  <pre className="pre scroll">{JSON.stringify(detail.moe_config, null, 2)}</pre>
-                </div>
+                <JsonKvTable title="moe_config" data={detail.moe_config} />
               )}
 
               <div className="card-title">files</div>
@@ -135,11 +158,13 @@ export default function CheckpointDetailPanel({ checkpoints }: { checkpoints: Ch
                 </div>
               )}
 
-              <div className="card-title">metadata</div>
               {detail.metadata === null ? (
-                <div className="muted">none</div>
+                <div>
+                  <div className="card-title">metadata</div>
+                  <div className="muted">none</div>
+                </div>
               ) : (
-                <pre className="pre scroll">{JSON.stringify(detail.metadata, null, 2)}</pre>
+                <JsonKvTable title="metadata" data={detail.metadata} />
               )}
             </>
           )}

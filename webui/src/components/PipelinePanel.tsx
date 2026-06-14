@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { PipelineRun } from '../types';
+import type { PipelineRun, JsonValue } from '../types';
 import { getPipelineRuns, getPipelineRun } from '../api';
+import { formatInteger, formatJsonValue } from '../format';
 
 const RUN_MAX_CHARS = 6000;
 
@@ -21,8 +22,10 @@ function tagClass(status: string | null): string {
   }
 }
 
-function formatRun(x: unknown): string {
-  const text = JSON.stringify(x, null, 2);
+// The run-detail endpoint returns genuinely open JSON; render it through the one
+// sanctioned JsonValue formatter, then cap the displayed length.
+function formatRun(detail: JsonValue): string {
+  const text = formatJsonValue(detail);
   return text.length > RUN_MAX_CHARS
     ? `${text.slice(0, RUN_MAX_CHARS)}\n…(truncated)`
     : text;
@@ -57,8 +60,8 @@ export default function PipelinePanel() {
     setRunText('');
 
     try {
-      const x = await getPipelineRun(run.path);
-      setRunText(formatRun(x));
+      const detail = (await getPipelineRun(run.path)) as JsonValue;
+      setRunText(formatRun(detail));
     } catch (e) {
       setRunText(`error: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -94,7 +97,7 @@ export default function PipelinePanel() {
                 <td className="right mono">
                   {run.completed == null || run.num_stages == null
                     ? '—'
-                    : `${run.completed} / ${run.num_stages}`}
+                    : `${formatInteger(run.completed)} / ${formatInteger(run.num_stages)}`}
                 </td>
                 <td className="right">
                   <button className="btn" onClick={() => void onView(run)}>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { MetricsHistory, MetricPoint } from '../types';
 import { isApiError } from '../types';
 import { getMetricsHistory } from '../api';
+import { formatFloat, formatInteger } from '../format';
 import Sparkline from './Sparkline';
 
 function extent(values: number[]): { min: number; max: number } | null {
@@ -94,7 +95,7 @@ export default function MetricsChartPanel() {
             </span>
             <span className="v">
               {lossExt
-                ? `min ${lossExt.min.toFixed(3)} · max ${lossExt.max.toFixed(3)}`
+                ? `min ${formatFloat(lossExt.min, 3)} · max ${formatFloat(lossExt.max, 3)}`
                 : 'no loss'}
             </span>
           </div>
@@ -105,7 +106,7 @@ export default function MetricsChartPanel() {
             <span className="k">throughput</span>
             <span className="v">
               {tokVals.length > 0
-                ? `${tokVals[tokVals.length - 1].toFixed(0)} tok/s`
+                ? `${formatInteger(tokVals[tokVals.length - 1])} tok/s`
                 : 'no throughput'}
             </span>
           </div>

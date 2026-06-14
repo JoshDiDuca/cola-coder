@@ -1,13 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ConfigFile, ConfigContent } from '../types';
 import { getConfigs, getConfig } from '../api';
-
-function humanBytes(bytes: number): string {
-  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(2)} GB`;
-  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
-  if (bytes >= 1e3) return `${(bytes / 1e3).toFixed(0)} KB`;
-  return `${bytes} B`;
-}
+import { formatBytes } from '../format';
 
 function formatContent(c: ConfigContent): string {
   if (c.error) return `error: ${c.error}`;
@@ -74,7 +68,7 @@ export default function ConfigsPanel() {
             {configs.map((cfg) => (
               <tr key={cfg.path}>
                 <td className="mono">{cfg.rel}</td>
-                <td className="right mono">{humanBytes(cfg.size_bytes)}</td>
+                <td className="right mono">{formatBytes(cfg.size_bytes)}</td>
                 <td className="right">
                   <button className="btn" onClick={() => void onView(cfg)}>
                     view

@@ -1,20 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { ReasoningView } from '../types';
+import type { JsonValue, ReasoningView } from '../types';
 import { isApiError } from '../types';
 import { getReasoning } from '../api';
+import { formatJsonValue } from '../format';
 
-function fmt(value: unknown): string {
-  if (value === null || value === undefined) return '—';
-  if (typeof value === 'boolean') return value ? 'yes' : 'no';
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
+interface SectionProps {
+  title: string;
+  data: Record<string, JsonValue>;
 }
 
-function Section({ title, data }: { title: string; data: Record<string, unknown> }) {
+function Section({ title, data }: SectionProps) {
   return (
     <div>
       <div className="card-title">{title}</div>
-      <pre className="pre scroll">{JSON.stringify(data, null, 2)}</pre>
+      <pre className="pre scroll">{formatJsonValue(data)}</pre>
     </div>
   );
 }
@@ -61,27 +60,27 @@ export default function ReasoningPanel() {
         <div>
           <div className="row">
             <span className="k">advantage_norm</span>
-            <span className="v">{fmt(s.advantage_norm)}</span>
+            <span className="v">{formatJsonValue(s.advantage_norm)}</span>
           </div>
           <div className="row">
             <span className="k">clip_epsilon</span>
-            <span className="v">{fmt(s.clip_epsilon)}</span>
+            <span className="v">{formatJsonValue(s.clip_epsilon)}</span>
           </div>
           <div className="row">
             <span className="k">clip_epsilon_high</span>
-            <span className="v">{fmt(s.clip_epsilon_high)}</span>
+            <span className="v">{formatJsonValue(s.clip_epsilon_high)}</span>
           </div>
           <div className="row">
             <span className="k">group_size</span>
-            <span className="v">{fmt(s.group_size)}</span>
+            <span className="v">{formatJsonValue(s.group_size)}</span>
           </div>
           <div className="row">
             <span className="k">sft_warmup_enabled</span>
-            <span className="v">{fmt(s.sft_warmup_enabled)}</span>
+            <span className="v">{formatJsonValue(s.sft_warmup_enabled)}</span>
           </div>
           <div className="row">
             <span className="k">problem_source</span>
-            <span className="v">{fmt(s.problem_source)}</span>
+            <span className="v">{formatJsonValue(s.problem_source)}</span>
           </div>
         </div>
       )}

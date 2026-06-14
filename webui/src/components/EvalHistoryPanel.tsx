@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { EvalHistoryView, EvalSnapshot } from '../types';
+import type { EvalHistoryView, EvalSnapshot, JsonValue } from '../types';
 import { isApiError } from '../types';
 import { getEvalHistory } from '../api';
+import { formatFloat } from '../format';
 import Sparkline from './Sparkline';
 
-function asNumber(value: unknown): number | null {
+function asNumber(value: JsonValue): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   return null;
+}
+
+interface MetricRow {
+  snap: EvalSnapshot;
+  value: number | null;
 }
 
 export default function EvalHistoryPanel() {
@@ -58,7 +64,7 @@ export default function EvalHistoryPanel() {
 
   const rows = useMemo(() => {
     if (!metric) return [];
-    const out: { snap: EvalSnapshot; value: number | null }[] = [];
+    const out: MetricRow[] = [];
     for (const snap of snapshots) {
       out.push({ snap, value: asNumber(snap.metrics[metric]) });
     }
@@ -125,9 +131,7 @@ export default function EvalHistoryPanel() {
                   {rows.map((r) => (
                     <tr key={r.snap.path}>
                       <td className="right mono">{r.snap.step ?? '—'}</td>
-                      <td className="right mono">
-                        {r.value === null ? '—' : r.value.toFixed(4)}
-                      </td>
+                      <td className="right mono">{formatFloat(r.value, 4)}</td>
                     </tr>
                   ))}
                 </tbody>

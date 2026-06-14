@@ -2,18 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import type { EvalResult, EvalDetail } from '../types';
 import { isApiError } from '../types';
 import { getEvals, getEval } from '../api';
-
-function relTime(mtime: number): string {
-  const secs = Date.now() / 1000 - mtime;
-  if (secs < 60) return 'just now';
-  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
-  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
-  return `${Math.floor(secs / 86400)}d ago`;
-}
+import { formatJsonValue, formatRelativeTime } from '../format';
 
 function formatDetail(d: EvalDetail): string {
   if (d.parsed !== null) {
-    const text = JSON.stringify(d.parsed, null, 2);
+    const text = formatJsonValue(d.parsed);
     return d.truncated ? `${text}\n…(truncated)` : text;
   }
   const body = d.content ?? '';
@@ -99,7 +92,7 @@ export default function EvalsPanel() {
                   <span className="tag">{ev.kind}</span>
                 </td>
                 <td>{ev.summary}</td>
-                <td className="right mono">{relTime(ev.mtime)}</td>
+                <td className="right mono">{formatRelativeTime(ev.mtime)}</td>
                 <td className="right">
                   <button className="btn" onClick={() => void onView(ev)}>
                     view

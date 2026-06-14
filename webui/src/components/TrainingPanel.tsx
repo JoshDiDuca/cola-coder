@@ -1,22 +1,12 @@
 import type { TrainingStatus } from '../types';
-
-function fmtInt(n: number | null | undefined): string {
-  return n == null ? '—' : Math.round(n).toLocaleString();
-}
+import { formatInteger, formatFloat } from '../format';
 
 export default function TrainingPanel({ training }: { training: TrainingStatus | null }) {
   const alive = training?.alive ?? false;
-  const loss = training?.loss;
-  const ppl = training?.ppl;
-  const step = training?.step;
-  const totalSteps = training?.total_steps;
-  const tokPerS = training?.tok_per_s;
-  const sPerIt = training?.s_per_it;
-  const progress = training?.progress_pct;
-
-  const lossText = loss == null ? '—' : loss.toFixed(4);
-  const pplText = ppl == null ? '—' : ppl.toFixed(2);
-  const fillPct = Math.max(0, Math.min(100, progress ?? 0));
+  const fillPct = Math.max(0, Math.min(100, training?.progress_pct ?? 0));
+  const lossText = formatFloat(training?.loss ?? null, 4);
+  const pplText = formatFloat(training?.ppl ?? null, 2);
+  const sPerIt = training?.s_per_it ?? null;
 
   return (
     <div className="card">
@@ -41,7 +31,7 @@ export default function TrainingPanel({ training }: { training: TrainingStatus |
       <div className="row">
         <span className="k">step</span>
         <span className="v mono">
-          {fmtInt(step)} / {fmtInt(totalSteps)}
+          {formatInteger(training?.step ?? null)} / {formatInteger(training?.total_steps ?? null)}
         </span>
       </div>
       <div className="row">
@@ -50,11 +40,11 @@ export default function TrainingPanel({ training }: { training: TrainingStatus |
       </div>
       <div className="row">
         <span className="k">tok/s</span>
-        <span className="v mono">{fmtInt(tokPerS)}</span>
+        <span className="v mono">{formatInteger(training?.tok_per_s ?? null)}</span>
       </div>
       <div className="row">
         <span className="k">s/it</span>
-        <span className="v mono">{sPerIt == null ? '—' : `${sPerIt.toFixed(1)}s`}</span>
+        <span className="v mono">{sPerIt == null ? '—' : `${formatFloat(sPerIt, 1)}s`}</span>
       </div>
     </div>
   );

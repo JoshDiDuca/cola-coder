@@ -1,26 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Dataset, Preview, ScoreSummary } from '../types';
+import type { Dataset, Preview, ScoreSummary, JsonValue } from '../types';
 import { getDatasets, getPreview, getScores } from '../api';
+import { formatBytes, formatFloat, formatInteger, formatJsonValue } from '../format';
 
 const PREVIEW_N = 12;
 const PREVIEW_MAX_CHARS = 4000;
 
-function humanBytes(bytes: number): string {
-  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(2)} GB`;
-  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
-  if (bytes >= 1e3) return `${(bytes / 1e3).toFixed(0)} KB`;
-  return `${bytes} B`;
-}
-
 function formatPreview(p: Preview): string {
   if (p.error) return `error: ${p.error}`;
-  const text = JSON.stringify(p, null, 2);
-  return text.length > PREVIEW_MAX_CHARS ? `${text.slice(0, PREVIEW_MAX_CHARS)}\n…(truncated)` : text;
-}
-
-// getScores may resolve to an error-shaped object instead of a ScoreSummary.
-function isScoreError(v: unknown): v is { error: string } {
-  return typeof v === 'object' && v !== null && typeof (v as { error?: unknown }).error === 'string';
+  const rows: JsonValue[] = p.preview ?? [];
+  const text = rows.map((row) => formatJsonValue(row)).join('\n');
+  return text.length > PREVIEW_MAX_CHARS
+    ? `${text.slice(0, PREVIEW_MAX_CHARS)}\n…(truncated)`
+    : text;
 }
 
 export default function DatasetsPanel() {
@@ -67,8 +59,7 @@ export default function DatasetsPanel() {
     if (ds.has_weights) {
       try {
         const s: ScoreSummary = await getScores(ds.path.replace(/\.npy$/, '.weights.npy'));
-        if (isScoreError(s)) setScoreError(s.error);
-        else setScores(s);
+        setScores(s);
       } catch (e) {
         setScoreError(e instanceof Error ? e.message : String(e));
       }
@@ -107,10 +98,8 @@ export default function DatasetsPanel() {
                   {ds.kind}
                   {ds.has_weights ? ' ⊕' : ''}
                 </td>
-                <td className="right mono">
-                  {ds.num_samples == null ? '—' : ds.num_samples.toLocaleString()}
-                </td>
-                <td className="right mono">{humanBytes(ds.size_bytes)}</td>
+                <td className="right mono">{formatInteger(ds.num_samples)}</td>
+                <td className="right mono">{formatBytes(ds.size_bytes)}</td>
                 <td className="right">
                   <button className="btn" onClick={() => void onView(ds)}>
                     view
@@ -143,8 +132,8 @@ export default function DatasetsPanel() {
                 ))}
               </div>
               <div className="muted mono">
-                n {scores.n.toLocaleString()} · mean {scores.mean.toFixed(3)} · [
-                {scores.min.toFixed(3)}, {scores.max.toFixed(3)}]
+                n {formatInteger(scores.n)} · mean {formatFloat(scores.mean, 3)} · [
+                {formatFloat(scores.min, 3)}, {formatFloat(scores.max, 3)}]
               </div>
             </>
           )}

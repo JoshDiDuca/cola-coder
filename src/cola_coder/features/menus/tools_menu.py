@@ -44,6 +44,8 @@ class ToolsMenu:
                  "detail": "pytest tests/ -v"},
                 {"label": "Run Linter",
                  "detail": "ruff check src/ scripts/ tests/"},
+                {"label": "Generate TS types (gen_ts_types.py)",
+                 "detail": "scripts/gen_ts_types.py — regenerate webui/src/types.gen.ts from Pydantic schemas"},
                 {"label": "GPU Status",
                  "detail": "torch.cuda info + nvidia-smi output"},
                 {"label": "Dataset Inspector",
@@ -92,39 +94,42 @@ class ToolsMenu:
                 ])
                 self._master._pause()
             elif choice == 2:
-                self._gpu_status()
+                self._master._run_script("gen_ts_types.py", [])
+                self._master._pause()
             elif choice == 3:
+                self._gpu_status()
+            elif choice == 4:
                 self._master._data._inspect_dataset()
                 self._master._pause()
-            elif choice == 4:
+            elif choice == 5:
                 self._master._run_script("test_type_reward.py")
                 self._master._pause()
-            elif choice == 5:
-                self._feature_toggles()
             elif choice == 6:
-                self._export_model_menu()
+                self._feature_toggles()
             elif choice == 7:
-                self._average_checkpoints_menu()
+                self._export_model_menu()
             elif choice == 8:
-                self._pipeline_menu()
+                self._average_checkpoints_menu()
             elif choice == 9:
-                self._scan_repository()
+                self._pipeline_menu()
             elif choice == 10:
+                self._scan_repository()
+            elif choice == 11:
                 self._master._run_script("env_check.py")
                 self._master._pause()
-            elif choice == 11:
+            elif choice == 12:
                 self._master._run_script("tokenizer_health.py")
                 self._master._pause()
-            elif choice == 12:
+            elif choice == 13:
                 self._master._run_script("project_health.py")
                 self._master._pause()
-            elif choice == 13:
-                self._project_memory_menu()
             elif choice == 14:
-                self._index_repository_menu()
+                self._project_memory_menu()
             elif choice == 15:
-                self._configure_agent_tools_menu()
+                self._index_repository_menu()
             elif choice == 16:
+                self._configure_agent_tools_menu()
+            elif choice == 17:
                 self._master._run_script("ui_server.py", ["--open"])
                 self._master._pause()
 

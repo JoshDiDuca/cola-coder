@@ -1,18 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ExportOverview } from '../types';
 import { isApiError } from '../types';
+import { formatBytes, formatRelativeTime } from '../format';
 import { getExports } from '../api';
-
-function humanBytes(bytes: number): string {
-  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(2)} GB`;
-  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
-  if (bytes >= 1e3) return `${(bytes / 1e3).toFixed(0)} KB`;
-  return `${bytes} B`;
-}
-
-function fmtTime(epochSeconds: number): string {
-  return new Date(epochSeconds * 1000).toLocaleString();
-}
 
 export default function ExportPanel() {
   const [view, setView] = useState<ExportOverview | null>(null);
@@ -129,8 +119,8 @@ export default function ExportPanel() {
                     <td>
                       <span className="tag">{e.format}</span>
                     </td>
-                    <td className="right mono">{humanBytes(e.size_bytes)}</td>
-                    <td className="right mono">{fmtTime(e.mtime)}</td>
+                    <td className="right mono">{formatBytes(e.size_bytes)}</td>
+                    <td className="right mono">{formatRelativeTime(e.mtime)}</td>
                   </tr>
                 ))}
               </tbody>
