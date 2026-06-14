@@ -7,6 +7,44 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Process Reward Models for code (rotate: post-training/reward design)
+
+**Sources (2025–2026):**
+- *A Survey of Process Reward Models: From Outcome Signals to Process Supervisions* (2026) —
+  https://arxiv.org/html/2510.08049v3. PRMs score partial solutions → scalar; CodePRM uses tree-search +
+  execution feedback for automatic step labels. Key failure: step-level signals noisier than
+  trajectory-level → length/verbosity hacking. Best-of-N reranking with PRM scores consistently helps.
+- *FunPRM: Function-as-Step Process Reward Model with Meta Reward Correction for Code* (2026) —
+  https://chatpaper.com/chatpaper/paper/231379. Treats FUNCTIONS as steps + a meta-learning correction
+  that uses clean unit-test final rewards to purify noisy partial rewards. Beats TTS baselines on
+  LiveCodeBench/BigCodeBench across 5 base LLMs.
+- *Process Reward Models That Think (ThinkPRM)* — https://arxiv.org/pdf/2504.16828. Verbalized PRM
+  verifies each step via a CoT; far fewer process labels than discriminative PRMs.
+
+**Summary:** a PRM scores PARTIAL code for dense step-aligned credit (best-of-N reranking, RL). The hard
+problems for code: step decomposition (FunPRM: function = step) and label noise (Monte-Carlo partial
+correctness is high-variance + length-hackable; anchor to clean unit-test outcomes).
+
+**Original idea / hypothesis (cola-coder-specific cross-technique) → EVAL-034 (filed):**
+**Verifier-anchored function-step credit ("poor-man's PRM").** FunPRM needs a trained PRM + meta-correction
+to purify noisy step rewards; cola-coder owns the clean signal directly — the sandbox unit-test verifier +
+AST assert-split (`partial_credit.split_test_cases`) + best-of-N. Decompose each candidate into
+function-as-steps via AST, score each function by the test subset that exercises it (or an executability
+probe), aggregate into a length-normalized process_score that reranks best-of-N ABOVE the heuristic score
+but BELOW the hard verdict, and emit a fragility map (passes overall but contains a dead/non-executable
+function). FunPRM's clean-reward signal WITHOUT training a PRM — no PRM paper owns the execution verifier
+FunPRM only uses as a correction oracle. Filed for a future cycle (main-safe analysis module).
+
+**Implemented this cycle (DATA-069 — data curation, main-safe):** semantic (embedding) dedup.
+`data/semantic_dedup.py`: dependency-free numpy TF-IDF embedder (pluggable `embed_fn`/precomputed),
+`cluster` (sklearn KMeans if present else a seeded numpy Lloyd's fallback — fallback is the CI path),
+`find_semantic_duplicates` (within-cluster cosine; keep the HIGHEST-quality member when `quality_weights`
+given — the original idea — else the SemDeDup centroid-distant default), and `semantic_dedup_array`
+returning `(kept_data, removed_count, kept_indices)` — a superset of `ExactDeduplicator`'s contract.
+`scripts/prepare_data.py --dedup semantic` (+ `--semantic-threshold`/`--semantic-clusters`, runs after the
+exact pass) + data-menu "Semantic (SemDeDup)" choice (no orphan). +14 tests, numpy-only. Catches reordered/
+renamed near-dups that exact+MinHash miss. DATA-070 (D4 diversification) + EVAL-033 (semantic-dedup audit) open.
+
 ## 2026-06-14 — Semantic (embedding) deduplication: SemDeDup / D4 (rotate: data curation)
 
 **Sources (2023–2026):**

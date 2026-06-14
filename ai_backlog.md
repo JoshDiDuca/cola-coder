@@ -71,9 +71,20 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   profiler: `evaluation/depth_profile.py` (`logit_lens` via tied head + final norm — no new weights;
   `convergence_depth` argmax/entropy; `profile_depth` w/ per-tier `by_tier`) + `scripts/depth_profile.py`
   (`--mode/--tau/--by-difficulty`) + eval-menu entry. +17 tests (lens last-layer == forward anchor). Main-safe.
-- **DATA-069** [data curation, high] `open` — Semantic (embedding) dedup (SemDeDup/D4): k-means +
-  within-cluster cosine to drop semantic dups MinHash misses; quality-anchored representative selection;
-  `--dedup semantic` + menu. Original idea: keep highest-quality member, roll SoftDedup mass into it.
+- **DATA-069** [data curation, high] `done` (2026-06-14) — Semantic (embedding) dedup (SemDeDup/D4):
+  `data/semantic_dedup.py` (numpy TF-IDF embedder + sklearn-or-numpy KMeans + within-cluster cosine;
+  keep highest-quality member when weights given, else centroid-distant); `--dedup semantic`
+  (+threshold/clusters, runs after exact) + data-menu choice. +14 tests, numpy-only. Catches reordered/renamed near-dups.
+
+### Post-training / reward design (2026-06-14, researched — filed)
+- **EVAL-034** [eval, medium] `open` — Verifier-anchored function-step process-credit profiler
+  (`evaluation/process_credit.py`): AST function-as-steps, score each via sandbox verifier (assert subset
+  / executability probe), length-normalized process_score + fragility map. "Poor-man's PRM" — FunPRM's
+  clean reward without training a PRM. Reuses partial_credit.split_test_cases + runner.
+- **INFER-033** [inference, medium] `open` — Wire process_score as a best-of-N tie-break (above heuristic,
+  below hard verified/secure verdict; back-compat: all-pass → no reorder).
+- **SEC-022** [security, low] `open` — Per-function scan_dangerous in the process profiler (SecCodePRM-style):
+  localize WHICH function carries a dangerous pattern, feeding the secure best-of-N tie-break.
 - **DATA-070** [data curation, medium] `open` — D4 diversification pass after semantic dedup (prune
   over-dense clusters toward a target size), reusing DATA-069's clustering.
 - **EVAL-033** [eval, low] `open` — Semantic-dedup audit: stratify a corpus by semantic-cluster size +
@@ -84,6 +95,10 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   convergence threshold + exec-validated safe-layer floor, A/B'd on HumanEval pass@1 + CI (EVAL-028).
 
 ### UI (2026-06-14)
+- **UI-028..029** [ui, high] `done` (2026-06-14) — Batch 9 (parallel agents): storage view
+  (`/api/storage` — resolved tokenizer/data/checkpoint paths + capped disk footprint) + checkpoint
+  COMPARE (`/api/checkpoints/compare` — param/tensor/metadata/dtype diff between two checkpoints, reuses
+  checkpoint_detail, header-only). 36 `/api` routes. +29 UI tests, tsc+vite green (55 modules).
 - **UI-026..027** [ui, high] `done` (2026-06-14) — Batch 8 (parallel agents): SFT/instruction-JSONL
   view (`/api/sft` + `/api/sft/preview` — list+preview instruction/reasoning datasets) + CLI parity
   coverage catalog (`/api/scripts` — all 62 scripts by category, exists-on-disk dots). Actions allow-list

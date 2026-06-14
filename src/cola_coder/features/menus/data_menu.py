@@ -621,12 +621,14 @@ class DataMenu:
                  "detail": "Remove byte-identical chunks (SHA-256, fast)"},
                 {"label": "Near-duplicate (MinHash)",
                  "detail": "Also remove similar chunks; needs 'datasketch' (pip install -e '.[dedup]')"},
+                {"label": "Semantic (SemDeDup)",
+                 "detail": "Exact + embedding-cluster near-dups (renamed/reordered code); numpy-only"},
                 {"label": "None",
                  "detail": "Keep all chunks, including exact duplicates"},
             ],
             allow_cancel=False,
         )
-        dedup_mode = ["exact", "minhash", "none"][dedup_choice or 0]
+        dedup_mode = ["exact", "minhash", "semantic", "none"][dedup_choice or 0]
 
         # Step 6/7 — Performance
         cli.step(6, 7, "Performance settings")

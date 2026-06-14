@@ -217,7 +217,7 @@ def main():
     )
     parser.add_argument(
         "--dedup",
-        choices=["none", "exact", "minhash"],
+        choices=["none", "exact", "minhash", "semantic"],
         default="exact",
         help="Deduplication of tokenized chunks, applied after tokenization and "
              "before scoring. 'exact' (default) removes byte-identical chunks via "
@@ -225,7 +225,11 @@ def main():
              ">= --dedup-threshold) — code corpora are typically 25-40%% exact "
              "plus 20-30%% near-duplicates, all wasted training compute. "
              "'minhash' needs the 'datasketch' package (pip install -e '.[dedup]'); "
-             "without it, it falls back to exact with a warning. 'none' disables.",
+             "without it, it falls back to exact with a warning. 'semantic' "
+             "(SemDeDup/D4) clusters chunk embeddings and drops near-identical "
+             "MEANING that lexical layers miss (renamed vars, reordered code) — "
+             "numpy-only, runs after exact dedup; tune with --semantic-threshold "
+             "and --semantic-clusters. 'none' disables.",
     )
     parser.add_argument(
         "--dedup-threshold",
@@ -233,6 +237,21 @@ def main():
         default=0.8,
         help="Jaccard similarity threshold for --dedup minhash (default: 0.8). "
              "Higher = stricter (only very similar chunks removed).",
+    )
+    parser.add_argument(
+        "--semantic-threshold",
+        type=float,
+        default=0.9,
+        help="Cosine similarity threshold for --dedup semantic (default: 0.9). "
+             "Chunks at/above this similarity within a cluster are near-dups; "
+             "higher = stricter (fewer removed).",
+    )
+    parser.add_argument(
+        "--semantic-clusters",
+        type=int,
+        default=1000,
+        help="Number of SemDeDup clusters for --dedup semantic (default: 1000, "
+             "auto-clamped to the number of chunks).",
     )
     parser.add_argument(
         "--no-dedup",
@@ -432,8 +451,12 @@ def main():
                     "Install it: pip install -e '.[dedup]'"
                 )
 
+            # Semantic dedup runs AFTER an exact pass (consistent flow): drop
+            # byte-identical chunks first via the file-based exact path, then run
+            # SemDeDup on the resulting array to catch near-identical MEANING.
+            file_mode = "exact" if dedup_mode == "semantic" else dedup_mode
             result = dedup_npy_file(
-                output_file, mode=dedup_mode, threshold=args.dedup_threshold
+                output_file, mode=file_mode, threshold=args.dedup_threshold
             )
             cli.kv_table({
                 "Mode": result.mode,
@@ -446,6 +469,40 @@ def main():
                 cli.success(f"Removed {result.removed:,} duplicate chunks")
             else:
                 cli.info("Duplicates", "none found — data was already unique")
+
+            if dedup_mode == "semantic":
+                cli.rule("Semantic Deduplication (SemDeDup)")
+                from cola_coder.data.semantic_dedup import (
+                    _HAS_SKLEARN,
+                    semantic_dedup_array,
+                )
+
+                # Decode token ids to text so the embedder works on source text;
+                # tfidf_embed also accepts raw ids, but decoding gives a more
+                # faithful semantic signal when a tokenizer is available.
+                sem_data = np.load(output_file)
+                sem_before = len(sem_data)
+                kept, removed, _ = semantic_dedup_array(
+                    sem_data,
+                    k=args.semantic_clusters,
+                    threshold=args.semantic_threshold,
+                )
+                if removed > 0:
+                    np.save(output_file, kept)
+                cli.kv_table({
+                    "Backend": "sklearn KMeans" if _HAS_SKLEARN
+                               else "numpy k-means fallback",
+                    "Clusters (k)": f"{max(1, min(args.semantic_clusters, sem_before)):,}",
+                    "Threshold": f"cosine >= {args.semantic_threshold}",
+                    "Before": f"{sem_before:,} chunks",
+                    "After": f"{len(kept):,} chunks",
+                    "Removed": f"{removed:,} "
+                               f"({removed / max(sem_before, 1) * 100:.1f}%)",
+                }, title="Semantic Deduplication")
+                if removed > 0:
+                    cli.success(f"Removed {removed:,} semantic-duplicate chunks")
+                else:
+                    cli.info("Semantic duplicates", "none found above threshold")
         except Exception as e:
             cli.warn(f"Deduplication failed: {e}. Keeping all chunks.")
 
