@@ -19,6 +19,7 @@ leak to an external API.
 """
 
 from .generate import generate_distillation_dataset
+from .rft import generate_rft_dataset
 from .teacher import (
     OpenAICompatibleTeacher,
     Teacher,
@@ -32,4 +33,5 @@ __all__ = [
     "OpenAICompatibleTeacher",
     "build_teacher",
     "generate_distillation_dataset",
+    "generate_rft_dataset",
 ]

@@ -797,6 +797,32 @@ cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N ve
   main. Tests: test_reasoning_entropy_e2h_wiring.py +4 (trainer accepts kwargs, flags defined, script
   forwards both via AST check, curriculum-floor preset valid); config-wiring + ruff green. FOLLOW-UP:
   add menu toggles in training_menu's Alignment & Reasoning group.
+- **MODEL-045** [model/post-training, high] `done` (2026-06-14) — **RFT / self-verified distillation
+  harness** (rejection-sampling fine-tuning; arXiv:2605.10674, 2605.26132). The 2026 self-improvement
+  recipe — sample N, keep only verifier-passed, SFT on those — and the project owned every piece
+  (best-of-N + sandbox verifier + SFT) but had no harness. New
+  `distillation/rft.py::generate_rft_dataset`: per prompt, generate ``num_candidates`` and verify+rank
+  with the existing `generate_best_of_n` (sandbox tsc/tests + security + self-consistency), keep the
+  best only if verified (``keep_only_verified``) AND secure (``require_secure``); emit ChatML SFT
+  records (reuses `_to_messages`, DRY). Self-distillation (student's own verified output), complement
+  to the teacher-based `generate_distillation_dataset`; never executes model output itself. Exported
+  from distillation/__init__. Distillation/offline → committed on main. Tests: test_rft.py +5 (keep
+  verified+secure, drop unverified, keep-when-off, drop insecure, length guard); distillation regression
+  (11) + ruff green. FOLLOW-UP: MODEL-046.
+- **MODEL-046** [model/post-training, medium] `open` (2026-06-14) — wire MODEL-045 into a runnable
+  pipeline: a `scripts/generate_rft_data.py` (or `--self-rft` mode on generate_distillation_data.py)
+  that loads a checkpoint generator + problem prompts/tests, runs `generate_rft_dataset`, writes the
+  SFT JSONL, and a menu entry (training_menu Post-Training). Then an iterative loop (generate → SFT →
+  regenerate) is the full RFT self-improvement engine. Needs a loaded generator (GPU) → run between
+  training runs or on the spare GPU. Tooling → main-safe.
+- **IDEA-027** [research/post-training, high-potential] `open` (2026-06-14, ORIGINAL) —
+  **verifier-effort-curriculum RFT.** Plain RFT samples every prompt uniformly, wasting budget on
+  trivial + impossible prompts. Use EVAL-026's verifier-EFFORT to self-curate RFT's curriculum: after
+  a round, classify each prompt by best-of-N budget-to-solve (or unsolved), and in the NEXT round
+  concentrate sampling on FRONTIER prompts (solved-but-hard / just-barely-unsolved), retire trivially-
+  solved (E2H, MODEL-042), shelve impossible — a self-curating RFT that spends verification budget
+  where learning happens. Combines RFT + best-of-N + verifier-effort (EVAL-026) + E2H (MODEL-042) — no
+  RFT paper (no verifier-effort signal) can. Builds on MODEL-045 + EVAL-026 + MODEL-042. Distillation → main-safe.
 - **IDEA-024** [research/post-training, high-potential] `open` (2026-06-14, ORIGINAL) —
   **verifier-localized entropy injection.** SIREN restricts entropy regulation to the nucleus /
   peak-entropy tokens; cola-coder can localize by CORRECTNESS. The MODEL-037 entropy metric averages

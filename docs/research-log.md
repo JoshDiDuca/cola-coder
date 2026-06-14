@@ -7,6 +7,48 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Rejection-sampling fine-tuning / self-verified distillation (rotate: post-training)
+
+Sources:
+- Step Rejection Fine-Tuning: a practical distillation recipe — https://arxiv.org/abs/2605.10674
+- Self-Verified Distillation: your LM is its own synthetic data pipeline — https://arxiv.org/abs/2605.26132
+- RL on Incorrect Synthetic Data scales LLM efficiency — https://arxiv.org/pdf/2406.14532
+- Inference-Aware Fine-Tuning for Best-of-N — https://arxiv.org/pdf/2412.15287
+
+Findings:
+- **RFT = the model's own VERIFIED output is the training data.** Sample N candidates, keep only the
+  ones that pass an EXTERNAL verifier, SFT on those, repeat. No teacher, no human labels — a
+  self-improvement loop. Larger verification budget (more candidates) → higher-quality self-curated
+  data. cola-coder owns every piece (best-of-N + sandbox verifier + SFT) but had no harness wiring
+  them together — the obvious missing self-improvement engine.
+- **Self-Verified Distillation (2605.26132):** "your LM is secretly its own synthetic data pipeline"
+  — exactly the project's vision (best-of-N verified generation feeding SFT).
+- **Step-RFT (2605.10674):** instead of discarding failed trajectories whole, keep the correct
+  PREFIX — a future refinement once partial-credit (MODEL-041) data is available.
+
+**Implemented this cycle (MODEL-045 — distillation, main-safe):** the RFT / self-verified
+distillation harness `distillation/rft.py::generate_rft_dataset`. For each prompt it generates
+``num_candidates`` completions, verifies + ranks them with the existing `generate_best_of_n` (sandbox
+tsc/tests + security screen + self-consistency), and keeps the best ONLY if it passed the hard
+verifier (``keep_only_verified``) AND is secure (``require_secure``) — emitting ChatML SFT records
+(reusing `_to_messages`, DRY). Self-distillation (student's own verified output), the complement to
+the teacher-based `generate_distillation_dataset`; never executes model output itself (all execution
+in the sandboxed verifier). Exported + +5 tests (keep verified+secure, drop unverified, keep-when-off,
+drop insecure, length guard); distillation regression (11) + ruff green. FOLLOW-UP: a CLI script +
+menu entry (a `--self-rft` mode) → MODEL-046.
+
+**ORIGINAL cross-technique idea (IDEA-027): verifier-effort-curriculum RFT.** Plain RFT samples every
+prompt uniformly, wasting budget on already-trivial and currently-impossible prompts. Use EVAL-026's
+verifier-EFFORT to self-curate RFT's curriculum: after a round, classify each prompt by how much
+best-of-N budget its verified solve took (or whether it stayed unsolved), and in the NEXT round
+CONCENTRATE sampling on the FRONTIER prompts (solved-but-hard / just-barely-unsolved) while retiring
+trivially-solved ones (E2H, MODEL-042) and shelving the impossible — a self-curating RFT that spends
+its verification budget where learning actually happens. Combines RFT + best-of-N + verifier-effort
+(EVAL-026) + E2H curriculum (MODEL-042) — a self-improvement loop no RFT paper (no verifier-effort
+difficulty signal) can build. Builds on MODEL-045 + EVAL-026 + MODEL-042. Distillation → main-safe. → IDEA-027.
+
+---
+
 ## 2026-06-14 — Inference serving efficiency (rotate: inference/decoding)
 
 Sources:
