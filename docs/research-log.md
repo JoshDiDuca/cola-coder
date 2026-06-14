@@ -7,6 +7,46 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — LLM-as-judge reliability & calibration (rotate: evaluation)
+
+Sources:
+- Noisy but Valid: robust statistical eval of LLMs with imperfect judges (ICLR 2026) — https://arxiv.org/html/2601.20913v1
+- Bias in the Loop: auditing LLM-as-a-Judge for software engineering — https://arxiv.org/html/2604.16790v1
+- Benchmarking LLM-as-a-Judge for long-form output — https://arxiv.org/html/2606.01629v1
+
+Findings:
+- **LLM-judges are biased + noisy** (verbosity, position, authority cues; poor test-retest
+  reliability) — and that noise can INVALIDATE statistical guarantees. For CODE specifically the
+  consensus is that EXECUTION-BASED verification beats LLM-judging where available.
+- **Noisy-but-Valid calibration:** use a small ground-truth-labelled set to estimate the judge's
+  TPR/FPR, then variance-correct the reported rate (Rogan-Gladen prevalence correction) so the
+  judge's bias doesn't inflate measured quality — with finite-sample Type-I error guarantees.
+- **cola-coder's edge:** it OWNS bias-free ground truth for code — the sandbox verifier (tsc/tests).
+  So it can calibrate its LLM-judge against the verifier instead of needing human labels, which
+  most projects can't.
+
+**Implemented this cycle (EVAL-027 — eval, main-safe):** verifier-anchored judge calibration
+`evaluation/judge_calibration.py`. `agreement_stats(judge_pass, verifier_pass)` → the judge's
+TPR/FPR/accuracy/Cohen's κ using the verifier as the oracle; `corrected_prevalence(observed, tpr,
+fpr)` → Rogan-Gladen recovery of the TRUE pass-rate from the judge's noisy rate (so a verbosity-
+biased judge can't inflate corpus quality); `best_score_threshold(judge_scores, verifier_pass,
+metric)` → the judge-score cut-point that best matches the verifier (accuracy or Youden's J). Pure
+logic → runs/tests with no GPU. +12 tests (confusion, perfect/biased judge, TPR-undefined, Rogan-
+Gladen recovery + clamping + no-signal, threshold by accuracy/Youden, empties); ruff clean.
+
+**ORIGINAL cross-technique idea (IDEA-025): verifier-recalibrated judge distillation.**
+`train_judge_classifier` currently distills the LLM-judge's (biased) scores into a local TF-IDF
+classifier — baking the judge's verbosity/position bias into the project's permanent quality signal.
+Instead, on a calibration set scored by BOTH the judge and the sandbox verifier (EVAL-027), use
+`best_score_threshold` + `corrected_prevalence` to RECALIBRATE the judge's labels to verifier
+ground truth BEFORE distilling — and where the verifier can run, distill the VERIFIER's label
+directly (DATA-062). The distilled classifier then learns verifier-grounded quality, not an LLM's
+biased opinion — debiasing the project's whole data-scoring stack with assets the eval papers
+(human-label calibration only) lack. Builds on EVAL-027 + train_judge_classifier + the verifier +
+DATA-062. Data/eval → main-safe. → IDEA-025.
+
+---
+
 ## 2026-06-14 — GRPO entropy-control recipes (rotate: post-training/RLVR)
 
 Sources:

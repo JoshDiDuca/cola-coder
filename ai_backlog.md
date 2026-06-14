@@ -729,6 +729,24 @@ cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N ve
   test_difficulty_profile.py +10 (tier boundaries, zero-max safe, distribution+rates, empty,
   fixed-N + adaptive effort fields); 50 (incl. 40 best-of-N) green, ruff clean. FOLLOW-UP: a CLI
   report + wiring tiers back into the GRPO curriculum (MODEL-042).
+- **EVAL-027** [eval, medium] `done` (2026-06-14) — **verifier-anchored LLM-judge calibration.**
+  LLM-judges are biased/noisy (verbosity, position; arXiv:2601.20913); the project owns bias-free
+  ground truth for code (the sandbox verifier). New `evaluation/judge_calibration.py`:
+  `agreement_stats` (judge TPR/FPR/accuracy/Cohen's κ vs the verifier oracle), `corrected_prevalence`
+  (Rogan-Gladen recovery of the TRUE pass-rate from a noisy judge — so verbosity bias can't inflate
+  corpus quality), `best_score_threshold` (calibrate the judge's score cut-point to the verifier by
+  accuracy or Youden's J). Pure logic → no GPU. Eval → committed on main. Tests:
+  test_judge_calibration.py +12 (confusion, perfect/biased judge, TPR-undefined, Rogan-Gladen
+  recovery+clamp+no-signal, threshold by accuracy/Youden, empties); ruff clean.
+- **IDEA-025** [research/data+eval, high-potential] `open` (2026-06-14, ORIGINAL) —
+  **verifier-recalibrated judge distillation.** `train_judge_classifier` distills the LLM-judge's
+  BIASED scores into the local TF-IDF classifier — baking verbosity/position bias into the project's
+  permanent quality signal. Instead, on a set scored by BOTH judge and sandbox verifier (EVAL-027),
+  use `best_score_threshold` + `corrected_prevalence` to recalibrate the judge's labels to verifier
+  ground truth BEFORE distilling — and where the verifier runs, distill the VERIFIER's label directly
+  (DATA-062). The classifier then learns verifier-grounded quality, not an LLM's opinion — debiasing
+  the whole data-scoring stack with assets the eval papers (human-label calibration only) lack.
+  Builds on EVAL-027 + train_judge_classifier + verifier + DATA-062. Data/eval → main-safe.
 - **MODEL-042** [reasoning/curriculum, high-potential] `done` (2026-06-14) —
   **verifier-effort E2H scheduler.** New `reasoning/curriculum_scheduler.VerifierEffortCurriculum`
   (pure logic): tracks each problem's verified pass-rate per epoch; `tier_for` re-tags difficulty
