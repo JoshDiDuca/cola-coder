@@ -34,10 +34,16 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import checkpoint_detail as cd
 from . import configs as cfg
 from . import datasets as ds
+from . import evals as ev
+from . import features as ft
+from . import logs as lg
 from . import pipeline as pl
+from . import reasoning as rs
 from . import status as st
+from . import tokenizer_info as tk
 from .jobs import JobManager
 
 _MISSING_DIST_HTML = (
@@ -198,6 +204,38 @@ def create_app(
     @app.get("/api/pipeline/run")
     def pipeline_run(path: str) -> dict:
         return pl.read_pipeline_run(path)
+
+    @app.get("/api/evals")
+    def evals_list() -> list[dict]:
+        return ev.list_eval_results(str(root))
+
+    @app.get("/api/eval")
+    def eval_get(path: str) -> dict:
+        return ev.read_eval_result(path)
+
+    @app.get("/api/logs")
+    def logs_list() -> list[dict]:
+        return lg.list_logs(str(root))
+
+    @app.get("/api/log")
+    def log_get(path: str, lines: int = 200) -> dict:
+        return lg.tail_log(path, lines)
+
+    @app.get("/api/features")
+    def features_get() -> dict:
+        return ft.list_features(str(root / "configs" / "features.yaml"))
+
+    @app.get("/api/reasoning")
+    def reasoning_get() -> dict:
+        return rs.read_reasoning(str(root / "configs" / "reasoning.yaml"))
+
+    @app.get("/api/tokenizer")
+    def tokenizer_get() -> dict:
+        return tk.tokenizer_info()
+
+    @app.get("/api/checkpoint")
+    def checkpoint_get(path: str) -> dict:
+        return cd.checkpoint_detail(path)
 
     # Serve the built React app. Mount LAST so /api/* routes resolve first —
     # StaticFiles at "/" otherwise shadows every API route.

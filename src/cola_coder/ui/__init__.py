@@ -12,11 +12,17 @@ Design notes:
 """
 
 from .app import create_app
+from .checkpoint_detail import checkpoint_detail
 from .configs import list_configs, read_config
 from .datasets import dataset_preview, list_datasets, score_summary
+from .evals import list_eval_results, read_eval_result
+from .features import list_features
 from .jobs import JobManager
+from .logs import list_logs, tail_log
 from .pipeline import list_pipeline_runs, read_pipeline_run
+from .reasoning import read_reasoning
 from .status import get_system_status, get_training_status, list_checkpoints
+from .tokenizer_info import tokenizer_info
 
 __all__ = [
     "create_app",
@@ -31,4 +37,12 @@ __all__ = [
     "read_config",
     "list_pipeline_runs",
     "read_pipeline_run",
+    "list_eval_results",
+    "read_eval_result",
+    "list_logs",
+    "tail_log",
+    "list_features",
+    "read_reasoning",
+    "tokenizer_info",
+    "checkpoint_detail",
 ]

@@ -8,6 +8,15 @@ import type {
   ConfigFile,
   ConfigContent,
   PipelineRun,
+  EvalResult,
+  EvalDetail,
+  LogFile,
+  LogTail,
+  FeaturesView,
+  ReasoningView,
+  TokenizerInfo,
+  CheckpointDetail,
+  ApiError,
 } from './types';
 
 async function j<T>(url: string, opts?: RequestInit): Promise<T> {
@@ -96,4 +105,40 @@ export function getPipelineRuns(): Promise<PipelineRun[]> {
 
 export function getPipelineRun(path: string): Promise<unknown> {
   return j<unknown>(`/api/pipeline/run?path=${encodeURIComponent(path)}`);
+}
+
+export function getEvals(): Promise<EvalResult[]> {
+  return j<EvalResult[]>('/api/evals');
+}
+
+export function getEval(path: string): Promise<EvalDetail | ApiError> {
+  return j<EvalDetail | ApiError>(`/api/eval?path=${encodeURIComponent(path)}`);
+}
+
+export function getLogs(): Promise<LogFile[]> {
+  return j<LogFile[]>('/api/logs');
+}
+
+export function getLog(path: string, lines?: number): Promise<LogTail | ApiError> {
+  const q = new URLSearchParams({ path });
+  if (lines !== undefined) q.set('lines', String(lines));
+  return j<LogTail | ApiError>(`/api/log?${q.toString()}`);
+}
+
+export function getFeatures(): Promise<FeaturesView | ApiError> {
+  return j<FeaturesView | ApiError>('/api/features');
+}
+
+export function getReasoning(): Promise<ReasoningView | ApiError> {
+  return j<ReasoningView | ApiError>('/api/reasoning');
+}
+
+export function getTokenizer(): Promise<TokenizerInfo | ApiError> {
+  return j<TokenizerInfo | ApiError>('/api/tokenizer');
+}
+
+export function getCheckpointDetail(path: string): Promise<CheckpointDetail | ApiError> {
+  return j<CheckpointDetail | ApiError>(
+    `/api/checkpoint?path=${encodeURIComponent(path)}`
+  );
 }

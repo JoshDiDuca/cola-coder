@@ -104,3 +104,99 @@ export interface PipelineRun {
   completed: number | null;
   error?: string;
 }
+
+export interface EvalResult {
+  name: string;
+  path: string;
+  kind: string;
+  mtime: number;
+  summary: string;
+}
+
+export interface EvalDetail {
+  path: string;
+  kind: string;
+  parsed: unknown | null;
+  content: string | null;
+  truncated: boolean;
+}
+
+export interface LogFile {
+  name: string;
+  path: string;
+  size_bytes: number;
+  mtime: number;
+}
+
+export interface LogTail {
+  path: string;
+  lines: string[];
+  size_bytes: number;
+  truncated: boolean;
+}
+
+export interface FeatureItem {
+  key: string;
+  enabled: boolean;
+  value: unknown;
+}
+
+export interface FeatureGroup {
+  category: string;
+  features: FeatureItem[];
+}
+
+export interface FeaturesView {
+  path: string;
+  total: number;
+  enabled: number;
+  groups: FeatureGroup[];
+}
+
+export interface ReasoningSummary {
+  advantage_norm: unknown;
+  clip_epsilon: unknown;
+  clip_epsilon_high: unknown;
+  group_size: unknown;
+  sft_warmup_enabled: boolean | null;
+  problem_source: unknown;
+}
+
+export interface ReasoningView {
+  path: string;
+  parsed: Record<string, unknown>;
+  reasoning: Record<string, unknown>;
+  problem_set: Record<string, unknown>;
+  sft_warmup: Record<string, unknown>;
+  summary: ReasoningSummary;
+}
+
+export interface TokenizerInfo {
+  path: string;
+  vocab_size: number;
+  n_merges: number;
+  special_tokens: string[];
+  has_fim_tokens: boolean;
+  digit_splitting: boolean;
+  model_type: string;
+}
+
+export interface CheckpointDetail {
+  path: string;
+  metadata: Record<string, unknown> | null;
+  is_moe: boolean;
+  moe_config: Record<string, unknown> | null;
+  has_training_state: boolean;
+  num_params: number;
+  tensor_count: number;
+  dtypes: string[];
+  files: string[];
+}
+
+export interface ApiError {
+  error: string;
+}
+
+export function isApiError(v: unknown): v is ApiError {
+  return typeof v === 'object' && v !== null && typeof (v as { error?: unknown }).error === 'string';
+}

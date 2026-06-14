@@ -8,6 +8,12 @@ import JobsPanel from './components/JobsPanel';
 import DatasetsPanel from './components/DatasetsPanel';
 import ConfigsPanel from './components/ConfigsPanel';
 import PipelinePanel from './components/PipelinePanel';
+import EvalsPanel from './components/EvalsPanel';
+import LogsPanel from './components/LogsPanel';
+import FeaturesPanel from './components/FeaturesPanel';
+import ReasoningPanel from './components/ReasoningPanel';
+import TokenizerPanel from './components/TokenizerPanel';
+import CheckpointDetailPanel from './components/CheckpointDetailPanel';
 
 interface Snapshot {
   training: TrainingStatus;
@@ -80,6 +86,12 @@ export default function App() {
         <DatasetsPanel />
         <ConfigsPanel />
         <PipelinePanel />
+        <EvalsPanel />
+        <LogsPanel />
+        <FeaturesPanel />
+        <ReasoningPanel />
+        <TokenizerPanel />
+        <CheckpointDetailPanel checkpoints={snap?.checkpoints ?? []} />
       </main>
     </>
   );
