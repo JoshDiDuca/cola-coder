@@ -170,6 +170,7 @@ class CodeGenerator:
         stop_tokens: list[str] | None = None,
         return_new_only: bool = False,
         no_repeat_ngram_size: int = 0,
+        top_n_sigma: float = 0.0,
     ) -> str:
         """Generate code given a prompt.
 
@@ -186,6 +187,8 @@ class CodeGenerator:
             no_repeat_ngram_size: If > 0, hard-block any token that would repeat
                 an n-gram of this size (fixes verbatim repetition loops; 3 typical,
                 0 = off).
+            top_n_sigma: If > 0, top-nσ truncation on raw logits — keep tokens with
+                logit >= max - n*std (temperature-invariant; n≈1.0 typical, 0 = off).
             return_new_only: When True, return ONLY the completion (decode of the
                 newly generated tokens), not ``prompt + completion``. This is the
                 robust way to recover the reply when the prompt contains special
@@ -242,6 +245,7 @@ class CodeGenerator:
                 repetition_penalty=repetition_penalty,
                 generated_ids=generated_ids,
                 no_repeat_ngram_size=no_repeat_ngram_size,
+                top_n_sigma=top_n_sigma,
             )
 
             # Token-level stop (EOS / single-token stops) — exclude from output

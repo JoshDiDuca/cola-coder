@@ -60,6 +60,7 @@ def sample_next_token(
     repetition_penalty: float = 1.1,
     generated_ids: list[int] | None = None,
     no_repeat_ngram_size: int = 0,
+    top_n_sigma: float = 0.0,
 ) -> int:
     """Sample the next token from model output logits.
 
@@ -105,6 +106,11 @@ def sample_next_token(
         # Greedy: pick the max (over the non-banned tokens).
         return logits.argmax().item()
 
+    # Top-nσ on RAW logits (temperature-invariant) — must precede temperature
+    # scaling, that's the property that distinguishes it from top-p/min-p.
+    if top_n_sigma > 0.0:
+        logits = _top_n_sigma_filter(logits, top_n_sigma)
+
     logits = logits / temperature
 
     # The model's preferred token BEFORE the top-k/top-p/min-p filters. Used as
@@ -144,6 +150,7 @@ def sample_next_tokens_batch(
     top_k: int = 50,
     top_p: float = 0.9,
     min_p: float = 0.0,
+    top_n_sigma: float = 0.0,
 ) -> torch.Tensor:
     """Sample next tokens for a batch of sequences independently.
 
@@ -166,6 +173,9 @@ def sample_next_tokens_batch(
     """
     if temperature == 0:
         return logits.argmax(dim=-1)
+
+    if top_n_sigma > 0.0:
+        logits = _top_n_sigma_filter_batch(logits, top_n_sigma)
 
     logits = logits / temperature
 
@@ -260,6 +270,41 @@ def _min_p_filter_batch(logits: torch.Tensor, min_p: float) -> torch.Tensor:
     probs = F.softmax(logits, dim=-1)
     threshold = min_p * probs.max(dim=-1, keepdim=True).values  # (batch, 1)
     return logits.masked_fill(probs < threshold, float("-inf"))
+
+
+def _top_n_sigma_filter(logits: torch.Tensor, n: float) -> torch.Tensor:
+    """Top-nσ filter: keep tokens with logit >= max_logit - n * std(logits).
+
+    Operates on RAW pre-temperature logits (Tang et al. 2025, "Top-nσ"). Because
+    the keep-region is defined by the logit distribution's own spread (σ), it is
+    temperature-INVARIANT — unlike top-p/min-p, raising temperature doesn't pull in
+    the noisy tail. A statistical, noise-robust truncation; n≈1.0 is typical.
+
+    Computed over FINITE logits only, so an upstream n-gram ban (which sets some
+    logits to -inf) can't corrupt the mean/std. No-op when there are <2 finite
+    logits or σ is non-finite/zero.
+    """
+    finite_mask = torch.isfinite(logits)
+    if int(finite_mask.sum()) < 2:
+        return logits
+    finite = logits[finite_mask]
+    std = finite.std()
+    if not torch.isfinite(std) or std == 0:
+        return logits
+    threshold = finite.max() - n * std
+    return logits.masked_fill(logits < threshold, float("-inf"))
+
+
+def _top_n_sigma_filter_batch(logits: torch.Tensor, n: float) -> torch.Tensor:
+    """Top-nσ filter for a batch of logit rows. Shape (batch, vocab).
+
+    The batched path carries no n-gram ban, so logits are finite; std/max are taken
+    per row. A constant row (σ=0) keeps everything (threshold == max).
+    """
+    std = logits.std(dim=-1, keepdim=True)               # (batch, 1)
+    max_logit = logits.max(dim=-1, keepdim=True).values  # (batch, 1)
+    threshold = max_logit - n * std
+    return logits.masked_fill(logits < threshold, float("-inf"))
 
 
 def _apply_repetition_penalty(

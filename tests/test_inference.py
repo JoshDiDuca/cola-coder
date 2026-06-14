@@ -106,6 +106,68 @@ class TestSamplingRobustness:
         assert isinstance(tok, int) and 0 <= tok < 3
 
 
+class TestTopNSigma:
+    """top-nσ truncation: keep tokens with logit >= max - n*std (INFER-028)."""
+
+    def test_filter_keeps_only_within_n_sigma(self):
+        from cola_coder.inference.sampling import _top_n_sigma_filter
+        # One clear outlier high logit; small n keeps only it.
+        logits = torch.tensor([10.0, 0.0, 0.1, -0.1, 0.0])
+        filtered = _top_n_sigma_filter(logits.clone(), n=1.0)
+        assert torch.isfinite(filtered[0])
+        # The low-logit tail is masked (max - 1*std is well above ~0).
+        assert (filtered[1:] == float("-inf")).all()
+
+    def test_larger_n_keeps_more(self):
+        from cola_coder.inference.sampling import _top_n_sigma_filter
+        logits = torch.tensor([3.0, 2.0, 1.0, 0.0, -1.0])
+        kept_small = torch.isfinite(_top_n_sigma_filter(logits.clone(), n=0.5)).sum()
+        kept_large = torch.isfinite(_top_n_sigma_filter(logits.clone(), n=3.0)).sum()
+        assert kept_large >= kept_small
+
+    def test_ignores_inf_from_prior_mask(self):
+        # An upstream ban set a token to -inf; std/mean must use finite logits only.
+        from cola_coder.inference.sampling import _top_n_sigma_filter
+        logits = torch.tensor([5.0, 4.0, float("-inf"), 3.0])
+        out = _top_n_sigma_filter(logits.clone(), n=2.0)
+        assert out[2] == float("-inf")           # stays banned
+        assert torch.isfinite(out[0])            # top survives
+        assert not torch.isnan(out).any()
+
+    def test_constant_logits_noop(self):
+        from cola_coder.inference.sampling import _top_n_sigma_filter
+        logits = torch.zeros(5)
+        out = _top_n_sigma_filter(logits.clone(), n=1.0)
+        assert torch.isfinite(out).all()         # σ=0 → keep everything
+
+    def test_batch_filter_per_row(self):
+        from cola_coder.inference.sampling import _top_n_sigma_filter_batch
+        logits = torch.tensor([[10.0, 0.0, 0.0, 0.0],
+                               [1.0, 1.0, 1.0, 1.0]])
+        out = _top_n_sigma_filter_batch(logits.clone(), n=1.0)
+        assert torch.isfinite(out[0, 0])
+        assert (out[0, 1:] == float("-inf")).all()   # row 0: only outlier kept
+        assert torch.isfinite(out[1]).all()          # row 1: constant → keep all
+
+    def test_sample_next_token_with_top_n_sigma_picks_dominant(self):
+        # End-to-end through sample_next_token: a dominant logit + tight n forces it.
+        logits = torch.tensor([0.0, 0.1, 8.0, 0.0])
+        tok = sample_next_token(logits.clone(), temperature=1.0, top_k=0,
+                                top_p=1.0, top_n_sigma=1.0)
+        assert tok == 2
+
+    def test_disabled_by_default(self):
+        from cola_coder.inference.sampling import _top_n_sigma_filter
+        # n=0 path isn't taken when top_n_sigma defaults to 0.0 — sanity that a
+        # normal sample still works without it.
+        logits = torch.tensor([0.0, 5.0, 0.0])
+        tok = sample_next_token(logits.clone(), temperature=1.0)
+        assert isinstance(tok, int)
+        # And the filter itself with n large keeps ~everything.
+        out = _top_n_sigma_filter(torch.tensor([3.0, 2.0, 1.0]), n=10.0)
+        assert torch.isfinite(out).all()
+
+
 class TestPassAtK:
     """Tests for pass@k metric computation."""
 

@@ -657,6 +657,23 @@ cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N ve
   train path → committed on main. Tests: test_text_utils.py +7 (verbatim dup, longest-not-shortest,
   no-overlap, tiny-coincidence kept, full-dup→empty, empty inputs, min_overlap threshold); 13
   text_utils + 80 FIM tests green, ruff clean.
+- **INFER-028** [inference/decoding, medium] `done` (2026-06-14) — **top-nσ sampling**
+  (the 2026 truncation sampler, now in llama.cpp; arXiv:2411.07641). Keep tokens with
+  `logit >= max − n·σ` over RAW pre-softmax logits → TEMPERATURE-INVARIANT truncation (raising
+  temperature for diversity doesn't drag in the noisy tail like top-p/min-p). Added
+  `_top_n_sigma_filter` / `_top_n_sigma_filter_batch` (σ/mean over FINITE logits so an upstream
+  n-gram ban can't corrupt it; σ=0 → no-op), applied BEFORE temperature, wired as `top_n_sigma`
+  through sample_next_token / sample_next_tokens_batch / generator.generate (default 0.0 = off →
+  unchanged). Inference → committed on main. Tests: test_inference.py::TestTopNSigma +7; 46
+  inference/sampling tests green, ruff clean. FOLLOW-UP: thread top_n_sigma through generate_stream
+  / generate_group / the server request models for full exposure.
+- **INFER-029** [research/inference, medium-potential] `open` (2026-06-14, ORIGINAL) —
+  **verifier-calibrated adaptive sampling.** In adaptive best-of-N, start low-temperature / tight
+  top-nσ (exploit) and only when the sandbox verifier keeps REJECTING the batch, RAISE temperature
+  and LOOSEN n·σ to widen exploration — a verifier-driven sampling schedule (the inference-time
+  analogue of IDEA-013's RL entropy controller). The verifier closes the loop: spend diversity only
+  where correctness is unmet. Builds on INFER-028 + the sandbox verifier + adaptive best-of-N
+  (IDEA-009). Inference → main-safe.
 - **IDEA-021** [research/inference, medium-potential] `open` (2026-06-14, ORIGINAL) —
   **verifier-gated FIM completion boundary.** Precise stopping via cola-coder's assets instead of
   a bespoke incremental grammar parser: use the sandbox tsc verifier as the "complete program?"

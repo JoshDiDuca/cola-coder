@@ -7,6 +7,43 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Sampling for code generation (rotate: inference/decoding)
+
+Sources:
+- Top-nσ: not all logits are you need — https://arxiv.org/pdf/2411.07641
+- Min-p sampling (creative + coherent outputs) — https://arxiv.org/pdf/2407.01082
+- Hot or Cold? Adaptive temperature sampling for code — https://arxiv.org/pdf/2309.02772
+- Non-determinism of "deterministic" LLM settings — https://arxiv.org/html/2408.04667v5
+
+Findings:
+- **Top-nσ is the 2026 truncation sampler** (now in the llama.cpp chain): keep tokens with
+  `logit >= max_logit − n·σ` over the RAW pre-softmax logits. Because the keep-region is defined
+  by the logit distribution's own spread, it's TEMPERATURE-INVARIANT — raising temperature for
+  diversity doesn't drag in the noisy tail the way top-p/min-p do. Strong fit for code, where you
+  want exploration without syntactic garbage. The project had top-k/top-p/min-p but not top-nσ.
+- **Adaptive temperature for code (2309.02772):** vary temperature by token uncertainty — low
+  where syntax is forced, high where logic is open. Future knob (→ idea below).
+- **Determinism caveat:** even temp=0 isn't bit-deterministic across kernels/batch — report
+  sampler settings with eval numbers (ties to EVAL harness versioning).
+
+**Implemented this cycle (INFER-028 — inference, main-safe):** top-nσ sampling. New
+`_top_n_sigma_filter` / `_top_n_sigma_filter_batch` in inference/sampling.py (keep logit ≥ max −
+n·σ; computed over FINITE logits so an upstream n-gram ban can't corrupt σ; σ=0 → no-op). Applied
+on raw logits BEFORE temperature (its temperature-invariance is the whole point), wired as
+`top_n_sigma` through `sample_next_token`, `sample_next_tokens_batch`, and `generator.generate`
+(default 0.0 = off → unchanged). +7 tests (within-σ keep, larger-n keeps more, ignores -inf,
+constant no-op, batch per-row, end-to-end, default-off); 46 inference/sampling tests green, ruff clean.
+
+**ORIGINAL cross-technique idea (INFER-029): verifier-calibrated adaptive sampling.** Combine
+adaptive-temperature (2309.02772) with cola-coder's verifier. In adaptive best-of-N, START low-
+temperature / tight top-nσ (exploit) and, only when the sandbox verifier keeps REJECTING the batch,
+RAISE temperature and LOOSEN n·σ to widen exploration — a verifier-driven sampling schedule, the
+inference-time analogue of the IDEA-013 entropy controller (which does this for RL training). The
+verifier closes the loop: spend diversity only where correctness is unmet. Pairs adaptive sampling
+(top-nσ + temperature) with the sandbox verifier + adaptive best-of-N (IDEA-009). Inference → main-safe. → INFER-029.
+
+---
+
 ## 2026-06-14 — RLVR reward design & credit assignment (rotate: post-training/RLVR)
 
 Sources:
