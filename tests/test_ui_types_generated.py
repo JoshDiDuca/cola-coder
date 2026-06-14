@@ -214,6 +214,20 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "gpus": [], "disk": {"path": ".", "total_bytes": None, "free_bytes": None,
                              "used_bytes": None},
     },
+    "TokenizerHealthItem": {"name": "Vocab size", "ok": True, "detail": "vocab_size = 32,768"},
+    "TokenizerHealthReport": {
+        "path": "data/ds/tokenizer.json", "vocab_size": 32768, "checks": [],
+        "passed": 5, "failed": 0, "ok": True,
+    },
+    "WeightTier": {"label": "excellent", "count": 10, "pct": 25.0},
+    "DataStats": {
+        "data_path": "data/processed/train_data.npy", "file_size_mb": 12.3,
+        "shape": [100, 64], "num_chunks": 100, "seq_len": 64, "total_tokens": 6400,
+        "token_min": 0, "token_max": 32767, "token_mean": 16000.0,
+        "est_unique_tokens": 32000, "has_weights": True,
+        "weights_path": "data/processed/train_data.weights.npy", "weight_tiers": [],
+        "weight_mean": 0.6, "weight_std": 0.2,
+    },
     "ErrorResponse": {"error": "boom"},
 }
 

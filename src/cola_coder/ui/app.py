@@ -39,6 +39,7 @@ from . import checkpoints_compare as cc
 from . import config_diff as cdf
 from . import configs as cfg
 from . import data_sources_view as dsv
+from . import data_stats_view as dst
 from . import datasets as ds
 from . import eval_history as eh
 from . import evals as ev
@@ -60,6 +61,7 @@ from . import storage_view as sv
 from . import system_info as si
 from . import schemas as sch
 from . import tokenize as tkz
+from . import tokenizer_health_view as thv
 from . import tokenizer_info as tk
 from .jobs import JobManager
 
@@ -447,6 +449,19 @@ def create_app(
     @app.get("/api/storage", response_model=sch.StorageView)
     def storage_get() -> dict:
         return sv.read_storage(str(root))
+
+    @app.get("/api/tokenizer-health",
+             response_model=sch.TokenizerHealthReport | sch.ErrorResponse)
+    def tokenizer_health_get(path: str | None = None) -> dict:
+        return thv.tokenizer_health(path)
+
+    @app.get("/api/data-stats", response_model=sch.DataStats | sch.ErrorResponse)
+    def data_stats_get(
+        data_path: str | None = None,
+        weights_path: str | None = None,
+        estimate_unique: bool = True,
+    ) -> dict:
+        return dst.data_stats(data_path, weights_path, estimate_unique)
 
     @app.get("/api/checkpoints/compare", response_model=sch.CompareResult | sch.ErrorResponse)
     def checkpoints_compare_get(a: str, b: str) -> dict:

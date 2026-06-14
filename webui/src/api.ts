@@ -34,6 +34,8 @@ import type {
   FeatureSetResult,
   ConfigDiff,
   SystemInfo,
+  TokenizerHealthReport,
+  DataStats,
   ApiError,
   JsonValue,
 } from './types';
@@ -288,4 +290,20 @@ export function getConfigDiff(a: string, b: string): Promise<ConfigDiff | ApiErr
 
 export function getSystemInfo(): Promise<SystemInfo | ApiError> {
   return j<SystemInfo | ApiError>('/api/system-info');
+}
+
+export function getTokenizerHealth(path?: string): Promise<TokenizerHealthReport | ApiError> {
+  const qs = path !== undefined ? `?path=${encodeURIComponent(path)}` : '';
+  return j<TokenizerHealthReport | ApiError>(`/api/tokenizer-health${qs}`);
+}
+
+export function getDataStats(
+  dataPath?: string,
+  estimateUnique = true,
+): Promise<DataStats | ApiError> {
+  const q = new URLSearchParams();
+  if (dataPath !== undefined) q.set('data_path', dataPath);
+  if (!estimateUnique) q.set('estimate_unique', 'false');
+  const qs = q.toString();
+  return j<DataStats | ApiError>(`/api/data-stats${qs ? `?${qs}` : ''}`);
 }

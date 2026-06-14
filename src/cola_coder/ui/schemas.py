@@ -496,6 +496,45 @@ class SystemInfo(_UiModel):
     disk: DiskInfo
 
 
+class TokenizerHealthItem(_UiModel):
+    name: str
+    ok: bool
+    detail: str
+
+
+class TokenizerHealthReport(_UiModel):
+    path: str
+    vocab_size: int
+    checks: list[TokenizerHealthItem]
+    passed: int
+    failed: int
+    ok: bool
+
+
+class WeightTier(_UiModel):
+    label: str
+    count: int
+    pct: float
+
+
+class DataStats(_UiModel):
+    data_path: str
+    file_size_mb: float
+    shape: list[int]
+    num_chunks: int
+    seq_len: int | None = None
+    total_tokens: int
+    token_min: int
+    token_max: int
+    token_mean: float
+    est_unique_tokens: int | None = None
+    has_weights: bool = False
+    weights_path: str | None = None
+    weight_tiers: list[WeightTier] = []
+    weight_mean: float | None = None
+    weight_std: float | None = None
+
+
 class ErrorResponse(_UiModel):
     """Maps to the TS ``ApiError`` interface."""
 

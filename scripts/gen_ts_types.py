@@ -109,6 +109,10 @@ _MODEL_ORDER: list[str] = [
     "GpuInfo",
     "DiskInfo",
     "SystemInfo",
+    "TokenizerHealthItem",
+    "TokenizerHealthReport",
+    "WeightTier",
+    "DataStats",
 ]
 
 # Models the frontend treats as ``Model | ApiError`` (mirrors webui/src/api.ts).
@@ -139,6 +143,8 @@ _OR_ERROR: list[str] = [
     "SystemInfo",
     "PipelineRunDetail",
     "PipelineDeleteResult",
+    "TokenizerHealthReport",
+    "DataStats",
 ]
 
 

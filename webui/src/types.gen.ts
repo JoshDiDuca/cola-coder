@@ -463,6 +463,45 @@ export interface SystemInfo {
   disk: DiskInfo;
 }
 
+export interface TokenizerHealthItem {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface TokenizerHealthReport {
+  path: string;
+  vocab_size: number;
+  checks: TokenizerHealthItem[];
+  passed: number;
+  failed: number;
+  ok: boolean;
+}
+
+export interface WeightTier {
+  label: string;
+  count: number;
+  pct: number;
+}
+
+export interface DataStats {
+  data_path: string;
+  file_size_mb: number;
+  shape: number[];
+  num_chunks: number;
+  seq_len?: number | null;
+  total_tokens: number;
+  token_min: number;
+  token_max: number;
+  token_mean: number;
+  est_unique_tokens?: number | null;
+  has_weights?: boolean;
+  weights_path?: string | null;
+  weight_tiers?: WeightTier[];
+  weight_mean?: number | null;
+  weight_std?: number | null;
+}
+
 export interface ApiError {
   error: string;
 }
@@ -500,3 +539,5 @@ export type ConfigDiffOrError = ConfigDiff | ApiError;
 export type SystemInfoOrError = SystemInfo | ApiError;
 export type PipelineRunDetailOrError = PipelineRunDetail | ApiError;
 export type PipelineDeleteResultOrError = PipelineDeleteResult | ApiError;
+export type TokenizerHealthReportOrError = TokenizerHealthReport | ApiError;
+export type DataStatsOrError = DataStats | ApiError;

@@ -23,120 +23,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT / "src"))
 
 from cola_coder.cli import cli  # noqa: E402
-from cola_coder.tokenizer.train_tokenizer import SPECIAL_TOKENS  # noqa: E402
-
-
-# ── Sample code snippets for token-length analysis ────────────────────────────
-
-_SAMPLE_SNIPPETS = [
-    # Python
-    """\
-def fibonacci(n: int) -> int:
-    if n <= 1:
-        return n
-    return fibonacci(n - 1) + fibonacci(n - 2)
-""",
-    # TypeScript
-    """\
-interface User {
-  id: number;
-  name: string;
-  email: string;
-}
-
-function getUser(id: number): Promise<User> {
-  return fetch(`/api/users/${id}`).then(r => r.json());
-}
-""",
-    # JavaScript
-    """\
-const sum = (arr) => arr.reduce((acc, x) => acc + x, 0);
-const average = (arr) => sum(arr) / arr.length;
-""",
-]
-
-# Required special tokens for cola-coder, derived from the canonical
-# SPECIAL_TOKENS list in tokenizer/train_tokenizer.py so this check can never
-# drift from what the tokenizer is actually trained with. The four core tokens
-# (<|pad|>, <|bos|>, <|eos|>, <|unk|>) are exactly the ones CodeTokenizer
-# validates as required on load; the FIM tokens (<|fim_*|>) are optional.
-_REQUIRED_SPECIAL_TOKENS = [t for t in SPECIAL_TOKENS if "fim" not in t]
-_FIM_SPECIAL_TOKENS = [t for t in SPECIAL_TOKENS if "fim" in t]
-
-# Reasoning thinking tokens — only present after reasoning training (optional).
-_THINKING_SPECIAL_TOKENS = ["<think>", "</think>"]
-
-# All optional tokens: present on a fully-featured tokenizer, absent on a
-# base one. Their absence is a note, not a failure.
-_OPTIONAL_SPECIAL_TOKENS = _FIM_SPECIAL_TOKENS + _THINKING_SPECIAL_TOKENS
-
-
-# ── Health check functions ─────────────────────────────────────────────────────
-
-def _check_vocab_size(tokenizer, expected: int | None) -> tuple[bool, str]:
-    """Check tokenizer vocabulary size."""
-    actual = tokenizer.get_vocab_size()
-    if expected is not None:
-        ok = actual == expected
-        msg = f"vocab_size = {actual:,} (expected {expected:,})"
-        return ok, msg
-    return True, f"vocab_size = {actual:,}"
-
-
-def _check_special_tokens(tokenizer) -> tuple[bool, str]:
-    """Check that required special tokens are present."""
-    vocab = tokenizer.get_vocab()
-    missing = [t for t in _REQUIRED_SPECIAL_TOKENS if t not in vocab]
-    optional_missing = [t for t in _OPTIONAL_SPECIAL_TOKENS if t not in vocab]
-    if missing:
-        return False, f"Missing required special tokens: {missing}"
-    note = ""
-    if optional_missing:
-        note = f" (optional missing: {optional_missing})"
-    return True, f"All {len(_REQUIRED_SPECIAL_TOKENS)} required special tokens present{note}"
-
-
-def _check_roundtrip(tokenizer) -> tuple[bool, str]:
-    """Test encode → decode roundtrip on each sample snippet."""
-    failures = []
-    for i, snippet in enumerate(_SAMPLE_SNIPPETS):
-        ids = tokenizer.encode(snippet).ids
-        decoded = tokenizer.decode(ids)
-        if decoded != snippet:
-            failures.append(
-                f"snippet[{i}]: original={len(snippet)} chars, "
-                f"decoded={len(decoded)} chars"
-            )
-    if failures:
-        return False, "Roundtrip failures: " + "; ".join(failures)
-    return True, f"Roundtrip OK on {len(_SAMPLE_SNIPPETS)} snippets"
-
-
-def _check_avg_token_length(tokenizer) -> tuple[bool, str]:
-    """Compute average characters-per-token on sample code."""
-    total_chars = 0
-    total_tokens = 0
-    for snippet in _SAMPLE_SNIPPETS:
-        ids = tokenizer.encode(snippet).ids
-        total_chars += len(snippet)
-        total_tokens += len(ids)
-    if total_tokens == 0:
-        return False, "No tokens produced from samples"
-    avg = total_chars / total_tokens
-    # Good BPE tokenizers produce ~3.5–5.5 chars/token on code
-    ok = 2.0 <= avg <= 8.0
-    return ok, f"avg chars/token = {avg:.2f} over {total_tokens} tokens"
-
-
-def _check_encode_speed(tokenizer) -> tuple[bool, str]:
-    """Quick encode throughput test."""
-    text = "\n".join(_SAMPLE_SNIPPETS) * 20  # ~1000 lines
-    t0 = time.perf_counter()
-    ids = tokenizer.encode(text).ids
-    elapsed = time.perf_counter() - t0
-    tps = len(ids) / max(elapsed, 1e-9)
-    ok = tps > 10_000  # 10k tokens/sec is a soft floor for sanity
-    return ok, f"encode speed = {tps:,.0f} tok/s ({len(ids):,} tokens in {elapsed*1000:.1f}ms)"
+from cola_coder.tokenizer.health import run_health_checks  # noqa: E402
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -181,29 +68,18 @@ def main() -> int:
         cli.error(f"Failed to load tokenizer: {exc}")
         return 1
 
-    # Run checks
-    checks = [
-        ("Vocab size", lambda: _check_vocab_size(tok, args.expected_vocab)),
-        ("Special tokens", lambda: _check_special_tokens(tok)),
-        ("Roundtrip encode/decode", lambda: _check_roundtrip(tok)),
-        ("Avg token length", lambda: _check_avg_token_length(tok)),
-        ("Encode speed", lambda: _check_encode_speed(tok)),
-    ]
+    # Run checks (shared library — same battery the web UI runs).
+    results = run_health_checks(tok, args.expected_vocab)
 
     passed = 0
     failed = 0
 
-    for name, check_fn in checks:
-        try:
-            ok, msg = check_fn()
-        except Exception as exc:
-            ok, msg = False, f"Exception: {exc}"
-
-        if ok:
-            cli.print(f"  [green]PASS[/green]  {name}: {msg}")
+    for result in results:
+        if result.ok:
+            cli.print(f"  [green]PASS[/green]  {result.name}: {result.detail}")
             passed += 1
         else:
-            cli.print(f"  [red]FAIL[/red]  {name}: {msg}")
+            cli.print(f"  [red]FAIL[/red]  {result.name}: {result.detail}")
             failed += 1
 
     cli.print("")
