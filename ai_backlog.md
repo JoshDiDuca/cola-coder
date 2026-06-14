@@ -388,6 +388,31 @@ cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N ve
   `build_teacher()` factory + configs/distillation.yaml + 15 tests. Remaining
   sub-tasks: MODEL-027 (in-process HF teacher), MODEL-028 (generate-data harness),
   then the OPD/SFT bridge + pipeline stage.
+  REFINED (2026-06-14, OPD research): formalize the bridge as dense KL-constrained RL —
+  the teacher's per-token log-ratio is an IMPLICIT dense reward (Yang 2026, arXiv:2604.13016);
+  use REVERSE-KL (mode-seeking, concentrates mass on correct code) with an entropy-aware
+  floor (reuse the MODEL-037 policy_entropy metric to detect collapse). The OPD loss is a
+  train-loop change → implement in a WORKTREE, never merge while small_react_best is live.
+  See IDEA-018 for densifying it with the sandbox verifier.
+- **MODEL-040** [model/distillation, medium] `done` (2026-06-14) — **always-on security
+  screen in distillation data-gen.** `generate_distillation_dataset` rejection-sampled only
+  on functional `verify`; with `verify=None` it KEPT dangerous teacher code verbatim (would
+  distill e.g. `os.system('rm -rf /')`). Added `screen_security=True` (default): every teacher
+  completion is statically screened by the canonical `scan_dangerous` (SEC-018) and dropped
+  BEFORE functional verify, independent of keep_only_verified; new `rejected_insecure` stat
+  surfaced in the CLI summary. Defence-in-depth not dependent on the caller wiring security
+  into `verify`; removed the now-redundant inline `is_dangerous` from
+  scripts/generate_distillation_data.py (DRY). Static/execution-free → committed on main.
+  Tests: test_distillation_generate.py reworked +4 (default-on drops dangerous, screen
+  precedes verify, off-switch keeps raw + never executes, verify path isolated); 11 pass, ruff green.
+- **IDEA-018** [research/post-training, high-potential] `open` (2026-06-14, ORIGINAL) —
+  **verifier-densified distillation reward.** OPD's edge is a DENSE per-token teacher reward
+  vs the verifier's SPARSE end-of-sequence score. cola-coder has BOTH a teacher and a sandbox
+  verifier + best-of-N. Blend: teacher per-token log-ratio = dense shaping reward for credit
+  assignment, but GATE the episode return by the sandbox verifier (only reinforce student
+  rollouts that pass tsc/tests), up-weighted by quality weights. Dense teacher signal + hard
+  ground-truth gate — neither the OPD papers (no verifier) nor pure GRPO (sparse only) has
+  both. Builds on MODEL-024 + GRPO loop + best-of-N. Train-path → worktree when implemented.
 - **MODEL-027** [model/distillation, medium] `open` — In-process HuggingFace teacher
   backend (`backend: hf_local`) that loads Qwen/DeepSeek weights via transformers on
   a CHOSEN device (e.g. the spare RTX 3080, never the training GPU), for users who'd

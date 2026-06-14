@@ -7,6 +7,53 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — On-policy distillation (rotate: post-training)
+
+Sources:
+- On-Policy Distillation — Thinking Machines Lab — https://thinkingmachines.ai/blog/on-policy-distillation/
+- Rethinking On-Policy Distillation of LLMs (phenomenology/mechanism/recipe) — https://arxiv.org/html/2604.13016v1
+- A Survey of On-Policy Distillation for LLMs — https://arxiv.org/html/2604.00626v3
+- Learning from Self-Generated Mistakes (MiniLLM/GKD lineage) — https://arxiv.org/pdf/2306.13649
+- Entropy-Aware On-Policy Distillation — https://arxiv.org/pdf/2603.07079
+
+Findings:
+- **OPD fixes off-policy distribution mismatch.** Classic SeqKD (the project's current
+  pipeline: teacher writes solutions, student SFTs on them) trains the student on the
+  TEACHER's distribution; at inference the student samples its OWN distribution → mismatch.
+  OPD instead has the STUDENT generate, then the teacher grades each student token
+  (reverse-KL, mode-seeking) — matching RL-quality reasoning at ~10× lower compute than GRPO.
+- **Mechanism (Yang 2026):** OPD = a special case of dense KL-constrained RL; the teacher's
+  per-token log-ratio is an IMPLICIT dense reward. So OPD ≈ GRPO with a free, dense,
+  per-token reward signal instead of a sparse end-of-sequence verifier score.
+- **Reverse-KL is mode-seeking** → concentrates mass on correct solutions (good for code/
+  math); entropy-aware variants (EOPD) re-inject diversity to avoid collapse (ties to the
+  MODEL-037 entropy metric — same failure mode).
+- **Caveat:** full OPD needs token-level teacher logprobs + a training loop → train-path
+  (worktree-only while live). MODEL-024 refined with these findings; the dense-reward framing
+  also strengthens IDEA-018 below.
+
+**Implemented this cycle (MODEL-040, distillation data-gen — main-safe):** always-on security
+screen in `generate_distillation_dataset`. The pipeline rejection-sampled only on FUNCTIONAL
+`verify` (tsc/tests), and with `verify=None` it KEPT dangerous teacher code verbatim (a real
+hole: distilling `os.system('rm -rf /')`). Added `screen_security=True` (default) — every
+teacher completion is statically screened by the canonical `scan_dangerous` (SEC-018) and
+dropped BEFORE functional verify, regardless of keep_only_verified; new `rejected_insecure`
+stat. Defence-in-depth that no longer depends on the caller wiring security into `verify`
+(the CLI's redundant inline check was removed — DRY). Static, execution-free → main-safe.
++4 tests (11 distillation pass), ruff green.
+
+**ORIGINAL cross-technique idea (IDEA-018): verifier-densified distillation reward.** OPD's
+power is a DENSE per-token teacher reward vs the verifier's SPARSE end-of-sequence score.
+cola-coder has BOTH a teacher (local/cloud) AND a sandbox verifier + best-of-N. Idea: blend
+them — use the teacher's per-token log-ratio as the dense shaping reward, but GATE the
+episode return by the sandbox verifier (only reinforce student rollouts that actually pass
+tsc/tests), and up-weight by quality weights. Dense teacher signal for credit assignment +
+hard ground-truth gate for correctness — neither the OPD papers (no verifier) nor pure GRPO
+(sparse only) has both. Pairs the teacher with the verifier. Builds on MODEL-024 + the GRPO
+loop + best-of-N. → IDEA-018.
+
+---
+
 ## 2026-06-14 — Transformer stability frontier (rotate: architecture)
 
 Sources:

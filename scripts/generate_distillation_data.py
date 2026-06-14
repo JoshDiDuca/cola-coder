@@ -84,27 +84,19 @@ def main() -> None:
         prompts = prompts[: args.limit]
     cli.info(f"Prompts: {len(prompts)}")
 
+    # The dangerous-pattern security screen is ALWAYS-ON inside
+    # generate_distillation_dataset (screen_security=True) — we never distill
+    # insecure code regardless of this flag. --verify adds FUNCTIONAL
+    # verification (sandboxed tsc --strict, TS only) on top.
     verify = None
     if args.verify or gen_cfg.get("verify"):
-        from cola_coder.security.code_patterns import is_dangerous, scan_dangerous
-
-        ts_verify = _make_ts_verifier() if args.language == "ts" else None
-
-        def verify(completion: str) -> bool:
-            # SECURITY SCREEN (always when verifying): reject completions with
-            # dangerous patterns so we never DISTILL insecure code into the
-            # student — functional code is often insecure (secure-pass@1 is low),
-            # so tsc/tests alone aren't enough. Static, no execution.
-            if is_dangerous(completion):
-                return False
-            # Functional verification (TS only): sandboxed tsc --strict.
-            return ts_verify(completion) if ts_verify is not None else True
-
-        _ = scan_dangerous  # (available for richer logging if needed)
-        if ts_verify is not None:
-            cli.info("Verification: security screen + sandboxed tsc --strict (rejection sampling)")
+        verify = _make_ts_verifier() if args.language == "ts" else None
+        if verify is not None:
+            cli.info("Verification: always-on security screen + sandboxed tsc --strict")
         else:
-            cli.info("Verification: dangerous-pattern security screen (rejection sampling)")
+            cli.info("Verification: always-on dangerous-pattern security screen only")
+    else:
+        cli.info("Verification: always-on dangerous-pattern security screen only")
 
     records, stats = generate_distillation_dataset(
         teacher,
@@ -126,8 +118,9 @@ def main() -> None:
         "prompts": stats["prompts"],
         "teacher_ok": stats["teacher_ok"],
         "teacher_errors": stats["teacher_errors"],
+        "rejected (insecure)": stats["rejected_insecure"],
         "verified": stats["verified"],
-        "rejected": stats["rejected"],
+        "rejected (unverified)": stats["rejected"],
         "kept (written)": stats["kept"],
         "output": str(out),
     })

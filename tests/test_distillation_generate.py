@@ -86,23 +86,50 @@ def test_empty_completion_skipped():
     assert stats["teacher_errors"] == 2 and stats["kept"] == 1
 
 
-def test_security_screen_rejects_dangerous_completion():
-    # The CLI wires verify to reject dangerous patterns; here we use the same
-    # screen as the verifier to confirm dangerous teacher output is dropped.
-    from cola_coder.security.code_patterns import is_dangerous
-
-    teacher = _FakeTeacher(["const x = 1;", "import {exec} from 'child_process'; exec(cmd)"])
+def test_verify_rejection_path_isolated():
+    # With the built-in security screen off, verify is the sole gate (functional).
+    teacher = _FakeTeacher(["good", "bad", "good"])
     records, stats = generate_distillation_dataset(
-        teacher, ["safe", "dangerous"], verify=lambda c: not is_dangerous(c),
+        teacher, ["a", "b", "c"],
+        verify=lambda c: c == "good", screen_security=False,
     )
-    assert len(records) == 1
-    assert records[0]["messages"][-1]["content"] == "const x = 1;"
+    assert len(records) == 2
     assert stats["rejected"] == 1
 
 
-def test_loop_never_executes_completion():
-    # The completion is "malicious" code; with no verifier the loop must NOT run it.
+def test_security_screen_on_by_default_drops_dangerous():
+    # Default screen_security=True: dangerous teacher code is dropped even with
+    # no verifier — the caller need not wire security into verify.
+    teacher = _FakeTeacher(["const x = 1;", "import {exec} from 'child_process'; exec(cmd)"])
+    records, stats = generate_distillation_dataset(teacher, ["safe", "dangerous"])
+    assert len(records) == 1
+    assert records[0]["messages"][-1]["content"] == "const x = 1;"
+    assert stats["rejected_insecure"] == 1
+    assert stats["kept"] == 1
+
+
+def test_security_screen_precedes_verify():
+    # Dangerous code is dropped by the security gate BEFORE functional verify runs,
+    # so it never counts toward verified/rejected.
+    teacher = _FakeTeacher(["os.system('rm -rf /')"])
+    seen: list[str] = []
+
+    def _verify(c: str) -> bool:
+        seen.append(c)  # must NOT be called for the dangerous completion
+        return True
+
+    records, stats = generate_distillation_dataset(teacher, ["x"], verify=_verify)
+    assert records == []
+    assert stats["rejected_insecure"] == 1
+    assert stats["verified"] == 0 and stats["rejected"] == 0
+    assert seen == []  # verify never saw the dangerous completion
+
+
+def test_security_screen_off_keeps_raw_and_never_executes():
+    # screen_security=False preserves raw passthrough; the loop still never
+    # EXECUTES the completion (it's only stored as text).
     teacher = _FakeTeacher(["import os; os.system('rm -rf /')"])
-    records, _ = generate_distillation_dataset(teacher, ["x"])  # verify=None
+    records, _ = generate_distillation_dataset(
+        teacher, ["x"], screen_security=False,  # verify=None
+    )
     assert records[0]["messages"][-1]["content"] == "import os; os.system('rm -rf /')"
-    # (nothing executed — it's just stored as text)

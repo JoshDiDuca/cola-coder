@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 
+from ..security.code_patterns import scan_dangerous
 from .teacher import Teacher, TeacherError
 
 # A prompt is either a raw user string or a ready ChatML message list.
@@ -46,6 +47,7 @@ def generate_distillation_dataset(
     system: str | None = None,
     verify: Callable[[str], bool] | None = None,
     keep_only_verified: bool = True,
+    screen_security: bool = True,
 ) -> tuple[list[dict], dict]:
     """Generate (and optionally verify) distillation records.
 
@@ -55,9 +57,17 @@ def generate_distillation_dataset(
         verify: optional callable taking the teacher's completion and returning
             True if it passes (e.g. tsc/tests). MUST run untrusted code only in a
             sandbox — this function never executes anything itself. None = no
-            verification (all kept).
+            functional verification (all functionally kept).
         keep_only_verified: when True and ``verify`` is given, drop completions
             that fail verification (rejection sampling).
+        screen_security: when True (default), statically screen every teacher
+            completion with the canonical ``scan_dangerous`` scanner and DROP any
+            that trip a dangerous pattern — BEFORE functional verification and
+            regardless of ``keep_only_verified``. A teacher routinely emits
+            working-but-insecure code (the secure-pass@k gap, SEC-018/EVAL-024);
+            distilling it teaches the student to write vulnerabilities. This is a
+            static (no-execution) defence-in-depth gate that does not rely on the
+            caller wiring security into ``verify``. Set False to keep raw output.
 
     Returns:
         ``(records, stats)`` where records are ChatML ``{"messages": [...]}`` dicts
@@ -68,6 +78,7 @@ def generate_distillation_dataset(
         "prompts": len(prompts),
         "teacher_ok": 0,
         "teacher_errors": 0,
+        "rejected_insecure": 0,
         "verified": 0,
         "rejected": 0,
         "kept": 0,
@@ -85,6 +96,13 @@ def generate_distillation_dataset(
             stats["teacher_errors"] += 1
             continue
         stats["teacher_ok"] += 1
+
+        # Security gate (static, no execution): never distill dangerous code,
+        # even if it would pass functional verification. Independent of
+        # keep_only_verified — insecure output is never a desirable target.
+        if screen_security and scan_dangerous(completion):
+            stats["rejected_insecure"] += 1
+            continue
 
         if verify is not None:
             passed = bool(verify(completion))
