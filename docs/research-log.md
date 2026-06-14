@@ -7,6 +7,42 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Adaptive-depth / early-exit inference (rotate: architecture/inference)
+
+**Sources (2025–2026):**
+- *TIDE: Token-Informed Depth Execution for Per-Token Early Exit* — https://arxiv.org/html/2603.21365.
+  Lightweight binary routers at checkpoint layers; exit at the first layer whose hidden state has
+  converged (cosine ≥ 0.98 to final). NO retraining (calibrated on 2k samples, ~4 MB). 5.5–8.1%
+  latency gains; 98–99% of decode tokens exit at intermediate layers, reasoning preserved.
+- *Adaptive Layer-skipping in Pre-trained LLMs (FlexiDepth)* — https://arxiv.org/pdf/2503.23798.
+  Per-token skip decisions; token difficulty is heterogeneous (boilerplate skips deep layers,
+  rare/reasoning tokens need full depth). ~20–30% speedup at comparable HumanEval/MMLU/GSM8K.
+- *Think Just Enough: Sequence-Level Entropy as a Confidence Signal* — https://arxiv.org/pdf/2510.08146.
+  Training-free entropy gate to halt computation when confident.
+
+**Summary:** LLMs spend uniform compute (all N layers) per token, but most next-token predictions
+stabilize before the last layer. Early-exit measures per-token convergence depth via logit-lens
+agreement, hidden-state cosine convergence, or prediction entropy — and depth-need is token-TYPE
+dependent.
+
+**Original idea / hypothesis (cola-coder-specific cross-technique) → INFER-031 / EVAL-032 (filed):**
+**Verifier-stratified depth profiling.** No early-exit paper has an execution verifier; cola-coder
+does. Cross a logit-lens depth probe (reusing `Transformer.get_hidden_states` + the TIED output head
+— zero new weights) with the sandbox verifier + EVAL-026 difficulty tiers: record per-token
+convergence depth, stratify by token region (boilerplate vs the asserted/correctness-critical line)
+and by verifier-effort tier. Hypothesis no public harness can test: the tokens that DECIDE functional
+correctness converge later / at higher entropy than boilerplate — a correctness-grounded depth map
+that could later justify a safe per-token early-exit floor (INFER-032, worktree). Filed for a future
+cycle (main-safe analysis module `evaluation/depth_profile.py` + script + eval-menu entry).
+
+**Implemented this cycle (EVAL-031 — eval, main-safe):** stratified robustness. `robustness_eval.py`
+now accepts an injected `difficulty_tiers` map and reports `by_tier` (per verifier-effort tier:
+n, robust_pass@1, consistency, bootstrap CI) plus an overall robust_pass@1 CI — all DRY on
+`bootstrap_pass_at_k` (single-sample `ProblemResult`s, k=1) and `difficulty_profile.TIERS`.
+`scripts/robustness_eval.py` gains `--by-difficulty` (per-tier table via `cli.kv_table`). +11 tests;
+EVAL-030's 8 tests intact (back-compat). Closes the robustness→difficulty loop (answers "is the model
+more fragile on harder problems, and is the drop credible?").
+
 ## 2026-06-14 — Robustness to input perturbation for code gen (rotate: safety/robustness)
 
 **Sources (2025–2026):**

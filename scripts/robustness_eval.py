@@ -55,6 +55,10 @@ def main() -> None:
         "--ci", action="store_true",
         help="Attach a bootstrap confidence interval to robust_pass@1",
     )
+    parser.add_argument(
+        "--by-difficulty", action="store_true",
+        help="Stratify robust_pass@1 by each problem's difficulty tier (EVAL-031)",
+    )
     args = parser.parse_args()
 
     kinds = [k.strip() for k in args.kinds.split(",") if k.strip()]
@@ -88,12 +92,19 @@ def main() -> None:
             top_p=0.9,
         )
 
+    # EVAL-031: build a task_id -> difficulty-tier mapping from the problem set's
+    # static difficulty tags so stratification stays decoupled (injected mapping).
+    difficulty_tiers = (
+        {p.task_id: p.difficulty for p in ps} if args.by_difficulty else None
+    )
+
     report = evaluate_robustness(
         generate_fn,
         ps,
         kinds=kinds,
         max_new_tokens=args.max_tokens,
         compute_ci=args.ci,
+        difficulty_tiers=difficulty_tiers,
     )
 
     cli.rule("Results")
@@ -107,6 +118,18 @@ def main() -> None:
         _, lo, hi = report.robust_pass_at_1_ci
         summary["robust_pass@1 CI"] = f"[{lo:.1%} – {hi:.1%}]"
     cli.kv_table(summary, title="Robustness Metrics")
+
+    if report.by_tier:
+        cli.rule("By difficulty tier")
+        rows = {}
+        for tier, stats in report.by_tier.items():
+            cell = f"{stats['robust_pass_at_1']:.1%}"
+            if stats["ci"] is not None:
+                _, lo, hi = stats["ci"]
+                cell += f"  [{lo:.1%} – {hi:.1%}]"
+            cell += f"   (n={stats['n']}, consistency {stats['consistency_rate']:.1%})"
+            rows[tier] = cell
+        cli.kv_table(rows, title="robust_pass@1 by tier")
 
     if report.fragile_task_ids:
         cli.warn(

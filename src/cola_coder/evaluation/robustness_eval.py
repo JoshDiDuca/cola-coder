@@ -28,11 +28,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
 
+from .difficulty_profile import TIERS
 from .metrics import ProblemResult, bootstrap_pass_at_k
 from .perturbations import ALL_KINDS, PerturbedProblem, perturb_docstring
 from .runner import evaluate_solution, extract_function
 
 GenerateFn = Callable[[str], str]
+
+# Bucket for problems whose difficulty tier was not supplied / is unrecognized.
+UNKNOWN_TIER = "unknown"
 
 
 @dataclass
@@ -50,6 +54,11 @@ class RobustnessReport:
     per_problem: list[dict] = field(default_factory=list)
     robust_pass_at_1_ci: tuple[float, float, float] | None = None
     num_problems: int = 0
+    # EVAL-031: per-difficulty-tier breakdown. Empty unless a tier mapping was
+    # supplied. Each value is a dict: {"n", "robust_pass_at_1", "consistency_rate",
+    # "ci": (point, lo, hi) | None}. Keys are difficulty tier labels (see
+    # ``difficulty_profile.TIERS``) plus ``UNKNOWN_TIER`` for unmapped problems.
+    by_tier: dict[str, dict] = field(default_factory=dict)
 
 
 def _grade(
@@ -81,6 +90,7 @@ def evaluate_robustness(
     compute_ci: bool = False,
     n_boot: int = 10_000,
     ci: float = 0.95,
+    difficulty_tiers: dict[str, str] | None = None,
 ) -> RobustnessReport:
     """Measure functional robustness under semantically-preserving rewordings.
 
@@ -91,8 +101,16 @@ def evaluate_robustness(
         seed: Seed forwarded to ``perturb_docstring`` for reproducibility.
         max_new_tokens: Generation budget (forwarded to the verifier path only via
             extraction; ``generate_fn`` owns generation, so this is advisory).
-        compute_ci: When True, attach a bootstrap CI on robust_pass@1.
+        compute_ci: When True, attach a bootstrap CI on robust_pass@1 (overall, and
+            per tier when ``difficulty_tiers`` is supplied).
         n_boot, ci: Bootstrap parameters (only used when ``compute_ci``).
+        difficulty_tiers: Optional ``task_id -> tier`` mapping (EVAL-031). When
+            supplied, the report's ``by_tier`` is populated with per-tier
+            robust_pass@1, consistency, n, and (when ``compute_ci``) a bootstrap CI.
+            Tiers come from the caller (e.g. EVAL-026 verifier-effort tiers); this
+            keeps the function decoupled from best-of-N data and hermetically
+            testable. A ``task_id`` missing from the mapping (or with an
+            unrecognized tier) falls into the ``UNKNOWN_TIER`` bucket.
 
     Returns:
         A populated ``RobustnessReport``.
@@ -124,6 +142,7 @@ def evaluate_robustness(
         if is_fragile:
             fragile.append(problem.task_id)
 
+        tier = _resolve_tier(problem.task_id, difficulty_tiers)
         per_problem.append(
             {
                 "task_id": problem.task_id,
@@ -133,6 +152,7 @@ def evaluate_robustness(
                 "fragile": is_fragile,
                 "num_variants": len(variants),
                 "verdicts": verdicts,
+                "tier": tier,
             }
         )
 
@@ -142,18 +162,13 @@ def evaluate_robustness(
 
     robust_ci: tuple[float, float, float] | None = None
     if compute_ci and n:
-        # Reuse the existing bootstrap (DRY): model each problem as a single-sample
-        # ProblemResult whose "correct" count is its robust verdict, then pass@1 of
-        # that set IS robust_pass@1, and its bootstrap CI is the robust CI.
-        results = [
-            ProblemResult(
-                task_id=p["task_id"],
-                num_samples=1,
-                num_correct=1 if p["robust_pass"] else 0,
-            )
-            for p in per_problem
-        ]
-        robust_ci = bootstrap_pass_at_k(results, k=1, n_boot=n_boot, ci=ci, seed=seed)
+        robust_ci = _bootstrap_robust_ci(per_problem, n_boot=n_boot, ci=ci, seed=seed)
+
+    by_tier: dict[str, dict] = {}
+    if difficulty_tiers is not None:
+        by_tier = _stratify_by_tier(
+            per_problem, compute_ci=compute_ci, n_boot=n_boot, ci=ci, seed=seed
+        )
 
     return RobustnessReport(
         robust_pass_at_1=robust_pass_at_1,
@@ -162,4 +177,77 @@ def evaluate_robustness(
         per_problem=per_problem,
         robust_pass_at_1_ci=robust_ci,
         num_problems=n,
+        by_tier=by_tier,
     )
+
+
+def _resolve_tier(task_id: str, difficulty_tiers: dict[str, str] | None) -> str:
+    """Map a task_id to its difficulty tier, defaulting to ``UNKNOWN_TIER``.
+
+    A missing mapping, an absent task_id, or a tier label not in
+    ``difficulty_profile.TIERS`` all resolve to ``UNKNOWN_TIER`` (never crashes).
+    """
+    if not difficulty_tiers:
+        return UNKNOWN_TIER
+    tier = difficulty_tiers.get(task_id)
+    return tier if tier in TIERS else UNKNOWN_TIER
+
+
+def _bootstrap_robust_ci(
+    rows: list[dict],
+    n_boot: int,
+    ci: float,
+    seed: int,
+) -> tuple[float, float, float] | None:
+    """Bootstrap CI on robust_pass@1 for a set of per-problem rows.
+
+    Reuses the existing bootstrap (DRY): model each problem as a single-sample
+    ``ProblemResult`` whose "correct" count is its robust verdict, so pass@1 of that
+    set IS robust_pass@1 and its bootstrap CI is the robust CI.
+    """
+    results = [
+        ProblemResult(
+            task_id=row["task_id"],
+            num_samples=1,
+            num_correct=1 if row["robust_pass"] else 0,
+        )
+        for row in rows
+    ]
+    return bootstrap_pass_at_k(results, k=1, n_boot=n_boot, ci=ci, seed=seed)
+
+
+def _stratify_by_tier(
+    per_problem: list[dict],
+    compute_ci: bool,
+    n_boot: int,
+    ci: float,
+    seed: int,
+) -> dict[str, dict]:
+    """Group per-problem rows by difficulty tier and aggregate per-tier metrics.
+
+    Tiers are emitted in ``difficulty_profile.TIERS`` order, with ``UNKNOWN_TIER``
+    last; only tiers that actually have problems appear. Each entry carries ``n``,
+    ``robust_pass_at_1``, ``consistency_rate`` and (when ``compute_ci``) a bootstrap
+    ``ci`` of ``(point, lo, hi)`` on robust_pass@1 (``None`` otherwise).
+    """
+    grouped: dict[str, list[dict]] = {}
+    for row in per_problem:
+        grouped.setdefault(row["tier"], []).append(row)
+
+    ordered = [t for t in (*TIERS, UNKNOWN_TIER) if t in grouped]
+    out: dict[str, dict] = {}
+    for tier in ordered:
+        rows = grouped[tier]
+        n = len(rows)
+        tier_ci = (
+            _bootstrap_robust_ci(rows, n_boot=n_boot, ci=ci, seed=seed)
+            if compute_ci
+            else None
+        )
+        out[tier] = {
+            "n": n,
+            "robust_pass_at_1": sum(1 for r in rows if r["robust_pass"]) / n,
+            "consistency_rate": sum(1 for r in rows if r["consistent"]) / n,
+            "ci": tier_ci,
+        }
+    return out

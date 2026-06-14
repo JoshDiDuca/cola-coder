@@ -61,8 +61,24 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   `robustness_eval.py` (`robust_pass@1` worst-case, consistency_rate, fragility map; reuses the
   sandbox verifier + `bootstrap_pass_at_k`) + `scripts/robustness_eval.py` + eval-menu entry.
   +25 tests. Main-safe.
-- **EVAL-031** [eval, medium] `open` — Stratify robustness by verifier-effort difficulty tier
-  (EVAL-026) + bootstrap CI (EVAL-028) on robust_pass@1: "more fragile on harder problems, and is the drop credible?"
+- **EVAL-031** [eval, medium] `done` (2026-06-14) — Stratify robustness by verifier-effort tier
+  + bootstrap CI on robust_pass@1. `robustness_eval.py` `by_tier` (n/robust_pass@1/consistency/CI per
+  tier) + overall CI; `scripts/robustness_eval.py --by-difficulty`. DRY on bootstrap_pass_at_k +
+  difficulty_profile.TIERS. +11 tests, EVAL-030's 8 intact.
+
+### Inference / architecture (2026-06-14, researched — filed for future cycles)
+- **INFER-031** [inference, enhancement] `open` — Logit-lens per-token depth/convergence profiler
+  (`evaluation/depth_profile.py` + script + eval-menu): where predictions commit; reuses
+  `Transformer.get_hidden_states` + tied head, no new weights. Main-safe.
+- **EVAL-032** [eval, enhancement] `open` — Verifier-stratified depth map: cross depth_profile with
+  EVAL-026 tiers + assert-region token map — do correctness-critical tokens converge later than boilerplate?
+- **INFER-032** [inference, research/WORKTREE] `open` — Opt-in per-token early-exit decode gated by a
+  convergence threshold + exec-validated safe-layer floor, A/B'd on HumanEval pass@1 + CI (EVAL-028).
+
+### UI (2026-06-14)
+- **UI-024..025** [ui, high] `done` (2026-06-14) — Batch 7 (parallel agents): tokenizer playground
+  (POST `/api/tokenize` — encode text → ids/token pieces, GPU-free) + project-health checklist
+  (`/api/health`, filesystem checks → 0-100 score). 31 `/api` routes. +24 UI tests, tsc+vite green.
 - **DATA-068** [data curation, medium] `open` — Robustness-driven augmentation: feed fragile
   (clean-pass/perturbed-fail) problems' reworded docstrings back as paraphrase-augmented SFT
   prompts paired with the verified solution (ties EVAL-030 → RFT/SFT flywheel; WORKTREE — train data).
