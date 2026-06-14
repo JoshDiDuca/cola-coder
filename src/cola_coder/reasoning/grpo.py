@@ -165,6 +165,28 @@ def _completion_logprob_sum(
     return _completion_logprobs(token_log_probs, prompt_len).sum()
 
 
+def completion_entropy(log_probs_2d: torch.Tensor, prompt_len: int) -> torch.Tensor:
+    """Mean per-token Shannon entropy (nats) over completion positions.
+
+    ``log_probs_2d[j]`` is the full-vocab log-softmax distribution that scores
+    token j+1 — i.e. ``F.log_softmax(logits, dim=-1)[0, :-1]``. Only completion
+    positions (j >= prompt_len - 1) count, mirroring ``_completion_logprobs``,
+    so the prompt context is excluded from the reading.
+
+    Entropy collapse is the dominant RLVR failure mode (the policy converges to a
+    near-deterministic argmax, killing exploration); it shows up as this value
+    trending toward 0. Logging it makes the clip_low / clip_high knobs — which
+    raise / lower entropy respectively (arXiv:2509.26114) — actually actionable.
+
+    Returns a 0-D tensor (0.0 when there are no completion positions).
+    """
+    start = max(prompt_len - 1, 0)
+    if start >= log_probs_2d.shape[0]:
+        return log_probs_2d.new_zeros(())
+    comp = log_probs_2d[start:]  # [n_comp, vocab]
+    return -(comp.exp() * comp).sum(dim=-1).mean()
+
+
 def grpo_clipped_surrogate(
     new_logp: torch.Tensor,
     old_logp: torch.Tensor,
@@ -494,6 +516,8 @@ class GRPOTrainer:
         )
 
         last_loss = 0.0
+        entropy_sum = 0.0
+        entropy_count = 0
         for _epoch in range(self.ppo_epochs):
             self.optimizer.zero_grad()
             total_loss = 0.0
@@ -510,6 +534,15 @@ class GRPOTrainer:
                         1, input_tensor[0, 1:].unsqueeze(1)
                     ).squeeze(1)
                     new_logp = _completion_logprobs(token_log_probs, prompt_len)
+
+                # Measure policy entropy once, on the first epoch (weights still
+                # == pi_old), so the reading reflects the policy entering the
+                # update. Detached — purely diagnostic (RLVR entropy collapse).
+                if _epoch == 0 and log_probs.shape[1] - 1 > max(prompt_len - 1, 0):
+                    entropy_sum += float(
+                        completion_entropy(log_probs[0, :-1], prompt_len).detach()
+                    )
+                    entropy_count += 1
 
                 # Per-token clipped surrogate (fp32 for a stable exp).
                 surrogate = grpo_clipped_surrogate(
@@ -541,6 +574,7 @@ class GRPOTrainer:
             "group_size": self.group_size,
             "pass_rate": num_correct / self.group_size,
             "num_security_penalized": num_penalized,
+            "policy_entropy": entropy_sum / entropy_count if entropy_count else 0.0,
         }
 
     def train_step_resampled(
@@ -661,6 +695,7 @@ class GRPOTrainer:
                 "mean_reward": 0.0,
                 "total_correct": 0,
                 "total_generated": 0,
+                "policy_entropy": 0.0,
             }
             # Per-difficulty counters for curriculum reporting
             diff_correct: dict[str, int] = {}
@@ -681,6 +716,7 @@ class GRPOTrainer:
                 epoch_metrics["mean_reward"] += metrics["mean_reward"]
                 epoch_metrics["total_correct"] += metrics["num_correct"]
                 epoch_metrics["total_generated"] += metrics["group_size"]
+                epoch_metrics["policy_entropy"] += metrics.get("policy_entropy", 0.0)
 
                 diff_correct[difficulty] = (
                     diff_correct.get(difficulty, 0) + metrics["num_correct"]
@@ -699,7 +735,8 @@ class GRPOTrainer:
                 f"Epoch {epoch + 1}: "
                 f"loss={epoch_metrics['loss']/n:.4f}, "
                 f"mean_reward={epoch_metrics['mean_reward']/n:.3f}, "
-                f"pass_rate={overall_pass:.1%}"
+                f"pass_rate={overall_pass:.1%}, "
+                f"entropy={epoch_metrics['policy_entropy']/n:.3f}"
             )
             if curriculum and len(diff_total) > 1:
                 for diff in ("easy", "medium", "hard"):

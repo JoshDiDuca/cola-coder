@@ -7,6 +7,48 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — RLVR entropy dynamics (rotate: post-training / RLVR)
+
+Sources:
+- Clip-Low raises / Clip-High lowers entropy in RL of LLMs — https://arxiv.org/pdf/2509.26114
+- Hidden Costs & Measurement Gaps of RLVR — https://arxiv.org/html/2509.21882
+- Rethinking Entropy Interventions in RLVR (entropy-change view) — https://arxiv.org/abs/2510.10150
+- RLVR implicitly incentivizes correct reasoning in base LLMs — https://arxiv.org/abs/2506.14245
+
+Findings:
+- **Entropy collapse is THE dominant RLVR failure mode.** Under verifiable-reward RL
+  the policy quickly converges to a near-deterministic argmax, killing exploration and
+  stalling further gains. Most prior fixes (KL term, temperature tweaks) are heuristic.
+- **The clip asymmetry is a mechanistic entropy knob (2509.26114, Thm 1-2):** the PPO/GRPO
+  *lower* clip (on negative-advantage tokens) restrains probability *decrease* → preserves
+  mass → **raises entropy**; the *upper* clip (on positive-advantage tokens) limits
+  probability *increase* → **lowers entropy**. So `clip_low` and `clip_high` aren't just a
+  trust region — they directly steer the entropy trajectory. The project already supports
+  asymmetric clips (DAPO clip-higher 0.2/0.28); what it lacked was the *observable* to
+  drive them.
+- **Measurement gap (2509.21882):** RLVR pipelines routinely DON'T log policy entropy, so
+  collapse is invisible until pass-rate flatlines. Cheap to fix — entropy is one extra
+  reduction over the log-softmax you already compute.
+
+**Implemented this cycle (MODEL-037):** `completion_entropy(log_probs_2d, prompt_len)` —
+mean per-token Shannon entropy (nats) over completion positions only (prompt masked,
+mirroring `_completion_logprobs`). Wired into `GRPOTrainer.train_step` (measured once at
+PPO epoch 0, where weights == pi_old) → returned as `policy_entropy`, aggregated per epoch,
+and printed alongside loss/reward/pass_rate. +6 tests. Off the live *pretraining* path
+(GRPO is reasoning-only) → committed on main.
+
+**ORIGINAL cross-technique idea (IDEA-013): entropy-gated closed-loop clip controller.**
+Now that `policy_entropy` is observable every step, make the clip asymmetry self-tuning:
+hold a target entropy floor; when measured entropy drops below it, nudge `clip_low` UP
+(raises entropy per 2509.26114) and/or `clip_high` DOWN; when it's healthy, relax back
+toward the DAPO defaults. A PI controller on the entropy error turns the static
+0.2/0.28 into a self-stabilizing RLVR loop — and because cola-coder rewards are
+*verifier-grounded* (sandbox tests/tsc), the controller can be pass-rate-aware: only
+inject exploration (raise entropy) when entropy is low AND pass-rate hasn't saturated,
+avoiding wasted exploration once the verifier is already satisfied. → IDEA-013.
+
+---
+
 ## 2026-06-14 — Data efficacy & folding curriculum (rotate: data curation)
 
 Sources:

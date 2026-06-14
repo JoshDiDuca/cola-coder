@@ -248,6 +248,26 @@ EVERY scenario. SEC-001/SEC-010 fixed timeout-kill + all-exit cleanup; the rest:
   frequency by 4·p·(1−p) so frontier data recurs most often — a DELT-style efficacy gain
   using the sandbox verifier + best-of-N + quality weights that the source papers lack.
   Builds on DATA-058 (folding infra) + the best-of-N verifier. Prep-time → main-safe.
+- **MODEL-037** [model/post-training, medium] `done` (2026-06-14) — **GRPO policy-entropy
+  metric** (RLVR entropy-collapse instrumentation; arXiv:2509.26114, 2509.21882). Added
+  `completion_entropy(log_probs_2d, prompt_len)` to grpo.py: mean per-token Shannon
+  entropy (nats) over completion positions only (prompt masked, mirrors
+  `_completion_logprobs`). `train_step` measures it once at PPO epoch 0 (weights==pi_old)
+  → returns `policy_entropy`; the epoch loop aggregates + prints it next to
+  loss/reward/pass_rate. Makes entropy collapse — the dominant RLVR failure mode —
+  observable, so the existing asymmetric clip_low/clip_high knobs become actionable
+  (clip-low raises entropy, clip-high lowers it). GRPO is reasoning-only = off the live
+  PRETRAINING path → committed on main. Tests: test_grpo_entropy.py +6 (uniform→ln V,
+  near-deterministic→~0, prompt-exclusion, no-completion→0, manual-match, non-negative);
+  28 grpo tests + ruff green. Follow-up: IDEA-013 (close the loop on this metric).
+- **IDEA-013** [research/post-training, high-potential] `open` (2026-06-14, ORIGINAL) —
+  **entropy-gated closed-loop clip controller.** Use the new `policy_entropy` signal to
+  auto-tune the GRPO clip asymmetry: a PI controller holds a target entropy floor —
+  entropy below floor → raise `clip_low` (and/or lower `clip_high`) to inject exploration;
+  healthy → relax toward DAPO 0.2/0.28. Make it verifier-aware (cola-coder's rare asset):
+  only force exploration when entropy is low AND verifier pass-rate is unsaturated, so we
+  don't burn exploration once tests already pass. Turns static clips into a self-stabilizing
+  RLVR loop. Builds on MODEL-037 + the sandbox/best-of-N verifier. Reasoning-only → main-safe.
 - **SEC-015** [security/sandbox, high] `open` (the REAL bulletproof path — research
   2026-06-13) — HONEST LIMITATION: plain Docker on this Windows Docker Desktop/WSL2
   host CANNOT be made truly bulletproof (shared kernel; gVisor/Firecracker/Kata
