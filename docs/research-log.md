@@ -7,6 +7,46 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Contamination-free & holistic code eval (rotate: evaluation)
+
+Sources:
+- LiveCodeBench: holistic, contamination-free code eval — https://arxiv.org/abs/2403.07974
+- Static→Dynamic eval against data contamination — https://arxiv.org/pdf/2502.17521
+- TREAT: code-LLM trustworthiness/reliability framework — https://arxiv.org/pdf/2510.17163
+- Cross-Context Verification (session-isolated contamination detection) — https://arxiv.org/pdf/2603.21454
+
+Findings:
+- **Contamination is the central eval problem.** LiveCodeBench solves it by TIME-SEGMENTATION:
+  problems carry release dates, and a model is scored only on problems published AFTER its
+  training cutoff — measuring generalization, not memorization. The project already plans this
+  (EVAL-023 + IDEA-007: scrape RECENT license-clean TS/React, hold out the middle as FIM).
+- **Eval should be HOLISTIC, not just generation:** LiveCodeBench adds self-repair, code
+  EXECUTION, and TEST-OUTPUT PREDICTION as distinct capabilities. cola-coder's sandbox verifier
+  makes execution-grounded scoring cheap — an asset most eval harnesses lack.
+- **Harness sensitivity is huge:** the same model swings 30-50pp by agent harness. Implication:
+  fix and version the eval harness; report it alongside scores.
+
+**Implemented this cycle (DATA-063 — data filter, main-safe):** `InjectionFilter`
+(data/filters/injection.py), a registered FilterPlugin that reuses the SEC-019 scanner
+(`scan_injection`) to DROP scraped pretraining samples carrying prompt-injection payloads — so
+the corpus itself can't teach the model to emit/obey injections (data poisoning). Closes the loop
+between input-time defense (SEC-019 doc fetcher) and training-time hygiene. Opt-in via the filter
+chain; `min_hits` config to require corroborating signals. Prep-time → committed on main. +7 tests
+(registered+constructible, drops payloads, keeps clean/benign-trigger-words, min_hits, hidden
+chars, empty); ruff clean.
+
+**ORIGINAL cross-technique idea (EVAL-025): execution-grounded self-repair eval.** A
+contamination-free eval (IDEA-007) usually needs reference solutions. cola-coder doesn't — it has
+a sandbox verifier. Idea: scrape RECENT (post-cutoff) TS/React files WITH their test files; score
+the model by EXECUTING its completion against the real tests (functional, reference-free,
+contamination-resistant), and add a **self-repair@k** metric: on a failing completion, feed the
+tsc/test ERROR back and measure whether the model fixes it within k tries (LiveCodeBench's
+self-repair dimension, graded by the verifier instead of a reference). Reuses the verifier +
+best-of-N + dynamic FIM; turns the verifier into a holistic, contamination-free eval the public
+harnesses approximate with curated reference sets. Builds on EVAL-023/IDEA-007 + the sandbox. → EVAL-025.
+
+---
+
 ## 2026-06-14 — Indirect prompt injection via retrieved content (rotate: safety)
 
 Sources:

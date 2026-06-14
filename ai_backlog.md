@@ -291,14 +291,26 @@ EVERY scenario. SEC-001/SEC-010 fixed timeout-kill + all-exit cleanup; the rest:
   test_injection_patterns.py +19 (10 injection positives, invisible/bidi chars, 6 precision
   negatives, name lookup); ruff clean. Defense-in-depth layer, not a guarantee — heavier layers
   (PromptArmor-style) deferred.
-- **DATA-063** [data-quality/safety, high-potential] `open` (2026-06-14, ORIGINAL) —
-  **injection-aware training-data filtering.** A from-scratch model trains on SCRAPED code whose
-  comments/docstrings can carry prompt-injection payloads → the pretraining CORPUS itself can teach
-  the model to emit/obey injections (data poisoning). Run `scan_injection` (SEC-019) over scraped
-  samples in data prep and DOWN-WEIGHT (quality-weights path) or drop those carrying payloads.
-  Combines the injection scanner + quality weights + data pipeline — closing input-time defense
-  (SEC-019) with training-time hygiene, which neither a runtime guardrail nor a pure data filter
-  does alone. Prep-time → main-safe. Builds on SEC-019 + the .weights.npy scoring path.
+- **DATA-063** [data-quality/safety, high-potential] `done` (2026-06-14) —
+  **injection-aware training-data filtering.** `InjectionFilter` (data/filters/injection.py): a
+  registered FilterPlugin reusing the SEC-019 `scan_injection` scanner to DROP scraped pretraining
+  samples carrying prompt-injection payloads (so the corpus can't teach the model to emit/obey
+  injections — data poisoning). Closes input-time defense (SEC-019 doc fetcher) with training-time
+  hygiene. Opt-in via the filter chain (like pii/content/license); `min_hits` config to require
+  corroborating signals and cut false positives on security-related source. Prep-time → committed
+  on main. Tests: test_injection_filter.py +7 (registered+constructible, drops payloads, keeps
+  clean + benign-trigger-words, min_hits corroboration, hidden control chars, empty); ruff clean.
+  FOLLOW-UP: a SOFT-weight variant (down-weight rather than drop) on the .weights.npy path for the
+  borderline cases, per the project's reweight-over-filter preference.
+- **EVAL-025** [eval, high-potential] `open` (2026-06-14, ORIGINAL) —
+  **execution-grounded self-repair eval.** A contamination-free eval (IDEA-007) usually needs
+  reference solutions; cola-coder has a sandbox verifier instead. Scrape RECENT (post-cutoff)
+  TS/React files WITH their tests; score by EXECUTING the model's completion against the real
+  tests (functional, reference-free, contamination-resistant), and add a **self-repair@k** metric:
+  feed the tsc/test ERROR back on a failure and measure whether the model fixes it within k tries
+  (LiveCodeBench's self-repair dimension, graded by the verifier not a reference). Reuses verifier
+  + best-of-N + dynamic FIM. Builds on EVAL-023/IDEA-007 + the sandbox. Defer until the model emits
+  runnable code (~step 10k+). Eval → main-safe.
 - **SEC-015** [security/sandbox, high] `open` (the REAL bulletproof path — research
   2026-06-13) — HONEST LIMITATION: plain Docker on this Windows Docker Desktop/WSL2
   host CANNOT be made truly bulletproof (shared kernel; gVisor/Firecracker/Kata
