@@ -7,6 +7,48 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Transformer stability frontier (rotate: architecture)
+
+Sources:
+- The Big LLM Architecture Comparison (2025/26) — https://magazine.sebastianraschka.com/p/the-big-llm-architecture-comparison
+- When Attention Sink Emerges (ICLR 2025) — https://proceedings.iclr.cc/paper_files/paper/2025/file/f1b04face60081b689ba740d39ea8f37-Paper-Conference.pdf
+- Architectural Trade-offs in Small LMs Under Compute Constraints — https://arxiv.org/html/2512.20877v1
+- IMU-1: Sample-Efficient Pre-training of Small LMs — https://arxiv.org/pdf/2602.02522
+
+Findings:
+- **Gated attention** (elementwise gate on the SDPA output before the output projection):
+  reduces attention SINKS and massive activations, improves long-sequence generalization,
+  and adds negligible params. A 2026 standard add-on; cola-coder has none → MODEL-038.
+- **QK-Norm** (already in cola-coder, qk_norm=true): normalizes Q/K via RMSNorm before
+  attention so logits can't blow up the softmax. Confirmed to ENLARGE the LR basin (less
+  LR sensitivity across widths) AND be compatible with muP — strengthens the case for
+  MODEL-031 (muP) since the two compose.
+- **Depth-scaled sandwich norm:** four RMSNorms per block with the 2nd init ~1/√L so the
+  residual update starts small and grows — a cheap deep-stability trick → MODEL-039.
+- **Attention-sink anatomy (2026):** the first token's keys act as a learned bias/sink;
+  monitoring max attention logits + activation magnitude is the recommended stability gauge.
+
+**Implemented this cycle (IDEA-014, inference — main-safe):** cluster-gated verifier budget
+in best-of-N. Architecture changes touch the train path (worktree-only while the run is
+live), so the implementation went to the highest-value main-safe item instead:
+`_verify_deduplicated` groups candidates by normalized completion (the INFER-026 clusters),
+runs the sandbox verifier on ONE representative per cluster, and propagates the verdict
+(fresh `details` copy per candidate — no aliasing) to the rest. N candidates now cost
+~(#distinct programs) tsc/test runs instead of N, with identical results. Default-on
+(`cluster_verify=True`), backward-compatible (all-unique → no change; 31 existing tests
+green). +4 tests (35 best-of-N pass), ruff green.
+
+**ORIGINAL cross-technique idea (IDEA-017): one-shot HP transfer for the specialist fleet.**
+cola-coder's vision is a router + many 50M domain specialists (React/Next/GraphQL/…). muP
+(MODEL-031) lets you tune LR/init ONCE on a tiny proxy width and zero-shot transfer to any
+width; QK-Norm (already present) widens that basin, and Muon also admits muP-style transfer.
+Combine them: tune the HP set once on a ~10M proxy with Muon+QK-Norm+muP, then stamp the
+SAME recipe across the entire specialist fleet with no per-model sweep — turning the
+multi-specialist architecture (a cost in most stacks) into a one-sweep-amortized advantage.
+Builds on MODEL-031 + the Muon optimizer + qk_norm. → IDEA-017.
+
+---
+
 ## 2026-06-14 — Insecure-code generation: CWE coverage (rotate: safety)
 
 Sources:

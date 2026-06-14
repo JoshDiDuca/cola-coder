@@ -12,6 +12,12 @@ the KV-cache, decode all candidates in parallel), so N candidates cost far
 less than N sequential generations. Wrapped generators without generate_group
 (e.g. ContextAwareGenerator) transparently fall back to serial generation.
 
+Verification — the dominant cost — is cluster-gated by default (IDEA-014,
+``cluster_verify=True``): candidates with an identical normalized completion are
+byte-identical to the verifier (the prompt is shared), so only ONE representative
+per cluster is actually run and its verdict propagates to the rest. N candidates
+cost ~(#distinct programs) verifier runs with identical results.
+
 Verification is sandboxed end-to-end and language-aware:
 
 - TypeScript → TscRunner (SandboxedRunner + hardened tsconfig, batched)
@@ -111,6 +117,7 @@ def generate_best_of_n(
     timeout: float = 10.0,
     tsc_runner=None,
     execute_fn: ExecuteFn | None = None,
+    cluster_verify: bool = True,
 ) -> BestOfNResult:
     """Generate N candidates, verify each in a sandbox, return the best.
 
@@ -150,9 +157,9 @@ def generate_best_of_n(
     )
 
     lang = detect_language(prompt) if language == "auto" else language
-    verifier_name, verdicts = _run_hard_verifier(
-        lang, texts, tests=tests, timeout=timeout,
-        tsc_runner=tsc_runner, execute_fn=execute_fn,
+    verifier_name, verdicts = _verify_deduplicated(
+        lang, texts, prompt, tests=tests, timeout=timeout,
+        tsc_runner=tsc_runner, execute_fn=execute_fn, cluster_verify=cluster_verify,
     )
 
     candidates = _build_candidates(texts, verdicts, prompt, lang)
@@ -246,6 +253,7 @@ def generate_best_of_n_adaptive(
     timeout: float = 10.0,
     tsc_runner=None,
     execute_fn: "ExecuteFn | None" = None,
+    cluster_verify: bool = True,
 ) -> BestOfNResult:
     """Adaptive-budget best-of-N (IDEA-009): grow the candidate count only as needed.
 
@@ -274,9 +282,9 @@ def generate_best_of_n_adaptive(
             top_k=top_k, top_p=top_p, min_p=min_p,
             no_repeat_ngram_size=no_repeat_ngram_size,
         )
-        verifier_name, verdicts = _run_hard_verifier(
-            lang, texts, tests=tests, timeout=timeout,
-            tsc_runner=tsc_runner, execute_fn=execute_fn,
+        verifier_name, verdicts = _verify_deduplicated(
+            lang, texts, prompt, tests=tests, timeout=timeout,
+            tsc_runner=tsc_runner, execute_fn=execute_fn, cluster_verify=cluster_verify,
         )
         candidates.extend(_build_candidates(texts, verdicts, prompt, lang))
         generated = target
@@ -360,6 +368,65 @@ def _generate_candidates(
 # ---------------------------------------------------------------------------
 # Verifiers
 # ---------------------------------------------------------------------------
+
+
+def _verify_deduplicated(
+    language: str,
+    texts: list[str],
+    prompt: str,
+    *,
+    tests: str | None,
+    timeout: float,
+    tsc_runner,
+    execute_fn: ExecuteFn | None,
+    cluster_verify: bool,
+) -> tuple[str, list[_Verdict]]:
+    """Verify candidates, optionally verifying ONE representative per cluster (IDEA-014).
+
+    The sandbox verifier (a tsc/test run per candidate) is best-of-N's dominant cost.
+    Candidates with the same normalized completion (the self-consistency clusters from
+    `_normalize_completion`) are byte-identical to the verifier — the prompt is shared —
+    so they MUST get the same verdict. When ``cluster_verify`` is set, group by
+    normalized completion, verify only the first member of each cluster, and propagate
+    that verdict (a fresh ``details`` copy per candidate to avoid aliasing) to the rest.
+    N candidates then cost ~(#distinct clusters) verifier runs instead of N, with
+    identical results. Falls back to verifying everything when disabled or N < 2.
+    """
+    if not cluster_verify or len(texts) < 2:
+        return _run_hard_verifier(
+            language, texts, tests=tests, timeout=timeout,
+            tsc_runner=tsc_runner, execute_fn=execute_fn,
+        )
+
+    keys = [_normalize_completion(_strip_prompt(t, prompt)) for t in texts]
+    rep_index: dict[str, int] = {}
+    rep_order: list[str] = []
+    for i, k in enumerate(keys):
+        if k not in rep_index:
+            rep_index[k] = i
+            rep_order.append(k)
+
+    if len(rep_order) == len(texts):  # all unique — nothing to save
+        return _run_hard_verifier(
+            language, texts, tests=tests, timeout=timeout,
+            tsc_runner=tsc_runner, execute_fn=execute_fn,
+        )
+
+    rep_texts = [texts[rep_index[k]] for k in rep_order]
+    verifier_name, rep_verdicts = _run_hard_verifier(
+        language, rep_texts, tests=tests, timeout=timeout,
+        tsc_runner=tsc_runner, execute_fn=execute_fn,
+    )
+    verdict_by_key = {k: rep_verdicts[i] for i, k in enumerate(rep_order)}
+    logger.debug(
+        "best-of-N cluster-gated verify: %d candidates -> %d verifier runs",
+        len(texts), len(rep_texts),
+    )
+    verdicts: list[_Verdict] = []
+    for k in keys:
+        verified, score, details = verdict_by_key[k]
+        verdicts.append((verified, score, dict(details)))  # copy: no aliasing
+    return verifier_name, verdicts
 
 
 def _run_hard_verifier(

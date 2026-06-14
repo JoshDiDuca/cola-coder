@@ -462,3 +462,62 @@ class TestSelfConsistency:
         ranked = _rank(cands)
         assert ranked[0].details["secure"] is True
         assert ranked[0].completion == "safe"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Cluster-gated verifier budget (IDEA-014)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestClusterGatedVerify:
+    """Verify one representative per self-consistency cluster, propagate the verdict."""
+
+    def test_dedups_verifier_runs(self):
+        # 3 candidates, 2 identical -> only 2 distinct programs reach the verifier.
+        gen = FakeGroupGenerator(
+            ["const x: number = 1;", "const x: number = 1;", "const y: number = 2;"]
+        )
+        runner = FakeTscRunner({})  # all clean -> verified
+        result = generate_best_of_n(
+            gen, "// p", num_candidates=3, language="typescript",
+            tsc_runner=runner, cluster_verify=True,
+        )
+        assert len(runner.checked[0]) == 2          # 3 candidates -> 2 verifier runs
+        assert len(result.candidates) == 3          # but all 3 still returned
+        assert all(c.verified for c in result.candidates)
+
+    def test_off_verifies_every_candidate(self):
+        gen = FakeGroupGenerator(
+            ["const x: number = 1;", "const x: number = 1;", "const y: number = 2;"]
+        )
+        runner = FakeTscRunner({})
+        generate_best_of_n(
+            gen, "// p", num_candidates=3, language="typescript",
+            tsc_runner=runner, cluster_verify=False,
+        )
+        assert len(runner.checked[0]) == 3          # no dedup
+
+    def test_verdict_propagates_to_cluster_members(self):
+        # Rep-batch is [dup-cluster, unique]; fail the dup cluster (rep index 0).
+        gen = FakeGroupGenerator(
+            ["const bad = 1;", "const bad = 1;", "const ok: number = 2;"]
+        )
+        runner = FakeTscRunner({0: ["TS2322: e"]})
+        result = generate_best_of_n(
+            gen, "// p", num_candidates=3, language="typescript",
+            tsc_runner=runner, cluster_verify=True,
+        )
+        # Both 'const bad = 1;' inherit the failed verdict; only 'const ok' verifies.
+        assert sum(c.verified for c in result.candidates) == 1
+        ok = next(c for c in result.candidates if "ok" in c.completion)
+        assert ok.verified is True
+
+    def test_cluster_members_have_independent_details(self):
+        gen = FakeGroupGenerator(["const x: number = 1;", "const x: number = 1;"])
+        runner = FakeTscRunner({})
+        result = generate_best_of_n(
+            gen, "// p", num_candidates=2, language="typescript",
+            tsc_runner=runner, cluster_verify=True,
+        )
+        c0, c1 = result.candidates
+        assert c0.details is not c1.details         # no shared-dict aliasing

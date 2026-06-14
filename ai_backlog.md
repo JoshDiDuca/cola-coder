@@ -520,13 +520,34 @@ cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N ve
   green). Pure inference → committed on main. Tests: test_best_of_n.py +6 (normalize
   clusters/keeps-diffs, majority wins tie, all-unique→score, can't override verified or
   secure tier); 31 best-of-N tests + ruff green.
-- **IDEA-014** [research/inference, medium-potential] `open` (2026-06-14, ORIGINAL) —
+- **IDEA-014** [research/inference, medium-potential] `done` (2026-06-14) —
   **cluster-gated verifier budget.** The sandbox verifier (tsc/test run per candidate) is
-  best-of-N's dominant cost. After clustering candidates for self-consistency (INFER-026),
-  verify only ONE representative per cluster and propagate the verdict to the cluster → N
-  candidates cost ~(#distinct clusters) sandbox runs, not N. Under a budget cap, verify the
-  largest clusters first (quality-weights-aware). Cuts the dominant test-time cost while
-  keeping the consensus signal. Builds on INFER-026 + adaptive best-of-N (IDEA-009).
+  best-of-N's dominant cost. `best_of_n._verify_deduplicated` groups candidates by normalized
+  completion (INFER-026 clusters), runs the verifier on ONE representative per cluster, and
+  propagates the verdict (fresh `details` copy per candidate — no aliasing) to the rest → N
+  candidates cost ~(#distinct programs) runs, not N, with identical results. Default-on
+  (`cluster_verify=True`) on both `generate_best_of_n` and `_adaptive`; backward-compatible
+  (all-unique → no change). Pure inference → committed on main. Tests: test_best_of_n.py +4
+  (dedups runs, off-switch verifies all, verdict propagation, independent details); 35
+  best-of-N pass, ruff green. Follow-up: largest-cluster-first under a hard budget cap.
+- **MODEL-038** [model/architecture, medium] `open` (architecture research 2026-06-14) —
+  **gated attention**: elementwise gate on the SDPA output before the output projection
+  (reduces attention sinks + massive activations, improves long-seq generalization,
+  negligible params; a 2026 standard). Add as an opt-in `config.model.gated_attention`
+  flag DEFAULT OFF so existing checkpoints still load (no new params when off). Train-path
+  (model/) → implement in an ISOLATED worktree, run tests/test_checkpoint.py there, DO NOT
+  merge while small_react_best is live. Composes with qk_norm (already on).
+- **MODEL-039** [model/architecture, low] `open` (architecture research 2026-06-14) —
+  **depth-scaled sandwich norm**: 4 RMSNorms per block, 2nd init ~1/√L so the residual
+  update starts small and grows — cheap deep-training stability. Opt-in flag, checkpoint-
+  safe default off. Train-path → worktree-only while live. Lower priority than MODEL-038.
+- **IDEA-017** [research/training, high-potential] `open` (2026-06-14, ORIGINAL) —
+  **one-shot HP transfer for the specialist fleet.** The vision is a router + many 50M
+  domain specialists. muP (MODEL-031) tunes LR/init ONCE on a tiny proxy width and zero-shot
+  transfers to any width; qk_norm (present) widens that basin; Muon also admits muP-style
+  transfer. Tune one HP recipe on a ~10M Muon+QK-Norm+muP proxy, then stamp it across the
+  whole fleet with no per-model sweep — turning the multi-specialist design (usually a tuning
+  cost) into a one-sweep-amortized win. Builds on MODEL-031 + Muon + qk_norm.
 
 **Code / data / eval / docs**
 - **DATA-054** [data-quality, medium] `open` — Semantic (embedding/SimHash) dedup:
