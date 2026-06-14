@@ -158,6 +158,16 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   convergence threshold + exec-validated safe-layer floor, A/B'd on HumanEval pass@1 + CI (EVAL-028).
 
 ### UI (2026-06-14)
+- **UI-033** [ui, high] `done` (2026-06-14) — Live job-log streaming + GPU-action guard (parallel agents:
+  backend keystone + 2 disjoint frontend panels). Backend: SSE `GET /api/jobs/{id}/stream` follows a job's
+  log file (initial tail then byte-offset incremental reads → no multibyte corruption), pushing strict
+  `JobLogChunk` ({text, done}) frames, terminating with a `done` frame when the process exits. Tagged 11
+  GPU-heavy non-trainer actions with `gpu: true` (new `ActionDef.gpu` field). Frontend: `JobsPanel` now
+  LIVE-FOLLOWS via EventSource (lifecycle in a useEffect keyed on job id, doneRef stops reconnect thrash,
+  5000-line cap, auto-scroll); `ActionsPanel` shows a GPU badge and `window.confirm`s before launching a
+  GPU action while training is live (fed `trainingAlive` from the event stream) — protects the live run's
+  VRAM. +2 Pydantic models, types regenerated. 70 UI tests (stream capture+done, gpu tags) + tsc + vite green.
+  Follow-up UI-034: actually EXECUTE pipeline stages from the UI behind this same GPU/trainer guard.
 - **UI-032** [ui, high] `done` (2026-06-14) — Pipeline Run Manager (parallel agents: backend keystone +
   frontend panel). New `ui/pipeline_ops.py` wraps `PipelineRunManager` with PURE STATE ops (create / reset
   / set-override / delete / detail) — never executes a stage, loads a model, or touches the GPU, so it's
@@ -523,6 +533,31 @@ EVERY scenario. SEC-001/SEC-010 fixed timeout-kill + all-exit cleanup; the rest:
   deny-set the GRPO security penalty (IDEA-008) discourages → RL-train the model away from inventing
   packages. Exploits the no-net sandbox + best-of-N + GRPO penalty. Builds on SEC-020 + sandbox +
   IDEA-008. Inference/reasoning → main-safe.
+- **SEC-023** [security/supply-chain, high] `done` (2026-06-14, safety research) — **typosquat/slopsquat
+  triage of unknown imports.** SEC-020 flags every out-of-allowlist import identically — it can't tell a
+  squat of a popular package (`requsts`/`l0dash`/`bs_4`) from a legit niche import. ConfuGuard
+  (arXiv:2502.20528) frames the goal as separating CONFUSION attacks from legitimate packages; the standard
+  offline screen (arXiv:2503.22406, 98.4% acc; Cloudsmith 2026) is Damerau-Levenshtein distance + separator
+  normalization + homoglyph folding against the popular set. `import_scanner.py` gains `_damerau_levenshtein`,
+  `_normalize_name` (separator unify + homoglyph `0→o 1→l rn→m vv→w` + strip), and `classify_unknown_imports`
+  → `ImportTriageReport` (typed `SuspectImport`/`ImportRisk`) that REUSES `scan_unknown_imports` (DRY; a test
+  asserts the triage partitions exactly its survivors) and sorts each into TYPOSQUAT (≤max_distance edits to
+  a popular name + min_length guard + distance-0 separator/homoglyph confusion) vs UNKNOWN (legit-niche, not
+  over-flagged), reusing the curated `_PY_POPULAR`/`_JS_KNOWN` allowlists as the neighborhood. Wired into
+  best-of-N as a `typosquat_imports` review signal alongside the flat `unknown_imports` (no ranking change,
+  back-compat). +24 tests (test_import_triage.py); 15 import-scanner + 40 best-of-N intact, ruff clean.
+  Pure string logic — no model/GPU/network/execution → main-safe.
+- **SEC-024** [security/supply-chain, medium] `open` (2026-06-14, ORIGINAL) — **down-rank
+  verified-but-typosquatting candidates.** SEC-023 surfaces typosquats as a non-ranking signal only. Make a
+  best-of-N candidate that imports a likely typosquat (high-confidence confusion of a popular package) lose
+  ties to an equally-verified clean candidate — a slopsquat tie-break that mirrors the existing secure-pass
+  tie-break, gated to only confusion-class names (not generic unknowns, which must stay neutral). Builds on
+  SEC-023 + best-of-N. Inference → main-safe.
+- **SEC-025** [security/supply-chain, medium] `open` (2026-06-14, ORIGINAL) — **typosquat reject gate in
+  RFT/distillation.** The RFT/self-verified-distillation harness already rejects insecure (dangerous-pattern)
+  completions; extend the reject gate so a verified completion importing a high-confidence typosquat
+  (SEC-023) is also dropped from the self-curated SFT set — so the model never trains on (and thus learns to
+  re-emit) slopsquat imports. Mirrors `require_secure`. Builds on SEC-023 + MODEL-045. Distillation → main-safe.
 - **DATA-063** [data-quality/safety, high-potential] `done` (2026-06-14) —
   **injection-aware training-data filtering.** `InjectionFilter` (data/filters/injection.py): a
   registered FilterPlugin reusing the SEC-019 `scan_injection` scanner to DROP scraped pretraining

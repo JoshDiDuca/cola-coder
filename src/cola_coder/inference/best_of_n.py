@@ -47,7 +47,7 @@ from typing import Callable
 from ..data.scorers.language_detect import is_js_ts, is_typescript
 from ..data.scorers.utils import ScoreMapper
 from ..security.code_patterns import scan_dangerous
-from ..security.import_scanner import scan_unknown_imports
+from ..security.import_scanner import classify_unknown_imports, scan_unknown_imports
 # Shared with the FastAPI server's non-streaming strip — see text_utils.
 from .text_utils import strip_prompt_prefix as _strip_prompt
 
@@ -206,6 +206,14 @@ def _build_candidates(texts, verdicts, prompt: str, lang: str) -> "list[Candidat
         unknown_imports = scan_unknown_imports(completion, lang)
         if unknown_imports:
             details["unknown_imports"] = unknown_imports
+            # SEC-023: triage the unknowns — a name confusably close to a popular
+            # package is a likely slopsquat/typosquat (higher risk than a niche
+            # import). Surfaced as a review signal only (no ranking change).
+            triage = classify_unknown_imports(completion, lang)
+            if triage.has_typosquat:
+                details["typosquat_imports"] = [
+                    s.name for s in triage.typosquats
+                ]
         candidates.append(
             CandidateResult(
                 text=text,

@@ -7,6 +7,55 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Slopsquat triage: typosquatting detection by string distance (rotate: safety/robustness)
+
+**Sources (2020–2026):** *ConfuGuard: Using Metadata to Detect Active and Stealthy Package Confusion
+Attacks* — https://arxiv.org/pdf/2502.20528 (frames the goal as separating CONFUSION attacks from
+LEGITIMATE packages; positions prior string-similarity defenses — SpellBound, keyboard-proximity — as the
+cheap first line, then adds registry metadata to cut their false positives). *Training LLMs for Advanced
+Typosquatting Detection* — https://arxiv.org/pdf/2503.22406 (a Damerau-Levenshtein-based name matcher hits
+98.4% accuracy; edit distance alone misses homoglyphs / keyboard-adjacent / separator-reorder squats, so
+detectors combine distance + normalization + homoglyph folding). *Typosquatting & Slopsquatting: detecting
+AI-hallucinated malicious packages* (Cloudsmith, 2026) — https://cloudsmith.com/blog/slopsquatting-and-typosquatting-how-to-detect-ai-hallucinated-malicious-packages
+(separator normalization `mysql-import`↔`mysql_import`, homoglyph `l0dash`↔`lodash`, and edit-distance
+neighborhoods are the standard offline screens; IQTLabs/pypi-scan and rustfoundation/typomania implement them).
+
+**Summary:** slopsquatting registers a name a model HALLUCINATES (USENIX 2025: ~20% of generations import a
+non-existent package; ~205k unique fabricated names, ~45% persistent → reliably exploitable). The defensive
+distinction that matters is NOT "known vs unknown" but "legit-niche vs confusion-of-a-popular-name": a name
+one edit / one separator / one homoglyph away from a popular package is a high-risk typosquat, whereas a
+genuinely novel niche name is merely unverified. The established cheap, OFFLINE screen is Damerau-Levenshtein
+distance to the popular set + separator normalization + homoglyph folding (ConfuGuard later layers registry
+metadata, which an offline trainer like this repo cannot see).
+
+**Original idea (filed) → SEC-023/024/025:** cola-coder already owns the binary half — `import_scanner.py`
+`scan_unknown_imports` flags every out-of-allowlist import identically, and best-of-N surfaces them as a flat
+`unknown_imports` review signal. But it can't tell `requsts`/`l0dash`/`bs_4` (squats of requests/lodash/bs4)
+from a legit niche import, so every unknown gets the same weight. The cross-technique idea is to REUSE the
+existing curated popular-package allowlists (`_PY_POPULAR`/`_JS_KNOWN`) as the typosquat NEIGHBORHOOD and run
+the standard offline distance screen over the scanner's own survivors — turning the binary "unknown" into a
+TRIAGED risk verdict (typosquat vs unknown) with the nearest popular name and distance attached. Unique to
+this repo: the allowlist that powers the slopsquat flag IS the popular-package set typosquat detection needs,
+and the best-of-N verifier already carries a per-candidate `details` channel to surface the higher-risk
+verdict — no new corpus, no network. SEC-024 (down-rank verified-but-typosquatting candidates in best-of-N
+tie-breaks) + SEC-025 (RFT/distillation reject gate on typosquat imports, mirroring the secure-pass gate)
+filed for future cycles.
+
+**Implemented this cycle (SEC-023 — safety, main-safe):** typosquat/slopsquat triage of unknown imports.
+`security/import_scanner.py`: `_damerau_levenshtein` (optimal-string-alignment edit distance — counts adjacent
+transpositions as one edit, the dominant typo class), `_normalize_name` (lowercase + separator unification +
+homoglyph folding `0→o 1→l rn→m vv→w` + separator stripping, so `mysql-import`/`mysql_import`/`l0dash` collapse
+onto their real neighbors), and `classify_unknown_imports` → an `ImportTriageReport` (typed `SuspectImport`
+dataclasses + `ImportRisk` enum) that REUSES `scan_unknown_imports` for the allowlist screen (DRY — a test
+asserts the triage partitions EXACTLY the scanner's survivors) then sorts each into TYPOSQUAT (≤`max_distance`
+normalized edits to a popular name, `min_length` guard against short-name chance collisions, distance-0
+separator/homoglyph confusion) vs UNKNOWN (legit-niche, not over-flagged). Wired into best-of-N: when unknown
+imports exist, a `typosquat_imports` review signal is added to candidate `details` alongside the existing
+flat `unknown_imports` (signal only — no ranking change, back-compat preserved). +24 tests (distance algebra
+incl. transposition/empties/symmetry, normalization, Python+JS triage, legit-niche-is-UNKNOWN, min_length /
+max_distance thresholds, reuse-partition consistency, best-of-N wiring); import-scanner's 15 intact, best-of-N's
+40 intact. Pure string logic — no model/GPU/network/execution. Closes the flat→triaged gap on the slopsquat signal.
+
 ## 2026-06-14 — Contamination-aware code evaluation: decontaminated-variant comparison (rotate: evaluation)
 
 **Sources (2024–2026):** *LiveCodeBench: Holistic and Contamination-Free Evaluation* —
