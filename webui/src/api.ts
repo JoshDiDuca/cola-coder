@@ -28,6 +28,8 @@ import type {
   ScriptsCatalog,
   StorageView,
   CompareResult,
+  ModelCard,
+  FeatureSetResult,
   ApiError,
 } from './types';
 
@@ -205,4 +207,12 @@ export function getCheckpointCompare(a: string, b: string): Promise<CompareResul
   return j<CompareResult | ApiError>(
     `/api/checkpoints/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`
   );
+}
+
+export function getModelCard(path: string): Promise<ModelCard | ApiError> {
+  return j<ModelCard | ApiError>(`/api/model-card?path=${encodeURIComponent(path)}`);
+}
+
+export function setFeature(key: string, enabled: boolean): Promise<FeatureSetResult | ApiError> {
+  return j<FeatureSetResult | ApiError>('/api/features/set', postJson({ key, enabled }));
 }

@@ -356,6 +356,24 @@ export interface CompareResult {
   diff: CompareDiff;
 }
 
+export interface ModelCard {
+  path: string;
+  name: string;
+  num_params: number;
+  architecture: Record<string, unknown>;
+  training: Record<string, unknown>;
+  tokenizer: Record<string, unknown> | null;
+  is_moe: boolean;
+  markdown: string;
+}
+
+export interface FeatureSetResult {
+  ok: true;
+  key: string;
+  enabled: boolean;
+  path: string;
+}
+
 export interface ApiError {
   error: string;
 }

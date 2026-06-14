@@ -15,6 +15,7 @@ import ReasoningPanel from './components/ReasoningPanel';
 import TokenizerPanel from './components/TokenizerPanel';
 import CheckpointDetailPanel from './components/CheckpointDetailPanel';
 import CheckpointComparePanel from './components/CheckpointComparePanel';
+import ModelCardPanel from './components/ModelCardPanel';
 import StoragePanel from './components/StoragePanel';
 import MetricsChartPanel from './components/MetricsChartPanel';
 import RouterPanel from './components/RouterPanel';
@@ -110,6 +111,7 @@ export default function App() {
         <TokenizePanel />
         <CheckpointDetailPanel checkpoints={snap?.checkpoints ?? []} />
         <CheckpointComparePanel checkpoints={snap?.checkpoints ?? []} />
+        <ModelCardPanel checkpoints={snap?.checkpoints ?? []} />
         <RouterPanel />
         <ExportPanel />
         <ScriptsCatalogPanel />

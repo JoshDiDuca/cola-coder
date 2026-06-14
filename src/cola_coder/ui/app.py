@@ -43,9 +43,11 @@ from . import eval_history as eh
 from . import evals as ev
 from . import exports as ex
 from . import features as ft
+from . import features_write as fw
 from . import health as hl
 from . import logs as lg
 from . import metrics_history as mh
+from . import model_card as mc
 from . import pipeline as pl
 from . import reasoning as rs
 from . import router as rt
@@ -277,6 +279,14 @@ def create_app(
     def features_get() -> dict:
         return ft.list_features(str(root / "configs" / "features.yaml"))
 
+    @app.post("/api/features/set")
+    def features_set(payload: dict) -> dict:
+        return fw.set_feature(
+            str(payload.get("key", "")),
+            bool(payload.get("enabled", False)),
+            str(root / "configs" / "features.yaml"),
+        )
+
     @app.get("/api/reasoning")
     def reasoning_get() -> dict:
         return rs.read_reasoning(str(root / "configs" / "reasoning.yaml"))
@@ -328,6 +338,10 @@ def create_app(
     @app.get("/api/scripts")
     def scripts_list() -> dict:
         return sc.list_scripts(str(root))
+
+    @app.get("/api/model-card")
+    def model_card_get(path: str) -> dict:
+        return mc.build_model_card(path)
 
     @app.get("/api/storage")
     def storage_get() -> dict:

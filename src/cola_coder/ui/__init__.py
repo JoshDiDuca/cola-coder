@@ -21,7 +21,9 @@ from .eval_history import eval_history
 from .evals import list_eval_results, read_eval_result
 from .exports import export_overview
 from .features import list_features
+from .features_write import set_feature
 from .health import project_health
+from .model_card import build_model_card
 from .jobs import JobManager
 from .logs import list_logs, tail_log
 from .metrics_history import training_history
@@ -68,4 +70,6 @@ __all__ = [
     "list_scripts",
     "read_storage",
     "compare_checkpoints",
+    "build_model_card",
+    "set_feature",
 ]

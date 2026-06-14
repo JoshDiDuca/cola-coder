@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { FeaturesView, FeatureItem } from '../types';
 import { isApiError } from '../types';
-import { getFeatures } from '../api';
+import { getFeatures, setFeature } from '../api';
 
 function formatValue(value: unknown): string | null {
   if (typeof value === 'boolean') return null;
@@ -10,14 +10,32 @@ function formatValue(value: unknown): string | null {
   return String(value);
 }
 
-function FeatureRow({ feat }: { feat: FeatureItem }) {
+function FeatureRow({
+  feat,
+  busy,
+  onToggle,
+}: {
+  feat: FeatureItem;
+  busy: boolean;
+  onToggle: (feat: FeatureItem) => void;
+}) {
   const extra = formatValue(feat.value);
   return (
     <div className="row">
       <span className="mono">
         <span className={`dot ${feat.enabled ? 'live' : 'dead'}`} /> {feat.key}
       </span>
-      <span className="v">{extra ?? (feat.enabled ? 'on' : 'off')}</span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {extra !== null && <span className="v">{extra}</span>}
+        <button
+          className={`tag ${feat.enabled ? 'done' : 'failed'}`}
+          style={{ cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.45 : 1 }}
+          disabled={busy}
+          onClick={() => onToggle(feat)}
+        >
+          {feat.enabled ? 'on' : 'off'}
+        </button>
+      </span>
     </div>
   );
 }
@@ -25,6 +43,8 @@ function FeatureRow({ feat }: { feat: FeatureItem }) {
 export default function FeaturesPanel() {
   const [view, setView] = useState<FeaturesView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [toggleError, setToggleError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -40,6 +60,26 @@ export default function FeaturesPanel() {
       setError(e instanceof Error ? e.message : String(e));
     }
   }, []);
+
+  const onToggle = useCallback(
+    async (feat: FeatureItem) => {
+      setToggleError(null);
+      setBusyKey(feat.key);
+      try {
+        const resp = await setFeature(feat.key, !feat.enabled);
+        if (isApiError(resp)) {
+          setToggleError(`${feat.key}: ${resp.error}`);
+        } else {
+          await load();
+        }
+      } catch (e) {
+        setToggleError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusyKey(null);
+      }
+    },
+    [load]
+  );
 
   useEffect(() => {
     let active = true;
@@ -68,6 +108,7 @@ export default function FeaturesPanel() {
       </div>
 
       {error && <div className="err">{error}</div>}
+      {toggleError && <div className="err">{toggleError}</div>}
 
       {view && (
         <div className="muted mono">
@@ -83,7 +124,12 @@ export default function FeaturesPanel() {
         <div key={group.category}>
           <div className="card-title">{group.category}</div>
           {group.features.map((feat) => (
-            <FeatureRow key={feat.key} feat={feat} />
+            <FeatureRow
+              key={feat.key}
+              feat={feat}
+              busy={busyKey === feat.key}
+              onToggle={(f) => void onToggle(f)}
+            />
           ))}
         </div>
       ))}
