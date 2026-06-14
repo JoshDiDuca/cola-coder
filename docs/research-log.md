@@ -7,6 +7,50 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Data efficacy & folding curriculum (rotate: data curation)
+
+Sources:
+- Data Efficacy for LM Training (DELT paradigm) — https://arxiv.org/html/2506.21545v1
+- Rethinking proxy-model practice for data curation — https://arxiv.org/html/2512.24503
+- MobileLLM-R1 (capability-aware curation, 11.7% of competitors' tokens) — https://arxiv.org/html/2509.24945
+- Multilingual LM-based pretraining data filtering — https://arxiv.org/html/2505.22232v1
+
+Findings:
+- **Data EFFICACY ≠ data efficiency.** Efficiency picks the best *subset*; efficacy
+  maximizes performance by optimizing the *organization* (ordering) of the SAME data,
+  no content or architecture change. DELT = Score → (optional) Select → **Order**.
+- **Folding Ordering (FO).** Pure easy→hard curriculum sorts once and suffers
+  forgetting (early easy data forgotten by the end), distribution bias, and an effective
+  duplication problem. FO repeats the sorted sweep **L times at fixed intervals** —
+  the model revisits the full easy→hard progression L times. Measured: +1.7% abs on an
+  8-benchmark avg at 160M/1B-tok; **+2.76% HumanEval (code)**, +2.53% math; gains hold
+  across 160M/470M/1B and 10B/50B tokens, and unlike random shuffle, *improve* across
+  epochs. This is a pure-prep, zero-train-cost reordering — ideal while a run is live.
+- **Learnability-Quality Scoring (LQS).** DELT's scorer = learnability (how much a sample
+  cuts loss over steps) × quality (gradient cosine-sim to the target direction). Needs
+  gradient tracking + a proxy set — heavier, deferred (see DATA-059).
+- **Proxy-model caution (2512.24503):** small-proxy-model data-selection rankings do NOT
+  always transfer to the target scale — validate any proxy-scored curation at target size
+  before trusting it. Tempering for our quality-classifier-driven curation.
+
+**Implemented this cycle:** Folding Ordering as a new `CurriculumStrategy.FOLDING`
+(`--curriculum folding --curriculum-folds L`, default L=4) reusing the existing
+`CurriculumOrderer` + `.weights.npy` quality scores. Round-robin stride of the
+score-sorted index into L folds → a true permutation (no drops/dups), each fold a
+strided full-range easy→hard sweep. Prep-time only, off the live train path. → DATA-058.
+
+**ORIGINAL cross-technique idea (DATA-060): verifier-grounded learnability folding.**
+DELT's LQS needs gradient tracking we can't afford mid-run, BUT cola-coder already owns a
+*verifier* (sandbox test/tsc rewards + best-of-N) and *quality weights*. Idea: derive a
+cheap per-bucket "learnability" signal by sampling the base checkpoint's best-of-N
+pass-rate on held-out FIM probes drawn from each quality bucket — buckets the model
+*almost* solves (mid pass-rate) are the high-learnability frontier. Fold the curriculum so
+those frontier buckets recur most often (weight fold frequency by 4·p·(1−p), peaked at
+p=0.5), turning the verifier into a no-gradient LQS proxy. Closes the eval→data loop using
+assets DELT papers don't have.
+
+---
+
 ## 2026-06-13 — Mixture-of-Experts (rotate: architecture/MoE)
 
 - **DeepSeek-V3 aux-loss-FREE load balancing**: instead of an auxiliary load-balancing

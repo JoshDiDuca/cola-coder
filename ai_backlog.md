@@ -223,6 +223,31 @@ EVERY scenario. SEC-001/SEC-010 fixed timeout-kill + all-exit cleanup; the rest:
   test_soft_dedup.py +4 (identical-trio→1/3 each, all-unique→1.0, empty, cluster-sum→1);
   27 dedup tests + ruff green. Follow-up: a flag in score_data/combine_datasets to
   fold these into the emitted weights. Validate alongside Muon (IDEA-005).
+- **DATA-058** [data-quality, medium] `done` (2026-06-14) — **Folding Ordering**
+  curriculum (DELT, arXiv:2506.21545). New `CurriculumStrategy.FOLDING` in
+  `data/scorers/curriculum.py`: sorts by `.weights.npy` quality, then round-robin
+  strides the sorted index into L folds and concatenates → a true permutation (no
+  drops/dups) where each fold is a strided full-range easy→hard sweep, so the model
+  revisits the whole curriculum L times. Fixes single-pass curriculum forgetting /
+  distribution bias / duplication; paper reports +2.76% HumanEval. Wired through
+  `score_data.py` (`--curriculum folding --curriculum-folds L`, default 4; also reads
+  `curriculum.num_folds` from scoring.yaml). Prep-time only, off the live train path →
+  committed on main. Tests: test_curriculum.py +5 (permutation, per-fold descending,
+  data/weights alignment, L=1≡easy_to_hard, folds>n); 19 curriculum tests + ruff green.
+- **DATA-059** [data-quality, low] `open` — **Learnability-Quality Scoring (LQS)** from
+  DELT: score samples by learnability (loss-drop ratio across steps) × quality (grad
+  cosine-sim to target direction). Needs gradient tracking + a proxy set → heavier and
+  touches the train loop; defer until a worktree window (no live run) and pair with the
+  cheaper verifier proxy in DATA-060. Caveat (arXiv:2512.24503): validate any
+  proxy-model-scored curation at target scale — small-proxy rankings don't always transfer.
+- **DATA-060** [data-quality, medium] `open` (ORIGINAL cross-technique) —
+  **verifier-grounded learnability folding.** Replace DELT's gradient-based learnability
+  with a no-gradient proxy built from cola-coder's own verifier: sample the base
+  checkpoint's best-of-N pass-rate on held-out FIM probes per quality bucket; buckets at
+  mid pass-rate (p≈0.5) are the high-learnability frontier. Weight each bucket's fold
+  frequency by 4·p·(1−p) so frontier data recurs most often — a DELT-style efficacy gain
+  using the sandbox verifier + best-of-N + quality weights that the source papers lack.
+  Builds on DATA-058 (folding infra) + the best-of-N verifier. Prep-time → main-safe.
 - **SEC-015** [security/sandbox, high] `open` (the REAL bulletproof path — research
   2026-06-13) — HONEST LIMITATION: plain Docker on this Windows Docker Desktop/WSL2
   host CANNOT be made truly bulletproof (shared kernel; gVisor/Firecracker/Kata

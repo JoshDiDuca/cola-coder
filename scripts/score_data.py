@@ -36,7 +36,8 @@ def main() -> None:
     parser.add_argument("--tokenizer", type=str, default=None, help="Path to tokenizer.json (required for .npy)")
     parser.add_argument("--scorers", type=str, default=None, help="Comma-separated scorer names (default: all enabled)")
     parser.add_argument("--config", type=str, default="configs/scoring.yaml", help="Scoring config path")
-    parser.add_argument("--curriculum", type=str, default=None, help="Curriculum strategy: easy_to_hard, hard_to_easy, staged, random")
+    parser.add_argument("--curriculum", type=str, default=None, help="Curriculum strategy: easy_to_hard, hard_to_easy, staged, random, folding")
+    parser.add_argument("--curriculum-folds", type=int, default=None, help="Folds (L) for --curriculum folding: repeat easy->hard sweep L times (default 4)")
     parser.add_argument("--max-samples", type=int, default=None, help="Max samples to score (for testing)")
     parser.add_argument("--sample-size", type=int, default=10000, help="Sample size for subprocess scorers on large datasets")
     args = parser.parse_args()
@@ -58,8 +59,12 @@ def main() -> None:
         if args.curriculum is None and curriculum_cfg.get("enabled"):
             args.curriculum = str(curriculum_cfg.get("strategy", "easy_to_hard"))
         args.curriculum_phases = int(curriculum_cfg.get("num_phases", 3))
+        if args.curriculum_folds is None:
+            args.curriculum_folds = int(curriculum_cfg.get("num_folds", 4))
     except (OSError, ValueError):
         pass
+    if args.curriculum_folds is None:
+        args.curriculum_folds = 4
 
     cli.header("Cola-Coder", "Data Quality Scoring")
 
@@ -251,6 +256,7 @@ def _score_npy(args, composite) -> None:
         orderer = CurriculumOrderer(
             strategy=strategy,
             num_phases=getattr(args, "curriculum_phases", 3),
+            num_folds=getattr(args, "curriculum_folds", 4) or 4,
         )
         weights_path = Path(args.data).with_suffix(".weights.npy")
         schedule = orderer.reorder(data_path, weights_path)

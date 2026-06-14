@@ -152,6 +152,77 @@ class TestCurriculumOrderer:
         assert reordered_weights[0] == pytest.approx(original_weights[original_idx])
 
 
+class TestFoldingOrder:
+    def test_folding_is_a_true_permutation(self, scored_data: tuple[Path, Path]) -> None:
+        """Every sample appears exactly once — no drops, no duplication."""
+        data_path, weights_path = scored_data
+        original_weights = np.load(str(weights_path)).copy()
+        orderer = CurriculumOrderer(strategy=CurriculumStrategy.FOLDING, num_folds=4)
+        schedule = orderer.reorder(data_path, weights_path)
+
+        reordered_weights = np.load(str(weights_path))
+        assert len(reordered_weights) == len(original_weights)
+        # Same multiset of weights — a permutation, not a resample.
+        assert np.array_equal(np.sort(reordered_weights), np.sort(original_weights))
+        assert schedule.strategy == "folding"
+        assert schedule.total_samples == 100
+
+    def test_folding_repeats_sweep_l_times(self, scored_data: tuple[Path, Path]) -> None:
+        """Order is not globally sorted, but each fold segment runs easy->hard."""
+        data_path, weights_path = scored_data
+        orderer = CurriculumOrderer(strategy=CurriculumStrategy.FOLDING, num_folds=4)
+        orderer.reorder(data_path, weights_path)
+        w = np.load(str(weights_path))
+
+        # Not globally descending (that would be plain easy_to_hard).
+        assert not np.all(np.diff(w) <= 0)
+        # Each of the 4 folds individually is descending (easy/high-quality first).
+        n = len(w)
+        # Round-robin striding of 100 into 4 folds -> 25 each.
+        for f in range(4):
+            seg = w[f * (n // 4):(f + 1) * (n // 4)]
+            assert np.all(np.diff(seg) <= 0), f"fold {f} not easy->hard"
+
+    def test_folding_keeps_data_weights_aligned(self, scored_data: tuple[Path, Path]) -> None:
+        data_path, weights_path = scored_data
+        original_data = np.load(str(data_path)).copy()
+        original_weights = np.load(str(weights_path)).copy()
+        orderer = CurriculumOrderer(strategy=CurriculumStrategy.FOLDING, num_folds=4)
+        orderer.reorder(data_path, weights_path)
+
+        reordered_data = np.load(str(data_path))
+        reordered_weights = np.load(str(weights_path))
+        for i in (0, 1, 50, 99):
+            row = reordered_data[i]
+            match = next(
+                j for j in range(len(original_data))
+                if np.array_equal(original_data[j], row)
+            )
+            assert reordered_weights[i] == pytest.approx(original_weights[match])
+
+    def test_folding_single_fold_equals_easy_to_hard(self, scored_data: tuple[Path, Path]) -> None:
+        """L=1 degenerates to a plain easy->hard sort."""
+        data_path, weights_path = scored_data
+        orderer = CurriculumOrderer(strategy=CurriculumStrategy.FOLDING, num_folds=1)
+        orderer.reorder(data_path, weights_path)
+        w = np.load(str(weights_path))
+        assert np.all(np.diff(w) <= 0)
+
+    def test_folding_more_folds_than_samples(self, tmp_path: Path) -> None:
+        """num_folds > n must not crash or drop samples."""
+        data = np.arange(3 * 8, dtype=np.uint16).reshape(3, 8)
+        weights = np.array([0.1, 0.5, 0.9], dtype=np.float32)
+        data_path = tmp_path / "tiny.npy"
+        weights_path = tmp_path / "tiny.weights.npy"
+        np.save(str(data_path), data)
+        np.save(str(weights_path), weights)
+
+        orderer = CurriculumOrderer(strategy=CurriculumStrategy.FOLDING, num_folds=16)
+        orderer.reorder(data_path, weights_path)
+        w = np.load(str(weights_path))
+        assert np.array_equal(np.sort(w), np.array([0.1, 0.5, 0.9], dtype=np.float32))
+
+
 class TestStagedReorder:
     def test_creates_phase_files(self, scored_data: tuple[Path, Path], tmp_path: Path) -> None:
         data_path, weights_path = scored_data

@@ -19,6 +19,7 @@ class CurriculumStrategy(str, Enum):
     HARD_TO_EASY = "hard_to_easy"     # Low quality first
     STAGED = "staged"                  # Split into N quality phases
     RANDOM = "random"                  # Shuffle (baseline)
+    FOLDING = "folding"                # Repeat easy->hard sweep L times (DELT, 2506.21545)
 
 
 @dataclass
@@ -56,9 +57,27 @@ class CurriculumOrderer:
         self,
         strategy: CurriculumStrategy = CurriculumStrategy.EASY_TO_HARD,
         num_phases: int = 3,
+        num_folds: int = 4,
     ) -> None:
         self.strategy = strategy
         self.num_phases = max(1, num_phases)
+        self.num_folds = max(1, num_folds)
+
+    def _folding_order(self, weights: np.ndarray) -> np.ndarray:
+        """Folding Ordering (DELT, arXiv:2506.21545).
+
+        Sort easy->hard once, then stride the sorted sequence into L folds and
+        concatenate them. Each fold is a strided sample spanning the full
+        difficulty range in easy->hard order, so the model revisits the whole
+        curriculum L times at fixed intervals. This fixes the forgetting,
+        distribution bias, and duplication that pure single-pass sorting hits,
+        while keeping every sample exactly once (a true permutation).
+        """
+        sorted_idx = np.argsort(-weights)  # easy / high-quality first
+        n_folds = min(self.num_folds, len(sorted_idx)) or 1
+        # Round-robin stride preserves easy->hard order within each fold.
+        folds = [sorted_idx[f::n_folds] for f in range(n_folds)]
+        return np.concatenate(folds) if folds else sorted_idx
 
     def reorder(
         self,
@@ -92,6 +111,8 @@ class CurriculumOrderer:
         elif self.strategy == CurriculumStrategy.RANDOM:
             rng = np.random.default_rng(42)
             order = rng.permutation(len(data))
+        elif self.strategy == CurriculumStrategy.FOLDING:
+            order = self._folding_order(weights)
         elif self.strategy == CurriculumStrategy.STAGED:
             return self._staged_reorder(data, weights, data_path, weights_path)
         else:
