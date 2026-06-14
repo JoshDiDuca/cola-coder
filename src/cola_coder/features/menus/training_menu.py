@@ -143,6 +143,8 @@ class TrainingMenu:
                  "detail": "Stage 7.5: Differentiate experts (low LR, short schedule)"},
                 {"label": "Generate Distillation Data",
                  "detail": "Teacher (Qwen/DeepSeek local/cloud) → sandbox-verified SFT data"},
+                {"label": "Generate RFT Data (self-verified)",
+                 "detail": "MODEL-045/046: model self-solves → keep verified+secure → SFT data"},
             ]
 
             choice = cli.choose("Post-Training:", options, allow_cancel=True)
@@ -161,6 +163,8 @@ class TrainingMenu:
                 self._moe_finetune_menu()
             elif choice == 5:
                 self._generate_distillation_menu()
+            elif choice == 6:
+                self._generate_rft_menu()
 
     def _alignment_menu(self) -> None:
         """Alignment: routing, reasoning, self-play."""
@@ -357,6 +361,52 @@ class TrainingMenu:
 
         if cli.confirm("Start generating distillation data?"):
             self._master._run_script("generate_distillation_data.py", args)
+            self._master._pause()
+
+    def _generate_rft_menu(self) -> None:
+        """Generate self-verified SFT data via RFT (MODEL-045/046).
+
+        The model self-solves problems with best-of-N; only verifier-passed AND
+        secure completions are kept — no teacher needed (self-distillation).
+        """
+        _print_section_header(
+            "Generate RFT Data (self-verified)",
+            "Model generates best-of-N candidates, keeps verified+secure ones as SFT data",
+        )
+        cli.print(
+            "  No teacher needed — the model distills its OWN verified output "
+            "(rejection-sampling fine-tuning).\n"
+            "  Model output is UNTRUSTED — verified ONLY inside the sandbox.\n"
+        )
+
+        try:
+            checkpoint = input("  Checkpoint dir (or `latest`): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            cli.warn("Cancelled.")
+            return
+        if not checkpoint:
+            cli.warn("No checkpoint given; cancelled.")
+            return
+
+        config = input("  Config [default: configs/small.yaml]: ").strip() or "configs/small.yaml"
+        jsonl = input("  Prompts JSONL [blank = built-in problems]: ").strip()
+        output = input("  Output JSONL [default: data/sft/rft.jsonl]: ").strip() or "data/sft/rft.jsonl"
+
+        args = [
+            "--checkpoint", checkpoint, "--config", config, "--output", output,
+        ]
+        if jsonl:
+            args += ["--jsonl", jsonl]
+
+        cli.kv_table({
+            "Checkpoint": checkpoint,
+            "Config": config,
+            "Prompts": jsonl or "built-in problems",
+            "Output": output,
+        }, title="RFT Data Config")
+
+        if cli.confirm("Start generating RFT data?"):
+            self._master._run_script("generate_rft_data.py", args)
             self._master._pause()
 
     def _train_router_menu(self) -> None:

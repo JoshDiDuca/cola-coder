@@ -809,12 +809,24 @@ cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N ve
   from distillation/__init__. Distillation/offline → committed on main. Tests: test_rft.py +5 (keep
   verified+secure, drop unverified, keep-when-off, drop insecure, length guard); distillation regression
   (11) + ruff green. FOLLOW-UP: MODEL-046.
-- **MODEL-046** [model/post-training, medium] `open` (2026-06-14) — wire MODEL-045 into a runnable
-  pipeline: a `scripts/generate_rft_data.py` (or `--self-rft` mode on generate_distillation_data.py)
-  that loads a checkpoint generator + problem prompts/tests, runs `generate_rft_dataset`, writes the
-  SFT JSONL, and a menu entry (training_menu Post-Training). Then an iterative loop (generate → SFT →
-  regenerate) is the full RFT self-improvement engine. Needs a loaded generator (GPU) → run between
-  training runs or on the spare GPU. Tooling → main-safe.
+- **MODEL-046** [model/post-training, medium] `done` (2026-06-14) — **runnable RFT front-end.**
+  New `scripts/generate_rft_data.py`: loads a checkpoint via `load_generator` (DRY), pulls prompts
+  (built-in problems OR `--jsonl` of `{prompt, test_code}`), runs MODEL-045 `generate_rft_dataset`
+  (best-of-N → keep verified+secure), writes ChatML SFT JSONL + stats. Wired into the Training menu →
+  Post-Training (`_generate_rft_menu`). The self-improvement engine is usable end-to-end: generate
+  RFT data → train_sft.py → repeat. Tooling → committed on main. Tests: test_generate_rft_script.py
+  +2 (JSONL loading incl. missing-test→None, built-in max_prompts); 7 RFT tests, menu imports,
+  --help, ruff green. Running needs a checkpoint (GPU) → between runs / spare GPU. FOLLOW-UP: an
+  iterative wrapper (generate → SFT → regenerate) + AdaSTaR-style frontier prioritization (IDEA-027).
+- **DATA-067** [data-quality, high-potential] `open` (2026-06-14, ORIGINAL) — **verified-RFT data as
+  a quality-classifier teacher.** RFT (MODEL-045/046) yields a growing pool of VERIFIER-PASSED
+  (objectively correct + secure) completions plus the REJECTED ones (failed tsc/tests or insecure) —
+  a free, perfectly-labelled binary corpus. Feed BOTH classes into `train_judge_classifier` so the
+  quality classifier learns "what verifier-passing TS looks like" from GROUND TRUTH, not LLM-judge
+  opinion (DATA-062/IDEA-025). Each RFT round improves the model AND sharpens the scorer that curates
+  the NEXT pretraining batch — a compounding flywheel where verifier labels propagate into the
+  quality-weights pipeline. Combines RFT + verifier + quality classifier + quality weights. Builds on
+  MODEL-045/046 + DATA-062 + train_judge_classifier. Data → main-safe.
 - **IDEA-027** [research/post-training, high-potential] `open` (2026-06-14, ORIGINAL) —
   **verifier-effort-curriculum RFT.** Plain RFT samples every prompt uniformly, wasting budget on
   trivial + impossible prompts. Use EVAL-026's verifier-EFFORT to self-curate RFT's curriculum: after

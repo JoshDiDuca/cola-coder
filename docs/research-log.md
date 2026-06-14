@@ -7,6 +7,46 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Iterative self-improvement (STaR/ReST) (rotate: data curation)
+
+Sources:
+- Think, Prune, Train, Improve: scaling reasoning without scaling models — https://arxiv.org/pdf/2504.18116
+- B-STaR: balancing exploration/exploitation in self-taught reasoners — https://arxiv.org/pdf/2412.17256
+- STaR: bootstrapping reasoning with reasoning — https://openreview.net/pdf?id=_3ELRdg2sgI
+- AdaSTaR (adaptive sampling for self-taught reasoners) — referenced in the STaR survey
+
+Findings:
+- **The STaR/ReST loop = a data FLYWHEEL:** (i) sample multiple solutions, (ii) FILTER to the
+  ones a verifier/ground-truth accepts, (iii) SFT/RFT on the filtered set, repeat. The filtered
+  self-generated data is the curation engine — this cycle wired its single-round form (MODEL-046).
+- **AdaSTaR (2026): don't sample uniformly.** Prioritize STALE and HARD instances via a
+  MinHeap + curriculum weighting so harder samples dominate as accuracy rises → ~58.6% FLOPs
+  reduction. This independently confirms last cycle's IDEA-027 (verifier-effort-curriculum RFT) —
+  the project's verifier-effort (EVAL-026) is exactly the difficulty signal AdaSTaR needs.
+- **B-STaR:** monitor + balance exploration vs exploitation across rounds — ties to the project's
+  entropy controller (IDEA-013) and verifier-calibrated escalation (INFER-029).
+
+**Implemented this cycle (MODEL-046 — tooling, main-safe):** the runnable RFT front-end. New
+`scripts/generate_rft_data.py` loads a checkpoint via `load_generator` (DRY), pulls prompts (built-in
+problems OR a `--jsonl` of `{prompt, test_code}`), runs the MODEL-045 `generate_rft_dataset` (best-of-N
+→ keep verified+secure), and writes ChatML SFT JSONL with a stats summary. Wired into the Training
+menu → Post-Training group (`_generate_rft_menu`). The self-improvement engine is now usable end-to-end:
+generate RFT data → `train_sft.py` → repeat. Tests: +2 (JSONL prompt loading incl. missing-test→None,
+built-in max_prompts); 7 RFT tests + ruff green. Loading needs a checkpoint (GPU) so it runs between
+training runs or on the spare GPU.
+
+**ORIGINAL cross-technique idea (DATA-067): verified-RFT data as a quality-classifier teacher.** The
+RFT pipeline produces a growing pool of VERIFIER-PASSED (objectively correct, secure) completions and,
+implicitly, the REJECTED ones (failed tsc/tests or insecure). That's a free, perfectly-labelled
+binary corpus — feed BOTH classes into `train_judge_classifier` / the quality classifier so it learns
+"what verifier-passing TS looks like" from ground truth, not LLM-judge opinion (DATA-062/IDEA-025).
+Each RFT round both improves the model AND sharpens the data-quality scorer that curates the NEXT
+pretraining batch — a compounding flywheel where the verifier's labels propagate into the quality-
+weights pipeline. Combines RFT + verifier + quality classifier + quality weights. Builds on MODEL-045/046
++ DATA-062 + train_judge_classifier. Data → main-safe. → DATA-067.
+
+---
+
 ## 2026-06-14 — Rejection-sampling fine-tuning / self-verified distillation (rotate: post-training)
 
 Sources:
