@@ -5,6 +5,9 @@ import type {
   ScoreSummary,
   Job,
   ActionDef,
+  ConfigFile,
+  ConfigContent,
+  PipelineRun,
 } from './types';
 
 async function j<T>(url: string, opts?: RequestInit): Promise<T> {
@@ -77,4 +80,20 @@ export function startTraining(
     '/api/train/start',
     postJson({ config, resume })
   );
+}
+
+export function getConfigs(): Promise<ConfigFile[]> {
+  return j<ConfigFile[]>('/api/configs');
+}
+
+export function getConfig(path: string): Promise<ConfigContent> {
+  return j<ConfigContent>(`/api/config?path=${encodeURIComponent(path)}`);
+}
+
+export function getPipelineRuns(): Promise<PipelineRun[]> {
+  return j<PipelineRun[]>('/api/pipeline/runs');
+}
+
+export function getPipelineRun(path: string): Promise<unknown> {
+  return j<unknown>(`/api/pipeline/run?path=${encodeURIComponent(path)}`);
 }

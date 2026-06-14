@@ -12,8 +12,10 @@ Design notes:
 """
 
 from .app import create_app
+from .configs import list_configs, read_config
 from .datasets import dataset_preview, list_datasets, score_summary
 from .jobs import JobManager
+from .pipeline import list_pipeline_runs, read_pipeline_run
 from .status import get_system_status, get_training_status, list_checkpoints
 
 __all__ = [
@@ -25,4 +27,8 @@ __all__ = [
     "list_datasets",
     "dataset_preview",
     "score_summary",
+    "list_configs",
+    "read_config",
+    "list_pipeline_runs",
+    "read_pipeline_run",
 ]

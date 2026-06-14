@@ -72,6 +72,8 @@ class ToolsMenu:
                  "detail": "Build vector index for RAG-based code retrieval"},
                 {"label": "Configure Agent Tools",
                  "detail": "Enable/disable code execution, web search, and other agent tools"},
+                {"label": "Launch Web UI (dashboard)",
+                 "detail": "scripts/ui_server.py — React dashboard: live training, datasets, jobs, run actions"},
             ]
 
             choice = cli.choose("Select tool:", options, allow_cancel=True)
@@ -122,6 +124,9 @@ class ToolsMenu:
                 self._index_repository_menu()
             elif choice == 15:
                 self._configure_agent_tools_menu()
+            elif choice == 16:
+                self._master._run_script("ui_server.py", ["--open"])
+                self._master._pause()
 
     def _export_model_menu(self) -> None:
         """Export model to GGUF/Ollama/quantized format."""

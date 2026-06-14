@@ -78,3 +78,29 @@ export interface Preview {
   preview?: unknown[];
   error?: string;
 }
+
+export interface ConfigFile {
+  name: string;
+  path: string;
+  rel: string;
+  size_bytes: number;
+  mtime: number;
+}
+
+export interface ConfigContent {
+  path?: string;
+  content?: string;
+  parsed?: unknown;
+  truncated?: boolean;
+  error?: string;
+}
+
+export interface PipelineRun {
+  name: string;
+  path: string;
+  mtime: number;
+  num_stages: number | null;
+  status: string | null;
+  completed: number | null;
+  error?: string;
+}

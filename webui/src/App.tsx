@@ -6,6 +6,8 @@ import CheckpointsPanel from './components/CheckpointsPanel';
 import ActionsPanel from './components/ActionsPanel';
 import JobsPanel from './components/JobsPanel';
 import DatasetsPanel from './components/DatasetsPanel';
+import ConfigsPanel from './components/ConfigsPanel';
+import PipelinePanel from './components/PipelinePanel';
 
 interface Snapshot {
   training: TrainingStatus;
@@ -76,6 +78,8 @@ export default function App() {
         <ActionsPanel onRan={() => { /* jobs arrive via the event stream */ }} />
         <JobsPanel jobs={snap?.jobs ?? []} />
         <DatasetsPanel />
+        <ConfigsPanel />
+        <PipelinePanel />
       </main>
     </>
   );

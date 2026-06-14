@@ -34,7 +34,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import configs as cfg
 from . import datasets as ds
+from . import pipeline as pl
 from . import status as st
 from .jobs import JobManager
 
@@ -180,6 +182,22 @@ def create_app(
         if "error" in result:
             return JSONResponse(result, status_code=409)
         return JSONResponse(result)
+
+    @app.get("/api/configs")
+    def configs_list() -> list[dict]:
+        return cfg.list_configs(str(root / "configs"))
+
+    @app.get("/api/config")
+    def config_get(path: str) -> dict:
+        return cfg.read_config(path)
+
+    @app.get("/api/pipeline/runs")
+    def pipeline_runs() -> list[dict]:
+        return pl.list_pipeline_runs(str(root / "pipeline_runs"))
+
+    @app.get("/api/pipeline/run")
+    def pipeline_run(path: str) -> dict:
+        return pl.read_pipeline_run(path)
 
     # Serve the built React app. Mount LAST so /api/* routes resolve first —
     # StaticFiles at "/" otherwise shadows every API route.
