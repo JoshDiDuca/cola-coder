@@ -19,6 +19,8 @@ import type {
   RouterOverview,
   ExportOverview,
   MetricsHistory,
+  DataSourcesView,
+  EvalHistoryView,
   ApiError,
 } from './types';
 
@@ -156,4 +158,12 @@ export function getExports(): Promise<ExportOverview | ApiError> {
 
 export function getMetricsHistory(): Promise<MetricsHistory | ApiError> {
   return j<MetricsHistory | ApiError>('/api/metrics/history');
+}
+
+export function getDataSources(): Promise<DataSourcesView | ApiError> {
+  return j<DataSourcesView | ApiError>('/api/data-sources');
+}
+
+export function getEvalHistory(): Promise<EvalHistoryView | ApiError> {
+  return j<EvalHistoryView | ApiError>('/api/eval-history');
 }

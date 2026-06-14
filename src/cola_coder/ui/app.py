@@ -36,7 +36,9 @@ from fastapi.staticfiles import StaticFiles
 
 from . import checkpoint_detail as cd
 from . import configs as cfg
+from . import data_sources_view as dsv
 from . import datasets as ds
+from . import eval_history as eh
 from . import evals as ev
 from . import exports as ex
 from . import features as ft
@@ -260,6 +262,14 @@ def create_app(
     @app.get("/api/metrics/history")
     def metrics_history() -> dict:
         return mh.training_history(log_path)
+
+    @app.get("/api/data-sources")
+    def data_sources() -> dict:
+        return dsv.read_data_sources(str(root / "configs" / "data_sources.yaml"))
+
+    @app.get("/api/eval-history")
+    def eval_history_get() -> dict:
+        return eh.eval_history(str(root))
 
     # Serve the built React app. Mount LAST so /api/* routes resolve first —
     # StaticFiles at "/" otherwise shadows every API route.

@@ -244,6 +244,35 @@ export interface MetricsHistory {
   count: number;
 }
 
+export interface DataSource {
+  name: string;
+  weight: number | null;
+  dataset: string | null;
+  languages: string[];
+  kind: string | null;
+}
+
+export interface DataSourcesView {
+  path: string;
+  sources: DataSource[];
+  total_weight: number | null;
+  parsed: Record<string, unknown>;
+  summary: string;
+}
+
+export interface EvalSnapshot {
+  step: number | null;
+  path: string;
+  mtime: number;
+  metrics: Record<string, unknown>;
+}
+
+export interface EvalHistoryView {
+  snapshots: EvalSnapshot[];
+  count: number;
+  metric_keys: string[];
+}
+
 export interface ApiError {
   error: string;
 }

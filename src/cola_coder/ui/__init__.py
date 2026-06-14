@@ -14,7 +14,9 @@ Design notes:
 from .app import create_app
 from .checkpoint_detail import checkpoint_detail
 from .configs import list_configs, read_config
+from .data_sources_view import read_data_sources
 from .datasets import dataset_preview, list_datasets, score_summary
+from .eval_history import eval_history
 from .evals import list_eval_results, read_eval_result
 from .exports import export_overview
 from .features import list_features
@@ -51,4 +53,6 @@ __all__ = [
     "router_overview",
     "export_overview",
     "training_history",
+    "read_data_sources",
+    "eval_history",
 ]
