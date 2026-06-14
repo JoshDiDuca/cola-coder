@@ -70,6 +70,12 @@ export interface ActionDef {
   label: string;
   args: string[];
   trainer?: boolean;
+  gpu?: boolean;
+}
+
+export interface JobLogChunk {
+  text: string;
+  done: boolean;
 }
 
 export interface SftFile {

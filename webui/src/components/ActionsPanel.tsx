@@ -2,7 +2,12 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ActionDef } from '../types';
 import { getActions, runAction } from '../api';
 
-export default function ActionsPanel({ onRan }: { onRan?: () => void }) {
+interface ActionsPanelProps {
+  onRan?: () => void;
+  trainingAlive?: boolean;
+}
+
+export default function ActionsPanel({ onRan, trainingAlive }: ActionsPanelProps) {
   const [actions, setActions] = useState<ActionDef[]>([]);
   const [args, setArgs] = useState<Record<string, string>>({});
   const [running, setRunning] = useState<string | null>(null);
@@ -33,10 +38,22 @@ export default function ActionsPanel({ onRan }: { onRan?: () => void }) {
   }, []);
 
   const onRun = useCallback(
-    async (key: string) => {
+    async (action: ActionDef) => {
+      const key = action.key;
       setRunning(key);
       setStarted(null);
       setError(null);
+      // Warn before launching a VRAM-heavy action while the live trainer runs:
+      // loading a model on the GPU competes for VRAM and may OOM the live run.
+      if (action.gpu && trainingAlive === true) {
+        const ok = window.confirm(
+          `${action.label} loads the model on the GPU. Training is live — running this will compete for VRAM and may OOM. Run anyway?`,
+        );
+        if (!ok) {
+          setRunning(null);
+          return;
+        }
+      }
       try {
         const value = (args[key] ?? '').trim();
         const job = await runAction(key, value ? value.split(/\s+/) : []);
@@ -52,7 +69,7 @@ export default function ActionsPanel({ onRan }: { onRan?: () => void }) {
         setRunning(null);
       }
     },
-    [args, onRan],
+    [args, onRan, trainingAlive],
   );
 
   return (
@@ -84,6 +101,11 @@ export default function ActionsPanel({ onRan }: { onRan?: () => void }) {
                         trainer
                       </span>
                     )}
+                    {a.gpu && (
+                      <span className="tag done" style={{ marginLeft: 8 }}>
+                        GPU
+                      </span>
+                    )}
                   </div>
                   <div className="muted mono">{a.script}</div>
                 </td>
@@ -100,7 +122,7 @@ export default function ActionsPanel({ onRan }: { onRan?: () => void }) {
                 <td className="right">
                   <button
                     className="btn btn-primary"
-                    onClick={() => void onRun(a.key)}
+                    onClick={() => void onRun(a)}
                     disabled={running !== null}
                   >
                     {running === a.key ? '…running' : '▶ Run'}

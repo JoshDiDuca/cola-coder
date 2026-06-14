@@ -101,6 +101,14 @@ class ActionDef(_UiModel):
     label: str
     args: list[str]
     trainer: bool = False
+    gpu: bool = False
+
+
+class JobLogChunk(_UiModel):
+    """One Server-Sent-Events frame from a job's live log stream."""
+
+    text: str
+    done: bool
 
 
 class SftFile(_UiModel):

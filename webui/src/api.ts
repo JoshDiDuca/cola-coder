@@ -96,6 +96,13 @@ export function stopJob(id: string): Promise<{ stopped: boolean }> {
   );
 }
 
+// Live job-log stream (SSE). The caller opens an EventSource on this URL and
+// parses each frame as a `JobLogChunk` ({ text, done }). Returned as a URL (not
+// a fetch) because EventSource manages its own connection + auto-reconnect.
+export function jobLogStreamUrl(id: string, tail = 200): string {
+  return `/api/jobs/${encodeURIComponent(id)}/stream?tail=${tail}`;
+}
+
 export function getActions(): Promise<ActionDef[]> {
   return j<ActionDef[]>('/api/actions');
 }

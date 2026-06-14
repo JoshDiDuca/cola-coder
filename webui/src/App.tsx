@@ -100,7 +100,10 @@ export default function App() {
         <CheckpointsPanel checkpoints={snap?.checkpoints ?? []} />
         <MetricsChartPanel />
         <EvalHistoryPanel />
-        <ActionsPanel onRan={() => { /* jobs arrive via the event stream */ }} />
+        <ActionsPanel
+          onRan={() => { /* jobs arrive via the event stream */ }}
+          trainingAlive={alive}
+        />
         <JobsPanel jobs={snap?.jobs ?? []} />
         <DatasetsPanel />
         <DataSourcesPanel />

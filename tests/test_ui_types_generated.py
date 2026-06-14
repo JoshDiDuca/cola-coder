@@ -78,7 +78,8 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "cmd": ["python", "train.py"], "log": "train.log", "started": 1.0,
         "returncode": None,
     },
-    "ActionDef": {"key": "k", "script": "train.py", "label": "Train", "args": []},
+    "ActionDef": {"key": "k", "script": "train.py", "label": "Train", "args": [], "gpu": False},
+    "JobLogChunk": {"text": "step 1\n", "done": False},
     "SftFile": {
         "name": "sft.jsonl", "path": "data/sft.jsonl", "kind": "jsonl",
         "num_records": 5, "size_bytes": 200, "mtime": 1.0,

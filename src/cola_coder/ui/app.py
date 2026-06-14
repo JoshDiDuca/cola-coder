@@ -80,10 +80,11 @@ ACTIONS: dict[str, dict] = {
                      "args": ["--config", "configs/small.yaml"]},
     "score_data": {"script": "score_data.py", "label": "Score data quality",
                    "args": ["--data", "data/processed/train_data.npy"]},
-    "evaluate": {"script": "evaluate.py", "label": "Evaluate (HumanEval pass@k)",
+    "evaluate": {"script": "evaluate.py", "label": "Evaluate (HumanEval pass@k)", "gpu": True,
                  "args": ["--checkpoint", "checkpoints/small/latest", "--config", "configs/small.yaml"]},
-    "smoke_test": {"script": "smoke_test.py", "label": "Smoke test (8 checks)", "args": []},
+    "smoke_test": {"script": "smoke_test.py", "label": "Smoke test (8 checks)", "gpu": True, "args": []},
     "generate_rft": {"script": "generate_rft_data.py", "label": "Generate RFT data (self-verified)",
+                     "gpu": True,
                      "args": ["--checkpoint", "checkpoints/small/latest", "--config", "configs/small.yaml"]},
     "data_stats": {"script": "data_stats.py", "label": "Dataset statistics", "args": []},
     "tokenizer_health": {"script": "tokenizer_health.py", "label": "Tokenizer health check", "args": []},
@@ -91,20 +92,23 @@ ACTIONS: dict[str, dict] = {
     "vram_estimate": {"script": "vram_estimate.py", "label": "VRAM estimate", "args": []},
     "env_check": {"script": "env_check.py", "label": "Environment check", "args": []},
     "quality_report": {"script": "quality_report.py", "label": "Quality report (syntax/types/tokens)",
+                       "gpu": True,
                        "args": ["--checkpoint", "checkpoints/small/latest", "--config", "configs/small.yaml"]},
     "safety_eval": {"script": "safety_eval.py", "label": "Safety eval (secrets/dangerous patterns)",
+                    "gpu": True,
                     "args": ["--checkpoint", "checkpoints/small/latest", "--config", "configs/small.yaml",
                              "--suite", "basic"]},
-    "completion_benchmark": {"script": "completion_benchmark.py", "label": "Completion benchmark",
+    "completion_benchmark": {"script": "completion_benchmark.py", "label": "Completion benchmark", "gpu": True,
                              "args": ["--checkpoint", "checkpoints/small/latest", "--config", "configs/small.yaml"]},
-    "benchmark": {"script": "benchmark.py", "label": "Throughput benchmark (tok/s)", "args": []},
+    "benchmark": {"script": "benchmark.py", "label": "Throughput benchmark (tok/s)", "gpu": True, "args": []},
     "regression_test": {"script": "regression_test.py", "label": "Regression test (quality tracking)",
+                        "gpu": True,
                         "args": ["--checkpoint", "checkpoints/small/latest", "--config", "configs/small.yaml"]},
-    "ts_benchmark": {"script": "ts_benchmark.py", "label": "TypeScript benchmark (tsc --strict)",
+    "ts_benchmark": {"script": "ts_benchmark.py", "label": "TypeScript benchmark (tsc --strict)", "gpu": True,
                      "args": ["--checkpoint", "checkpoints/small/latest", "--config", "configs/small.yaml"]},
-    "depth_profile": {"script": "depth_profile.py", "label": "Depth / early-exit profile",
+    "depth_profile": {"script": "depth_profile.py", "label": "Depth / early-exit profile", "gpu": True,
                       "args": ["--checkpoint", "checkpoints/small/latest", "--config", "configs/small.yaml"]},
-    "robustness_eval": {"script": "robustness_eval.py", "label": "Robustness eval (perturbations)",
+    "robustness_eval": {"script": "robustness_eval.py", "label": "Robustness eval (perturbations)", "gpu": True,
                         "args": ["--checkpoint", "checkpoints/small/latest", "--config", "configs/small.yaml"]},
     "generate_instructions": {"script": "generate_instructions.py", "label": "Generate instruction pairs",
                               "args": ["--config", "configs/small.yaml"]},
@@ -205,6 +209,56 @@ def create_app(
             return {"log": ""}
         text = log.read_text(encoding="utf-8", errors="replace")
         return {"log": "\n".join(text.splitlines()[-lines:])}
+
+    @app.get("/api/jobs/{job_id}/stream")
+    def job_stream(job_id: str, tail: int = 200) -> StreamingResponse:
+        """Server-push a job's log: an initial tail, then new bytes as they land.
+
+        Each SSE frame is a JSON ``JobLogChunk`` ({text, done}). The stream ends
+        with a final ``done=true`` frame once the job process exits. Reading is
+        byte-offset based (binary seek) so multi-byte boundaries never corrupt.
+        """
+        job = jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="job not found")
+        log_path = Path(job["log"])
+
+        def _frame(text: str, done: bool) -> str:
+            return f"data: {sch.JobLogChunk(text=text, done=done).model_dump_json()}\n\n"
+
+        async def gen() -> AsyncIterator[str]:
+            pos = 0
+            if log_path.exists():
+                data = log_path.read_bytes()
+                pos = len(data)
+                lines = data.decode("utf-8", errors="replace").splitlines()
+                yield _frame("\n".join(lines[-tail:]), False)
+            try:
+                while True:
+                    await asyncio.sleep(0.5)
+                    status = jobs.get(job_id)
+                    done = status is None or status["status"] != "running"
+                    chunk = ""
+                    if log_path.exists():
+                        size = log_path.stat().st_size
+                        if size > pos:
+                            with open(log_path, "rb") as fh:
+                                fh.seek(pos)
+                                raw = fh.read()
+                                pos = fh.tell()
+                            chunk = raw.decode("utf-8", errors="replace")
+                    if chunk or done:
+                        yield _frame(chunk, done)
+                    if done:
+                        return
+            except asyncio.CancelledError:
+                return
+
+        return StreamingResponse(
+            gen(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     @app.post("/api/jobs/{job_id}/stop")
     def job_stop(job_id: str) -> dict:

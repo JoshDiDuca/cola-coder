@@ -58,6 +58,7 @@ _MODEL_ORDER: list[str] = [
     "Dataset",
     "Job",
     "ActionDef",
+    "JobLogChunk",
     "SftFile",
     "SftPreview",
     "ScriptInfo",
