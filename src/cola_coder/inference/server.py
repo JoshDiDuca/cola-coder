@@ -59,6 +59,7 @@ class GenerateRequest(BaseModel):
     top_k: int = 50
     top_p: float = 0.9
     min_p: float = 0.0
+    top_n_sigma: float = 0.0
     repetition_penalty: float = 1.1
     no_repeat_ngram_size: int = 0
     stop_tokens: list[str] | None = None
@@ -122,6 +123,7 @@ class ChatCompletionRequest(BaseModel):
     top_p: float = 0.9
     top_k: int = 50
     min_p: float = 0.0
+    top_n_sigma: float = 0.0
     repetition_penalty: float = 1.1
     no_repeat_ngram_size: int = 0
     stop: list[str] | None = None
@@ -163,6 +165,7 @@ class CompletionRequest(BaseModel):
     top_p: float = 0.9
     top_k: int = 50
     min_p: float = 0.0
+    top_n_sigma: float = 0.0
     repetition_penalty: float = 1.1
     no_repeat_ngram_size: int = 0
     stop: list[str] | None = None
@@ -206,6 +209,7 @@ class FimRequest(BaseModel):
     top_p: float = 0.9
     top_k: int = 50
     min_p: float = 0.0
+    top_n_sigma: float = 0.0
     repetition_penalty: float = 1.1
     no_repeat_ngram_size: int = 0
     language: str | None = None  # Metadata only — reserved for language-specific stops
@@ -498,6 +502,7 @@ def create_app(
                 top_k=request.top_k,
                 top_p=request.top_p,
                 min_p=request.min_p,
+                top_n_sigma=request.top_n_sigma,
                 repetition_penalty=request.repetition_penalty,
                 no_repeat_ngram_size=request.no_repeat_ngram_size,
                 stop_tokens=request.stop_tokens,
@@ -630,6 +635,7 @@ def create_app(
                     top_k=request.top_k,
                     top_p=request.top_p,
                     min_p=request.min_p,
+                    top_n_sigma=request.top_n_sigma,
                     repetition_penalty=request.repetition_penalty,
                     no_repeat_ngram_size=request.no_repeat_ngram_size,
                     stop_tokens=request.stop,
@@ -681,6 +687,7 @@ def create_app(
             top_k=request.top_k,
             top_p=request.top_p,
             min_p=request.min_p,
+            top_n_sigma=request.top_n_sigma,
             repetition_penalty=request.repetition_penalty,
             no_repeat_ngram_size=request.no_repeat_ngram_size,
             stop_tokens=request.stop,
@@ -819,6 +826,7 @@ def create_app(
                     top_k=request.top_k,
                     top_p=request.top_p,
                     min_p=request.min_p,
+                    top_n_sigma=request.top_n_sigma,
                     repetition_penalty=request.repetition_penalty,
                     no_repeat_ngram_size=request.no_repeat_ngram_size,
                     stop_tokens=request.stop,
@@ -865,6 +873,7 @@ def create_app(
             top_k=request.top_k,
             top_p=request.top_p,
             min_p=request.min_p,
+            top_n_sigma=request.top_n_sigma,
             repetition_penalty=request.repetition_penalty,
             no_repeat_ngram_size=request.no_repeat_ngram_size,
             stop_tokens=request.stop,
@@ -1001,6 +1010,7 @@ def create_app(
                 top_k=request.top_k,
                 top_p=request.top_p,
                 min_p=request.min_p,
+                top_n_sigma=request.top_n_sigma,
                 repetition_penalty=request.repetition_penalty,
                 no_repeat_ngram_size=request.no_repeat_ngram_size,
                 stop_tokens=stop_tokens,

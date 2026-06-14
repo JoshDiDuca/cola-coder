@@ -7,6 +7,46 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Inference serving efficiency (rotate: inference/decoding)
+
+Sources:
+- PagedAttention / vLLM (efficient KV-cache memory) — https://arxiv.org/pdf/2309.06180
+- KV Cache Optimization Strategies survey (2026) — https://arxiv.org/abs/2603.20397
+- Persistent Q4 KV cache for multi-agent edge inference — https://arxiv.org/pdf/2603.04428
+- vLLM vs TGI performance study — https://arxiv.org/html/2511.17593
+
+Findings:
+- **KV-cache is the serving bottleneck.** PagedAttention (non-contiguous KV blocks) + continuous
+  batching give vLLM 10-24× throughput over static batching/TGI; quantization (GPTQ/AWQ + Q4 KV)
+  shrinks weights/cache 4-8× at minimal quality loss. The project's KV-cache is simple/contiguous —
+  fine for single-user 4080 serving, not datacenter scale (out of scope now).
+- **No single KV technique dominates** — the survey maps techniques to SCENARIOS (long-context,
+  high-throughput, edge, multi-turn, accuracy-critical). cola-coder serves TWO regimes: latency-
+  critical inline FIM and throughput-oriented best-of-N — which want different trade-offs.
+- **Q4 KV cache** is viable on edge with minimal accuracy loss — relevant to fitting more best-of-N
+  candidates in the 4080's 16 GB.
+
+**Implemented this cycle (INFER-030 — inference/server, main-safe):** completed the top-nσ
+(INFER-028) exposure so the 2026 sampler is usable end-to-end from the IDE. Threaded `top_n_sigma`
+through `generator.generate_stream` (the chat SSE path) and added a `top_n_sigma: float = 0.0` field
+to all four server request models (Generate / ChatCompletion / Completion / FIM), forwarded at all 6
+`generate`/`generate_stream` call sites. +3 regression tests (4 fields present, all 6 sites forward
+it via a no-silent-no-op regex guard, generator methods accept it); 10 server tests + ruff green.
+NOTE: best-of-N (`_best_of_generate`) uses its own batched sampling and does NOT yet thread top-nσ
+(documented; → INFER-031 follow-up to thread it through generate_group).
+
+**ORIGINAL cross-technique idea (IDEA-026): verifier-gated KV-cache precision.** The two serving
+regimes want opposite KV trade-offs, and the VERIFIER tells you which is safe. For best-of-N
+(throughput, accuracy-TOLERANT because the sandbox verifier filters bad candidates anyway), use a
+Q4-quantized KV-cache so MORE candidates fit in the 4080's 16 GB → a larger best-of-N budget for the
+same VRAM; for latency/accuracy-critical inline FIM (single shot, no verifier downstream), keep
+full-precision KV. The verifier makes Q4's slight quality loss free for best-of-N (it discards the
+losers), converting saved KV memory into more verified samples — a precision/budget trade no
+KV-quant paper makes because none has a downstream verifier. Builds on the best-of-N verifier +
+generate_group KV-cache. Inference → main-safe (quantization is opt-in per request path). → IDEA-026.
+
+---
+
 ## 2026-06-14 — LLM-as-judge reliability & calibration (rotate: evaluation)
 
 Sources:

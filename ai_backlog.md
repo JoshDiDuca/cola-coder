@@ -718,6 +718,26 @@ cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N ve
   on reject, capped, default-off, no-escalation-after-early-stop, invalid-config); 40 best-of-N
   green, ruff clean. FOLLOW-UP (INFER-028 follow-up): thread top_n_sigma through generate_group so
   the schedule can also LOOSEN n·σ, not just temperature.
+- **INFER-030** [inference/server, medium] `done` (2026-06-14) — **expose top-nσ on the server.**
+  INFER-028 added the top-nσ sampler to core sampling + `generate`; this completes the path so it's
+  usable from the IDE. Threaded `top_n_sigma` through `generator.generate_stream` (chat SSE) and
+  added `top_n_sigma: float = 0.0` to all 4 server request models (Generate/ChatCompletion/Completion/
+  FIM), forwarded at all 6 generate/generate_stream call sites. Inference/server → committed on main.
+  Tests: test_server_top_n_sigma.py +3 (4 fields, all 6 sites forward via no-silent-no-op regex,
+  generator methods accept it); 10 server tests + ruff green. NOTE: best-of-N (`_best_of_generate`)
+  uses its own batched sampling and does NOT yet thread top-nσ → INFER-031.
+- **INFER-031** [inference, low] `open` (2026-06-14) — thread `top_n_sigma` through `generate_group`
+  (and `_generate_candidates` / `_best_of_generate`) so best-of-N and the INFER-029 escalation can
+  also widen via n·σ, not just temperature. Mechanical plumbing across the generate_group fallback
+  chain (sample_next_tokens_batch already accepts it). Inference → main-safe.
+- **IDEA-026** [research/inference, medium-potential] `open` (2026-06-14, ORIGINAL) —
+  **verifier-gated KV-cache precision.** The two serving regimes want opposite KV trade-offs and the
+  verifier says which is safe: for best-of-N (throughput, accuracy-TOLERANT since the sandbox verifier
+  filters losers), use a Q4-quantized KV-cache so MORE candidates fit in 16 GB → larger best-of-N
+  budget per VRAM; for latency/accuracy-critical inline FIM (no downstream verifier), keep
+  full-precision KV. The verifier makes Q4's quality loss free for best-of-N (it discards the bad
+  ones), turning saved KV memory into more verified samples — a trade no KV-quant paper makes (none
+  has a downstream verifier). Builds on best-of-N verifier + generate_group KV-cache. Inference → main-safe.
 - **EVAL-026** [research/eval+curriculum, high-potential] `done` (2026-06-14) —
   **verifier-effort difficulty profiling.** `BestOfNResult` now carries
   `candidates_used / rounds / final_temperature / solved` (populated by both fixed-N and adaptive

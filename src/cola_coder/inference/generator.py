@@ -295,6 +295,7 @@ class CodeGenerator:
         top_k: int = 50,
         top_p: float = 0.9,
         min_p: float = 0.0,
+        top_n_sigma: float = 0.0,
         repetition_penalty: float = 1.1,
         stop_tokens: list[str] | None = None,
         no_repeat_ngram_size: int = 0,
@@ -370,6 +371,7 @@ class CodeGenerator:
                     repetition_penalty=repetition_penalty,
                     generated_ids=generated_ids,
                     no_repeat_ngram_size=no_repeat_ngram_size,
+                    top_n_sigma=top_n_sigma,
                 )
 
                 # Token-level stop (EOS / single-token stops)
