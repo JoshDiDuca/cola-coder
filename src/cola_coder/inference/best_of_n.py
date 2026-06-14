@@ -254,6 +254,8 @@ def generate_best_of_n_adaptive(
     tsc_runner=None,
     execute_fn: "ExecuteFn | None" = None,
     cluster_verify: bool = True,
+    temperature_growth: float = 1.0,
+    max_temperature: float = 1.2,
 ) -> BestOfNResult:
     """Adaptive-budget best-of-N (IDEA-009): grow the candidate count only as needed.
 
@@ -262,23 +264,36 @@ def generate_best_of_n_adaptive(
     early the moment a verified+secure candidate appears. Cheap/easy prompts cost
     ``initial_candidates``; hard ones get the full budget — trading compute for
     accuracy only when the verifier says it's needed (2026 test-time-compute scaling).
-    Pure inference; same verification + ranking as generate_best_of_n.
+
+    INFER-029 (verifier-calibrated sampling): with ``temperature_growth > 1.0``, each
+    time the verifier rejects a whole round the NEXT round's sampling temperature is
+    multiplied by ``temperature_growth`` (capped at ``max_temperature``). Re-sampling
+    the SAME distribution rarely escapes a systematic failure — widening it does
+    (2026 TTS: modify the sampling distribution, don't just resample it). Default 1.0
+    keeps the temperature fixed (backward compatible). Pure inference.
     """
     if max_candidates < 1:
         raise ValueError(f"max_candidates must be >= 1, got {max_candidates}")
     if growth < 2:
         raise ValueError(f"growth must be >= 2, got {growth}")
+    if temperature_growth < 1.0:
+        raise ValueError(f"temperature_growth must be >= 1.0, got {temperature_growth}")
+    if max_temperature < temperature:
+        raise ValueError(
+            f"max_temperature ({max_temperature}) < temperature ({temperature})"
+        )
     lang = detect_language(prompt) if language == "auto" else language
 
     candidates: list[CandidateResult] = []
     verifier_name = "none"
     generated = 0
+    current_temp = temperature
     target = min(max(1, initial_candidates), max_candidates)
     while generated < max_candidates:
         batch = target - generated
         texts = _generate_candidates(
             generator, prompt, num_candidates=batch,
-            max_new_tokens=max_new_tokens, temperature=temperature,
+            max_new_tokens=max_new_tokens, temperature=current_temp,
             top_k=top_k, top_p=top_p, min_p=min_p,
             no_repeat_ngram_size=no_repeat_ngram_size,
         )
@@ -296,11 +311,15 @@ def generate_best_of_n_adaptive(
         if next_target <= generated:
             break  # already at the cap
         target = next_target
+        # Verifier still unsatisfied → widen the sampling distribution for the next
+        # round so retries actually explore new solutions, not the same failure.
+        if temperature_growth > 1.0:
+            current_temp = min(current_temp * temperature_growth, max_temperature)
 
     ranked = _rank(candidates)
     logger.info(
-        "adaptive best-of-N (%s via %s): used %d/%d candidates, %d verified, best %.3f",
-        lang, verifier_name, generated, max_candidates,
+        "adaptive best-of-N (%s via %s): used %d/%d candidates @ temp<=%.2f, %d verified, best %.3f",
+        lang, verifier_name, generated, max_candidates, current_temp,
         sum(c.verified for c in ranked), ranked[0].score,
     )
     return BestOfNResult(

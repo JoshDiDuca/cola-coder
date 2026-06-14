@@ -667,13 +667,26 @@ cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N ve
   unchanged). Inference → committed on main. Tests: test_inference.py::TestTopNSigma +7; 46
   inference/sampling tests green, ruff clean. FOLLOW-UP: thread top_n_sigma through generate_stream
   / generate_group / the server request models for full exposure.
-- **INFER-029** [research/inference, medium-potential] `open` (2026-06-14, ORIGINAL) —
-  **verifier-calibrated adaptive sampling.** In adaptive best-of-N, start low-temperature / tight
-  top-nσ (exploit) and only when the sandbox verifier keeps REJECTING the batch, RAISE temperature
-  and LOOSEN n·σ to widen exploration — a verifier-driven sampling schedule (the inference-time
-  analogue of IDEA-013's RL entropy controller). The verifier closes the loop: spend diversity only
-  where correctness is unmet. Builds on INFER-028 + the sandbox verifier + adaptive best-of-N
-  (IDEA-009). Inference → main-safe.
+- **INFER-029** [research/inference, medium-potential] `done` (2026-06-14) —
+  **verifier-calibrated adaptive sampling.** `generate_best_of_n_adaptive` gained
+  `temperature_growth` (default 1.0 = off) + `max_temperature`: each round the sandbox verifier
+  rejects the whole batch, the next round's temperature is multiplied by `temperature_growth`
+  (capped) so retries WIDEN the distribution instead of resampling the same systematic failure
+  (2026 TTS: modify the distribution, don't just resample it; arXiv:2602.01070). Inference-time
+  analogue of IDEA-013's RL entropy controller. Backward-compatible (growth 1.0 → fixed temp).
+  Inference → committed on main. Tests: test_best_of_n.py::TestTemperatureEscalation +5 (escalates
+  on reject, capped, default-off, no-escalation-after-early-stop, invalid-config); 40 best-of-N
+  green, ruff clean. FOLLOW-UP (INFER-028 follow-up): thread top_n_sigma through generate_group so
+  the schedule can also LOOSEN n·σ, not just temperature.
+- **EVAL-026** [research/eval+curriculum, high-potential] `open` (2026-06-14, ORIGINAL) —
+  **verifier-effort difficulty profiling.** Adaptive best-of-N already records how much compute each
+  prompt needed (candidates used + escalated temperature, INFER-029) before the verifier passed —
+  a continuous, MODEL-RELATIVE difficulty label, free + objective. (a) Eval report stratified by
+  verifier-effort tier (pass@k for easy/medium/hard-as-the-model-sees-it) to surface weaknesses;
+  (b) feed those labels back as the GRPO curriculum's difficulty tiers (which IDEA-020's
+  per-difficulty entropy floors consume) — closing eval→curriculum with measured difficulty, not
+  static heuristics. Exploits verifier + adaptive best-of-N + curriculum. Builds on IDEA-009 +
+  INFER-029 + IDEA-020. Eval/curriculum → main-safe.
 - **IDEA-021** [research/inference, medium-potential] `open` (2026-06-14, ORIGINAL) —
   **verifier-gated FIM completion boundary.** Precise stopping via cola-coder's assets instead of
   a bespoke incremental grammar parser: use the sandbox tsc verifier as the "complete program?"

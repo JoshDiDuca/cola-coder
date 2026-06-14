@@ -7,6 +7,45 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Compute-optimal test-time scaling (rotate: evaluation)
+
+Sources:
+- What If We Allocate Test-Time Compute Adaptively? — https://arxiv.org/pdf/2602.01070
+- Budget-aware Test-time Scaling via Discriminative Verification — https://arxiv.org/pdf/2510.14913
+- Sample, Scrutinize and Scale: scaling verification — https://arxiv.org/pdf/2502.01839
+- Scaling test-time compute optimally > scaling params (OpenReview) — https://openreview.net/forum?id=4FWAwZtd2n
+
+Findings:
+- **Compute-optimal scaling is DIFFICULTY-dependent.** The best test-time strategy varies by
+  prompt difficulty; "compute-optimal" allocation gives easy prompts few samples and hard ones
+  many — exactly what the project's adaptive best-of-N (IDEA-009) does, gated by the verifier.
+- **Don't just resample a FIXED distribution.** 2026 work moves to MODIFYING the sampling
+  distribution (evolving conditioning, temperature/rectification) rather than drawing more from
+  the same one — re-sampling rarely escapes a systematic failure.
+- **Discriminative verifiers are budget-efficient:** under a fixed budget, a discriminative
+  checker (does it pass?) beats costly generative verification — cola-coder's sandbox tsc/tests
+  IS a discriminative verifier, so its best-of-N is already on the efficient side.
+
+**Implemented this cycle (INFER-029 — inference, main-safe):** verifier-calibrated temperature
+escalation in adaptive best-of-N. New `temperature_growth` (default 1.0 = off) + `max_temperature`:
+each round the sandbox verifier rejects the WHOLE batch, the next round's temperature is multiplied
+by `temperature_growth` (capped) so retries WIDEN the distribution instead of resampling the same
+failure — the inference-time analogue of IDEA-013's RL entropy controller, and the "modify the
+distribution" lesson above. Backward-compatible (growth 1.0 → fixed temp). +5 tests (escalates on
+reject, capped, default-off, no-escalation-after-early-stop, invalid-config); 40 best-of-N green, ruff clean.
+
+**ORIGINAL cross-technique idea (EVAL-026): verifier-effort difficulty profiling.** The adaptive
+best-of-N already records HOW MUCH compute each prompt needed (candidates used + escalated
+temperature) before the verifier was satisfied. That "verifier effort" is a continuous,
+MODEL-RELATIVE difficulty label — free, objective, no human annotation. Use it two ways: (a) an
+eval report stratified by verifier-effort tier (pass@k for easy/medium/hard-as-the-model-sees-it),
+surfacing where the model is weak; (b) feed those labels back as the GRPO curriculum's difficulty
+tiers (which IDEA-020's per-difficulty entropy floors already consume) — closing eval→curriculum
+with the model's own measured difficulty rather than static heuristics. Exploits verifier + adaptive
+best-of-N + curriculum. Eval/curriculum → main-safe. Builds on IDEA-009 + INFER-029 + IDEA-020. → EVAL-026.
+
+---
+
 ## 2026-06-14 — Sampling for code generation (rotate: inference/decoding)
 
 Sources:

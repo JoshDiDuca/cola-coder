@@ -521,3 +521,70 @@ class TestClusterGatedVerify:
         )
         c0, c1 = result.candidates
         assert c0.details is not c1.details         # no shared-dict aliasing
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Verifier-calibrated temperature escalation (INFER-029)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestTemperatureEscalation:
+    """Adaptive best-of-N raises temperature each round the verifier rejects."""
+
+    def test_temperature_escalates_when_verifier_rejects(self):
+        from cola_coder.inference.best_of_n import generate_best_of_n_adaptive
+        gen = FakeGroupGenerator(["const x: number = 1;", "const y: number = 2;"])
+        runner = FakeTscRunner({0: ["TS2322: e"], 1: ["TS2322: e"]})  # fail every round
+        generate_best_of_n_adaptive(
+            gen, "// p", initial_candidates=2, max_candidates=6, growth=2,
+            language="typescript", tsc_runner=runner,
+            temperature=0.8, temperature_growth=1.5, max_temperature=2.0,
+        )
+        temps = [c["temperature"] for c in gen.group_calls]
+        # 3 rounds (2 -> 4 -> 6): temps 0.8, 1.2, 1.8 (strictly increasing).
+        assert len(temps) == 3
+        assert temps[0] == pytest.approx(0.8)
+        assert temps[1] == pytest.approx(1.2)
+        assert temps[2] == pytest.approx(1.8)
+
+    def test_temperature_capped(self):
+        from cola_coder.inference.best_of_n import generate_best_of_n_adaptive
+        gen = FakeGroupGenerator(["const x: number = 1;", "const y: number = 2;"])
+        runner = FakeTscRunner({0: ["e"], 1: ["e"]})
+        generate_best_of_n_adaptive(
+            gen, "// p", initial_candidates=2, max_candidates=6, growth=2,
+            language="typescript", tsc_runner=runner,
+            temperature=0.8, temperature_growth=3.0, max_temperature=1.5,
+        )
+        temps = [c["temperature"] for c in gen.group_calls]
+        assert max(temps) <= 1.5  # never exceeds the cap
+
+    def test_no_escalation_by_default(self):
+        from cola_coder.inference.best_of_n import generate_best_of_n_adaptive
+        gen = FakeGroupGenerator(["const x: number = 1;", "const y: number = 2;"])
+        runner = FakeTscRunner({0: ["e"], 1: ["e"]})
+        generate_best_of_n_adaptive(
+            gen, "// p", initial_candidates=2, max_candidates=6, growth=2,
+            language="typescript", tsc_runner=runner, temperature=0.8,
+        )
+        temps = [c["temperature"] for c in gen.group_calls]
+        assert all(t == pytest.approx(0.8) for t in temps)  # fixed (growth defaults 1.0)
+
+    def test_no_escalation_after_early_stop(self):
+        from cola_coder.inference.best_of_n import generate_best_of_n_adaptive
+        gen = FakeGroupGenerator(["const a = 1;", "const b: number = 2;"])
+        runner = FakeTscRunner({})  # first round verifies -> early stop
+        generate_best_of_n_adaptive(
+            gen, "// p", initial_candidates=2, max_candidates=6,
+            language="typescript", tsc_runner=runner,
+            temperature=0.8, temperature_growth=1.5,
+        )
+        assert len(gen.group_calls) == 1  # stopped after round 1, no escalation
+
+    def test_invalid_escalation_config_rejected(self):
+        from cola_coder.inference.best_of_n import generate_best_of_n_adaptive
+        gen = FakeGroupGenerator(["x"])
+        with pytest.raises(ValueError, match="temperature_growth"):
+            generate_best_of_n_adaptive(gen, "p", temperature_growth=0.5)
+        with pytest.raises(ValueError, match="max_temperature"):
+            generate_best_of_n_adaptive(gen, "p", temperature=1.0, max_temperature=0.5)
