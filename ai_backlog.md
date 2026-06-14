@@ -448,6 +448,24 @@ cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N ve
   default to Muon. Refs: arXiv 2502.16982 (Muon is Scalable), 2505.02222 (Practical
   Efficiency). NOTE: changing the live run's optimizer is numerics-changing → worktree
   + validate; apply to the NEXT run, not the in-flight one.
+  VALIDATION PROGRESS (2026-06-14): unit-level validation now complete — Newton-Schulz
+  orthogonalization (BOTH rows<cols and the previously-untested rows>cols transposed
+  branch), shape preservation, decoupled weight decay (exact algebraic check
+  p_decayed == p_undecayed - lr*wd*p0), param-split, state_dict resume, and scheduler
+  scaling all covered (tests/test_modern_techniques.py::TestMuon, 10 tests, main-safe —
+  no optimizer.py edit). REMAINING: the empirical AdamW-vs-Muon A/B (needs a training
+  run; do in a worktree on the NEXT run, not the live AdamW one). See IDEA-019 for a
+  quality-weights interaction to verify before defaulting to Muon.
+- **IDEA-019** [research/training, medium-potential] `open` (2026-06-14, ORIGINAL) —
+  **quality-weights x Muon interaction.** Muon orthogonalizes the update -> discards gradient
+  MAGNITUDE for 2D matrices. So a GLOBAL batch loss scale is washed out by Newton-Schulz, but
+  RELATIVE in-batch per-sample weights still reshape the averaged-gradient DIRECTION and
+  survive. Implication: quality weights MUST be a weighted MEAN over per-sample losses (which
+  `language_modeling_loss` already does), never a global multiplier, or they silently no-op
+  under Muon. Actionable: a test asserting a quality-weighted batch produces a DIFFERENT Muon
+  update direction than uniform weights (proves not neutered) + document the constraint. An
+  interaction only cola-coder (Muon + quality weights) hits. Verify before defaulting to Muon
+  (MODEL-025). Tests-only/validation -> main-safe.
 - **MODEL-026** [reasoning, medium] `open` — Add **DAPO dynamic sampling** to GRPO:
   drop prompt groups where all G samples are all-correct or all-incorrect (zero
   advantage → zero gradient → wasted rollout compute), resampling to keep the

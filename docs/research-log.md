@@ -7,6 +7,49 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Muon optimizer maturity (rotate: optimizers)
+
+Sources:
+- Muon is Scalable for LLM Training (Moonlight, 16B MoE, ~2× AdamW efficiency) — https://arxiv.org/abs/2502.16982
+- Keller Jordan — Muon / nanoGPT speedrun formulation — https://kellerjordan.github.io/posts/muon/
+- Moonshot AI / Kimi (MuonClip, qk-clip stability at scale) — https://en.wikipedia.org/wiki/Moonshot_AI
+
+Findings:
+- **Muon = momentum → Newton-Schulz orthogonalization → spectrally-normed update**
+  (steepest descent under a spectral-norm trust region). Validated at 16B-MoE scale with
+  ~2× token efficiency over tuned AdamW; only 2D hidden matrices use Muon, embeddings/norms
+  stay on AdamW. cola-coder already implements exactly this hybrid (optimizer.py).
+- **Two scale-at-scale additions matter:** (1) decoupled WEIGHT DECAY (original Muon lacked
+  it; Moonlight added it — already in cola-coder's `_muon_step`), and (2) update-RMS matching
+  (`scale = max(1, rows/cols)**0.5`) so updates across differently-shaped matrices have a
+  consistent RMS, letting an AdamW-tuned LR transfer (already in cola-coder).
+- **MuonClip (Kimi-K2):** add qk-clip to bound attention logits — the large-run stability
+  layer; cola-coder already has qk_norm, a related logit-control mechanism → MODEL-034.
+
+**Implemented this cycle (MODEL-025 validation — main-safe, tests-only):** closed the Muon
+test-coverage gaps without touching optimizer.py (no train-path edit). The existing suite
+tested orthogonalization (rows<cols), loss-decrease, param-split, and state_dict resume; the
+TRANSPOSED Newton-Schulz branch (rows>cols — taken by every tall weight matrix) and decoupled
+weight decay were UNTESTED. Added: transposed-branch orthogonality (svdvals≈1, shape
+preserved), shape preservation across orientations, and a precise weight-decay validation
+(`p_decayed == p_undecayed − lr·wd·p₀` to 1e-5, isolating the decay term from an identical
+orthogonal update). +3 tests (10 TestMuon pass), ruff green. Empirical Muon-vs-AdamW A/B
+still deferred (needs a training run; the live run is AdamW).
+
+**ORIGINAL cross-technique insight (IDEA-019): quality-weights × Muon interaction.** Non-obvious
+catch: Muon ORTHOGONALIZES the update, discarding gradient MAGNITUDE for the 2D matrices. The
+project's per-sample quality weights scale the loss → scale the gradient. A *global* batch loss
+scale is therefore WASHED OUT by Newton-Schulz (no effect on Muon's update direction) — but
+*relative* in-batch per-sample weights still reshape the averaged-gradient DIRECTION and so
+survive. Implication: quality weighting must be applied as a weighted MEAN over per-sample
+losses (relative weights — which `language_modeling_loss` already does), never as a global loss
+multiplier, or it silently no-ops under Muon. Actionable follow-up: a test asserting a
+high-quality-weighted batch yields a DIFFERENT Muon update direction than uniform weights
+(proves weights aren't neutered), and document the constraint where Muon + quality weights meet.
+This is exactly the kind of interaction only cola-coder (Muon + quality weights together) hits. → IDEA-019.
+
+---
+
 ## 2026-06-14 — On-policy distillation (rotate: post-training)
 
 Sources:

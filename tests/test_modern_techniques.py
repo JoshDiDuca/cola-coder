@@ -326,6 +326,59 @@ class TestMuon:
         assert lrs[0] == pytest.approx(0.02 / 100)
         assert lrs[1] == pytest.approx(1e-3 / 100)
 
+    def test_newton_schulz_transposed_branch_orthogonalizes(self):
+        # MODEL-025: the rows>cols case takes the `transposed` branch (X=X.T,
+        # iterate, X=X.T back) — previously UNTESTED. A bug there would corrupt
+        # the update for every weight matrix taller than it is wide.
+        from cola_coder.training.optimizer import _zeropower_via_newtonschulz5
+
+        torch.manual_seed(0)
+        G = torch.randn(32, 16)                       # rows > cols -> transposed path
+        ortho = _zeropower_via_newtonschulz5(G, steps=5).float()
+        assert ortho.shape == G.shape                 # shape preserved
+        sv = torch.linalg.svdvals(ortho)              # 16 singular values
+        assert sv.max() < 1.6 and sv.min() > 0.4, f"transposed spectrum not flat: {sv}"
+
+    def test_newton_schulz_preserves_shape_both_orientations(self):
+        from cola_coder.training.optimizer import _zeropower_via_newtonschulz5
+
+        torch.manual_seed(1)
+        for shape in [(16, 32), (32, 16), (24, 24)]:
+            G = torch.randn(*shape)
+            assert _zeropower_via_newtonschulz5(G, steps=5).shape == torch.Size(shape)
+
+    def test_muon_decoupled_weight_decay_shrinks_weights(self):
+        # MODEL-025: decoupled weight decay (p *= 1 - lr*wd) before the update is
+        # untested. Two runs identical except weight_decay -> the decayed muon
+        # param must equal the undecayed one minus exactly lr*wd*p_initial.
+        import copy
+
+        from cola_coder.training.optimizer import create_optimizer
+
+        torch.manual_seed(0)
+        model_wd = Transformer(_tiny_config())
+        model_no = copy.deepcopy(model_wd)            # identical start
+        lr, wd = 0.02, 0.5
+        opt_wd = create_optimizer(model_wd, optimizer="muon", muon_lr=lr, weight_decay=wd)
+        opt_no = create_optimizer(model_no, optimizer="muon", muon_lr=lr, weight_decay=0.0)
+
+        # One muon (2D block) param + its pre-step value.
+        muon_g_wd = next(g for g in opt_wd.param_groups if g["use_muon"])
+        muon_g_no = next(g for g in opt_no.param_groups if g["use_muon"])
+        p_wd, p_no = muon_g_wd["params"][0], muon_g_no["params"][0]
+        p0 = p_wd.detach().clone()
+
+        x = torch.randint(0, 64, (2, 16))
+        for opt, m in ((opt_wd, model_wd), (opt_no, model_no)):
+            opt.zero_grad()
+            m.compute_loss(x).backward()
+            opt.step()
+
+        # Same gradient + same orthogonal update; the ONLY difference is the
+        # decoupled decay term -lr*wd*p0 applied to the decayed run.
+        assert torch.allclose(p_wd, p_no - lr * wd * p0, atol=1e-5)
+        assert p_wd.norm() < p_no.norm()              # decay pulls toward 0
+
 
 # ── WSD schedule ────────────────────────────────────────────────────────────
 
