@@ -7,6 +7,46 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Long-context RoPE extension (rotate: long-context)
+
+Sources:
+- LongRoPE2: near-lossless context window scaling — https://arxiv.org/pdf/2502.20082
+- MrRoPE (mixed-radix RoPE, ICLR 2026, training-free train-short-test-long) — https://arxiv.org/pdf/2601.22181
+- YaRN: efficient context window extension — https://arxiv.org/pdf/2309.00071
+- RoPE extensions, an attention perspective — https://arxiv.org/pdf/2406.13282
+
+Findings:
+- **YaRN degrades on small models for DEEP retrieval.** YaRN avoids long-seq perplexity blowup
+  but drops sharply on downstream tasks when key info sits deep beyond the training context — and
+  fails needle retrieval specifically on small models (Phi3-mini, LLaMA3-8B). Relevant: cola-coder
+  is small and uses YaRN (RoPEScalingConfig) → MODEL-033 (LongRoPE2) is the upgrade.
+- **LongRoPE2** rescales per-dimension RoPE frequencies guided by needle-style evals → near-lossless
+  128K on a 3.8B model where YaRN fails. **MrRoPE** (ICLR 2026) unifies RoPE extensions under a
+  radix view and gets TRAINING-FREE "train short, test long" (>85% recall @128K, ~2× YaRN).
+- **Perplexity ≠ retrieval:** the field now validates long-context with needle/retrieval tasks,
+  not just perplexity — extension that holds perplexity can still fail deep retrieval.
+
+**Implemented this cycle (IDEA-020 — reasoning-only, main-safe):** per-difficulty entropy floors in
+the IDEA-013 `EntropyClipController`. New optional `difficulty_floors={"easy":…,"medium":…,"hard":…}`
++ `floor_for(difficulty)`; `update(..., difficulty=…)` uses that tier's floor instead of the single
+`target_entropy` (fallback preserved). Hard problems (low pass-rate, need search) get a higher floor
+→ more DAPO clip-higher exploration; easy/solved tiers get a low floor → exploit. Wired through the
+GRPO curriculum's per-step `difficulty` (staged easy→hard, so the next-step clip is tier-appropriate).
+Backward-compatible (no floors → single target). +5 tests (15 controller pass); GRPO suite green.
+
+**ORIGINAL cross-technique idea (IDEA-022): verifier-graded long-range FIM.** Long-context extension
+usually just rescales RoPE frequencies and validates on synthetic needles. cola-coder can MANUFACTURE
+genuine, VERIFIABLE long-range dependencies: build a dynamic-FIM example where the symbol the middle
+must use (a type, an imported helper) lives in a prepended repo-context block thousands of tokens
+away — so a correct infill REQUIRES attending across the full window — and grade it with the sandbox
+verifier (does prefix+infill+suffix type-check / pass tests using that distant symbol?). This turns
+"needle in a haystack" into a VERIFIABLE TRAINING + eval objective (functional long-range retrieval,
+not just perplexity), exactly the deep-retrieval failure YaRN has. Pairs RoPE extension (MODEL-033)
+with FIM + repo context + verifier — a long-context signal the RoPE papers (synthetic needles only)
+lack. Worktree (touches FIM/data) when implemented; the eval half is main-safe. → IDEA-022.
+
+---
+
 ## 2026-06-14 — Contamination-free & holistic code eval (rotate: evaluation)
 
 Sources:

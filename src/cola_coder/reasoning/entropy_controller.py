@@ -43,6 +43,14 @@ class EntropyClipController:
         pass_rate_ceiling: If the group pass-rate is >= this, treat the verifier as
             satisfied and do NOT inject exploration (relax to base). 1.0 disables
             the gate (always control on entropy alone).
+        difficulty_floors: IDEA-020 — optional per-difficulty entropy floors, e.g.
+            ``{"easy": 0.3, "medium": 0.7, "hard": 1.2}``. When ``update`` receives a
+            ``difficulty``, the floor for that tier is used instead of
+            ``target_entropy`` (which remains the fallback). Hard problems (need
+            search) get a HIGHER floor → more clip-higher exploration; easy/solved
+            tiers get a LOWER floor → exploit. The GRPO curriculum is staged
+            (easy→hard), so consecutive steps share a tier and the next-step clip is
+            appropriate. None (default) = single ``target_entropy`` for all tiers.
     """
 
     target_entropy: float
@@ -51,6 +59,7 @@ class EntropyClipController:
     max_clip_high: float = 0.40
     gain: float = 0.5
     pass_rate_ceiling: float = 0.9
+    difficulty_floors: dict[str, float] | None = None
 
     def __post_init__(self) -> None:
         if self.target_entropy < 0:
@@ -62,6 +71,12 @@ class EntropyClipController:
             )
         if self.gain < 0:
             raise ValueError(f"gain must be >= 0, got {self.gain}")
+        if self.difficulty_floors is not None:
+            for tier, floor in self.difficulty_floors.items():
+                if floor < 0:
+                    raise ValueError(
+                        f"difficulty_floors[{tier!r}] must be >= 0, got {floor}"
+                    )
         # Current (modulated) upper clip — starts at base.
         self._current_high = self.clip_high
 
@@ -69,13 +84,24 @@ class EntropyClipController:
     def current_clip_high(self) -> float:
         return self._current_high
 
-    def update(self, measured_entropy: float, pass_rate: float = 0.0) -> tuple[float, float]:
+    def floor_for(self, difficulty: str | None) -> float:
+        """The entropy floor for a difficulty tier (target_entropy fallback)."""
+        if self.difficulty_floors and difficulty in self.difficulty_floors:
+            return self.difficulty_floors[difficulty]
+        return self.target_entropy
+
+    def update(
+        self,
+        measured_entropy: float,
+        pass_rate: float = 0.0,
+        difficulty: str | None = None,
+    ) -> tuple[float, float]:
         """Return ``(clip_low, clip_high)`` for the NEXT GRPO step.
 
-        Raises clip_high proportionally to the entropy deficit, but only when the
-        verifier is unsatisfied; otherwise relaxes to the base clip_high.
+        Raises clip_high proportionally to the deficit below this tier's entropy
+        floor, but only when the verifier is unsatisfied; otherwise relaxes to base.
         """
-        deficit = self.target_entropy - measured_entropy
+        deficit = self.floor_for(difficulty) - measured_entropy
         verifier_satisfied = pass_rate >= self.pass_rate_ceiling
         if deficit <= 0.0 or verifier_satisfied:
             self._current_high = self.clip_high  # healthy / solved → relax to base

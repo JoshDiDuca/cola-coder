@@ -272,13 +272,25 @@ EVERY scenario. SEC-001/SEC-010 fixed timeout-kill + all-exit cleanup; the rest:
   (healthy stays at base, collapse raises + caps, proportional, verifier-gate both ways, relax
   after recovery, clip_low never modulated, invalid-config guards); GRPO suite green, ruff clean.
   Empirical entropy-collapse-prevention A/B deferred to an actual GRPO run.
-- **IDEA-020** [research/post-training, medium-potential] `open` (2026-06-14, ORIGINAL) —
-  **per-difficulty entropy floors.** The GRPO curriculum already varies temperature by difficulty
-  and tracks per-difficulty pass-rate. Extend IDEA-013's controller to hold a DIFFERENT entropy
-  floor per tier — hard problems (low pass-rate, need search) get a higher floor → more
-  clip-higher exploration; easy/solved problems get a low floor → exploit. Drives the DAPO clip
-  from BOTH live entropy AND per-difficulty verifier pass-rate = a difficulty-adaptive exploration
-  schedule. Builds on IDEA-013 + curriculum + per-difficulty pass-rate. Reasoning-only → main-safe.
+- **IDEA-020** [research/post-training, medium-potential] `done` (2026-06-14) —
+  **per-difficulty entropy floors.** Extended IDEA-013's `EntropyClipController` with optional
+  `difficulty_floors={"easy":…,"medium":…,"hard":…}` + `floor_for(difficulty)`; `update(...,
+  difficulty=…)` uses that tier's floor instead of the single `target_entropy` (fallback kept).
+  Hard tiers get a higher floor → more clip-higher exploration; easy/solved tiers a low floor →
+  exploit. Wired through the GRPO curriculum's per-step `difficulty`. Backward-compatible (no
+  floors → single target). Reasoning-only → committed on main. Tests: test_entropy_controller.py
+  +5 (floor lookup+fallback, hard>easy at same entropy, easy<medium<hard, no-floors fallback,
+  negative-floor guard); 15 controller + GRPO suite green, ruff clean.
+- **IDEA-022** [research/long-context, high-potential] `open` (2026-06-14, ORIGINAL) —
+  **verifier-graded long-range FIM.** RoPE extension (MODEL-033) just rescales frequencies and
+  validates on synthetic needles. cola-coder can MANUFACTURE verifiable long-range deps: build a
+  dynamic-FIM example where the symbol the middle must use (a type / imported helper) lives in a
+  prepended repo-context block thousands of tokens away, so a correct infill REQUIRES attending
+  across the full window — graded by the sandbox verifier (does prefix+infill+suffix type-check /
+  pass tests using that distant symbol?). Turns needle-in-a-haystack into a VERIFIABLE training +
+  eval objective (functional deep retrieval, not perplexity) — the exact failure YaRN has on small
+  models. Pairs RoPE extension + FIM + repo context + verifier. Training half = worktree (FIM/data
+  numerics); eval half = main-safe. Builds on MODEL-033 + dynamic FIM + repo_context + TscRunner.
 - **SEC-019** [security/injection, medium] `done` (2026-06-14) — **prompt-injection scanner**
   for untrusted retrieved content (OWASP LLM01 indirect injection; arXiv:2510.23883, 2601.04795).
   New `security/injection_patterns.py`: `scan_injection`/`has_injection` flag instruction-override

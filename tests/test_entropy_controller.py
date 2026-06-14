@@ -80,3 +80,51 @@ class TestEntropyClipController:
             EntropyClipController(target_entropy=1.0, clip_high=0.5, max_clip_high=0.3)
         with pytest.raises(ValueError, match="gain"):
             EntropyClipController(target_entropy=1.0, gain=-0.1)
+
+
+class TestPerDifficultyFloors:
+    """IDEA-020: per-difficulty entropy floors — harder tiers get more exploration."""
+
+    def _ctrl(self):
+        return EntropyClipController(
+            target_entropy=0.5, clip_high=0.2, max_clip_high=2.0, gain=0.5,
+            difficulty_floors={"easy": 0.3, "medium": 0.7, "hard": 1.2},
+        )
+
+    def test_floor_lookup(self):
+        c = self._ctrl()
+        assert c.floor_for("easy") == 0.3
+        assert c.floor_for("hard") == 1.2
+        # Unknown tier / None -> target_entropy fallback.
+        assert c.floor_for("epic") == 0.5
+        assert c.floor_for(None) == 0.5
+
+    def test_hard_explores_more_than_easy_at_same_entropy(self):
+        c = self._ctrl()
+        measured = 0.4  # below medium/hard floors, above easy floor (0.3)
+        _, easy_high = c.update(measured, difficulty="easy")   # deficit < 0 -> base
+        _, hard_high = c.update(measured, difficulty="hard")   # deficit 0.8 -> raise
+        assert easy_high == 0.2                                  # easy: at base (exploit)
+        assert hard_high == pytest.approx(0.2 + 0.5 * (1.2 - 0.4))  # hard: explores
+        assert hard_high > easy_high
+
+    def test_medium_between_easy_and_hard(self):
+        c = self._ctrl()
+        measured = 0.0
+        _, easy_high = c.update(measured, difficulty="easy")    # deficit 0.3
+        _, med_high = c.update(measured, difficulty="medium")   # deficit 0.7
+        _, hard_high = c.update(measured, difficulty="hard")    # deficit 1.2
+        assert easy_high < med_high < hard_high
+
+    def test_no_floors_falls_back_to_single_target(self):
+        # Without difficulty_floors, difficulty is ignored (single target_entropy).
+        c = EntropyClipController(target_entropy=0.5, clip_high=0.2,
+                                  max_clip_high=2.0, gain=0.5)
+        _, a = c.update(0.0, difficulty="hard")
+        _, b = c.update(0.0, difficulty="easy")
+        assert a == b == pytest.approx(0.2 + 0.5 * 0.5)
+
+    def test_negative_floor_rejected(self):
+        with pytest.raises(ValueError, match="difficulty_floors"):
+            EntropyClipController(target_entropy=0.5,
+                                  difficulty_floors={"hard": -0.1})

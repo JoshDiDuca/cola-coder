@@ -736,6 +736,7 @@ class GRPOTrainer:
                     _, self.clip_epsilon_high = self.entropy_clip_controller.update(
                         metrics.get("policy_entropy", 0.0),
                         metrics.get("pass_rate", 0.0),
+                        difficulty=difficulty,  # IDEA-020: per-difficulty entropy floor
                     )
 
                 diff_correct[difficulty] = (
