@@ -7,6 +7,45 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Curriculum RL & difficulty estimation (rotate: post-training)
+
+Sources:
+- Curriculum RL from Easy to Hard improves LLM reasoning (E2H) — https://arxiv.org/abs/2506.06632
+- Self-Evolving Curriculum for LLM Reasoning (bandit) — https://arxiv.org/abs/2505.14970
+- Beyond Random Sampling: curriculum LM pretraining — https://arxiv.org/abs/2506.11300
+
+Findings:
+- **Easy→Hard scheduling helps, but FADE OUT easy tasks.** E2H gives convergence guarantees and
+  shows that keeping easy tasks too long causes overfitting — the schedule must retire mastered
+  tiers. The project's GRPO curriculum is static (fixed difficulty tags); it has no measured,
+  evolving difficulty.
+- **Curriculum needs a difficulty METRIC.** SEC learns the curriculum as a non-stationary
+  multi-armed bandit; pretraining curricula use 6 linguistic/info-theoretic difficulty metrics.
+  All require a difficulty signal — and cola-coder has a unique one: the sandbox VERIFIER's effort.
+- **Difficulty is model-relative + non-stationary:** what's hard changes as the model learns, so a
+  static label is wrong; measure it from the model's own verified-solve effort.
+
+**Implemented this cycle (EVAL-026 — eval/inference, main-safe):** verifier-effort difficulty
+profiling. `BestOfNResult` now carries `candidates_used / rounds / final_temperature / solved`
+(populated by both fixed-N and adaptive best-of-N). New `evaluation/difficulty_profile.py`:
+`verifier_effort_tier(candidates_used, max_candidates, solved)` → easy/medium/hard/unsolved by how
+much of the adaptive budget a verified solve consumed; `profile_difficulty(results, max_candidates)`
+→ a difficulty-distribution report (per-tier counts, solve-rate, mean candidates). A free,
+objective, MODEL-RELATIVE difficulty label from the verifier — no human annotation. Pure logic →
+runs/tests with no GPU/sandbox. +10 tests; 40 best-of-N green, ruff clean. Off the train path → main.
+
+**ORIGINAL cross-technique idea (MODEL-042): verifier-effort E2H scheduler.** Close eval→curriculum
+with measured difficulty. Each curriculum epoch, RE-CLASSIFY every problem's tier from its current
+verifier-effort (EVAL-026) — not a static tag — then apply an E2H schedule: train easy→hard and
+FADE OUT problems that have become "easy" (the model mastered them, E2H's anti-overfitting rule),
+promoting freed budget to the frontier (mid pass-rate) problems. The per-tier mix feeds IDEA-020's
+per-difficulty entropy floors. Difficulty is thus measured, evolving, and model-relative — exactly
+what E2H/SEC call for — using the project's verifier + adaptive best-of-N + curriculum + entropy
+controller together, which no curriculum paper (no execution verifier) can. Builds on EVAL-026 +
+IDEA-020 + the GRPO curriculum. Reasoning-only → main-safe. → MODEL-042.
+
+---
+
 ## 2026-06-14 — Package hallucination / slopsquatting (rotate: safety)
 
 Sources:

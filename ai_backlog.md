@@ -699,15 +699,26 @@ cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N ve
   on reject, capped, default-off, no-escalation-after-early-stop, invalid-config); 40 best-of-N
   green, ruff clean. FOLLOW-UP (INFER-028 follow-up): thread top_n_sigma through generate_group so
   the schedule can also LOOSEN n·σ, not just temperature.
-- **EVAL-026** [research/eval+curriculum, high-potential] `open` (2026-06-14, ORIGINAL) —
-  **verifier-effort difficulty profiling.** Adaptive best-of-N already records how much compute each
-  prompt needed (candidates used + escalated temperature, INFER-029) before the verifier passed —
-  a continuous, MODEL-RELATIVE difficulty label, free + objective. (a) Eval report stratified by
-  verifier-effort tier (pass@k for easy/medium/hard-as-the-model-sees-it) to surface weaknesses;
-  (b) feed those labels back as the GRPO curriculum's difficulty tiers (which IDEA-020's
-  per-difficulty entropy floors consume) — closing eval→curriculum with measured difficulty, not
-  static heuristics. Exploits verifier + adaptive best-of-N + curriculum. Builds on IDEA-009 +
-  INFER-029 + IDEA-020. Eval/curriculum → main-safe.
+- **EVAL-026** [research/eval+curriculum, high-potential] `done` (2026-06-14) —
+  **verifier-effort difficulty profiling.** `BestOfNResult` now carries
+  `candidates_used / rounds / final_temperature / solved` (populated by both fixed-N and adaptive
+  best-of-N). New `evaluation/difficulty_profile.py`: `verifier_effort_tier(candidates_used,
+  max_candidates, solved)` → easy/medium/hard/unsolved by budget fraction consumed for a verified
+  solve; `profile_difficulty(results, max_candidates)` → per-tier counts + solve-rate + mean
+  candidates. A free, objective, MODEL-RELATIVE difficulty label from the verifier (no human
+  annotation). Pure logic → runs/tests with no GPU. Off the train path → committed on main. Tests:
+  test_difficulty_profile.py +10 (tier boundaries, zero-max safe, distribution+rates, empty,
+  fixed-N + adaptive effort fields); 50 (incl. 40 best-of-N) green, ruff clean. FOLLOW-UP: a CLI
+  report + wiring tiers back into the GRPO curriculum (MODEL-042).
+- **MODEL-042** [reasoning/curriculum, high-potential] `open` (2026-06-14, ORIGINAL) —
+  **verifier-effort E2H scheduler.** Each curriculum epoch, RE-CLASSIFY every problem's tier from
+  its CURRENT verifier-effort (EVAL-026) instead of a static tag, then apply an Easy→Hard schedule
+  (arXiv:2506.06632) that FADES OUT problems that became "easy" (anti-overfitting) and promotes
+  freed budget to frontier (mid pass-rate) problems. The per-tier mix feeds IDEA-020's
+  per-difficulty entropy floors. Difficulty becomes measured, evolving, model-relative — what E2H/SEC
+  call for — using verifier + adaptive best-of-N + curriculum + entropy controller together, which no
+  curriculum paper (no execution verifier) can. Builds on EVAL-026 + IDEA-020 + GRPO curriculum.
+  Reasoning-only → main-safe.
 - **IDEA-021** [research/inference, medium-potential] `open` (2026-06-14, ORIGINAL) —
   **verifier-gated FIM completion boundary.** Precise stopping via cola-coder's assets instead of
   a bespoke incremental grammar parser: use the sandbox tsc verifier as the "complete program?"

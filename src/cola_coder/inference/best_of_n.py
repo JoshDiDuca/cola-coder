@@ -89,6 +89,12 @@ class BestOfNResult:
     candidates: list[CandidateResult]   # all candidates, sorted best-first
     language: str                       # resolved language ("python"/"typescript")
     verifier: str                       # "tsc" | "python_exec" | "python_syntax" | "heuristic"
+    # Verifier-effort signals (EVAL-026): how much compute this prompt needed before
+    # the verifier was satisfied — a free, model-relative difficulty label.
+    candidates_used: int = 0            # total candidates actually generated
+    rounds: int = 1                     # adaptive escalation rounds (1 = fixed-N)
+    final_temperature: float = 0.0      # temperature of the last round
+    solved: bool = False                # any candidate passed the hard verifier
 
 
 def detect_language(code: str) -> str:
@@ -171,7 +177,9 @@ def generate_best_of_n(
         sum(c.verified for c in ranked), len(ranked), ranked[0].score,
     )
     return BestOfNResult(
-        best=ranked[0], candidates=ranked, language=lang, verifier=verifier_name
+        best=ranked[0], candidates=ranked, language=lang, verifier=verifier_name,
+        candidates_used=len(ranked), rounds=1, final_temperature=temperature,
+        solved=any(c.verified for c in ranked),
     )
 
 
@@ -295,9 +303,11 @@ def generate_best_of_n_adaptive(
     candidates: list[CandidateResult] = []
     verifier_name = "none"
     generated = 0
+    rounds = 0
     current_temp = temperature
     target = min(max(1, initial_candidates), max_candidates)
     while generated < max_candidates:
+        rounds += 1
         batch = target - generated
         texts = _generate_candidates(
             generator, prompt, num_candidates=batch,
@@ -331,7 +341,9 @@ def generate_best_of_n_adaptive(
         sum(c.verified for c in ranked), ranked[0].score,
     )
     return BestOfNResult(
-        best=ranked[0], candidates=ranked, language=lang, verifier=verifier_name
+        best=ranked[0], candidates=ranked, language=lang, verifier=verifier_name,
+        candidates_used=generated, rounds=rounds, final_temperature=current_temp,
+        solved=any(c.verified for c in ranked),
     )
 
 
