@@ -31,7 +31,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
 
-from .text_utils import strip_prompt_prefix
+from .text_utils import strip_prompt_prefix, trim_suffix_overlap
 
 logger = logging.getLogger(__name__)
 
@@ -1013,6 +1013,10 @@ def create_app(
         # which broke VS Code ghost text). _completion_after_prompt diffs against
         # the DECODED prompt so only the generated middle remains.
         infill = _completion_after_prompt(result, fim_prompt, tokenizer)
+        # FIM models over-generate, often re-emitting the start of the suffix they
+        # were given as context — which renders as duplicated code in the editor.
+        # Trim any verbatim overlap between the infill's tail and the suffix's head.
+        infill = trim_suffix_overlap(infill, request.suffix)
         infill_tokens = len(
             tokenizer.encode(infill, add_bos=False)
         ) if infill else 0

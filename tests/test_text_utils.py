@@ -7,12 +7,47 @@ helper strips the longest common prefix instead, so a mismatch costs at most
 a few boundary characters — never the entire prompt.
 """
 
-from cola_coder.inference.text_utils import strip_prompt_prefix
+from cola_coder.inference.text_utils import strip_prompt_prefix, trim_suffix_overlap
 
 
 class TestStripPromptPrefix:
     def test_exact_prefix(self):
         assert strip_prompt_prefix("def f():\n    pass", "def f():\n") == "    pass"
+
+
+class TestTrimSuffixOverlap:
+    def test_trims_verbatim_suffix_duplication(self):
+        # Model regenerated the closing lines already present in the suffix.
+        suffix = "\n  return x;\n}"
+        infill = "const y = 1;\n  return x;\n}"
+        assert trim_suffix_overlap(infill, suffix) == "const y = 1;"
+
+    def test_trims_longest_overlap_not_shortest(self):
+        # Both k=1 (';') and the full tail match; the LONGEST must win.
+        suffix = "; done();"
+        infill = "doThing(); done();"
+        assert trim_suffix_overlap(infill, suffix) == "doThing()"
+
+    def test_no_overlap_unchanged(self):
+        assert trim_suffix_overlap("const y = 1;", "\nfunction g() {}") == "const y = 1;"
+
+    def test_tiny_coincidental_overlap_kept(self):
+        # A lone ';' the completion legitimately ends on (and the suffix opens
+        # with) is below min_overlap -> not trimmed.
+        assert trim_suffix_overlap("a = b;", ";") == "a = b;"
+
+    def test_full_infill_is_suffix(self):
+        # Entire infill duplicates the suffix start -> trimmed to empty.
+        assert trim_suffix_overlap("})\n", "})\n more") == ""
+
+    def test_empty_inputs(self):
+        assert trim_suffix_overlap("", "x") == ""
+        assert trim_suffix_overlap("x", "") == "x"
+
+    def test_min_overlap_threshold_respected(self):
+        # Overlap "})" is length 2; default min_overlap=3 keeps it, =2 trims it.
+        assert trim_suffix_overlap("f()})", "}) end") == "f()})"
+        assert trim_suffix_overlap("f()})", "}) end", min_overlap=2) == "f()"
 
     def test_empty_prompt_returns_all(self):
         assert strip_prompt_prefix("hello world", "") == "hello world"

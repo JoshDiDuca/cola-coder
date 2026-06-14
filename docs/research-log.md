@@ -7,6 +7,43 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — FIM decoding quality: stopping & suffix bleed (rotate: inference/decoding)
+
+Sources:
+- Instruction-Aware Fill-in-the-Middle paradigm — https://arxiv.org/html/2509.24637v1
+- Memorization Dynamics of FIM Pretraining — https://arxiv.org/html/2605.22981
+- Constrained Decoding for FIM via grammar quotienting — https://arxiv.org/abs/2402.17988
+
+Findings:
+- **FIM models over-generate and "bleed" the suffix.** A recurring failure mode: the infill
+  fails to stop at the true boundary and instead re-emits the document SUFFIX it was already
+  given as context (or unrelated code). In an editor that renders as DUPLICATED code after the
+  accepted completion — a visible, common quality bug in inline completion.
+- **Stopping criteria are the hard part.** Auto-eval leans on dataset-specific truncation /
+  post-processing; production needs a content-based stop. Two families: (a) cheap string
+  post-processing (trim the infill's tail that duplicates the suffix's head); (b) incremental
+  PARSING / constrained decoding that stops when prefix+infill+suffix is a complete program.
+- **Suffix context is weaker than prefix:** verbatim recall stays prefix-anchored, so the model
+  leans on the prefix and tends to reconstruct the suffix rather than truly infill.
+
+**Implemented this cycle (INFER-027 — inference/server, main-safe):** suffix-overlap trim for the
+`/v1/fim` endpoint. New `text_utils.trim_suffix_overlap(infill, suffix, min_overlap=3)` removes
+the LONGEST verbatim overlap between the infill's tail and the suffix's head (with a small
+min-overlap so a lone coincidental `;`/`}` isn't trimmed). Wired into the FIM handler so inline
+completions no longer duplicate code that already follows the cursor. The cheap, robust family-(a)
+fix. +7 tests; 13 text_utils + 80 FIM tests green, ruff clean. Off the train path → committed on main.
+
+**ORIGINAL cross-technique idea (IDEA-021): verifier-gated FIM completion boundary.** Family-(b)
+done with cola-coder's assets instead of a bespoke grammar parser. Generate the FIM infill, then
+use the sandbox tsc verifier as the "is this a complete program?" oracle: find the SHORTEST infill
+prefix such that prefix+infill+suffix type-checks clean (tsc --noEmit), and stop there — a
+best-of-N over candidate stop points scored by the verifier. Reuses the FIM path + TscRunner +
+best-of-N; turns the verifier into a syntactic-completeness stop signal that the FIM decoding
+papers approximate with hand-written incremental parsers. Pairs with INFER-027 (string trim as the
+fast path, verifier gate as the precise path). Builds on /v1/fim + TscRunner + best-of-N. → IDEA-021.
+
+---
+
 ## 2026-06-14 — GRPO/DAPO variants & exploration control (rotate: post-training/RLVR)
 
 Sources:

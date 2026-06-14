@@ -572,6 +572,23 @@ cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N ve
   queue cap: requests pile up behind `_gen_lock` unboundedly. Add a bounded queue (429
   when saturated) + per-request server-side timeout so a burst can't wedge latency.
   Complements INFER-021.
+- **INFER-027** [inference/decoding, medium] `done` (2026-06-14) — **FIM suffix-overlap trim.**
+  FIM models over-generate, re-emitting the document SUFFIX they were given as context
+  (arXiv:2509.24637, 2605.22981) → duplicated code in the editor after an accepted completion.
+  Added `text_utils.trim_suffix_overlap(infill, suffix, min_overlap=3)`: removes the LONGEST
+  verbatim overlap between the infill's tail and the suffix's head (small min-overlap so a lone
+  coincidental `;`/`}` is kept). Wired into the `/v1/fim` handler. Inference/server → off the
+  train path → committed on main. Tests: test_text_utils.py +7 (verbatim dup, longest-not-shortest,
+  no-overlap, tiny-coincidence kept, full-dup→empty, empty inputs, min_overlap threshold); 13
+  text_utils + 80 FIM tests green, ruff clean.
+- **IDEA-021** [research/inference, medium-potential] `open` (2026-06-14, ORIGINAL) —
+  **verifier-gated FIM completion boundary.** Precise stopping via cola-coder's assets instead of
+  a bespoke incremental grammar parser: use the sandbox tsc verifier as the "complete program?"
+  oracle — find the SHORTEST infill prefix s.t. prefix+infill+suffix type-checks clean
+  (tsc --noEmit), stop there (best-of-N over candidate stop points scored by the verifier).
+  Turns the verifier into a syntactic-completeness stop signal the FIM-decoding papers approximate
+  with hand-written parsers. Fast path = INFER-027 string trim; precise path = this. Builds on
+  /v1/fim + TscRunner + best-of-N. Inference → main-safe.
 - **INFER-025** [inference/feature, low] `done` (2026-06-13) — `/v1/fim` (`FimRequest`)
   now exposes `repetition_penalty` (default 1.1) and the FIM handler forwards it to
   `base_gen.generate` — parity with chat/completions (it was the only direct call site
