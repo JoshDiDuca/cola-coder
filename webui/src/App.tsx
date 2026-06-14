@@ -8,6 +8,7 @@ import JobsPanel from './components/JobsPanel';
 import DatasetsPanel from './components/DatasetsPanel';
 import ConfigsPanel from './components/ConfigsPanel';
 import PipelinePanel from './components/PipelinePanel';
+import PipelineManagerPanel from './components/PipelineManagerPanel';
 import EvalsPanel from './components/EvalsPanel';
 import LogsPanel from './components/LogsPanel';
 import FeaturesPanel from './components/FeaturesPanel';
@@ -107,6 +108,7 @@ export default function App() {
         <ConfigsPanel />
         <ConfigDiffPanel />
         <PipelinePanel />
+        <PipelineManagerPanel />
         <EvalsPanel />
         <LogsPanel />
         <FeaturesPanel />

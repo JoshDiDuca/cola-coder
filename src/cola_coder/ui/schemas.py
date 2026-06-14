@@ -178,6 +178,38 @@ class PipelineRun(_UiModel):
     error: str | None = None
 
 
+class PipelineStageState(_UiModel):
+    num: int
+    name: str
+    description: str
+    optional: bool
+    status: str
+    artifact: str
+    override: str
+    error: str
+    duration_secs: float
+    started_at: str | None = None
+    completed_at: str | None = None
+
+
+class PipelineRunDetail(_UiModel):
+    name: str
+    config_path: str
+    created_at: str
+    updated_at: str
+    notes: str
+    stages: list[PipelineStageState]
+    num_stages: int
+    active_stages: int
+    completed: int
+    status: str
+
+
+class PipelineDeleteResult(_UiModel):
+    ok: bool
+    name: str
+
+
 class EvalResult(_UiModel):
     name: str
     path: str

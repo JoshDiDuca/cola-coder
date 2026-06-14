@@ -103,6 +103,19 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "name": "run1", "path": "pipeline_runs/run1.json", "mtime": 1.0,
         "num_stages": 10, "status": "running", "completed": 3,
     },
+    "PipelineStageState": {
+        "num": 3, "name": "pretrain", "description": "Base model pretraining",
+        "optional": False, "status": "completed", "artifact": "checkpoints/small/latest",
+        "override": "", "error": "", "duration_secs": 12.5,
+        "started_at": "2026-06-14T10:00:00Z", "completed_at": "2026-06-14T10:30:00Z",
+    },
+    "PipelineRunDetail": {
+        "name": "run1", "config_path": "configs/small.yaml",
+        "created_at": "2026-06-14T10:00:00Z", "updated_at": "2026-06-14T10:30:00Z",
+        "notes": "", "stages": [], "num_stages": 10, "active_stages": 8,
+        "completed": 3, "status": "running",
+    },
+    "PipelineDeleteResult": {"ok": True, "name": "run1"},
     "EvalResult": {
         "name": "e", "path": "p", "kind": "humaneval", "mtime": 1.0, "summary": "s",
     },

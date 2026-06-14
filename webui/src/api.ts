@@ -8,6 +8,8 @@ import type {
   ConfigFile,
   ConfigContent,
   PipelineRun,
+  PipelineRunDetail,
+  PipelineDeleteResult,
   EvalResult,
   EvalDetail,
   LogFile,
@@ -132,6 +134,47 @@ export function getPipelineRun(path: string): Promise<Record<string, JsonValue> 
   return j<Record<string, JsonValue> | ApiError>(
     `/api/pipeline/run?path=${encodeURIComponent(path)}`
   );
+}
+
+// ── Pipeline run lifecycle (pure state ops — never execute a stage) ──────────
+export function getPipelineDetail(name: string): Promise<PipelineRunDetail | ApiError> {
+  return j<PipelineRunDetail | ApiError>(`/api/pipeline/detail?name=${encodeURIComponent(name)}`);
+}
+
+export function createPipelineRun(
+  name: string,
+  configPath: string,
+  skipStages: number[] = [],
+): Promise<PipelineRunDetail | ApiError> {
+  return j<PipelineRunDetail | ApiError>(
+    '/api/pipeline/create',
+    postJson({ name, config_path: configPath, skip_stages: skipStages }),
+  );
+}
+
+export function resetPipelineRun(
+  name: string,
+  stageNum: number,
+): Promise<PipelineRunDetail | ApiError> {
+  return j<PipelineRunDetail | ApiError>(
+    '/api/pipeline/reset',
+    postJson({ name, stage_num: stageNum }),
+  );
+}
+
+export function setPipelineOverride(
+  name: string,
+  stageNum: number,
+  path: string,
+): Promise<PipelineRunDetail | ApiError> {
+  return j<PipelineRunDetail | ApiError>(
+    '/api/pipeline/override',
+    postJson({ name, stage_num: stageNum, path }),
+  );
+}
+
+export function deletePipelineRun(name: string): Promise<PipelineDeleteResult | ApiError> {
+  return j<PipelineDeleteResult | ApiError>('/api/pipeline/delete', postJson({ name }));
 }
 
 export function getEvals(): Promise<EvalResult[]> {

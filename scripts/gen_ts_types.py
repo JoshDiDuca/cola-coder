@@ -67,6 +67,9 @@ _MODEL_ORDER: list[str] = [
     "ConfigFile",
     "ConfigContent",
     "PipelineRun",
+    "PipelineStageState",
+    "PipelineRunDetail",
+    "PipelineDeleteResult",
     "EvalResult",
     "EvalDetail",
     "LogFile",
@@ -133,6 +136,8 @@ _OR_ERROR: list[str] = [
     "FeatureSetResult",
     "ConfigDiff",
     "SystemInfo",
+    "PipelineRunDetail",
+    "PipelineDeleteResult",
 ]
 
 

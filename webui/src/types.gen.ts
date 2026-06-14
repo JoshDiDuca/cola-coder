@@ -147,6 +147,38 @@ export interface PipelineRun {
   error?: string | null;
 }
 
+export interface PipelineStageState {
+  num: number;
+  name: string;
+  description: string;
+  optional: boolean;
+  status: string;
+  artifact: string;
+  override: string;
+  error: string;
+  duration_secs: number;
+  started_at?: string | null;
+  completed_at?: string | null;
+}
+
+export interface PipelineRunDetail {
+  name: string;
+  config_path: string;
+  created_at: string;
+  updated_at: string;
+  notes: string;
+  stages: PipelineStageState[];
+  num_stages: number;
+  active_stages: number;
+  completed: number;
+  status: string;
+}
+
+export interface PipelineDeleteResult {
+  ok: boolean;
+  name: string;
+}
+
 export interface EvalResult {
   name: string;
   path: string;
@@ -460,3 +492,5 @@ export type ModelCardOrError = ModelCard | ApiError;
 export type FeatureSetResultOrError = FeatureSetResult | ApiError;
 export type ConfigDiffOrError = ConfigDiff | ApiError;
 export type SystemInfoOrError = SystemInfo | ApiError;
+export type PipelineRunDetailOrError = PipelineRunDetail | ApiError;
+export type PipelineDeleteResultOrError = PipelineDeleteResult | ApiError;

@@ -50,6 +50,7 @@ from . import logs as lg
 from . import metrics_history as mh
 from . import model_card as mc
 from . import pipeline as pl
+from . import pipeline_ops as po
 from . import reasoning as rs
 from . import router as rt
 from . import scripts_catalog as sc
@@ -261,6 +262,41 @@ def create_app(
     @app.get("/api/pipeline/run")
     def pipeline_run(path: str) -> dict:
         return pl.read_pipeline_run(path)
+
+    @app.get("/api/pipeline/detail", response_model=sch.PipelineRunDetail | sch.ErrorResponse)
+    def pipeline_detail(name: str) -> dict:
+        return po.get_run_detail(name, str(root / "pipeline_runs"))
+
+    @app.post("/api/pipeline/create", response_model=sch.PipelineRunDetail | sch.ErrorResponse)
+    def pipeline_create(payload: dict) -> dict:
+        skip = payload.get("skip_stages") or []
+        return po.create_run(
+            str(payload.get("name", "")),
+            str(payload.get("config_path", "")),
+            skip_stages=[int(n) for n in skip],
+            runs_dir=str(root / "pipeline_runs"),
+        )
+
+    @app.post("/api/pipeline/reset", response_model=sch.PipelineRunDetail | sch.ErrorResponse)
+    def pipeline_reset(payload: dict) -> dict:
+        return po.reset_run(
+            str(payload.get("name", "")),
+            int(payload.get("stage_num", 0)),
+            runs_dir=str(root / "pipeline_runs"),
+        )
+
+    @app.post("/api/pipeline/override", response_model=sch.PipelineRunDetail | sch.ErrorResponse)
+    def pipeline_override(payload: dict) -> dict:
+        return po.set_override(
+            str(payload.get("name", "")),
+            int(payload.get("stage_num", 0)),
+            str(payload.get("path", "")),
+            runs_dir=str(root / "pipeline_runs"),
+        )
+
+    @app.post("/api/pipeline/delete", response_model=sch.PipelineDeleteResult | sch.ErrorResponse)
+    def pipeline_delete(payload: dict) -> dict:
+        return po.delete_run(str(payload.get("name", "")), str(root / "pipeline_runs"))
 
     @app.get("/api/evals", response_model=list[sch.EvalResult])
     def evals_list() -> list[dict]:
