@@ -14,6 +14,9 @@ import FeaturesPanel from './components/FeaturesPanel';
 import ReasoningPanel from './components/ReasoningPanel';
 import TokenizerPanel from './components/TokenizerPanel';
 import CheckpointDetailPanel from './components/CheckpointDetailPanel';
+import MetricsChartPanel from './components/MetricsChartPanel';
+import RouterPanel from './components/RouterPanel';
+import ExportPanel from './components/ExportPanel';
 
 interface Snapshot {
   training: TrainingStatus;
@@ -81,6 +84,7 @@ export default function App() {
         <TrainingPanel training={snap?.training ?? null} />
         <SystemPanel system={snap?.system ?? null} />
         <CheckpointsPanel checkpoints={snap?.checkpoints ?? []} />
+        <MetricsChartPanel />
         <ActionsPanel onRan={() => { /* jobs arrive via the event stream */ }} />
         <JobsPanel jobs={snap?.jobs ?? []} />
         <DatasetsPanel />
@@ -92,6 +96,8 @@ export default function App() {
         <ReasoningPanel />
         <TokenizerPanel />
         <CheckpointDetailPanel checkpoints={snap?.checkpoints ?? []} />
+        <RouterPanel />
+        <ExportPanel />
       </main>
     </>
   );

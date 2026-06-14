@@ -193,6 +193,57 @@ export interface CheckpointDetail {
   files: string[];
 }
 
+export interface RouterCheckpoint {
+  path: string;
+  name: string;
+  step: number | null;
+}
+
+export interface RouterOverview {
+  has_router: boolean;
+  checkpoints: RouterCheckpoint[];
+  domains: string[];
+}
+
+export interface ExportFormat {
+  key: string;
+  label: string;
+  desc: string;
+}
+
+export interface ExportItem {
+  path: string;
+  format: string;
+  size_bytes: number;
+  mtime: number;
+}
+
+export interface ExportCheckpoint {
+  model: string;
+  name: string;
+  step: number | null;
+  path: string;
+}
+
+export interface ExportOverview {
+  checkpoints: ExportCheckpoint[];
+  formats: ExportFormat[];
+  existing: ExportItem[];
+}
+
+export interface MetricPoint {
+  step: number;
+  loss: number | null;
+  ppl: number | null;
+  lr: number | null;
+  tok_s: number | null;
+}
+
+export interface MetricsHistory {
+  points: MetricPoint[];
+  count: number;
+}
+
 export interface ApiError {
   error: string;
 }

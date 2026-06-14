@@ -16,6 +16,9 @@ import type {
   ReasoningView,
   TokenizerInfo,
   CheckpointDetail,
+  RouterOverview,
+  ExportOverview,
+  MetricsHistory,
   ApiError,
 } from './types';
 
@@ -141,4 +144,16 @@ export function getCheckpointDetail(path: string): Promise<CheckpointDetail | Ap
   return j<CheckpointDetail | ApiError>(
     `/api/checkpoint?path=${encodeURIComponent(path)}`
   );
+}
+
+export function getRouter(): Promise<RouterOverview | ApiError> {
+  return j<RouterOverview | ApiError>('/api/router');
+}
+
+export function getExports(): Promise<ExportOverview | ApiError> {
+  return j<ExportOverview | ApiError>('/api/exports');
+}
+
+export function getMetricsHistory(): Promise<MetricsHistory | ApiError> {
+  return j<MetricsHistory | ApiError>('/api/metrics/history');
 }

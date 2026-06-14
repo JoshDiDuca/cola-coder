@@ -38,10 +38,13 @@ from . import checkpoint_detail as cd
 from . import configs as cfg
 from . import datasets as ds
 from . import evals as ev
+from . import exports as ex
 from . import features as ft
 from . import logs as lg
+from . import metrics_history as mh
 from . import pipeline as pl
 from . import reasoning as rs
+from . import router as rt
 from . import status as st
 from . import tokenizer_info as tk
 from .jobs import JobManager
@@ -72,6 +75,15 @@ ACTIONS: dict[str, dict] = {
     "tokenizer_health": {"script": "tokenizer_health.py", "label": "Tokenizer health check", "args": []},
     "project_health": {"script": "project_health.py", "label": "Project health score", "args": []},
     "vram_estimate": {"script": "vram_estimate.py", "label": "VRAM estimate", "args": []},
+    "env_check": {"script": "env_check.py", "label": "Environment check", "args": []},
+    "quality_report": {"script": "quality_report.py", "label": "Quality report (syntax/types/tokens)",
+                       "args": ["--checkpoint", "checkpoints/small/latest", "--config", "configs/small.yaml"]},
+    "safety_eval": {"script": "safety_eval.py", "label": "Safety eval (secrets/dangerous patterns)",
+                    "args": ["--checkpoint", "checkpoints/small/latest", "--config", "configs/small.yaml",
+                             "--suite", "basic"]},
+    "completion_benchmark": {"script": "completion_benchmark.py", "label": "Completion benchmark",
+                             "args": ["--checkpoint", "checkpoints/small/latest", "--config", "configs/small.yaml"]},
+    "benchmark": {"script": "benchmark.py", "label": "Throughput benchmark (tok/s)", "args": []},
 }
 
 
@@ -236,6 +248,18 @@ def create_app(
     @app.get("/api/checkpoint")
     def checkpoint_get(path: str) -> dict:
         return cd.checkpoint_detail(path)
+
+    @app.get("/api/router")
+    def router_get() -> dict:
+        return rt.router_overview(str(root))
+
+    @app.get("/api/exports")
+    def exports_get() -> dict:
+        return ex.export_overview(str(root))
+
+    @app.get("/api/metrics/history")
+    def metrics_history() -> dict:
+        return mh.training_history(log_path)
 
     # Serve the built React app. Mount LAST so /api/* routes resolve first —
     # StaticFiles at "/" otherwise shadows every API route.

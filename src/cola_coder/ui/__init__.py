@@ -16,11 +16,14 @@ from .checkpoint_detail import checkpoint_detail
 from .configs import list_configs, read_config
 from .datasets import dataset_preview, list_datasets, score_summary
 from .evals import list_eval_results, read_eval_result
+from .exports import export_overview
 from .features import list_features
 from .jobs import JobManager
 from .logs import list_logs, tail_log
+from .metrics_history import training_history
 from .pipeline import list_pipeline_runs, read_pipeline_run
 from .reasoning import read_reasoning
+from .router import router_overview
 from .status import get_system_status, get_training_status, list_checkpoints
 from .tokenizer_info import tokenizer_info
 
@@ -45,4 +48,7 @@ __all__ = [
     "read_reasoning",
     "tokenizer_info",
     "checkpoint_detail",
+    "router_overview",
+    "export_overview",
+    "training_history",
 ]
