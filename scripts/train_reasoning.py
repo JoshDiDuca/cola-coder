@@ -90,6 +90,31 @@ def main():
         ),
     )
     parser.add_argument(
+        "--entropy-control",
+        action="store_true",
+        help=(
+            "Enable the closed-loop entropy clip controller (IDEA-013): auto-raise "
+            "clip-higher when measured policy entropy collapses below the target, "
+            "gated by verifier pass-rate. With --curriculum, uses per-difficulty "
+            "entropy floors (IDEA-020). Off by default."
+        ),
+    )
+    parser.add_argument(
+        "--entropy-target",
+        type=float,
+        default=0.7,
+        help="Target policy-entropy floor (nats) for --entropy-control (default 0.7).",
+    )
+    parser.add_argument(
+        "--e2h",
+        action="store_true",
+        help=(
+            "Enable the verifier-effort Easy→Hard curriculum scheduler (MODEL-042): "
+            "re-tag problem difficulty from MEASURED pass-rate each epoch and fade "
+            "out mastered problems. Off by default."
+        ),
+    )
+    parser.add_argument(
         "--reward",
         type=str,
         choices=["python_exec", "python_partial", "typescript", "combined"],
@@ -508,6 +533,33 @@ def main():
             reward_name = str(cfg_reward)
     cli.info("Reward function", reward_name)
 
+    # Entropy clip controller (IDEA-013/020): opt-in closed-loop control of the
+    # DAPO clip-higher bound from the live policy entropy (MODEL-037 metric),
+    # gated by verifier pass-rate. With a curriculum, use per-difficulty floors.
+    entropy_controller = None
+    if args.entropy_control:
+        from cola_coder.reasoning.entropy_controller import EntropyClipController
+        _base_high = clip_epsilon_high if clip_epsilon_high is not None else clip_epsilon
+        floors = (
+            {"easy": 0.3, "medium": 0.6, "hard": 1.0} if use_curriculum else None
+        )
+        entropy_controller = EntropyClipController(
+            target_entropy=args.entropy_target,
+            clip_low=clip_epsilon,
+            clip_high=_base_high,
+            max_clip_high=max(0.40, _base_high + 0.20),
+            difficulty_floors=floors,
+        )
+        cli.info("Entropy control", f"target={args.entropy_target}, floors={floors}")
+
+    # Verifier-effort E2H curriculum scheduler (MODEL-042): re-tag difficulty from
+    # measured pass-rate each epoch and fade out mastered problems.
+    e2h_scheduler = None
+    if args.e2h:
+        from cola_coder.reasoning.curriculum_scheduler import VerifierEffortCurriculum
+        e2h_scheduler = VerifierEffortCurriculum()
+        cli.info("E2H curriculum", "enabled (fade mastered problems)")
+
     try:
         grpo_trainer = GRPOTrainer(
             model=model,
@@ -525,12 +577,14 @@ def main():
             parallel_generation=parallel_generation,
             parallel_rewards=parallel_rewards,
             reward_workers=reward_workers,
+            entropy_clip_controller=entropy_controller,
         )
 
         grpo_trainer.train(
             problems=ps,
             num_epochs=args.epochs,
             curriculum=use_curriculum,
+            e2h_scheduler=e2h_scheduler,
         )
     except KeyboardInterrupt:
         cli.warn("Training interrupted by user.")

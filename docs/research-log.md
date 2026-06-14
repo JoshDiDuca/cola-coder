@@ -7,6 +7,46 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — GRPO entropy-control recipes (rotate: post-training/RLVR)
+
+Sources:
+- Rethinking Exploration in RLVR (bidirectional entropy modulation) — https://arxiv.org/html/2604.04894v1
+- Compress the Easy, Explore the Hard: difficulty-aware entropy regularization — https://arxiv.org/pdf/2602.22642
+- SCOPE-RL: stable quantitative control of policy entropy — https://arxiv.org/html/2510.08141
+- Rethinking Entropy Regularization in Large Reasoning Models — https://arxiv.org/pdf/2509.25133
+
+Findings:
+- **Entropy collapse is THE GRPO failure mode** (entropy decreases monotonically → premature loss
+  of exploration). 2026 work splits into: objective-level regulators (SCOPE-RL temperature-adaptive
+  control), recipe-level heuristics (advantage shaping, Pass@k), and SELECTIVE regularization (SIREN:
+  restrict entropy to the top-p nucleus + peak-entropy tokens; self-anchor to the initial level).
+- **Difficulty-aware entropy is a named frontier** ("Compress the Easy, Explore the Hard",
+  2602.22642): regularize entropy MORE on hard problems, LESS on easy ones — independently confirming
+  the project's IDEA-020 per-difficulty entropy floors built two cycles ago.
+- **Verifier pass-rate gating is sound:** coupling exploration to the verifier (don't explore solved
+  problems) is exactly the project's controller design; the literature is converging on it.
+
+**Implemented this cycle (MODEL-044 — wiring, main-safe):** the project's entropy/curriculum stack
+(MODEL-037 metric → IDEA-013 controller → IDEA-020 per-difficulty floors → MODEL-042 E2H scheduler)
+was built with opt-in constructor params but was UNREACHABLE from the CLI — implemented-but-dead.
+Wired into `scripts/train_reasoning.py`: `--entropy-control` (+ `--entropy-target`) constructs an
+`EntropyClipController` (per-difficulty floors auto-enabled with `--curriculum`) passed to the
+trainer; `--e2h` constructs a `VerifierEffortCurriculum` passed to `.train()`. CLI-only (no
+phantom-config risk). +4 regression tests assert the trainer accepts the kwargs AND the script
+forwards them (AST check) — guarding against the features silently un-wiring. config-wiring + ruff green.
+
+**ORIGINAL cross-technique idea (IDEA-024): verifier-localized entropy injection.** SIREN restricts
+entropy regulation to the nucleus / peak-entropy tokens; cola-coder can localize it by CORRECTNESS
+instead. The MODEL-037 entropy metric currently averages over ALL completion tokens; combine it with
+IDEA-023's execution-trace token map (which tokens are in the failing assert's region) so the entropy
+FLOOR is enforced selectively on the tokens that produced the FAILURE — inject exploration exactly
+where the verifier says the model is wrong, and exploit (low entropy) where it's already passing.
+Difficulty-aware (IDEA-020) × token-localized (SIREN) × verifier-grounded (IDEA-023) entropy control —
+a combination no entropy paper (no execution verifier) can do. Builds on MODEL-037 + IDEA-013 +
+IDEA-023. Reasoning-only → main-safe. → IDEA-024.
+
+---
+
 ## 2026-06-14 — Benchmark decontamination (rotate: data curation)
 
 Sources:

@@ -749,6 +749,24 @@ cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N ve
   run measuring loss AND downstream secure-pass@k (EVAL-024) + verifier-effort difficulty (EVAL-026),
   not just perplexity (where the papers stop). Composes with z_loss + qk_norm. Train-path (model/) →
   WORKTREE, A/B before merge; pair with the MODEL-025 Muon A/B. Builds on the z_loss/qk_norm stack.
+- **MODEL-044** [reasoning/wiring, high] `done` (2026-06-14) — **wire the entropy/curriculum stack
+  into the reasoning CLI.** The stack (MODEL-037 metric → IDEA-013 controller → IDEA-020 per-difficulty
+  floors → MODEL-042 E2H scheduler) was implemented with opt-in constructor params but UNREACHABLE
+  from train_reasoning.py — implemented-but-dead. Added `--entropy-control` (+ `--entropy-target`) →
+  builds `EntropyClipController` (per-difficulty floors auto-on with `--curriculum`) passed to
+  GRPOTrainer; `--e2h` → builds `VerifierEffortCurriculum` passed to `.train()`. CLI-only (no
+  phantom-config risk; the wiring test enforces config keys are read). Script-only → committed on
+  main. Tests: test_reasoning_entropy_e2h_wiring.py +4 (trainer accepts kwargs, flags defined, script
+  forwards both via AST check, curriculum-floor preset valid); config-wiring + ruff green. FOLLOW-UP:
+  add menu toggles in training_menu's Alignment & Reasoning group.
+- **IDEA-024** [research/post-training, high-potential] `open` (2026-06-14, ORIGINAL) —
+  **verifier-localized entropy injection.** SIREN restricts entropy regulation to the nucleus /
+  peak-entropy tokens; cola-coder can localize by CORRECTNESS. The MODEL-037 entropy metric averages
+  over ALL completion tokens; combine with IDEA-023's execution-trace token map (tokens in the failing
+  assert's region) so the entropy FLOOR is enforced SELECTIVELY on the tokens that produced the
+  failure — explore where the verifier says the model is wrong, exploit where it passes. Difficulty-
+  aware (IDEA-020) × token-localized (SIREN) × verifier-grounded (IDEA-023) — no entropy paper (no
+  execution verifier) can do this. Builds on MODEL-037 + IDEA-013 + IDEA-023. Reasoning-only → main-safe.
 - **IDEA-021** [research/inference, medium-potential] `open` (2026-06-14, ORIGINAL) —
   **verifier-gated FIM completion boundary.** Precise stopping via cola-coder's assets instead of
   a bespoke incremental grammar parser: use the sandbox tsc verifier as the "complete program?"
