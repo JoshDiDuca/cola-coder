@@ -15,6 +15,7 @@ from pathlib import Path
 
 from cola_coder.cli import cli
 from cola_coder.model.config import get_storage_config
+from cola_coder.security.code_patterns import scan_dangerous
 
 
 def _evaluate_problem(
@@ -25,10 +26,12 @@ def _evaluate_problem(
     extract_fn,
     evaluate_fn,
     max_new_tokens: int = 256,
-) -> tuple[int, int]:
+) -> tuple[int, int, int]:
     """Generate and grade ``num_samples`` solutions for one problem.
 
-    Returns ``(num_correct, harness_errors)``. A *harness error* is an UNEXPECTED
+    Returns ``(num_correct, num_secure_correct, harness_errors)``. ``num_secure_correct``
+    counts samples that passed AND carry no dangerous patterns (secure-pass@k, EVAL-024).
+    A *harness error* is an UNEXPECTED
     exception during generation/extraction/grading (generator crash, OOM, sandbox
     misconfig) — categorically different from a solution that simply fails its
     tests (``evaluate_fn`` returns ``(False, ...)`` without raising). They are
@@ -38,6 +41,7 @@ def _evaluate_problem(
     broken" with no way to tell.
     """
     num_correct = 0
+    num_secure_correct = 0
     harness_errors = 0
     for sample_idx in range(num_samples):
         try:
@@ -52,6 +56,10 @@ def _evaluate_problem(
             passed, _output = evaluate_fn(problem, function_code)
             if passed:
                 num_correct += 1
+                # Secure-pass@k: a passing sample only counts as secure-correct
+                # if it carries no dangerous patterns (shared scanner — DRY).
+                if not scan_dangerous(function_code):
+                    num_secure_correct += 1
         except Exception as e:  # noqa: BLE001 — categorize, don't crash the run
             harness_errors += 1
             if harness_errors <= 3:  # throttle: a flood would drown the report
@@ -59,7 +67,7 @@ def _evaluate_problem(
                     f"Harness error on {getattr(problem, 'task_id', '?')} "
                     f"sample {sample_idx}: {type(e).__name__}: {e}"
                 )
-    return num_correct, harness_errors
+    return num_correct, num_secure_correct, harness_errors
 
 
 def main():
@@ -239,7 +247,7 @@ def main():
     total_harness_errors = 0
 
     for i, problem in enumerate(problems):
-        num_correct, harness_errors = _evaluate_problem(
+        num_correct, num_secure_correct, harness_errors = _evaluate_problem(
             generator,
             problem,
             num_samples=args.num_samples,
@@ -264,6 +272,7 @@ def main():
             task_id=problem.task_id,
             num_samples=args.num_samples,
             num_correct=num_correct,
+            num_secure_correct=num_secure_correct,
         ))
 
     # ---- Compute and display metrics ----

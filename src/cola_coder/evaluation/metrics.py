@@ -28,6 +28,24 @@ class ProblemResult:
     task_id: str
     num_samples: int  # Total number of generated solutions (n)
     num_correct: int  # How many passed all tests (c)
+    # How many passed all tests AND were secure (no dangerous patterns) — the
+    # "secure-correct" count for secure-pass@k (CWEval, EVAL-024). None means
+    # security was not assessed for this problem (back-compat default).
+    num_secure_correct: int | None = None
+
+    def __post_init__(self) -> None:
+        # secure-correct is a SUBSET of correct: a sample can't be secure-correct
+        # without being correct. Catch a miswired harness early rather than
+        # silently reporting secure-pass@k > pass@k.
+        if (
+            self.num_secure_correct is not None
+            and self.num_secure_correct > self.num_correct
+        ):
+            raise ValueError(
+                f"num_secure_correct ({self.num_secure_correct}) > num_correct "
+                f"({self.num_correct}) for {self.task_id}: secure-correct must be "
+                "a subset of correct."
+            )
 
     @property
     def pass_rate(self) -> float:
@@ -35,6 +53,16 @@ class ProblemResult:
         if self.num_samples == 0:
             return 0.0
         return self.num_correct / self.num_samples
+
+    @property
+    def secure_pass_rate(self) -> float:
+        """Fraction of samples that passed tests AND were secure.
+
+        0.0 when there are no samples or security was not assessed.
+        """
+        if self.num_samples == 0 or self.num_secure_correct is None:
+            return 0.0
+        return self.num_secure_correct / self.num_samples
 
 
 def pass_at_k(n: int, c: int, k: int) -> float:
@@ -117,6 +145,56 @@ def compute_pass_at_k(
     return metrics
 
 
+def compute_secure_pass_at_k(
+    results: list[ProblemResult],
+    k_values: list[int] = [1, 5, 10],
+) -> dict[str, float | None]:
+    """Compute secure-pass@k: a sample counts only if it passed tests AND is secure.
+
+    The 2026 secure-codegen standard (CWEval / CodeGuard+): functional correctness
+    alone over-credits a model that writes working-but-insecure code. secure-pass@k
+    reuses the unbiased ``pass_at_k`` estimator with ``c = num_secure_correct`` (the
+    samples that both pass and are clean), so it is directly comparable to pass@k —
+    the gap pass@k − secure-pass@k is the share of "correct but insecure" solutions.
+
+    Only problems where security was assessed (``num_secure_correct is not None``)
+    AND that have >= k samples contribute. Mirrors ``compute_pass_at_k``: returns
+    ``None`` (not 0.0) for a k that can't be estimated, and warns when problems are
+    excluded so a partial/biased average isn't read as complete.
+    """
+    metrics: dict[str, float | None] = {}
+    assessed = [r for r in results if r.num_secure_correct is not None]
+    if results and not assessed:
+        logger.warning(
+            "secure-pass@k not computed: no problem has a security assessment "
+            "(num_secure_correct). Run the eval with the security scanner enabled."
+        )
+        return {f"secure-pass@{k}": None for k in k_values}
+    if len(assessed) < len(results):
+        logger.warning(
+            "secure-pass@k assessed on %d/%d problems — %d lack a security "
+            "assessment and are excluded.",
+            len(assessed), len(results), len(results) - len(assessed),
+        )
+
+    for k in k_values:
+        scores = [
+            pass_at_k(r.num_samples, r.num_secure_correct, k)
+            for r in assessed
+            if r.num_samples >= k
+        ]
+        if not scores:
+            metrics[f"secure-pass@{k}"] = None
+            logger.warning(
+                "secure-pass@%d not estimable: no assessed problem has >= %d "
+                "samples.", k, k,
+            )
+        else:
+            metrics[f"secure-pass@{k}"] = sum(scores) / len(scores)
+
+    return metrics
+
+
 def format_results(
     results: list[ProblemResult],
     k_values: list[int] = [1, 5, 10],
@@ -145,6 +223,14 @@ def format_results(
             lines.append(f"  {key}: n/a (need more samples)")
         else:
             lines.append(f"  {key}: {value:.1%}")
+
+    # Secure-pass@k — only shown when at least one problem was security-assessed.
+    if any(r.num_secure_correct is not None for r in results):
+        for key, value in compute_secure_pass_at_k(results, k_values).items():
+            if value is None:
+                lines.append(f"  {key}: n/a (need more samples)")
+            else:
+                lines.append(f"  {key}: {value:.1%}")
 
     lines.append("")
     lines.append("-" * 60)

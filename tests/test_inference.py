@@ -1,5 +1,6 @@
 """Tests for inference components: sampling, evaluation metrics."""
 
+import pytest
 import torch
 
 from cola_coder.inference.sampling import (
@@ -139,6 +140,55 @@ class TestPassAtK:
         assert "pass@1" in metrics
         # Average: (0.5 + 1.0 + 0.0) / 3 = 0.5
         assert abs(metrics["pass@1"] - 0.5) < 0.01
+
+
+class TestSecurePassAtK:
+    """secure-pass@k (CWEval): a sample counts only if it passed AND is secure."""
+
+    def test_secure_pass_at_k_equals_pass_when_all_secure(self):
+        from cola_coder.evaluation.metrics import compute_secure_pass_at_k
+        results = [
+            ProblemResult(task_id="a", num_samples=10, num_correct=5,
+                          num_secure_correct=5),
+            ProblemResult(task_id="b", num_samples=10, num_correct=10,
+                          num_secure_correct=10),
+        ]
+        m = compute_secure_pass_at_k(results, k_values=[1])
+        # All correct are secure -> secure-pass@1 == pass@1.
+        assert abs(m["secure-pass@1"] - compute_pass_at_k(results, [1])["pass@1"]) < 1e-9
+
+    def test_insecure_correct_lowers_secure_pass(self):
+        from cola_coder.evaluation.metrics import compute_secure_pass_at_k
+        # 10/10 correct but only 2 secure -> secure-pass@1 = 0.2 < pass@1 = 1.0.
+        results = [ProblemResult(task_id="a", num_samples=10, num_correct=10,
+                                 num_secure_correct=2)]
+        assert compute_pass_at_k(results, [1])["pass@1"] == 1.0
+        assert abs(compute_secure_pass_at_k(results, [1])["secure-pass@1"] - 0.2) < 0.01
+
+    def test_unassessed_problems_excluded(self):
+        from cola_coder.evaluation.metrics import compute_secure_pass_at_k
+        # No problem has a security assessment -> None, not 0.0.
+        results = [ProblemResult(task_id="a", num_samples=10, num_correct=5)]
+        assert compute_secure_pass_at_k(results, [1])["secure-pass@1"] is None
+
+    def test_secure_correct_cannot_exceed_correct(self):
+        with pytest.raises(ValueError, match="subset of correct"):
+            ProblemResult(task_id="a", num_samples=10, num_correct=3,
+                          num_secure_correct=5)
+
+    def test_secure_pass_rate_property(self):
+        r = ProblemResult(task_id="a", num_samples=10, num_correct=8,
+                          num_secure_correct=6)
+        assert abs(r.secure_pass_rate - 0.6) < 1e-9
+        # Unassessed -> 0.0 (not a crash).
+        assert ProblemResult("b", 10, 8).secure_pass_rate == 0.0
+
+    def test_format_results_shows_secure_pass_when_assessed(self):
+        from cola_coder.evaluation.metrics import format_results
+        results = [ProblemResult(task_id="a", num_samples=10, num_correct=10,
+                                 num_secure_correct=4)]
+        out = format_results(results, k_values=[1])
+        assert "secure-pass@1" in out
 
 
 class TestNoRepeatNgram:

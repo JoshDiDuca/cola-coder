@@ -421,6 +421,26 @@ cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N ve
   project's own (recent, license-clean) scraped code; optionally SWE-bench-style
   repo-level later. Use only 2-3 benchmarks (avoid overfitting). Defer until the model
   produces runnable code (~step 10k+). See IDEA-007 for the contamination-free approach.
+- **EVAL-024** [eval, medium] `done` (2026-06-14) — **secure-pass@k** (CWEval/CodeGuard+
+  2026 secure-codegen standard; arXiv:2503.15554). pass@k alone over-credits
+  working-but-insecure code. Added to `evaluation/metrics.py`:
+  `ProblemResult.num_secure_correct` (passed AND no dangerous patterns; None=unassessed,
+  back-compat) with a `__post_init__` guard (secure-correct ⊆ correct) + `secure_pass_rate`
+  property; `compute_secure_pass_at_k` reuses the unbiased `pass_at_k` estimator (DRY) so
+  it's directly comparable to pass@k (gap = share of correct-but-insecure), mirroring the
+  None/exclusion-warning semantics; `format_results` prints it when any problem is assessed.
+  `scripts/evaluate.py` populates it via the shared `scan_dangerous` scanner on each PASSING
+  sample (DRY — same scanner as best-of-N/GRPO). Eval-only → committed on main. Tests:
+  test_inference.py::TestSecurePassAtK +6 (==pass when all secure, insecure lowers it,
+  unassessed→None, secure⊆correct guard, rate property, format shows it); 32 pass, ruff green.
+- **IDEA-015** [research/eval+data, high-potential] `open` (2026-06-14, ORIGINAL) —
+  **security-gap-driven data synthesis.** Per-problem `pass@k − secure-pass@k` (EVAL-024) is
+  a weakness map: problems solved but INSECURELY are exactly where secure-coding data is
+  missing. Mine high-gap problems, take their insecure-but-passing completions, synthesize
+  paired (insecure→secure) FIM/instruction examples (the dangerous span = FIM middle to
+  infill securely), up-weight via quality weights, and feed the GRPO security penalty
+  (IDEA-008). Closes the eval→data loop with cola-coder's scanner + sandbox verifier +
+  dynamic FIM + quality weights. Builds on EVAL-024 + IDEA-008.
 - **IDEA-007** [research/eval, medium-potential] `open` (2026-06-13) — Self-refreshing
   contamination-free eval: use the GitHub scraper to pull RECENT license-clean TS/React
   files postdating the training cutoff, hold out the middle as a FIM task, and score

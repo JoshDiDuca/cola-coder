@@ -7,6 +7,46 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Beyond functional correctness: secure-pass@k (rotate: evaluation)
+
+Sources:
+- Rethinking the Evaluation of Secure Code Generation — https://arxiv.org/html/2503.15554v2
+- Beyond Correctness: multi-dimensional codegen benchmarking (RACE) — https://arxiv.org/abs/2407.11470
+- CodeAlignBench (developer-preferred adjustments) — https://arxiv.org/pdf/2510.27565
+- Evaluating LLM-generated code: benchmark + developer study — https://arxiv.org/html/2605.09059v1
+
+Findings:
+- **Functional correctness over-credits insecure code.** The 2026 secure-codegen
+  evaluation line (CWEval / CodeGuard+, and the "Rethinking..." paper) argues pass@k
+  alone rewards working-but-vulnerable solutions. The fix: an EXPANDED pass@k that counts
+  a sample only when it is correct AND secure — "secure-pass@k". The gap
+  pass@k − secure-pass@k quantifies exactly how much of the model's "success" is insecure.
+- **Multi-dimensional eval is the standard (RACE):** correctness + readability +
+  maintainability + efficiency (ENAMEL's eff@k normalizes runtime vs human reference).
+  Single-number pass@k is no longer enough.
+- **Contamination control:** prefer tasks published after the training cutoff and
+  evolution-aware historical context; relevant when we add fresh benchmarks later.
+
+**Implemented this cycle (EVAL-024):** secure-pass@k. `metrics.ProblemResult` gains
+`num_secure_correct` (passed AND clean; None = unassessed, back-compat) with a
+`__post_init__` guard (secure-correct ⊆ correct) + `secure_pass_rate` property.
+`compute_secure_pass_at_k` reuses the unbiased `pass_at_k` estimator (DRY) so it's directly
+comparable to pass@k, mirroring its None/exclusion-warning semantics; `format_results`
+prints it whenever any problem is assessed. `scripts/evaluate.py` populates it by running
+the shared `scan_dangerous` scanner on each PASSING sample. Eval-only → committed on main.
++6 tests (32 inference-metric tests + ruff green).
+
+**ORIGINAL cross-technique idea (IDEA-015): security-gap-driven data synthesis.** The
+per-problem `pass@k − secure-pass@k` gap is a precise weakness map: problems the model
+solves *but insecurely* are exactly where secure-coding training data is missing. Mine the
+high-gap problems, take their insecure-but-passing completions, and synthesize paired
+(insecure → secure) FIM/instruction examples (the dangerous span becomes the FIM middle to
+infill securely); up-weight them via quality weights and feed the GRPO security penalty
+(IDEA-008). Closes the eval→data loop using cola-coder's rare combo — scanner + sandbox
+verifier + dynamic FIM + quality weights — turning an eval metric into targeted data. → IDEA-015.
+
+---
+
 ## 2026-06-14 — Test-time scaling: verifiers + self-consistency (rotate: inference/decoding)
 
 Sources:
