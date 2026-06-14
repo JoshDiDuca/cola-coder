@@ -41,6 +41,8 @@ class EvalMenu:
                  "detail": "Functional drift under semantically-preserving docstring rewordings"},
                 {"label": "Depth / Early-Exit Profile",
                  "detail": "Per-token logit-lens convergence depth — how many layers each token needs"},
+                {"label": "Spectral Health / Divergence Risk",
+                 "detail": "Per-layer sign-collapse of weight-activation alignment — early divergence signal"},
                 {"label": "Process / Function-Step Credit",
                  "detail": "Verifier-graded per-function process_score + fragile-function flags"},
                 {"label": "Routing Accuracy",
@@ -62,6 +64,7 @@ class EvalMenu:
                 self._safety_eval_menu,
                 self._robustness_eval_menu,
                 self._depth_profile_menu,
+                self._spectral_health_menu,
                 self._process_credit_menu,
                 self._routing_accuracy_menu,
                 self._contamination_menu,
@@ -923,6 +926,75 @@ class EvalMenu:
             return
 
         self._master._run_script("depth_profile.py", args)
+        self._master._pause()
+
+    def _spectral_health_menu(self) -> None:
+        """Run the Spectral-Alignment divergence-risk diagnostic on a checkpoint."""
+        _print_section_header(
+            "Spectral Health / Divergence Risk",
+            "Per-layer sign-collapse of weight-activation alignment",
+        )
+
+        cli.print(
+            "  For each layer, measures the cosine alignment between the layer's\n"
+            "  forward response and u1(W) (the weight's principal singular vector,\n"
+            "  via cheap power iteration). A healthy layer's alignments are\n"
+            "  SIGN-BALANCED (~half +, half -); SIGN-COLLAPSE (all one sign) is an\n"
+            "  EARLY divergence-risk signal preceding a loss explosion. Reports:\n"
+            "    - worst layer + its sign-collapse fraction (0.50 healthy -> 1.00)\n"
+            "    - per-layer sign-collapse and mean alignment\n"
+            "    - optional breakdown by problem difficulty tier\n"
+        )
+
+        ckpt_path = self._master._pick_checkpoint("Select checkpoint to diagnose:")
+        if ckpt_path is None:
+            return
+
+        config = self._master._config_for_checkpoint(ckpt_path)
+
+        set_options = [
+            {"label": "Built-in (20 problems)",
+             "detail": "Original core HumanEval-style set — fast"},
+            {"label": "Extended (62 problems)",
+             "detail": "Original + extended problems"},
+            {"label": "All (62 problems)",
+             "detail": "Alias for extended — full built-in set"},
+        ]
+        set_choice = cli.choose("Problem set:", set_options, allow_cancel=True)
+        if set_choice is None:
+            return
+        problems = ["builtin", "extended", "all"][set_choice]
+
+        probe_options = [
+            {"label": "q (attention query projection)",
+             "detail": "Probe the q_proj weight per block — fastest"},
+            {"label": "q,fc2 (query + FFN down projection)",
+             "detail": "Probe q_proj and the FFN second linear (down_proj)"},
+        ]
+        probe_choice = cli.choose("Which weights to probe:", probe_options, allow_cancel=True)
+        if probe_choice is None:
+            return
+        layers = ["q", "q,fc2"][probe_choice]
+
+        args = [
+            "--checkpoint", ckpt_path,
+            "--config", config,
+            "--problems", problems,
+            "--layers", layers,
+        ]
+        if cli.confirm("Stratify by problem difficulty tier?", default=False):
+            args.append("--by-difficulty")
+
+        cli.kv_table({
+            "Checkpoint": ckpt_path,
+            "Problems": problems,
+            "Probes": layers,
+        }, title="Spectral Health Config")
+
+        if not cli.confirm("Run spectral health diagnostic?"):
+            return
+
+        self._master._run_script("spectral_health.py", args)
         self._master._pause()
 
     def _process_credit_menu(self) -> None:

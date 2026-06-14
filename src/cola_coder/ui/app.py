@@ -36,6 +36,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import checkpoint_detail as cd
 from . import checkpoints_compare as cc
+from . import config_diff as cdf
 from . import configs as cfg
 from . import data_sources_view as dsv
 from . import datasets as ds
@@ -55,6 +56,7 @@ from . import scripts_catalog as sc
 from . import sft_data as sd
 from . import status as st
 from . import storage_view as sv
+from . import system_info as si
 from . import tokenize as tkz
 from . import tokenizer_info as tk
 from .jobs import JobManager
@@ -342,6 +344,14 @@ def create_app(
     @app.get("/api/model-card")
     def model_card_get(path: str) -> dict:
         return mc.build_model_card(path)
+
+    @app.get("/api/config-diff")
+    def config_diff_get(a: str, b: str) -> dict:
+        return cdf.compare_configs(a, b)
+
+    @app.get("/api/system-info")
+    def system_info_get() -> dict:
+        return si.system_info(str(root))
 
     @app.get("/api/storage")
     def storage_get() -> dict:

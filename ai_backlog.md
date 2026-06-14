@@ -86,10 +86,20 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 - **SEC-022** [security, low] `open` — Per-function scan_dangerous in the process profiler (SecCodePRM-style):
   localize WHICH function carries a dangerous pattern, feeding the secure best-of-N tie-break.
 
-### Optimizers / training-stability (2026-06-14, researched — filed)
-- **EVAL-035** [eval, medium] `open` — Spectral-Alignment health profiler (`evaluation/spectral_health.py`
-  + script + eval-menu): per-layer SA sign-collapse via power iteration to flag divergence risk before loss;
-  verifier-stratified by token region. Reuses depth_profile block-iteration + load_generator. Main-safe diagnostic.
+### Tech-debt / standards (2026-06-14)
+- **TYPE-001** [tooling/quality, high] `in-progress` (2026-06-14) — Strict-typing overhaul per
+  `.claude/rules/typing.md`: Pydantic source-of-truth (`ui/schemas.py`) → generated `webui/src/types.gen.ts`
+  (drift-guarded), shared `webui/src/format.ts`, eliminate ALL `any`/`unknown`/`Record<string,unknown>` +
+  catch-all `fmt(unknown)`/`typeof` formatters across `webui/`. User-mandated. Started: typing rule +
+  CLAUDE.md + __init__ module/function-collision fix (system_info/tokenizer_info shadowing).
+
+### Optimizers / training-stability (2026-06-14)
+- **EVAL-035** [eval, medium] `done` (2026-06-14) — Spectral-Alignment divergence-risk diagnostic
+  (`evaluation/spectral_health.py` + script + eval-menu): per-layer SA sign-collapse via power iteration
+  (u₁ recovery), reuses depth_profile block-iteration; HEALTHY/WATCH/DIVERGENCE-RISK verdict. +22 tests. Main-safe.
+- **INFER-035** [inference, medium] `open` — Draft-free prompt-lookup speculative drafter + offline
+  acceptance analyzer (PLD/REST, lossless, single-model). Repo-context/FIM-anchored draft source (INFER-037).
+- **INFER-036** [inference, medium, WORKTREE] `open` — live lossless self-speculative decode in CodeGenerator (hot path).
 - **MODEL-047** [model/training, low, WORKTREE] `open` — online SA-monitored ZClip grad-norm z-score clamp
   in the trainer (A/B-gated on a tiny Muon run; never merged while live).
 - **INFER-034** [inference/tooling, low] `open` — use SpectralHealthReport as an RFT checkpoint-acceptance

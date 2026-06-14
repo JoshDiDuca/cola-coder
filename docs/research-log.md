@@ -7,6 +7,37 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Draft-free speculative decoding: prompt-lookup / REST (rotate: inference)
+
+**Sources (2023–2026):** *Prompt Lookup Decoding* — https://github.com/apoorvumang/prompt-lookup-decoding
+(match last-n generated tokens against the prompt, draft the following span, verify in one forward;
+lossless, training-free, no datastore; large gains on code copying). *REST: Retrieval-Based Speculative
+Decoding* — https://arxiv.org/abs/2311.08252 (datastore retrieval, 1.62–2.36× on code/text). *AdaPLD*
+— https://arxiv.org/html/2606.05742 (exact→semantic fallback + branched drafts, 3.10× on CodeEditorBench).
+*Prompt Multi-Lookup* (ACL Findings 2025) — https://aclanthology.org/2025.findings-acl.355.pdf.
+
+**Summary:** get draft tokens by COPYING from text the model already has (prompt / generated suffix /
+code datastore) instead of a second neural draft model; the target verifies the span in one forward.
+Mathematically lossless (eval scores unchanged), training-free, single-model — acceptance is high for code
+(generations copy identifiers/imports/structure from the prompt).
+
+**Original idea (filed) → INFER-035/036/037:** repo-context-anchored prompt-lookup — build the draft
+source from cola-coder's `repo_context` assembler + the FIM suffix, so inline completions draft from the
+USER'S codebase (where a code model copies symbols), pushing acceptance above generic PLD. Lossless ⇒ zero
+eval-quality risk, composes with best-of-N. NOTE: existing `features/speculative_decoding.py` is the
+two-model variant; this draft-free family is orthogonal. Scoped as a pure drafter + offline acceptance
+analyzer (off the KV-cache hot path) for main-safety; live decode is INFER-036 (worktree).
+
+**Implemented this cycle (EVAL-035 — eval, main-safe):** Spectral-Alignment divergence-risk diagnostic.
+`evaluation/spectral_health.py`: `principal_left_singular_vector` (plain power iteration, NOT Muon's
+Newton-Schulz), `spectral_alignment` (reuses depth_profile's block iteration; per-token cosine of each
+probed weight's response — q_proj / ffn down_proj — with u₁), `sign_collapse_stat` (majority-sign fraction,
+0.5 healthy → 1.0 collapsed), `profile_spectral_health` (per-layer + worst-layer + optional per-tier).
+`scripts/spectral_health.py` (`--layers/--by-difficulty/--json`, HEALTHY/WATCH/DIVERGENCE-RISK verdict) +
+eval-menu "Spectral Health / Divergence Risk" entry. +22 tests (rank-1 u₁ recovery, SA aligned≈1/orth≈0,
+collapse direction). Main-safe checkpoint diagnostic. MODEL-047 (online ZClip clamp, worktree) + INFER-034
+(RFT acceptance gate) open.
+
 ## 2026-06-14 — Spectral-alignment / training-stability diagnostics (rotate: optimizers/stability)
 
 **Sources (2025):**

@@ -151,6 +151,15 @@ If checkpoint tests fail, DO NOT start training.
 
 ## Code Style
 
+- **Strict typing is mandatory — see `.claude/rules/typing.md`.** No `any`/`unknown`/
+  `Record<string, unknown>` in TS; no catch-all `fmt(value: unknown)` / `typeof` probing /
+  fallback `String()`/`JSON.stringify()` formatters. TS ⇄ Python types are 1:1: Pydantic
+  models in `src/cola_coder/ui/schemas.py` are the source of truth, `scripts/gen_ts_types.py`
+  generates `webui/src/types.gen.ts` (never hand-edited; drift-guarded by a test). Shared,
+  intent-named formatters live in `webui/src/format.ts` — never copied into components.
+- Python is held to the same bar: explicit type hints on every public function (params +
+  return), Pydantic models for structured data (not bare dicts) at API boundaries, named
+  models over inline dict shapes, no `Any` where a concrete type or union fits.
 - Use ruff. Line length: 100 (pyproject.toml)
 - Use pytest for tests. Type hints used but not strictly enforced
 - Use `from cola_coder.cli import cli` for all CLI output — never raw Rich imports
