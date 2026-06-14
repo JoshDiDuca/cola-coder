@@ -7,6 +7,47 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Model-based data curation (rotate: data curation)
+
+Sources:
+- FineWeb / FineWeb-Edu (model-based edu-quality filtering) — https://arxiv.org/pdf/2406.17557
+- DCLM-Baseline vs FineWeb-Edu (Karpathy llm.c discussion) — https://github.com/karpathy/llm.c/discussions/664
+- Ultra-FineWeb (efficient filtering + verification) — researchgate 391575046
+- Datasets, Documents, and Repetitions: unequal data quality — https://arxiv.org/html/2503.07879v1
+
+Findings:
+- **Model-based quality classifiers are the 2026 default.** FineWeb-Edu trains a classifier
+  on SYNTHETIC LLM annotations (Llama-3-70B rates educational quality 0–5), then keeps the
+  high-scoring subset: 10% of tokens (38B) matched 350B unfiltered tokens. Stack-edu does the
+  same for CODE (thresholds >3.75 → >4.1). cola-coder already aligns (ClassifierScorer +
+  train_quality_classifier/train_judge_classifier distill judge scores into a local TF-IDF).
+- **Two-stage thresholds:** raise the quality bar in later training (>2.75→>3.2 edu;
+  >3.75→>4.1 code) — cheap, pairs with the project's curriculum/folding (DATA-058) → DATA-061.
+- **Quality × repetition interaction (2503.07879):** how many epochs a document earns should
+  scale with its quality — ties quality weights to repetition/epoching.
+
+**Implemented this cycle (IDEA-019 validation — main-safe, tests-only):** validated the
+quality-weights × Muon interaction from last cycle. New tests/test_muon_quality_weights.py
+proves RELATIVE in-batch quality weights DO change the Muon update (not neutered by
+orthogonalization), monotonically with skew, and optimizer-agnostically (AdamW too). EMPIRICAL
+REFINEMENT of the IDEA-019 hypothesis: the theoretical "global loss scale is fully washed out
+by orthogonalization" does NOT hold cleanly in practice because Newton-Schulz runs in bf16 —
+a 1000× global scale perturbs the bf16 update by an amount comparable to a real reweight at
+tiny scale. Practical guidance is unchanged and now test-backed: keep quality weights RELATIVE
+(weighted mean, which `language_modeling_loss` does), never a global multiplier. +3 tests, ruff green.
+
+**ORIGINAL cross-technique idea (DATA-062): verifier-distilled quality classifier.** FineWeb-Edu's
+labels are an LLM's OPINION of quality. cola-coder has something better — a sandbox verifier
+(tsc/tests) + best-of-N + the security scanner that produce OBJECTIVE, executable ground truth.
+Idea: label a code corpus with verifier outcomes (compiles? tests pass? secure? best-of-N
+pass-rate) and distill THOSE labels into the local TF-IDF quality classifier (reuse
+train_judge_classifier's distillation, swap LLM-judge → verifier labels). Result: a fast static
+quality scorer grounded in executable correctness, not LLM judgment — cheaper and more objective
+than the FineWeb-Edu recipe, and uniquely possible because cola-coder owns the verifier. Feeds
+the quality weights / folding curriculum. Builds on the verifier + best-of-N + scanner. → DATA-062.
+
+---
+
 ## 2026-06-14 — Muon optimizer maturity (rotate: optimizers)
 
 Sources:

@@ -456,16 +456,32 @@ cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N ve
   no optimizer.py edit). REMAINING: the empirical AdamW-vs-Muon A/B (needs a training
   run; do in a worktree on the NEXT run, not the live AdamW one). See IDEA-019 for a
   quality-weights interaction to verify before defaulting to Muon.
-- **IDEA-019** [research/training, medium-potential] `open` (2026-06-14, ORIGINAL) —
-  **quality-weights x Muon interaction.** Muon orthogonalizes the update -> discards gradient
-  MAGNITUDE for 2D matrices. So a GLOBAL batch loss scale is washed out by Newton-Schulz, but
-  RELATIVE in-batch per-sample weights still reshape the averaged-gradient DIRECTION and
-  survive. Implication: quality weights MUST be a weighted MEAN over per-sample losses (which
-  `language_modeling_loss` already does), never a global multiplier, or they silently no-op
-  under Muon. Actionable: a test asserting a quality-weighted batch produces a DIFFERENT Muon
-  update direction than uniform weights (proves not neutered) + document the constraint. An
-  interaction only cola-coder (Muon + quality weights) hits. Verify before defaulting to Muon
-  (MODEL-025). Tests-only/validation -> main-safe.
+- **IDEA-019** [research/training, medium-potential] `done` (2026-06-14) —
+  **quality-weights x Muon interaction.** VALIDATED in tests/test_muon_quality_weights.py:
+  RELATIVE in-batch per-sample quality weights DO change the Muon update (not neutered by
+  orthogonalization), monotonically with skew, and optimizer-agnostically (AdamW too) — so
+  the project's quality weighting survives a future switch to Muon, PROVIDED weights stay a
+  weighted MEAN over per-sample losses (which `language_modeling_loss` does), never a global
+  multiplier. EMPIRICAL REFINEMENT of the original hypothesis: the "global scale fully washed
+  out by orthogonalization" claim does NOT hold cleanly — Newton-Schulz runs in bf16, so a
+  1000x global scale perturbs the bf16 update by an amount comparable to a real reweight at
+  tiny scale (documented, not asserted). Practical guidance unchanged + now test-backed. +3
+  tests, ruff green, main-safe (no optimizer.py/train-path edit).
+- **DATA-061** [data-quality, medium] `open` (data-curation research 2026-06-14) —
+  **two-stage quality thresholds** (FineWeb-Edu/Stack-edu): raise the quality bar in later
+  training (edu >2.75->3.2; code >3.75->4.1) — model trained on the high-quality 10% can match
+  350B unfiltered tokens. cola-coder has quality scores + curriculum/folding (DATA-058); add a
+  staged-threshold mode to score_data/curriculum that tightens the kept/weighted set across
+  phases. Prep-time → main-safe. Pairs with DATA-062.
+- **DATA-062** [data-quality, high-potential] `open` (2026-06-14, ORIGINAL) —
+  **verifier-distilled quality classifier.** FineWeb-Edu labels are an LLM's OPINION of quality;
+  cola-coder owns OBJECTIVE executable ground truth (sandbox tsc/tests + best-of-N pass-rate +
+  security scanner). Label a code corpus with verifier outcomes (compiles? tests pass? secure?
+  best-of-N pass-rate) and distill THOSE into the local TF-IDF quality classifier (reuse
+  train_judge_classifier's distillation, swap LLM-judge labels → verifier labels). Yields a fast
+  static quality scorer grounded in correctness, not LLM judgment — cheaper + more objective than
+  FineWeb-Edu, uniquely possible because cola-coder has the verifier. Feeds quality weights /
+  folding curriculum (DATA-058). Builds on verifier + best-of-N + scanner. Prep-time → main-safe.
 - **MODEL-026** [reasoning, medium] `open` — Add **DAPO dynamic sampling** to GRPO:
   drop prompt groups where all G samples are all-correct or all-incorrect (zero
   advantage → zero gradient → wasted rollout compute), resampling to keep the
