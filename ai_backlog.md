@@ -312,8 +312,21 @@ EVERY scenario. SEC-001/SEC-010 fixed timeout-kill + all-exit cleanup; the rest:
   corroborating signals and cut false positives on security-related source. Prep-time → committed
   on main. Tests: test_injection_filter.py +7 (registered+constructible, drops payloads, keeps
   clean + benign-trigger-words, min_hits corroboration, hidden control chars, empty); ruff clean.
-  FOLLOW-UP: a SOFT-weight variant (down-weight rather than drop) on the .weights.npy path for the
-  borderline cases, per the project's reweight-over-filter preference.
+  FOLLOW-UP DONE (2026-06-14): SOFT-weight variant `InjectionScorer`
+  (data/scorers/injection_scorer.py) — reuses scan_injection + ScoreMapper to grade injection
+  severity (0 hits→1.0, 1→0.4, 2→0.15, floor 0.05) so the composite quality WEIGHT is reduced
+  instead of dropping the sample (reweight-over-filter). Registered `injection_safety` in the
+  scorer registry + scoring.yaml (opt-in). +7 tests, ruff clean. Filter (hard) + scorer (soft)
+  now both available; pick per pipeline.
+- **DATA-064** [data-quality, high-potential] `open` (2026-06-14, ORIGINAL) —
+  **verifier-anchored synthetic mixing with a real-data floor.** Combine the two 2026 collapse
+  defenses (arXiv:2510.16657) using cola-coder's assets: (1) every synthetic/distilled example
+  must pass the sandbox verifier before entering the mix (the "external verifier" proven to prevent
+  model collapse — MODEL-040 already screens security; extend to functional verify); (2) enforce a
+  configurable REAL-DATA FLOOR (≥10-20% verified-real scraped code) per SFT/distillation round via
+  the existing weighted-mixing (combine_datasets), tracked so synthetic share can't dominate.
+  Unbounded verified-synthetic augmentation that provably won't collapse + a real anchor. Exploits
+  verifier + quality weights + dataset mixing. Builds on MODEL-040 + combine_datasets. Prep-time → main-safe.
 - **EVAL-025** [eval, high-potential] `open` (2026-06-14, ORIGINAL) —
   **execution-grounded self-repair eval.** A contamination-free eval (IDEA-007) usually needs
   reference solutions; cola-coder has a sandbox verifier instead. Scrape RECENT (post-cutoff)

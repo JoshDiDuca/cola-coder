@@ -76,6 +76,10 @@ scoring:
       weight: 0.15
       model_dir: "models/quality_classifier"
 
+    injection_safety:      # DATA-063: down-weight prompt-injection payloads (soft)
+      enabled: false       # opt-in; pairs with the InjectionFilter (hard-drop)
+      weight: 0.1
+
   # Score-to-training-weight tier mapping
   tier_weights:
     excellent: 2.0    # score >= 0.8

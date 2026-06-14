@@ -7,6 +7,46 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Synthetic data & model collapse (rotate: data curation)
+
+Sources:
+- Escaping Model Collapse via Synthetic Data Verification — https://arxiv.org/abs/2510.16657
+- Seed-Coder: let the code model curate data for itself — https://arxiv.org/html/2506.03524v2
+- Embarrassingly Simple Self-Distillation Improves Code Generation — https://arxiv.org/html/2604.01193v1
+- OpenCodeInstruct (large-scale code instruction tuning) — https://arxiv.org/html/2504.04030v1
+
+Findings:
+- **Verified synthetic data does NOT collapse.** Naively retraining on a model's own outputs
+  amplifies errors (model collapse), but injecting external information through a VERIFIER
+  (human or a stronger checker) provably prevents it (2510.16657). cola-coder owns a sandbox
+  verifier (tsc/tests) → its synthetic/distilled data is collapse-resistant BY DESIGN, a rare
+  structural advantage most synthetic-data pipelines lack.
+- **Retain real data:** keeping even ~10% real data per fine-tuning cycle measurably reduces
+  perplexity drift — a cheap collapse-mitigation knob for the SFT/distillation stages.
+- **Self-curation (Seed-Coder):** a code model can curate its own pretraining data with quality
+  filters, reducing human/large-teacher dependence — aligns with the project's scorer pipeline.
+
+**Implemented this cycle (DATA-063 soft-weight variant — main-safe):** `InjectionScorer`
+(data/scorers/injection_scorer.py), the SOFT counterpart to last cycle's hard-drop
+`InjectionFilter`. Reuses the SEC-019 `scan_injection` scanner + the shared `ScoreMapper` to
+assign injection-carrying samples a LOW quality score (graded: 0 hits→1.0, 1→0.4, 2→0.15,
+floor 0.05) so the composite quality WEIGHT is reduced rather than the sample dropped — the
+project's reweight-over-filter preference for borderline content. Registered as `injection_safety`
+in the scorer registry + configs/scoring.yaml (opt-in, default off). Prep-time → committed on
+main. +7 tests (clean→1.0, graded down-weight, floor, registry wiring); ruff clean.
+
+**ORIGINAL cross-technique idea (DATA-064): verifier-anchored synthetic mixing with a real-data
+floor.** Combine both 2026 collapse defenses using cola-coder's assets. (1) Every synthetic/
+distilled example must pass the sandbox verifier before entering the training mix (already the
+spirit of MODEL-040's screen) — the "external verifier" that 2510.16657 proves prevents collapse.
+(2) Enforce a configurable REAL-DATA FLOOR (≥10-20% verified-real scraped code) in each SFT/
+distillation round via the existing weighted-mixing path (combine_datasets), tracked so synthetic
+share can't silently dominate. Result: unbounded verified-synthetic augmentation that provably
+won't collapse, with a real-data anchor — exploiting verifier + quality weights + dataset mixing
+together. Builds on MODEL-040 + combine_datasets + the verifier. Prep-time → main-safe. → DATA-064.
+
+---
+
 ## 2026-06-14 — Long-context RoPE extension (rotate: long-context)
 
 Sources:
