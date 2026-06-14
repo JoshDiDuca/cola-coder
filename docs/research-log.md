@@ -7,6 +7,48 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Attention-logit & output stability (rotate: architecture)
+
+Sources:
+- Controlling changes to attention logits (param-dependent Q/K LRs) — https://arxiv.org/html/2511.21377
+- Output Embedding Centering for Stable LLM Pretraining — https://arxiv.org/pdf/2601.02031
+- Small-scale proxies for large-scale Transformer training instabilities — https://arxiv.org/pdf/2309.14322
+- MERIT: max-normalized ratio for large-batch training — https://arxiv.org/pdf/2508.20577
+
+Findings:
+- **Two instability modes, both reproducible in SMALL models at high LR** (so cola-coder-relevant):
+  (1) attention-LOGIT growth — uncontrolled max attention logit → divergence; QK-Norm mitigates
+  (project has qk_norm=true). (2) output-LOGIT divergence from log-probs — z-loss mitigates
+  (project has z_loss). Both project defaults are now externally corroborated as the right calls.
+- **New 2026 levers:** (a) parameter-dependent LRs for Q/K weights control logit *changes* and let
+  you raise the base LR — competitive with QK-Norm, composes with it; a future optimizer-side knob.
+  (b) **Output Embedding Centering** — subtract the running mean from the output embedding to stop
+  logit drift — a cheap alternative/complement to z-loss. Both are model/optimizer (train-path).
+- **LR-sensitivity at small scale predicts large-scale stability** — small proxies are a valid
+  cheap testbed (relevant to the project's tiny-config validation runs).
+
+**Implemented this cycle (MODEL-042 — reasoning-only, main-safe):** verifier-effort E2H curriculum
+scheduler, closing the curriculum thread (EVAL-026 → MODEL-042 → IDEA-020). New
+`reasoning/curriculum_scheduler.VerifierEffortCurriculum` (pure logic): tracks each problem's
+verified pass-rate across epochs; `tier_for` re-tags difficulty from the LATEST measured rate;
+`is_mastered` (rate ≥ threshold for a streak); `active` fades mastered problems Easy→Hard while
+keeping ≥ min_active (re-including the least-mastered to fill the floor). Wired opt-in into
+`GRPOTrainer.train(e2h_scheduler=…)`: records per-step pass-rate, and between epochs re-tags
+`problem["difficulty"]` (so the per-difficulty temperature + IDEA-020 entropy floors use MEASURED
+difficulty) and drops mastered problems. Default None → unchanged. +10 tests; GRPO + reasoning
+suites green, ruff clean. Difficulty is now measured, evolving, model-relative — what E2H/SEC require.
+
+**ORIGINAL cross-technique idea (MODEL-043): output-embedding centering, verifier-A/B'd.** Bring
+the 2026 output-logit-stability lever (2601.02031) to cola-coder, but VALIDATE it the way only this
+project can. Add opt-in output-embedding centering (subtract the running mean of `output.weight`'s
+column means from logits, or center the tied embedding) as a checkpoint-safe flag (no new params),
+then A/B it on a tiny-config Muon run measuring BOTH loss AND downstream secure-pass@k (EVAL-024) /
+verifier-effort difficulty (EVAL-026) — not just perplexity, which the papers stop at. Composes with
+z_loss + qk_norm. Train-path (model/) → implement in a WORKTREE, A/B before merge; pairs with the
+MODEL-025 Muon A/B. Builds on the existing z_loss/qk_norm stability stack + the verifier. → MODEL-043.
+
+---
+
 ## 2026-06-14 — Curriculum RL & difficulty estimation (rotate: post-training)
 
 Sources:

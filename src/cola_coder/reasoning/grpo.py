@@ -45,6 +45,7 @@ from .reward_registry import RewardFunction, RewardRegistry
 
 if TYPE_CHECKING:
     from ..evaluation.problem_loader import ProblemSet
+    from .curriculum_scheduler import VerifierEffortCurriculum
     from .entropy_controller import EntropyClipController
 
 logger = logging.getLogger(__name__)
@@ -669,6 +670,7 @@ class GRPOTrainer:
         temperature: float = 0.8,
         curriculum: bool = False,
         problem_set: "ProblemSet | None" = None,
+        e2h_scheduler: "VerifierEffortCurriculum | None" = None,
     ) -> None:
         """Train on a set of coding problems using GRPO.
 
@@ -746,6 +748,11 @@ class GRPOTrainer:
                     diff_total.get(difficulty, 0) + metrics["group_size"]
                 )
 
+                # MODEL-042: record this problem's verified pass-rate for the E2H
+                # scheduler (real steps only — a skipped step has no signal).
+                if e2h_scheduler is not None and not metrics.get("skipped"):
+                    e2h_scheduler.record(problem["prompt"], metrics.get("pass_rate", 0.0))
+
             n = len(training_problems)
             overall_pass = (
                 epoch_metrics["total_correct"] / epoch_metrics["total_generated"]
@@ -764,3 +771,16 @@ class GRPOTrainer:
                     if diff in diff_total and diff_total[diff] > 0:
                         dr = diff_correct[diff] / diff_total[diff]
                         print(f"  {diff}: pass_rate={dr:.1%}")
+
+            # MODEL-042: between epochs, re-tag each problem's difficulty from its
+            # MEASURED pass-rate and fade out mastered ones (E2H). The freed budget
+            # then concentrates on the frontier; re-tagged difficulty feeds the
+            # per-difficulty temperature + IDEA-020 entropy floors next epoch.
+            if e2h_scheduler is not None:
+                e2h_scheduler.end_epoch()
+                for p in training_problems:
+                    p["difficulty"] = e2h_scheduler.tier_for(p["prompt"])
+                training_problems = e2h_scheduler.active(
+                    training_problems, lambda p: p["prompt"]
+                )
+                print(f"  [E2H] {len(training_problems)} active problems after fade-out")

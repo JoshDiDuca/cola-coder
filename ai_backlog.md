@@ -710,15 +710,26 @@ cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N ve
   test_difficulty_profile.py +10 (tier boundaries, zero-max safe, distribution+rates, empty,
   fixed-N + adaptive effort fields); 50 (incl. 40 best-of-N) green, ruff clean. FOLLOW-UP: a CLI
   report + wiring tiers back into the GRPO curriculum (MODEL-042).
-- **MODEL-042** [reasoning/curriculum, high-potential] `open` (2026-06-14, ORIGINAL) —
-  **verifier-effort E2H scheduler.** Each curriculum epoch, RE-CLASSIFY every problem's tier from
-  its CURRENT verifier-effort (EVAL-026) instead of a static tag, then apply an Easy→Hard schedule
-  (arXiv:2506.06632) that FADES OUT problems that became "easy" (anti-overfitting) and promotes
-  freed budget to frontier (mid pass-rate) problems. The per-tier mix feeds IDEA-020's
-  per-difficulty entropy floors. Difficulty becomes measured, evolving, model-relative — what E2H/SEC
-  call for — using verifier + adaptive best-of-N + curriculum + entropy controller together, which no
-  curriculum paper (no execution verifier) can. Builds on EVAL-026 + IDEA-020 + GRPO curriculum.
-  Reasoning-only → main-safe.
+- **MODEL-042** [reasoning/curriculum, high-potential] `done` (2026-06-14) —
+  **verifier-effort E2H scheduler.** New `reasoning/curriculum_scheduler.VerifierEffortCurriculum`
+  (pure logic): tracks each problem's verified pass-rate per epoch; `tier_for` re-tags difficulty
+  from the LATEST rate; `is_mastered` (≥ threshold for a streak); `active` fades mastered problems
+  Easy→Hard (arXiv:2506.06632) keeping ≥ min_active (re-includes least-mastered to fill the floor).
+  Wired opt-in into `GRPOTrainer.train(e2h_scheduler=…)`: records per-step pass-rate, and between
+  epochs re-tags `problem["difficulty"]` (feeding the per-difficulty temperature + IDEA-020 entropy
+  floors with MEASURED difficulty) and drops mastered problems. Default None → unchanged. Difficulty
+  is now measured/evolving/model-relative — what E2H/SEC call for — via verifier + curriculum +
+  entropy controller, which no curriculum paper (no execution verifier) can. Reasoning-only →
+  committed on main. Tests: test_curriculum_scheduler.py +10 (tier from rate, epoch-mean, mastery
+  streak + reset, fade-out, min_active floor keeps hardest, never-empties, invalid-config); GRPO +
+  reasoning suites green, ruff clean. FOLLOW-UP: wire `--e2h` into train_reasoning.py + a CLI report.
+- **MODEL-043** [model/architecture, medium] `open` (2026-06-14, ORIGINAL) —
+  **output-embedding centering, verifier-A/B'd.** 2026 output-logit-stability lever (arXiv:2601.02031):
+  subtract the running column-mean of the (tied) embedding from logits to stop logit drift — a cheap
+  complement to z_loss. Add as a checkpoint-safe opt-in flag (no new params) and A/B on a tiny Muon
+  run measuring loss AND downstream secure-pass@k (EVAL-024) + verifier-effort difficulty (EVAL-026),
+  not just perplexity (where the papers stop). Composes with z_loss + qk_norm. Train-path (model/) →
+  WORKTREE, A/B before merge; pair with the MODEL-025 Muon A/B. Builds on the z_loss/qk_norm stack.
 - **IDEA-021** [research/inference, medium-potential] `open` (2026-06-14, ORIGINAL) —
   **verifier-gated FIM completion boundary.** Precise stopping via cola-coder's assets instead of
   a bespoke incremental grammar parser: use the sandbox tsc verifier as the "complete program?"
