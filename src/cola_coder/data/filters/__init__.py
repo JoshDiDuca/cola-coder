@@ -47,6 +47,12 @@ try:
 except ImportError:
     pass
 
+try:
+    from cola_coder.data.filters.decontamination import DecontaminationFilter  # noqa: F401
+    __all__.append("DecontaminationFilter")
+except ImportError:
+    pass
+
 # Try to import from registry if it exists (parallel agent may create it)
 try:
     from cola_coder.data.filters.registry import FilterRegistry  # noqa: F401

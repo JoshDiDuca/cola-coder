@@ -348,6 +348,25 @@ EVERY scenario. SEC-001/SEC-010 fixed timeout-kill + all-exit cleanup; the rest:
   the existing weighted-mixing (combine_datasets), tracked so synthetic share can't dominate.
   Unbounded verified-synthetic augmentation that provably won't collapse + a real anchor. Exploits
   verifier + quality weights + dataset mixing. Builds on MODEL-040 + combine_datasets. Prep-time → main-safe.
+- **DATA-065** [data-quality, high] `done` (2026-06-14) — **benchmark-decontamination filter.**
+  Contamination (eval problems leaking into training data) inflates eval scores; n-gram/containment
+  overlap is the standard screen (arXiv:2502.14425). The project's `DataLeakageDetector` (MinHash +
+  containment) only REPORTED (check_contamination.py) — never DROPPED during prep. New
+  `data/filters/decontamination.py` `DecontaminationFilter`: a registered FilterPlugin REUSING the
+  detector's `_shingles`/`_containment` (DRY) to index eval/benchmark texts (explicit `eval_texts`
+  and/or built-in problem prompts via `benchmark: true`) and drop records whose containment of an
+  eval doc ≥ threshold (0.8). Opt-in; no-op without refs. Closes the report→mitigation gap.
+  Prep-time → committed on main. Tests: test_decontamination_filter.py +6 (drops embedded benchmark,
+  keeps unrelated, no-op, threshold sensitivity, empty); filter registry intact (13), ruff clean.
+  NOTE: n-gram misses REPHRASED leakage → DATA-066.
+- **DATA-066** [data-quality, high-potential] `open` (2026-06-14, ORIGINAL) —
+  **verifier-confirmed semantic decontamination.** N-gram (DATA-065) misses rephrased/reformatted
+  benchmark leakage; embedding/LLM detection is heavy. Catch the most dangerous case — a
+  FUNCTIONALLY-equivalent rewrite of an eval problem — with the verifier: for a training sample
+  defining a function whose name matches an eval entry point (cheap candidate filter), run the
+  EVAL's OWN tests against that function in the sandbox; if they PASS, it's a functional copy
+  (even if reworded) → drop. Catches what n-gram/embedding miss, using the sandbox verifier + the
+  benchmark test suites. Builds on DATA-065 + sandbox + problem/test sets. Prep-time → main-safe.
 - **EVAL-025** [eval, high-potential] `open` (2026-06-14, ORIGINAL) —
   **execution-grounded self-repair eval.** A contamination-free eval (IDEA-007) usually needs
   reference solutions; cola-coder has a sandbox verifier instead. Scrape RECENT (post-cutoff)

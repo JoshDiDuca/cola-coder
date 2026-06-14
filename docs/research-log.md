@@ -7,6 +7,47 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Benchmark decontamination (rotate: data curation)
+
+Sources:
+- A Survey on Data Contamination for LLMs — https://arxiv.org/html/2502.14425v2
+- Rethinking Benchmark and Contamination with Rephrased Samples — https://arxiv.org/abs/2311.04850
+- Benchmarks Should Be Contamination-Resistant — https://arxiv.org/html/2605.19999v1
+- lm-sys llm-decontaminator — https://github.com/lm-sys/llm-decontaminator
+
+Findings:
+- **N-gram / containment overlap is the standard decontamination screen** — index the eval set,
+  drop training docs that contain a benchmark problem. Cheap, high-precision for VERBATIM and
+  near-verbatim leakage. The project already had a `DataLeakageDetector` (MinHash + containment)
+  but only as an OFFLINE REPORT (scripts/check_contamination.py) — it never DROPPED contaminated
+  samples during prep. The mitigation half was missing.
+- **N-gram MISSES rephrased leakage** (2311.04850): a paraphrased/reformatted benchmark evades
+  exact overlap → needs embedding/LLM detection (the llm-decontaminator approach). So n-gram is a
+  necessary first layer, not sufficient.
+- **Future benchmarks should be contamination-RESISTANT by construction** (time-segmented /
+  generated-fresh) — aligns with the project's EVAL-023/IDEA-007 contamination-free eval plans.
+
+**Implemented this cycle (DATA-065 — data filter, main-safe):** `DecontaminationFilter`
+(data/filters/decontamination.py), a registered FilterPlugin that REUSES the leakage detector's
+`_shingles`/`_containment` (DRY) to DROP training records overlapping eval benchmarks at prep time.
+Indexes the eval/benchmark texts (explicit `eval_texts` and/or the built-in problem prompts via
+`benchmark: true`), then drops any record whose containment of an eval doc's shingles ≥ threshold
+(0.8 default) — the right metric for a short eval problem embedded in a larger scraped file. Opt-in;
+no-op when no refs configured. Closes the report→mitigation gap. +6 tests (drops embedded benchmark,
+keeps unrelated, no-op, threshold sensitivity, empty); filter registry intact, ruff clean.
+
+**ORIGINAL cross-technique idea (DATA-066): verifier-confirmed semantic decontamination.** N-gram
+misses REPHRASED leakage; the embedding/LLM approach is heavy. cola-coder can catch the most
+DANGEROUS rephrased leakage — a functionally-equivalent rewrite of an eval problem — with its
+verifier instead: for each training sample that imports/defines a function whose NAME matches an
+eval problem's entry point (cheap candidate filter), run the EVAL's own tests against the training
+sample's function in the sandbox; if they PASS, the sample is a functional copy of the benchmark
+(even if reworded) → drop it. Catches the rephrased leakage n-gram misses, using the sandbox
+verifier + the benchmark's test suite — which no n-gram or embedding decontaminator has. Builds on
+DATA-065 + the sandbox verifier + the benchmark problem/test sets. Prep-time → main-safe. → DATA-066.
+
+---
+
 ## 2026-06-14 — Attention-logit & output stability (rotate: architecture)
 
 Sources:
