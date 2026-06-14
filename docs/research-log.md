@@ -7,6 +7,48 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Contamination-aware code evaluation: decontaminated-variant comparison (rotate: evaluation)
+
+**Sources (2024–2026):** *LiveCodeBench: Holistic and Contamination-Free Evaluation* —
+https://arxiv.org/abs/2403.07974 (date-annotated contest problems → "evaluation over time": score
+only problems released AFTER a model's cutoff so memorisation can't help; also self-repair / test-output /
+execution scenarios). *LLM Benchmark Methodology 2026 (contamination & leaderboard guide)* —
+https://www.digitalapplied.com/blog/llm-benchmark-methodology-2026-contamination-leaderboard-guide
+(documents the 2026 standard: OpenAI's *verbatim-reproduction audit* — frontier models recover gold
+SWE-bench patches from just a task ID; SWE-ReBench's *decontaminated-variant comparison* — report how much
+of a score SURVIVES decontamination, i.e. pass@k on a contamination-resistant subset vs the full set).
+*Benchmark Data Contamination survey* — https://arxiv.org/abs/2502.14425 (n-gram/containment overlap at
+≥0.8 is the established contamination screen).
+
+**Summary:** a bare pass@k is unfalsifiable once the benchmark leaks into training — a model that memorised
+three answers scores the same as one that reasoned about three. The 2026 fix is not just to *detect* leakage
+but to *quantify how much of the score survives decontamination*: split problems by contamination/recoverability,
+report pass@k on the clean (memorisation-impossible) subset alongside the contaminated subset, and treat the
+clean-minus-contaminated GAP as the memorisation signature. All computable offline from already-collected
+results + a containment screen — no model load.
+
+**Original idea (filed) → EVAL-036/037/038:** cola-coder already owns the binary half (DataLeakageDetector
+MinHash+containment; `check_contamination.py`; DATA-065 DecontaminationFilter) but only emits a yes/no verdict
+at one threshold and never feeds it back into the SCORE. The cross-technique idea is a *contamination-trust-
+stratified pass@k*: reuse the detector's exact `_containment`/`_shingles` to assign each benchmark problem a
+CONTINUOUS recoverability score (max containment of its prompt OR canonical solution in the corpus), bucket
+into clean/suspect/contaminated, then join with the eval harness's own `ProblemResult` records to report
+pass@k per tier + the clean-vs-contaminated `trust_delta` and a quotable decontaminated `trusted_pass_at_k`.
+Unique to this repo: the verifier-effort difficulty tiers (EVAL-026) and the containment scorer are both
+model-relative and free — so the same machinery can later cross-tabulate contamination × difficulty (is the
+"hard" tier just the memorised tier?). EVAL-037 (corpus-sampling CLI binding the existing train-corpus loader)
++ EVAL-038 (contamination × verifier-effort cross-tab) filed for future cycles.
+
+**Implemented this cycle (EVAL-036 — eval, main-safe):** contamination-trust-stratified pass@k.
+`evaluation/contamination_stratified.py`: `score_problem_contamination` (continuous per-problem max-containment
+of prompt OR canonical_solution, REUSING DataLeakageDetector `_shingles`/`_containment` — not a fork),
+`contamination_tier` (clean<0.50≤suspect<0.80≤contaminated), `stratified_pass_at_k` (joins tiers with
+`ProblemResult` via `compute_pass_at_k`; `StratifiedPassAtKReport.trusted_pass_at_k` = decontaminated score,
+`trust_delta` = clean−contaminated, None-safe when a tier is empty or pass@k not estimable for n<k;
+`unmatched_task_ids` surfaced), and `build_contamination_detector` (one indexed detector for the binary path).
+Library-only (consumes existing eval results → no new script → no orphan menu entry). +20 tests, CPU-only,
+no model/GPU/sandbox. Closes the detect→quantify gap: turns the yes/no leakage check into a falsifiable score.
+
 ## 2026-06-14 — Draft-free speculative decoding: prompt-lookup / REST (rotate: inference)
 
 **Sources (2023–2026):** *Prompt Lookup Decoding* — https://github.com/apoorvumang/prompt-lookup-decoding

@@ -114,6 +114,29 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   v2 models don't support `[]`, so this needs a coordinated per-module test migration to attribute access
   (`.step`). Do it module-by-module with parallel agents (disjoint files), each ending green or reverting.
 
+### Contamination-aware eval rigor (2026-06-14, evaluation research)
+- **EVAL-036** [eval, high] `done` (2026-06-14) — **Contamination-trust-stratified pass@k.** A bare pass@k
+  is unfalsifiable once a benchmark leaks (LiveCodeBench arXiv:2403.07974; SWE-ReBench's
+  decontaminated-variant comparison; OpenAI verbatim-reproduction audit). The repo owned only the BINARY
+  half (DataLeakageDetector / check_contamination.py / DATA-065) — a yes/no verdict never fed back into the
+  SCORE. New `evaluation/contamination_stratified.py`: `score_problem_contamination` (continuous per-problem
+  max-containment of prompt OR canonical_solution, REUSING the detector's `_shingles`/`_containment` — DRY,
+  not a fork), `contamination_tier` (clean<0.50≤suspect<0.80≤contaminated), `stratified_pass_at_k` (joins
+  tiers with `ProblemResult` via `compute_pass_at_k`; `StratifiedPassAtKReport.trusted_pass_at_k` =
+  decontaminated score, `trust_delta` = clean−contaminated memorisation signature, None-safe for empty
+  tiers / non-estimable n<k; `unmatched_task_ids` surfaced) + `build_contamination_detector`. Library-only
+  (consumes existing eval results → no new script → no orphan). +20 tests, CPU-only, no model/GPU/sandbox.
+- **EVAL-037** [eval, medium] `open` (2026-06-14) — Bind EVAL-036 into a CLI/report path: reuse
+  `check_contamination.py`'s existing `_load_train_docs` (JSONL or sampled `.npy`+tokenizer) to produce the
+  `train_docs`, run `evaluate.py` to collect `ProblemResult`s, and emit the stratified report (headline vs
+  decontaminated `trusted_pass@k` + `trust_delta`) — wire as an `evaluate.py --contamination-corpus PATH`
+  flag or a small `stratified_eval.py` (menu-wired under eval_menu). Needs a checkpoint → GPU → defer/worktree.
+- **EVAL-038** [eval, medium-potential] `open` (2026-06-14, ORIGINAL) — **Contamination × verifier-effort
+  cross-tab.** Both the containment scorer (EVAL-036) and the difficulty tiers (EVAL-026
+  `difficulty_profile`) are model-relative and free. Cross-tabulate them to test the confound "is the model's
+  'hard' tier just its *un-memorised* tier?" — a 3×4 (contamination × effort) pass@k grid would expose whether
+  apparent reasoning gains are decontaminated. Pure analysis over the two existing reports → main-safe.
+
 ### Optimizers / training-stability (2026-06-14)
 - **EVAL-035** [eval, medium] `done` (2026-06-14) — Spectral-Alignment divergence-risk diagnostic
   (`evaluation/spectral_health.py` + script + eval-menu): per-layer SA sign-collapse via power iteration
@@ -135,6 +158,17 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   convergence threshold + exec-validated safe-layer floor, A/B'd on HumanEval pass@1 + CI (EVAL-028).
 
 ### UI (2026-06-14)
+- **UI-032** [ui, high] `done` (2026-06-14) — Pipeline Run Manager (parallel agents: backend keystone +
+  frontend panel). New `ui/pipeline_ops.py` wraps `PipelineRunManager` with PURE STATE ops (create / reset
+  / set-override / delete / detail) — never executes a stage, loads a model, or touches the GPU, so it's
+  safe alongside the live trainer. 5 new routes (`/api/pipeline/{detail,create,reset,override,delete}`)
+  with `response_model` unions (TYPE-002 style); strict name whitelist (filename-safe, no traversal),
+  refuses to clobber, validates config exists + stage numbers. New `PipelineManagerPanel.tsx` (create form
+  w/ config dropdown + optional-stage skips, selectable run list, per-stage table w/ reset/override, delete
+  w/ confirm). +3 Pydantic models (PipelineStageState/RunDetail/DeleteResult), types regenerated (58
+  interfaces). 13 new pipeline-ops tests + drift examples; 77 UI tests green, tsc+vite green (213 KB).
+  Follow-up UI-033: execute stages from the UI (needs a stage→script runner + a GPU-load guard like the
+  trainer guard, since stages 3/6/7/9/10 load the model — defer while training is live).
 - **UI-030..031** [ui, high] `done` (2026-06-14) — Batch 10 (parallel agents): model-card view
   (`/api/model-card` — arch/params/training-provenance/tokenizer + rendered markdown per checkpoint) +
   features WRITE path (`POST /api/features/set` — line-level toggle preserving comments/order, atomic,
