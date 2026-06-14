@@ -7,6 +7,43 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Semantic (embedding) deduplication: SemDeDup / D4 (rotate: data curation)
+
+**Sources (2023–2026):**
+- *SemDeDup: Data-efficient learning at web-scale through semantic deduplication* —
+  https://arxiv.org/abs/2303.09540 (FAIR). Embed → k-means cluster → within-cluster cosine sim →
+  drop near-duplicate pairs, keeping the point FARTHEST from the centroid (representative-yet-distinct).
+  Removes ~50% of data with minimal performance loss (halves training time), improves OOD.
+- *D4: Improving LLM Pretraining via Document De-Duplication and Diversification* —
+  https://arxiv.org/abs/2308.12284. SemDeDup + SSL-prototype diversification; ~20% training-efficiency
+  gain and up to ~2% downstream accuracy with pre-trained-model embeddings.
+- *Beyond the Black Box: Survey on Theory & Mechanism of LLMs (2026)* — https://arxiv.org/html/2601.02907v2.
+  Positions D4/SemDeDup as the evolution beyond syntactic (hash/MinHash) to semantic matching.
+
+**Summary:** SemDeDup catches SEMANTIC duplicates (close in embedding space — renamed vars,
+reformatted whitespace, paraphrased comments, structurally-equivalent code) that byte/MinHash dedup
+provably misses: embed → cluster → within-cluster cosine → keep one representative per near-dup set.
+cola-coder's three dedup layers (`data/dedup.py`: exact SHA-256, MinHash-Jaccard, SoftDedup reweight)
+are all surface/lexical — no semantic layer exists.
+
+**Original idea / hypothesis (cola-coder-specific cross-technique) → DATA-069 (filed):**
+**Verifier/quality-anchored semantic dedup.** Vanilla SemDeDup keeps the centroid-distant point (pure
+geometry). cola-coder owns (1) its OWN trained model as a free code-embedder (`get_hidden_states` +
+mean-pool — already used by `depth_profile.py`) and (2) quality scorers / SoftDedup mass. Within each
+near-dup semantic cluster, keep the HIGHEST-QUALITY member (rolling dropped members' SoftDedup weight
+into it) — a quality-aware semantic coreset that fuses SemDeDup with the project's quality signal and
+DATA-057's reweight-over-drop philosophy. Composes with `DecontaminationFilter` (clusters straddling an
+eval problem flag rephrased leakage). Filed for a future cycle (prep-time, main-safe, `--dedup semantic`).
+
+**Implemented this cycle (INFER-031 — eval/inference, main-safe):** logit-lens per-token DEPTH profiler.
+`evaluation/depth_profile.py`: `logit_lens(model, input_ids)` projects EVERY block's hidden state
+through the model's final norm + TIED output head (no new weights, reuses the `get_hidden_states`
+block-iteration), `convergence_depth` (argmax-match or entropy≤tau), and `profile_depth` (mean/median
+exit depth, frac-converged-by-depth curve, optional per-difficulty-tier `by_tier`). `scripts/depth_profile.py`
+(`--mode {argmax,entropy} --tau --by-difficulty --json`) + an eval-menu "Depth / Early-Exit Profile"
+entry. +17 tests (last-layer lens == real forward logits anchor; entropy monotonicity; determinism).
+Sets up EVAL-032 (verifier-stratified depth map) and INFER-032 (opt-in early-exit decode, worktree).
+
 ## 2026-06-14 — Adaptive-depth / early-exit inference (rotate: architecture/inference)
 
 **Sources (2025–2026):**

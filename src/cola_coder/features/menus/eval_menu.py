@@ -39,6 +39,8 @@ class EvalMenu:
                  "detail": "Harmful output rate, refusal accuracy, PII, license"},
                 {"label": "Robustness Evaluation",
                  "detail": "Functional drift under semantically-preserving docstring rewordings"},
+                {"label": "Depth / Early-Exit Profile",
+                 "detail": "Per-token logit-lens convergence depth — how many layers each token needs"},
                 {"label": "Routing Accuracy",
                  "detail": "Test semantic router classification accuracy across domains"},
                 {"label": "Data Contamination",
@@ -57,6 +59,7 @@ class EvalMenu:
                 self._master._tools.training_status_menu,
                 self._safety_eval_menu,
                 self._robustness_eval_menu,
+                self._depth_profile_menu,
                 self._routing_accuracy_menu,
                 self._contamination_menu,
             ]
@@ -848,6 +851,75 @@ class EvalMenu:
         if want_ci:
             args.append("--ci")
         self._master._run_script("robustness_eval.py", args)
+        self._master._pause()
+
+    def _depth_profile_menu(self) -> None:
+        """Run the logit-lens per-token depth / early-exit profiler on a checkpoint."""
+        _print_section_header(
+            "Depth / Early-Exit Profile",
+            "Per-token logit-lens convergence depth",
+        )
+
+        cli.print(
+            "  Decodes EVERY transformer layer through the tied output head and\n"
+            "  reports, per token, the earliest layer whose next-token prediction\n"
+            "  has converged to the final layer's answer. Reports:\n"
+            "    - mean / median exit depth  — how many layers tokens actually need\n"
+            "    - cumulative convergence-by-depth curve\n"
+            "    - optional breakdown by problem difficulty tier\n"
+        )
+
+        ckpt_path = self._master._pick_checkpoint("Select checkpoint to profile:")
+        if ckpt_path is None:
+            return
+
+        config = self._master._config_for_checkpoint(ckpt_path)
+
+        set_options = [
+            {"label": "Built-in (20 problems)",
+             "detail": "Original core HumanEval-style set — fast"},
+            {"label": "Extended (62 problems)",
+             "detail": "Original + extended problems"},
+            {"label": "All (62 problems)",
+             "detail": "Alias for extended — full built-in set"},
+        ]
+        set_choice = cli.choose("Problem set:", set_options, allow_cancel=True)
+        if set_choice is None:
+            return
+        problems = ["builtin", "extended", "all"][set_choice]
+
+        mode_options = [
+            {"label": "argmax",
+             "detail": "Earliest layer whose top-1 matches the final layer (and stays matched)"},
+            {"label": "entropy",
+             "detail": "Earliest layer whose softmax entropy <= tau"},
+        ]
+        mode_choice = cli.choose("Convergence criterion:", mode_options, allow_cancel=True)
+        if mode_choice is None:
+            return
+        mode = ["argmax", "entropy"][mode_choice]
+
+        args = [
+            "--checkpoint", ckpt_path,
+            "--config", config,
+            "--problems", problems,
+            "--mode", mode,
+        ]
+        if mode == "entropy":
+            args += ["--tau", "0.5"]
+        if cli.confirm("Stratify by problem difficulty tier?", default=False):
+            args.append("--by-difficulty")
+
+        cli.kv_table({
+            "Checkpoint": ckpt_path,
+            "Problems": problems,
+            "Mode": mode,
+        }, title="Depth Profile Config")
+
+        if not cli.confirm("Run depth profile?"):
+            return
+
+        self._master._run_script("depth_profile.py", args)
         self._master._pause()
 
     def _contamination_menu(self) -> None:

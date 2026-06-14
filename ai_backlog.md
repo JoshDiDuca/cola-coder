@@ -66,16 +66,30 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   tier) + overall CI; `scripts/robustness_eval.py --by-difficulty`. DRY on bootstrap_pass_at_k +
   difficulty_profile.TIERS. +11 tests, EVAL-030's 8 intact.
 
-### Inference / architecture (2026-06-14, researched — filed for future cycles)
-- **INFER-031** [inference, enhancement] `open` — Logit-lens per-token depth/convergence profiler
-  (`evaluation/depth_profile.py` + script + eval-menu): where predictions commit; reuses
-  `Transformer.get_hidden_states` + tied head, no new weights. Main-safe.
+### Inference / architecture (2026-06-14)
+- **INFER-031** [inference, enhancement] `done` (2026-06-14) — Logit-lens per-token depth/convergence
+  profiler: `evaluation/depth_profile.py` (`logit_lens` via tied head + final norm — no new weights;
+  `convergence_depth` argmax/entropy; `profile_depth` w/ per-tier `by_tier`) + `scripts/depth_profile.py`
+  (`--mode/--tau/--by-difficulty`) + eval-menu entry. +17 tests (lens last-layer == forward anchor). Main-safe.
+- **DATA-069** [data curation, high] `open` — Semantic (embedding) dedup (SemDeDup/D4): k-means +
+  within-cluster cosine to drop semantic dups MinHash misses; quality-anchored representative selection;
+  `--dedup semantic` + menu. Original idea: keep highest-quality member, roll SoftDedup mass into it.
+- **DATA-070** [data curation, medium] `open` — D4 diversification pass after semantic dedup (prune
+  over-dense clusters toward a target size), reusing DATA-069's clustering.
+- **EVAL-033** [eval, low] `open` — Semantic-dedup audit: stratify a corpus by semantic-cluster size +
+  quality/verifier tier to quantify redundancy that's semantic-only (caught by DATA-069, missed by exact+MinHash).
 - **EVAL-032** [eval, enhancement] `open` — Verifier-stratified depth map: cross depth_profile with
   EVAL-026 tiers + assert-region token map — do correctness-critical tokens converge later than boilerplate?
 - **INFER-032** [inference, research/WORKTREE] `open` — Opt-in per-token early-exit decode gated by a
   convergence threshold + exec-validated safe-layer floor, A/B'd on HumanEval pass@1 + CI (EVAL-028).
 
 ### UI (2026-06-14)
+- **UI-026..027** [ui, high] `done` (2026-06-14) — Batch 8 (parallel agents): SFT/instruction-JSONL
+  view (`/api/sft` + `/api/sft/preview` — list+preview instruction/reasoning datasets) + CLI parity
+  coverage catalog (`/api/scripts` — all 62 scripts by category, exists-on-disk dots). Actions allow-list
+  expanded to 21 incl. TRAINER-class (train_sft/train_reasoning/train_router/upcycle/find_lr/full_pipeline)
+  which `/api/run` now REFUSES (409) while a trainer is alive — never a 2nd trainer; ActionsPanel shows a
+  trainer badge + refusal message. 26 actions (6 trainer-guarded), 34 `/api` routes. +26 UI tests, tsc+vite green.
 - **UI-024..025** [ui, high] `done` (2026-06-14) — Batch 7 (parallel agents): tokenizer playground
   (POST `/api/tokenize` — encode text → ids/token pieces, GPU-free) + project-health checklist
   (`/api/health`, filesystem checks → 0-100 score). 31 `/api` routes. +24 UI tests, tsc+vite green.
