@@ -45,6 +45,7 @@ from .reward_registry import RewardFunction, RewardRegistry
 
 if TYPE_CHECKING:
     from ..evaluation.problem_loader import ProblemSet
+    from .entropy_controller import EntropyClipController
 
 logger = logging.getLogger(__name__)
 
@@ -259,6 +260,7 @@ class GRPOTrainer:
         security_penalty: float = 0.0,
         dynamic_sampling: bool = False,
         max_resample_attempts: int = 4,
+        entropy_clip_controller: "EntropyClipController | None" = None,
     ):
         """
         Args:
@@ -357,6 +359,14 @@ class GRPOTrainer:
         # default (single-step behavior unchanged).
         self.dynamic_sampling = bool(dynamic_sampling)
         self.max_resample_attempts = max(1, int(max_resample_attempts))
+        # IDEA-013: optional closed-loop controller that adjusts clip_epsilon_high
+        # from the live policy entropy (MODEL-037) to counter entropy collapse,
+        # gated by the verifier pass-rate. None (default) = static clips unchanged.
+        self.entropy_clip_controller = entropy_clip_controller
+        if entropy_clip_controller is not None and self.clip_epsilon_high is None:
+            # The controller modulates the HIGH clip; give it a concrete base to
+            # raise from (otherwise train_step falls back to clip_epsilon).
+            self.clip_epsilon_high = entropy_clip_controller.clip_high
 
         # Generator for producing solutions
         self.generator = CodeGenerator(model, tokenizer, device)
@@ -717,6 +727,16 @@ class GRPOTrainer:
                 epoch_metrics["total_correct"] += metrics["num_correct"]
                 epoch_metrics["total_generated"] += metrics["group_size"]
                 epoch_metrics["policy_entropy"] += metrics.get("policy_entropy", 0.0)
+
+                # IDEA-013: close the entropy loop. On a real (non-skipped) step,
+                # feed the measured entropy + pass-rate to the controller and apply
+                # the new clip-higher bound to the NEXT step. Skipped steps carry no
+                # entropy reading, so they must not drive the controller.
+                if self.entropy_clip_controller is not None and not metrics.get("skipped"):
+                    _, self.clip_epsilon_high = self.entropy_clip_controller.update(
+                        metrics.get("policy_entropy", 0.0),
+                        metrics.get("pass_rate", 0.0),
+                    )
 
                 diff_correct[difficulty] = (
                     diff_correct.get(difficulty, 0) + metrics["num_correct"]

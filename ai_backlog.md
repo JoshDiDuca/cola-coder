@@ -260,14 +260,25 @@ EVERY scenario. SEC-001/SEC-010 fixed timeout-kill + all-exit cleanup; the rest:
   PRETRAINING path → committed on main. Tests: test_grpo_entropy.py +6 (uniform→ln V,
   near-deterministic→~0, prompt-exclusion, no-completion→0, manual-match, non-negative);
   28 grpo tests + ruff green. Follow-up: IDEA-013 (close the loop on this metric).
-- **IDEA-013** [research/post-training, high-potential] `open` (2026-06-14, ORIGINAL) —
-  **entropy-gated closed-loop clip controller.** Use the new `policy_entropy` signal to
-  auto-tune the GRPO clip asymmetry: a PI controller holds a target entropy floor —
-  entropy below floor → raise `clip_low` (and/or lower `clip_high`) to inject exploration;
-  healthy → relax toward DAPO 0.2/0.28. Make it verifier-aware (cola-coder's rare asset):
-  only force exploration when entropy is low AND verifier pass-rate is unsaturated, so we
-  don't burn exploration once tests already pass. Turns static clips into a self-stabilizing
-  RLVR loop. Builds on MODEL-037 + the sandbox/best-of-N verifier. Reasoning-only → main-safe.
+- **IDEA-013** [research/post-training, high-potential] `done` (2026-06-14) —
+  **entropy-gated closed-loop clip controller.** `EntropyClipController`
+  (reasoning/entropy_controller.py): proportional controller on the MODEL-037 `policy_entropy`
+  signal — entropy below a target floor → RAISE clip_high (DAPO clip-higher) proportionally to
+  the deficit (capped) to inject exploration; healthy → relax to base. VERIFIER-AWARE: suppresses
+  exploration when the group pass-rate is at/above `pass_rate_ceiling` (don't explore away from
+  working solutions). Wired opt-in into GRPOTrainer (`entropy_clip_controller=None` default →
+  unchanged); applied once per non-skipped step to the next step's clip_epsilon_high. Reasoning-
+  only = off the live pretraining path → committed on main. Tests: test_entropy_controller.py +10
+  (healthy stays at base, collapse raises + caps, proportional, verifier-gate both ways, relax
+  after recovery, clip_low never modulated, invalid-config guards); GRPO suite green, ruff clean.
+  Empirical entropy-collapse-prevention A/B deferred to an actual GRPO run.
+- **IDEA-020** [research/post-training, medium-potential] `open` (2026-06-14, ORIGINAL) —
+  **per-difficulty entropy floors.** The GRPO curriculum already varies temperature by difficulty
+  and tracks per-difficulty pass-rate. Extend IDEA-013's controller to hold a DIFFERENT entropy
+  floor per tier — hard problems (low pass-rate, need search) get a higher floor → more
+  clip-higher exploration; easy/solved problems get a low floor → exploit. Drives the DAPO clip
+  from BOTH live entropy AND per-difficulty verifier pass-rate = a difficulty-adaptive exploration
+  schedule. Builds on IDEA-013 + curriculum + per-difficulty pass-rate. Reasoning-only → main-safe.
 - **SEC-015** [security/sandbox, high] `open` (the REAL bulletproof path — research
   2026-06-13) — HONEST LIMITATION: plain Docker on this Windows Docker Desktop/WSL2
   host CANNOT be made truly bulletproof (shared kernel; gVisor/Firecracker/Kata

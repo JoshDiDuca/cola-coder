@@ -7,6 +7,45 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — GRPO/DAPO variants & exploration control (rotate: post-training/RLVR)
+
+Sources:
+- Post-Training in 2026: GRPO, DAPO, RLVR & Beyond — https://llm-stats.com/blog/research/post-training-techniques-2026
+- GRPO's effective loss, dynamics & success amplification (OpenReview) — https://openreview.net/forum?id=y4y7fvcR8W
+- Prompt Augmentation Scales up GRPO Training — https://arxiv.org/pdf/2602.03190
+- RLVR implicitly incentivizes correct reasoning — https://arxiv.org/html/2506.14245v2
+
+Findings:
+- **The GRPO variant zoo converges on a few levers:** advantage normalization (mean-only
+  Dr. GRPO vs mean+std), decoupled clipping (DAPO clip-higher to promote exploration),
+  dynamic sampling (drop zero-variance groups), drop-KL, and token-level length norm.
+  cola-coder already has ALL of these (advantage_norm, clip_epsilon_high, dynamic_sampling,
+  length_norm, no-KL) — the gap was making the clip ADAPTIVE rather than a fixed knob.
+- **DAPO clip-higher is the exploration lever:** raising the upper clip (e.g. 0.28>0.2) lets
+  low-probability tokens grow, directly countering entropy collapse — but it's set statically.
+- **Verifiable rewards already encode the stopping signal:** once pass-rate saturates, extra
+  exploration is wasted; coupling exploration to the verifier is an obvious but unexploited win.
+
+**Implemented this cycle (IDEA-013 — reasoning-only, main-safe):** `EntropyClipController`
+(reasoning/entropy_controller.py) closes the loop on MODEL-037's entropy metric. Proportional
+controller: when measured policy entropy falls below a target floor, RAISE clip_high (DAPO
+clip-higher) proportionally to the deficit (capped) to inject exploration; relax to base when
+healthy. VERIFIER-AWARE — suppresses exploration when the group pass-rate is at/above a ceiling
+(don't explore away from working solutions; couples RL exploration to executable success, which
+the RLVR papers — no verifier — can't). Wired opt-in into GRPOTrainer (default None → unchanged);
+applied once per non-skipped step to the next step's clip. +10 controller tests, GRPO suite green.
+
+**ORIGINAL cross-technique idea (IDEA-020): per-difficulty entropy floors.** The curriculum
+already varies sampling temperature by difficulty (easy/medium/hard). Extend the entropy
+controller to hold a DIFFERENT entropy floor per difficulty tier — hard problems (low pass-rate,
+need search) get a higher floor → more clip-higher exploration; easy problems (already solved)
+get a low floor → exploit. Drives the DAPO clip from BOTH the live entropy AND the verifier's
+per-difficulty pass-rate, turning the existing curriculum + verifier + entropy controller into a
+difficulty-adaptive exploration schedule. Builds on IDEA-013 + the curriculum + per-difficulty
+pass-rate already tracked in GRPOTrainer.train(). → IDEA-020.
+
+---
+
 ## 2026-06-14 — Model-based data curation (rotate: data curation)
 
 Sources:
