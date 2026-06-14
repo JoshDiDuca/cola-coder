@@ -106,6 +106,17 @@ def main():
         default=0.2,
         help="Sampling temperature for evaluation (default: 0.2, lower for more deterministic).",
     )
+    parser.add_argument(
+        "--no-bootstrap",
+        action="store_true",
+        help="Disable bootstrap confidence intervals on pass@k (shown by default).",
+    )
+    parser.add_argument(
+        "--ci",
+        type=float,
+        default=0.95,
+        help="Confidence level for the bootstrap pass@k interval (default: 0.95).",
+    )
     args = parser.parse_args()
 
     if args.tokenizer is None:
@@ -277,7 +288,12 @@ def main():
 
     # ---- Compute and display metrics ----
     k_values = [k for k in [1, 5, 10] if k <= args.num_samples]
-    report = format_results(results, k_values=k_values)
+    report = format_results(
+        results,
+        k_values=k_values,
+        bootstrap=not args.no_bootstrap,
+        ci=args.ci,
+    )
     cli.rule("Results")
     cli.print(f"\n{report}")
 

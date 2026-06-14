@@ -11,6 +11,34 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+### Local Web UI — React+TS/Vite over FastAPI (2026-06-14)
+- **UI-001..016** [ui, high] `done` (2026-06-14) — React+TS+Vite dashboard in `webui/`
+  over the FastAPI backend `src/cola_coder/ui/` with SSE push (no polling). Shipped views:
+  live training status, GPU/system, checkpoints, datasets+preview+score histograms, jobs
+  +log tail, runnable actions (allow-listed), config browser, pipeline runs, eval/quality
+  artifacts, generic log tail, features.yaml toggles, reasoning config, tokenizer info,
+  checkpoint detail (safetensors header param count). 24 `/api` routes; "start training"
+  REFUSES if a trainer is alive (no second trainer). Built by parallel agents on disjoint
+  files. ~135 UI tests, tsc --noEmit + vite build green.
+- **UI-017** [ui, high] `open` — Continue CLI→UI parity per docs/UI_SPEC.md (84-row map).
+  Next batches: router view (evaluate_router), export view (GGUF/Ollama/quant), data
+  collection/prepare wizards, expand the runnable-actions allow-list toward every menu
+  item, monitoring (training_dashboard / eval_history), self-play / GRPO launch controls.
+- **UI-018** [ui, medium] `open` — Config EDITOR (write path): validate + save YAML configs
+  from the browser (currently read-only). Guard against editing while a run uses the config.
+
+### Eval rigor (2026-06-14)
+- **EVAL-028** [eval, high] `done` (2026-06-14) — Bootstrap CIs + cross-problem SE for
+  pass@k in `evaluation/metrics.py` (`pass_at_k_stderr`, `bootstrap_pass_at_k`,
+  `paired_bootstrap_delta`); `format_results` renders `[95% CI lo–hi]`; `evaluate.py`
+  `--no-bootstrap`/`--ci`. A bare pass@k on 62 problems was unfalsifiable. +10 tests.
+- **EVAL-029** [eval/regression, medium] `open` — Wire `paired_bootstrap_delta` into
+  `compare_models.py` + `evaluation/regression.py` so an "improvement"/"regression"
+  requires a paired-bootstrap CI excluding 0 (not a raw delta). Functions already exist.
+- **IDEA-028** [eval×difficulty, medium] `open` — Verifier-effort-STRATIFIED pass@k with
+  per-tier bootstrap CIs (combine EVAL-028 + EVAL-026 `difficulty_profile` tiers): a
+  stratified variance-reduction estimator + per-difficulty error bars unique to this repo.
+
 ### Ops / perf (2026-06-13)
 - **PERF-001** [ops/training-throughput, high] `open` — The autonomous loop's own heavy
   CPU activity STARVES the live training. Diagnosed during a cycle: GPU at 99% util but

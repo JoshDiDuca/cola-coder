@@ -253,6 +253,96 @@ class TestSecurePassAtK:
         assert "secure-pass@1" in out
 
 
+class TestPassAtKConfidence:
+    """Uncertainty quantification for pass@k (EVAL-028): SE + bootstrap CIs.
+
+    pass@1 with n=10 samples is just c/10, which keeps these assertions arithmetic.
+    """
+
+    def test_stderr_zero_when_all_problems_identical(self):
+        from cola_coder.evaluation.metrics import pass_at_k_stderr
+        results = [ProblemResult(task_id=f"p{i}", num_samples=10, num_correct=5)
+                   for i in range(8)]
+        # All per-problem pass@1 == 0.5 -> no spread -> SE 0.0 (estimable, not None).
+        assert pass_at_k_stderr(results, k=1) == 0.0
+
+    def test_stderr_none_with_fewer_than_two_problems(self):
+        from cola_coder.evaluation.metrics import pass_at_k_stderr
+        results = [ProblemResult(task_id="a", num_samples=10, num_correct=5)]
+        assert pass_at_k_stderr(results, k=1) is None
+
+    def test_bootstrap_brackets_point_estimate(self):
+        from cola_coder.evaluation.metrics import bootstrap_pass_at_k, compute_pass_at_k
+        results = [ProblemResult(task_id=f"p{i}", num_samples=10, num_correct=c)
+                   for i, c in enumerate([0, 2, 5, 7, 9, 10, 3, 6])]
+        boot = bootstrap_pass_at_k(results, k=1, n_boot=2000, seed=0)
+        assert boot is not None
+        point, lo, hi = boot
+        assert abs(point - compute_pass_at_k(results, [1])["pass@1"]) < 1e-9
+        assert lo <= point <= hi
+        assert lo < hi  # genuine spread across these problems
+
+    def test_bootstrap_ci_narrower_with_more_problems(self):
+        from cola_coder.evaluation.metrics import bootstrap_pass_at_k
+        pattern = [0, 2, 5, 7, 9, 10, 3, 6]
+        few = [ProblemResult(task_id=f"f{i}", num_samples=10, num_correct=c)
+               for i, c in enumerate(pattern)]
+        many = [ProblemResult(task_id=f"m{i}", num_samples=10, num_correct=c)
+                for i, c in enumerate(pattern * 6)]  # same distribution, 6x problems
+        _, lo_few, hi_few = bootstrap_pass_at_k(few, k=1, n_boot=3000, seed=1)
+        _, lo_many, hi_many = bootstrap_pass_at_k(many, k=1, n_boot=3000, seed=1)
+        assert (hi_many - lo_many) < (hi_few - lo_few)
+
+    def test_bootstrap_deterministic_under_seed(self):
+        from cola_coder.evaluation.metrics import bootstrap_pass_at_k
+        results = [ProblemResult(task_id=f"p{i}", num_samples=10, num_correct=c)
+                   for i, c in enumerate([1, 4, 8, 2, 9])]
+        a = bootstrap_pass_at_k(results, k=1, n_boot=1500, seed=7)
+        b = bootstrap_pass_at_k(results, k=1, n_boot=1500, seed=7)
+        assert a == b
+
+    def test_bootstrap_none_when_not_estimable(self):
+        from cola_coder.evaluation.metrics import bootstrap_pass_at_k
+        # No problem has >= k samples -> None (mirrors compute_pass_at_k).
+        results = [ProblemResult(task_id="a", num_samples=1, num_correct=1)]
+        assert bootstrap_pass_at_k(results, k=5) is None
+
+    def test_paired_delta_spans_zero_for_identical_models(self):
+        from cola_coder.evaluation.metrics import paired_bootstrap_delta
+        a = [ProblemResult(task_id=f"p{i}", num_samples=10, num_correct=c)
+             for i, c in enumerate([3, 6, 9, 1, 7])]
+        b = [ProblemResult(task_id=f"p{i}", num_samples=10, num_correct=c)
+             for i, c in enumerate([3, 6, 9, 1, 7])]
+        mean_delta, lo, hi = paired_bootstrap_delta(a, b, k=1, n_boot=1500, seed=0)
+        assert mean_delta == 0.0
+        assert lo <= 0.0 <= hi
+
+    def test_paired_delta_excludes_zero_when_b_dominates(self):
+        from cola_coder.evaluation.metrics import paired_bootstrap_delta
+        a = [ProblemResult(task_id=f"p{i}", num_samples=10, num_correct=2)
+             for i in range(6)]
+        b = [ProblemResult(task_id=f"p{i}", num_samples=10, num_correct=8)
+             for i in range(6)]
+        mean_delta, lo, hi = paired_bootstrap_delta(a, b, k=1, n_boot=1500, seed=0)
+        assert abs(mean_delta - 0.6) < 1e-9
+        assert lo > 0.0  # credible improvement: CI excludes 0
+
+    def test_paired_delta_none_without_shared_problems(self):
+        from cola_coder.evaluation.metrics import paired_bootstrap_delta
+        a = [ProblemResult(task_id="a", num_samples=10, num_correct=5)]
+        b = [ProblemResult(task_id="z", num_samples=10, num_correct=5)]
+        assert paired_bootstrap_delta(a, b, k=1) is None
+
+    def test_format_results_renders_ci(self):
+        from cola_coder.evaluation.metrics import format_results
+        results = [ProblemResult(task_id=f"p{i}", num_samples=10, num_correct=c)
+                   for i, c in enumerate([2, 5, 8])]
+        out = format_results(results, k_values=[1], n_boot=1000)
+        assert "95% CI" in out
+        # Disabling bootstrap drops the interval.
+        assert "CI" not in format_results(results, k_values=[1], bootstrap=False)
+
+
 class TestNoRepeatNgram:
     """no_repeat_ngram_size hard-blocks tokens that would repeat a seen n-gram —
     the fix for verbatim repetition loops in code generation."""

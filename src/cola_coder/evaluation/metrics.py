@@ -17,6 +17,9 @@ This avoids bias from naively computing "fraction with at least one correct."
 """
 
 import logging
+import math
+import random
+import statistics
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -195,20 +198,161 @@ def compute_secure_pass_at_k(
     return metrics
 
 
+def _percentile(sorted_vals: list[float], q: float) -> float:
+    """Linear-interpolated percentile of an already-sorted list. ``q`` in [0, 1]."""
+    n = len(sorted_vals)
+    if n == 1:
+        return sorted_vals[0]
+    pos = q * (n - 1)
+    lo = int(math.floor(pos))
+    hi = int(math.ceil(pos))
+    if lo == hi:
+        return sorted_vals[lo]
+    frac = pos - lo
+    return sorted_vals[lo] * (1.0 - frac) + sorted_vals[hi] * frac
+
+
+def pass_at_k_stderr(results: list[ProblemResult], k: int) -> float | None:
+    """Standard error of pass@k, treating each PROBLEM as the random unit.
+
+    pass@k is the mean of per-problem unbiased estimates, so the standard error of
+    that mean is ``stdev(per-problem scores) / sqrt(num_problems)``. This is the
+    cheap CLT-style error bar; for a small problem set (cola-coder's HumanEval is
+    62 problems) prefer ``bootstrap_pass_at_k`` whose interval makes no normal
+    assumption (CLT is unreliable below a few hundred problems).
+
+    Only problems with ``num_samples >= k`` contribute (same exclusion as
+    ``compute_pass_at_k``). Returns ``None`` when fewer than 2 such problems exist
+    (a single point has no estimable spread).
+    """
+    scores = [
+        pass_at_k(r.num_samples, r.num_correct, k)
+        for r in results
+        if r.num_samples >= k
+    ]
+    if len(scores) < 2:
+        return None
+    return statistics.stdev(scores) / math.sqrt(len(scores))
+
+
+def bootstrap_pass_at_k(
+    results: list[ProblemResult],
+    k: int,
+    n_boot: int = 10_000,
+    ci: float = 0.95,
+    seed: int = 0,
+) -> tuple[float, float, float] | None:
+    """Bootstrap confidence interval for pass@k by resampling PROBLEMS.
+
+    Resample the eligible problems (those with ``num_samples >= k``) with
+    replacement ``n_boot`` times, recompute the aggregate pass@k each draw, and
+    take the percentile interval. This captures per-problem difficulty variance
+    without assuming normality — the right tool on a ~62-problem set where the
+    CLT is shaky (arXiv:2503.01747).
+
+    Returns ``(point, lo, hi)`` where ``point`` is the usual aggregate pass@k and
+    ``[lo, hi]`` is the ``ci`` percentile interval. Deterministic for a given
+    ``seed``. Returns ``None`` when no problem has ``>= k`` samples (mirrors
+    ``compute_pass_at_k``'s not-estimable semantics). With a single eligible
+    problem the interval collapses to the point estimate.
+    """
+    scores = [
+        pass_at_k(r.num_samples, r.num_correct, k)
+        for r in results
+        if r.num_samples >= k
+    ]
+    if not scores:
+        return None
+    m = len(scores)
+    point = sum(scores) / m
+    if m == 1:
+        return (point, point, point)
+
+    rng = random.Random(seed)
+    boot = [
+        sum(scores[rng.randrange(m)] for _ in range(m)) / m
+        for _ in range(n_boot)
+    ]
+    boot.sort()
+    alpha = (1.0 - ci) / 2.0
+    return (point, _percentile(boot, alpha), _percentile(boot, 1.0 - alpha))
+
+
+def paired_bootstrap_delta(
+    results_a: list[ProblemResult],
+    results_b: list[ProblemResult],
+    k: int,
+    n_boot: int = 10_000,
+    ci: float = 0.95,
+    seed: int = 0,
+) -> tuple[float, float, float] | None:
+    """Paired bootstrap of the pass@k difference (B − A) on a shared problem set.
+
+    Matches problems by ``task_id`` and bootstraps the per-problem differences.
+    Pairing cancels per-problem difficulty, giving a far tighter interval than
+    comparing two independent CIs — the correct way to ask "did B really beat A?"
+    (arXiv:2411.00640). A returned interval that EXCLUDES 0 is a credible change;
+    one that spans 0 is within noise.
+
+    Only problems present in both sets with ``num_samples >= k`` in each are used.
+    Returns ``(mean_delta, lo, hi)`` (positive ⇒ B better), or ``None`` when no
+    paired problem qualifies. Deterministic for a given ``seed``.
+    """
+    by_b = {r.task_id: r for r in results_b}
+    deltas = [
+        pass_at_k(by_b[a.task_id].num_samples, by_b[a.task_id].num_correct, k)
+        - pass_at_k(a.num_samples, a.num_correct, k)
+        for a in results_a
+        if a.task_id in by_b
+        and a.num_samples >= k
+        and by_b[a.task_id].num_samples >= k
+    ]
+    if not deltas:
+        return None
+    m = len(deltas)
+    mean_delta = sum(deltas) / m
+    if m == 1:
+        return (mean_delta, mean_delta, mean_delta)
+
+    rng = random.Random(seed)
+    boot = [
+        sum(deltas[rng.randrange(m)] for _ in range(m)) / m
+        for _ in range(n_boot)
+    ]
+    boot.sort()
+    alpha = (1.0 - ci) / 2.0
+    return (mean_delta, _percentile(boot, alpha), _percentile(boot, 1.0 - alpha))
+
+
 def format_results(
     results: list[ProblemResult],
     k_values: list[int] = [1, 5, 10],
+    bootstrap: bool = True,
+    n_boot: int = 10_000,
+    ci: float = 0.95,
+    seed: int = 0,
 ) -> str:
     """Format evaluation results as a readable table.
 
     Args:
         results: List of per-problem results.
         k_values: Which k values to report.
+        bootstrap: Append a bootstrap confidence interval to each pass@k line.
+        n_boot: Bootstrap resamples (only used when ``bootstrap``).
+        ci: Confidence level for the interval (e.g. 0.95).
+        seed: RNG seed for a reproducible interval.
 
     Returns:
         Formatted string with results table.
     """
     metrics = compute_pass_at_k(results, k_values)
+
+    intervals: dict[str, tuple[float, float]] = {}
+    if bootstrap:
+        for k in k_values:
+            boot = bootstrap_pass_at_k(results, k, n_boot=n_boot, ci=ci, seed=seed)
+            if boot is not None:
+                intervals[f"pass@{k}"] = (boot[1], boot[2])
 
     lines = [
         "=" * 60,
@@ -221,6 +365,9 @@ def format_results(
     for key, value in metrics.items():
         if value is None:
             lines.append(f"  {key}: n/a (need more samples)")
+        elif key in intervals:
+            lo, hi = intervals[key]
+            lines.append(f"  {key}: {value:.1%}  [{ci:.0%} CI {lo:.1%}–{hi:.1%}]")
         else:
             lines.append(f"  {key}: {value:.1%}")
 

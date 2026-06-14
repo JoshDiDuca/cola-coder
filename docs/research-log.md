@@ -7,6 +7,54 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — pass@k uncertainty quantification: bootstrap CIs (rotate: evaluation)
+
+**Sources (2025–2026):**
+- *Adding Error Bars to Evals: A Statistical Approach to LM Evaluations* — https://arxiv.org/abs/2411.00640.
+  Treat each QUESTION as the random unit (independent Bernoulli), report CLT standard
+  errors / CIs, use clustered SEs for templated questions, and PAIRED difference tests
+  (variance of the difference) when comparing two models on the same set.
+- *Towards More Rigorous Evaluations of Language Models* (ICLR 2025 Blogposts) —
+  https://iclr-blogposts.github.io/2025/blog/towards-more-rigorous-llm-evals/.
+  Build binomial CIs (Wilson/Clopper-Pearson), use Fisher/Wilcoxon for comparisons,
+  account for template-level correlation.
+- *Don't Pass@k: A Bayesian Framework for LLM Evaluation* — https://arxiv.org/abs/2510.04265.
+  pass@k is a bare point estimate; few samples mislead pass@k RANKINGS. Posterior +
+  credible intervals separate credible differences from noise.
+- *Position: Don't Use the CLT in LLM Evals With Fewer Than a Few Hundred* —
+  https://arxiv.org/pdf/2503.01747. Below a few hundred items the normal approximation
+  is unreliable → prefer BOOTSTRAP percentile intervals (Efron) or exact binomial.
+
+**Summary:** a pass@k number without an interval is unfalsifiable — you can't tell a
+real gain from sampling noise, and rankings flip with few samples. The random unit is
+the PROBLEM (pass@k is a mean of per-problem unbiased estimates), so report the spread
+across problems. On cola-coder's 62-problem HumanEval set the CLT is shaky, so a
+bootstrap over problems (resample problems w/ replacement, recompute aggregate pass@k,
+take percentiles) is the right, assumption-free recipe. For comparing two checkpoints
+on the SAME set, a PAIRED bootstrap on per-problem differences cancels difficulty and
+is far tighter than two independent CIs.
+
+**Original idea / hypothesis (cola-coder-specific cross-technique) → IDEA-028:**
+**Verifier-effort-STRATIFIED pass@k with per-tier bootstrap CIs.** cola-coder uniquely
+owns a *model-relative* difficulty signal — the verifier-effort tier from
+`evaluation/difficulty_profile.py` (easy/medium/hard/unsolved, from how much adaptive
+best-of-N budget a verified solve consumed). Bootstrap WITHIN strata then combine: a
+stratified/Rao-Blackwellized variance-reduction estimator that is tighter than a flat
+bootstrap (most pass@k variance comes from mixing easy+hard problems) AND gives per-tier
+error bars no public harness can build (none has the sandbox verifier's difficulty signal).
+
+**Implemented this cycle (EVAL-028 — eval, main-safe):** uncertainty quantification for
+pass@k in `evaluation/metrics.py`. Three stdlib-only functions (DRY on the existing
+unbiased `pass_at_k`): `pass_at_k_stderr` (cross-problem SE), `bootstrap_pass_at_k`
+(`(point, lo, hi)` percentile CI, deterministic by seed, `None` when n<k for every
+problem — mirrors `compute_pass_at_k`), and `paired_bootstrap_delta` (B−A paired
+bootstrap; CI excluding 0 ⇒ credible change). `format_results` now renders
+`pass@1: 42.0% [95% CI 35.1–49.2]`; `scripts/evaluate.py` gains `--no-bootstrap` / `--ci`.
++10 tests (SE=0 on identical problems, CI brackets point, narrower CI with more problems,
+seed determinism, not-estimable→None, paired spans-0 for identical models, paired
+excludes-0 when B dominates, format renders/omits CI). EVAL-029 (wire paired bootstrap
+into compare_models.py + regression gating) and IDEA-028 (stratified) filed for follow-up.
+
 ## 2026-06-14 — Secure code generation (rotate: safety) + BUG-128 fix
 
 Sources:
