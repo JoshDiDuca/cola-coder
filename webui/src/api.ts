@@ -21,6 +21,8 @@ import type {
   MetricsHistory,
   DataSourcesView,
   EvalHistoryView,
+  TokenizeResult,
+  HealthSummary,
   ApiError,
 } from './types';
 
@@ -166,4 +168,12 @@ export function getDataSources(): Promise<DataSourcesView | ApiError> {
 
 export function getEvalHistory(): Promise<EvalHistoryView | ApiError> {
   return j<EvalHistoryView | ApiError>('/api/eval-history');
+}
+
+export function postTokenize(text: string): Promise<TokenizeResult | ApiError> {
+  return j<TokenizeResult | ApiError>('/api/tokenize', postJson({ text }));
+}
+
+export function getHealth(): Promise<HealthSummary | ApiError> {
+  return j<HealthSummary | ApiError>('/api/health');
 }

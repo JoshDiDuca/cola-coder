@@ -273,6 +273,26 @@ export interface EvalHistoryView {
   metric_keys: string[];
 }
 
+export interface TokenizeResult {
+  path: string;
+  count: number;
+  ids: number[];
+  tokens: string[];
+  truncated?: boolean;
+}
+
+export interface HealthCheck {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface HealthSummary {
+  score: number;
+  checks: HealthCheck[];
+  summary: string;
+}
+
 export interface ApiError {
   error: string;
 }

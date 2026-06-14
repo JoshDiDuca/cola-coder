@@ -42,12 +42,14 @@ from . import eval_history as eh
 from . import evals as ev
 from . import exports as ex
 from . import features as ft
+from . import health as hl
 from . import logs as lg
 from . import metrics_history as mh
 from . import pipeline as pl
 from . import reasoning as rs
 from . import router as rt
 from . import status as st
+from . import tokenize as tkz
 from . import tokenizer_info as tk
 from .jobs import JobManager
 
@@ -270,6 +272,14 @@ def create_app(
     @app.get("/api/eval-history")
     def eval_history_get() -> dict:
         return eh.eval_history(str(root))
+
+    @app.post("/api/tokenize")
+    def tokenize_post(payload: dict) -> dict:
+        return tkz.tokenize_text(str(payload.get("text", "")))
+
+    @app.get("/api/health")
+    def health_get() -> dict:
+        return hl.project_health(str(root))
 
     # Serve the built React app. Mount LAST so /api/* routes resolve first —
     # StaticFiles at "/" otherwise shadows every API route.

@@ -20,6 +20,7 @@ from .eval_history import eval_history
 from .evals import list_eval_results, read_eval_result
 from .exports import export_overview
 from .features import list_features
+from .health import project_health
 from .jobs import JobManager
 from .logs import list_logs, tail_log
 from .metrics_history import training_history
@@ -27,6 +28,7 @@ from .pipeline import list_pipeline_runs, read_pipeline_run
 from .reasoning import read_reasoning
 from .router import router_overview
 from .status import get_system_status, get_training_status, list_checkpoints
+from .tokenize import tokenize_text
 from .tokenizer_info import tokenizer_info
 
 __all__ = [
@@ -55,4 +57,6 @@ __all__ = [
     "training_history",
     "read_data_sources",
     "eval_history",
+    "tokenize_text",
+    "project_health",
 ]

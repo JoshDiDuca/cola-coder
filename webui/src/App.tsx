@@ -19,6 +19,8 @@ import RouterPanel from './components/RouterPanel';
 import ExportPanel from './components/ExportPanel';
 import DataSourcesPanel from './components/DataSourcesPanel';
 import EvalHistoryPanel from './components/EvalHistoryPanel';
+import HealthPanel from './components/HealthPanel';
+import TokenizePanel from './components/TokenizePanel';
 
 interface Snapshot {
   training: TrainingStatus;
@@ -85,6 +87,7 @@ export default function App() {
       <main className="app-grid">
         <TrainingPanel training={snap?.training ?? null} />
         <SystemPanel system={snap?.system ?? null} />
+        <HealthPanel />
         <CheckpointsPanel checkpoints={snap?.checkpoints ?? []} />
         <MetricsChartPanel />
         <EvalHistoryPanel />
@@ -99,6 +102,7 @@ export default function App() {
         <FeaturesPanel />
         <ReasoningPanel />
         <TokenizerPanel />
+        <TokenizePanel />
         <CheckpointDetailPanel checkpoints={snap?.checkpoints ?? []} />
         <RouterPanel />
         <ExportPanel />
