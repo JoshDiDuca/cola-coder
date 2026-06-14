@@ -245,3 +245,12 @@ pipeline_runs
 logs
 # Machine-generated hardware-tuned configs (Full Auto Pipeline)
 configs/auto/
+
+# Web UI (React/Vite frontend)
+webui/node_modules/
+webui/dist/
+webui/*.local
+*.tsbuildinfo
+
+# UI background-job logs
+ui_jobs/

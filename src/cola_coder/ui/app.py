@@ -1,0 +1,194 @@
+"""FastAPI app for the cola-coder local UI.
+
+Endpoints (all JSON unless noted):
+    GET  /                       -> the built React app (webui/dist) or a hint
+    GET  /api/status             -> {training, system, checkpoints}
+    GET  /api/events             -> Server-Sent Events stream of full snapshots
+    GET  /api/datasets           -> [datasets]                (?data_root=)
+    GET  /api/datasets/preview   -> preview                   (?path=&n=)
+    GET  /api/datasets/scores    -> score summary             (?path=)
+    GET  /api/jobs               -> [jobs]
+    GET  /api/jobs/{id}/log      -> {log: "...tail..."}       (?lines=)
+    POST /api/jobs/{id}/stop     -> {stopped: bool}
+    GET  /api/actions            -> [runnable script actions]
+    POST /api/run                -> start a script as a background job
+    POST /api/train/start        -> start training (REFUSES if one already runs)
+
+Live updates are server-PUSHED via ``/api/events`` (one SSE stream per client,
+NO polling): a single 1s server-side tick recomputes the snapshot and pushes it
+only when it changed. The app is built via ``create_app(...)`` so tests can
+inject a temp JobManager, data_root, and checkpoint root. Heavy logic lives in
+status/jobs/datasets — this module is thin wiring, which keeps it fast and
+trivially testable.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import sys
+from collections.abc import AsyncIterator
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+
+from . import datasets as ds
+from . import status as st
+from .jobs import JobManager
+
+_MISSING_DIST_HTML = (
+    "<h1>Cola-Coder UI</h1>"
+    "<p>The React app has not been built yet. Run:</p>"
+    "<pre>cd webui &amp;&amp; npm install &amp;&amp; npm run build</pre>"
+)
+
+# Scripts the UI is allowed to launch (mirrors the CLI menu actions). Each entry:
+# key -> (script filename, human label, default args shown in the UI). Extend this
+# as the UI grows toward full CLI parity; the runner validates against these keys so
+# the localhost UI can't be coaxed into running an arbitrary binary.
+ACTIONS: dict[str, dict] = {
+    "prepare_data": {"script": "prepare_data.py", "label": "Prepare data (tokenize/filter)",
+                     "args": ["--config", "configs/small.yaml", "--score"]},
+    "collect_data": {"script": "collect_data.py", "label": "Collect multi-source data",
+                     "args": ["--config", "configs/small.yaml"]},
+    "score_data": {"script": "score_data.py", "label": "Score data quality",
+                   "args": ["--data", "data/processed/train_data.npy"]},
+    "evaluate": {"script": "evaluate.py", "label": "Evaluate (HumanEval pass@k)",
+                 "args": ["--checkpoint", "checkpoints/small/latest", "--config", "configs/small.yaml"]},
+    "smoke_test": {"script": "smoke_test.py", "label": "Smoke test (8 checks)", "args": []},
+    "generate_rft": {"script": "generate_rft_data.py", "label": "Generate RFT data (self-verified)",
+                     "args": ["--checkpoint", "checkpoints/small/latest", "--config", "configs/small.yaml"]},
+    "data_stats": {"script": "data_stats.py", "label": "Dataset statistics", "args": []},
+    "tokenizer_health": {"script": "tokenizer_health.py", "label": "Tokenizer health check", "args": []},
+    "project_health": {"script": "project_health.py", "label": "Project health score", "args": []},
+    "vram_estimate": {"script": "vram_estimate.py", "label": "VRAM estimate", "args": []},
+}
+
+
+def create_app(
+    *,
+    job_manager: JobManager | None = None,
+    project_root: str | Path | None = None,
+    data_root: str = "data",
+    ckpt_root: str = "checkpoints",
+    log_path: str = "train_small_react_best.log",
+    err_path: str = "train_small_react_best.err",
+) -> FastAPI:
+    root = Path(project_root) if project_root else Path.cwd()
+    jobs = job_manager or JobManager()
+    app = FastAPI(title="Cola-Coder UI", docs_url="/api/docs")
+
+    def _full_snapshot() -> dict:
+        """The complete dashboard state pushed over SSE and returned by /api/status (+jobs)."""
+        return {
+            "training": st.get_training_status(log_path, err_path),
+            "system": st.get_system_status(),
+            "checkpoints": st.list_checkpoints(ckpt_root),
+            "jobs": jobs.list(),
+        }
+
+    @app.get("/api/status")
+    def status() -> dict:
+        return {
+            "training": st.get_training_status(log_path, err_path),
+            "system": st.get_system_status(),
+            "checkpoints": st.list_checkpoints(ckpt_root),
+        }
+
+    @app.get("/api/events")
+    def events() -> StreamingResponse:
+        async def gen() -> AsyncIterator[str]:
+            last = ""
+            try:
+                snapshot = _full_snapshot()
+                last = json.dumps(snapshot, sort_keys=True, default=str)
+                yield f"data: {json.dumps(snapshot, default=str)}\n\n"
+                while True:
+                    await asyncio.sleep(1.0)
+                    snapshot = _full_snapshot()
+                    current = json.dumps(snapshot, sort_keys=True, default=str)
+                    if current != last:
+                        last = current
+                        yield f"data: {json.dumps(snapshot, default=str)}\n\n"
+            except asyncio.CancelledError:
+                return
+
+        return StreamingResponse(
+            gen(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @app.get("/api/datasets")
+    def datasets(data_root: str = data_root) -> list[dict]:
+        return ds.list_datasets(data_root)
+
+    @app.get("/api/datasets/preview")
+    def datasets_preview(path: str, n: int = 20) -> dict:
+        return ds.dataset_preview(path, n)
+
+    @app.get("/api/datasets/scores")
+    def datasets_scores(path: str) -> dict:
+        return ds.score_summary(path)
+
+    @app.get("/api/jobs")
+    def jobs_list() -> list[dict]:
+        return jobs.list()
+
+    @app.get("/api/jobs/{job_id}/log")
+    def job_log(job_id: str, lines: int = 200) -> dict:
+        job = jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="job not found")
+        log = Path(job["log"])
+        if not log.exists():
+            return {"log": ""}
+        text = log.read_text(encoding="utf-8", errors="replace")
+        return {"log": "\n".join(text.splitlines()[-lines:])}
+
+    @app.post("/api/jobs/{job_id}/stop")
+    def job_stop(job_id: str) -> dict:
+        if jobs.get(job_id) is None:
+            raise HTTPException(status_code=404, detail="job not found")
+        return {"stopped": jobs.stop(job_id)}
+
+    @app.get("/api/actions")
+    def actions() -> list[dict]:
+        return [{"key": k, **v} for k, v in ACTIONS.items()]
+
+    @app.post("/api/run")
+    def run(payload: dict) -> JSONResponse:
+        key = payload.get("action")
+        if key not in ACTIONS:
+            raise HTTPException(status_code=400, detail=f"unknown action: {key!r}")
+        spec = ACTIONS[key]
+        args = payload.get("args")
+        if args is None:
+            args = spec["args"]
+        cmd = [sys.executable, str(root / "scripts" / spec["script"]), *args]
+        job = jobs.start(name=key, cmd=cmd, cwd=str(root))
+        return JSONResponse(job)
+
+    @app.post("/api/train/start")
+    def train_start(payload: dict) -> JSONResponse:
+        config = payload.get("config", "configs/small.yaml")
+        resume = payload.get("resume")
+        result = jobs.start_training(config=config, resume=resume)
+        # start_training returns {"error": ...} when a trainer is already running.
+        if "error" in result:
+            return JSONResponse(result, status_code=409)
+        return JSONResponse(result)
+
+    # Serve the built React app. Mount LAST so /api/* routes resolve first —
+    # StaticFiles at "/" otherwise shadows every API route.
+    dist = root / "webui" / "dist"
+    if dist.exists():
+        app.mount("/", StaticFiles(directory=str(dist), html=True), name="webui")
+    else:
+        @app.get("/", response_class=HTMLResponse)
+        def index() -> str:
+            return _MISSING_DIST_HTML
+
+    return app

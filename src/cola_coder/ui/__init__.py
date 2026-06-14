@@ -1,0 +1,28 @@
+"""Local web UI for cola-coder — a fast, lightweight dashboard over the CLI.
+
+Read-only views (training status, GPU, checkpoints, datasets, scores) plus a
+background-job runner that drives the EXISTING scripts (never reimplements training
+or data logic). FastAPI backend + a single static HTML page (no npm/build step).
+
+Design notes:
+- The UI is standalone: it reads files (logs, checkpoints, data) and runs scripts as
+  detached jobs, so it does not need to stay open for jobs to keep running.
+- Training safety: starting training from the UI REFUSES if a trainer is already
+  running (JobManager.is_training_running) — never a second trainer.
+"""
+
+from .app import create_app
+from .datasets import dataset_preview, list_datasets, score_summary
+from .jobs import JobManager
+from .status import get_system_status, get_training_status, list_checkpoints
+
+__all__ = [
+    "create_app",
+    "JobManager",
+    "get_training_status",
+    "get_system_status",
+    "list_checkpoints",
+    "list_datasets",
+    "dataset_preview",
+    "score_summary",
+]
