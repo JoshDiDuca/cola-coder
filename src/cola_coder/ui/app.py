@@ -35,6 +35,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import checkpoint_detail as cd
+from . import checkpoints_compare as cc
 from . import configs as cfg
 from . import data_sources_view as dsv
 from . import datasets as ds
@@ -51,6 +52,7 @@ from . import router as rt
 from . import scripts_catalog as sc
 from . import sft_data as sd
 from . import status as st
+from . import storage_view as sv
 from . import tokenize as tkz
 from . import tokenizer_info as tk
 from .jobs import JobManager
@@ -326,6 +328,14 @@ def create_app(
     @app.get("/api/scripts")
     def scripts_list() -> dict:
         return sc.list_scripts(str(root))
+
+    @app.get("/api/storage")
+    def storage_get() -> dict:
+        return sv.read_storage(str(root))
+
+    @app.get("/api/checkpoints/compare")
+    def checkpoints_compare_get(a: str, b: str) -> dict:
+        return cc.compare_checkpoints(a, b)
 
     # Serve the built React app. Mount LAST so /api/* routes resolve first —
     # StaticFiles at "/" otherwise shadows every API route.

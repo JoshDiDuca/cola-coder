@@ -325,6 +325,37 @@ export interface HealthSummary {
   summary: string;
 }
 
+export interface StorageEntry {
+  name: string;
+  path: string;
+  exists: boolean;
+  size_bytes: number | null;
+}
+
+export interface StorageView {
+  path: string;
+  raw: Record<string, unknown>;
+  tokenizer_path: string | null;
+  data_dir: string | null;
+  checkpoint_dir: string | null;
+  entries: StorageEntry[];
+}
+
+export interface CompareDiff {
+  num_params_delta: number;
+  tensor_count_delta: number;
+  is_moe_changed: boolean;
+  metadata_changed_keys: string[];
+  dtypes_only_a: string[];
+  dtypes_only_b: string[];
+}
+
+export interface CompareResult {
+  a: CheckpointDetail;
+  b: CheckpointDetail;
+  diff: CompareDiff;
+}
+
 export interface ApiError {
   error: string;
 }

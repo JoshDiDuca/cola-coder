@@ -13,6 +13,7 @@ Design notes:
 
 from .app import create_app
 from .checkpoint_detail import checkpoint_detail
+from .checkpoints_compare import compare_checkpoints
 from .configs import list_configs, read_config
 from .data_sources_view import read_data_sources
 from .datasets import dataset_preview, list_datasets, score_summary
@@ -30,6 +31,7 @@ from .router import router_overview
 from .scripts_catalog import list_scripts
 from .sft_data import list_sft_files, preview_sft
 from .status import get_system_status, get_training_status, list_checkpoints
+from .storage_view import read_storage
 from .tokenize import tokenize_text
 from .tokenizer_info import tokenizer_info
 
@@ -64,4 +66,6 @@ __all__ = [
     "list_sft_files",
     "preview_sft",
     "list_scripts",
+    "read_storage",
+    "compare_checkpoints",
 ]

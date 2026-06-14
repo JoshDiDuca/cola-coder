@@ -26,6 +26,8 @@ import type {
   SftFile,
   SftPreview,
   ScriptsCatalog,
+  StorageView,
+  CompareResult,
   ApiError,
 } from './types';
 
@@ -193,4 +195,14 @@ export function getSftPreview(path: string, n?: number): Promise<SftPreview | Ap
 
 export function getScriptsCatalog(): Promise<ScriptsCatalog | ApiError> {
   return j<ScriptsCatalog | ApiError>('/api/scripts');
+}
+
+export function getStorage(): Promise<StorageView | ApiError> {
+  return j<StorageView | ApiError>('/api/storage');
+}
+
+export function getCheckpointCompare(a: string, b: string): Promise<CompareResult | ApiError> {
+  return j<CompareResult | ApiError>(
+    `/api/checkpoints/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`
+  );
 }
