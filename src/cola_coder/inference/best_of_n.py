@@ -47,6 +47,7 @@ from typing import Callable
 from ..data.scorers.language_detect import is_js_ts, is_typescript
 from ..data.scorers.utils import ScoreMapper
 from ..security.code_patterns import scan_dangerous
+from ..security.import_scanner import scan_unknown_imports
 # Shared with the FastAPI server's non-streaming strip — see text_utils.
 from .text_utils import strip_prompt_prefix as _strip_prompt
 
@@ -190,6 +191,13 @@ def _build_candidates(texts, verdicts, prompt: str, lang: str) -> "list[Candidat
         details["secure"] = not dangers
         if dangers:
             details["dangerous_patterns"] = dangers
+        # Slopsquatting review signal (SEC-020): flag imports of packages outside
+        # the known-safe allowlist — possible hallucinated/typosquatted deps. Pure
+        # signal in details; does not change ranking (a niche-but-real import is
+        # common, so it must not down-rank a verified candidate).
+        unknown_imports = scan_unknown_imports(completion, lang)
+        if unknown_imports:
+            details["unknown_imports"] = unknown_imports
         candidates.append(
             CandidateResult(
                 text=text,

@@ -303,6 +303,27 @@ EVERY scenario. SEC-001/SEC-010 fixed timeout-kill + all-exit cleanup; the rest:
   test_injection_patterns.py +19 (10 injection positives, invisible/bidi chars, 6 precision
   negatives, name lookup); ruff clean. Defense-in-depth layer, not a guarantee — heavier layers
   (PromptArmor-style) deferred.
+- **SEC-020** [security/supply-chain, high] `done` (2026-06-14) — **hallucinated-import /
+  slopsquatting scanner** (USENIX Security 2025; arXiv:2501.19012). Code models invent 5-21% of
+  package names; attackers register them as malware → install-time compromise. New
+  `security/import_scanner.py`: `extract_imports`/`scan_unknown_imports`/`has_unknown_imports` pull
+  imported package roots (Python via AST: relative excluded, submodules→root; JS/TS via regex:
+  scoped `@scope/name` kept, relative excluded; regex fallback for unparseable partials) and flag
+  any NOT in a curated allowlist (Python stdlib via `sys.stdlib_module_names` + popular PyPI by
+  import name; node builtins + popular npm). Wired as a NON-ranking review signal into best-of-N
+  `details["unknown_imports"]` (niche-but-real imports common → must not down-rank a verified
+  candidate). Mirrors code_patterns.py. Off the train path → committed on main. Tests:
+  test_import_scanner.py +15 (stdlib/popular known, hallucinated flagged, submodule→root, relative
+  skipped, regex fallback, JS scoped/subpath/relative, API, best-of-N wiring); 40 best-of-N green,
+  ruff clean. FOLLOW-UP: refresh the popular allowlist periodically; consider a data-prep filter.
+- **SEC-021** [security/supply-chain, high-potential] `open` (2026-06-14, ORIGINAL) —
+  **verifier-confirmed import quarantine.** An unknown import (SEC-020) is ambiguous (niche-real vs
+  hallucinated). Disambiguate with the no-net sandbox: in best-of-N, attempt to import the unknown
+  package in the sandbox — a hallucinated one fails (ModuleNotFoundError). Down-rank candidates
+  whose unknown imports fail sandbox resolution, and feed confirmed-hallucinated names into a
+  deny-set the GRPO security penalty (IDEA-008) discourages → RL-train the model away from inventing
+  packages. Exploits the no-net sandbox + best-of-N + GRPO penalty. Builds on SEC-020 + sandbox +
+  IDEA-008. Inference/reasoning → main-safe.
 - **DATA-063** [data-quality/safety, high-potential] `done` (2026-06-14) —
   **injection-aware training-data filtering.** `InjectionFilter` (data/filters/injection.py): a
   registered FilterPlugin reusing the SEC-019 `scan_injection` scanner to DROP scraped pretraining

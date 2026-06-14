@@ -7,6 +7,47 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Package hallucination / slopsquatting (rotate: safety)
+
+Sources:
+- We Have a Package for You! Analysis of package hallucinations (USENIX Security 2025) — https://www.usenix.org/system/files/conference/usenixsecurity25/sec25cycle1-prepub-742-spracklen.pdf
+- Importing Phantoms: measuring LLM package hallucination — https://arxiv.org/pdf/2501.19012
+- When LLMs Invent Rust Crates (Internetware 2026) — https://arxiv.org/html/2606.08444v1
+- AI-generated packages → slopsquatting (DevOps.com) — https://devops.com/ai-generated-code-packages-can-lead-to-slopsquatting-threat-2/
+
+Findings:
+- **Code models hallucinate package names at 5.2% (commercial) – 21.7% (open) rates** across
+  576k samples / 16 models — 205k unique fabricated names, ~45% PERSISTENT across queries
+  (so reliably exploitable). Attackers register the hallucinated name on PyPI/npm with malware:
+  the model's invented `import foo` becomes an install-time compromise ("slopsquatting"). Real:
+  a hallucinated `huggingface-cli` PyPI package got 30k+ installs.
+- **AI code is measurably less safe:** ~15-18% more vulnerabilities than human code; ~1.7× more
+  issues in AI-co-authored PRs — reinforces screening generated code, not trusting it.
+- **Defense = validate imports against a known-good set** before surfacing/executing generated
+  code; persistence makes an allowlist screen effective.
+
+**Implemented this cycle (SEC-020 — security/inference, main-safe):** hallucinated-import scanner
+`security/import_scanner.py`. `extract_imports`/`scan_unknown_imports`/`has_unknown_imports` pull
+the imported package ROOTS from generated/scraped code (Python via AST — relative imports
+excluded, submodules → root; JS/TS via regex — scoped `@scope/name` kept, relative paths excluded;
+regex fallback for unparseable partials) and flag any NOT in a curated allowlist (Python stdlib via
+`sys.stdlib_module_names` + popular PyPI by IMPORT name; node builtins + popular npm). Wired as a
+NON-ranking review signal into best-of-N candidate `details["unknown_imports"]` (a niche-but-real
+import is common, so it must not down-rank a verified candidate). Mirrors code_patterns.py. +15
+tests; 40 best-of-N green, ruff clean. Off the train path → committed on main.
+
+**ORIGINAL cross-technique idea (SEC-021): verifier-confirmed import quarantine.** An unknown
+import is ambiguous (niche-real vs hallucinated). cola-coder can DISAMBIGUATE with assets the
+scanners-alone lack: in best-of-N, when a candidate imports an unknown package, attempt to verify
+it in the sandbox WITHOUT network (the project's default no-net sandbox) — a hallucinated package
+fails to import (ModuleNotFoundError), a real-but-uninstalled one also fails but differently from a
+typo of an installed one. Combine: down-rank candidates whose unknown imports fail sandbox import
+resolution, and feed confirmed-hallucinated names into a deny-set that the GRPO security penalty
+(IDEA-008) discourages — so the model is RL-trained away from inventing packages. Exploits the
+no-net sandbox + best-of-N + GRPO penalty together. Builds on SEC-020 + the sandbox + IDEA-008. → SEC-021.
+
+---
+
 ## 2026-06-14 — Compute-optimal test-time scaling (rotate: evaluation)
 
 Sources:
