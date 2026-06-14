@@ -37,6 +37,8 @@ class EvalMenu:
                  "detail": "Inspect training logs — no GPU needed"},
                 {"label": "Safety Evaluation",
                  "detail": "Harmful output rate, refusal accuracy, PII, license"},
+                {"label": "Robustness Evaluation",
+                 "detail": "Functional drift under semantically-preserving docstring rewordings"},
                 {"label": "Routing Accuracy",
                  "detail": "Test semantic router classification accuracy across domains"},
                 {"label": "Data Contamination",
@@ -54,6 +56,7 @@ class EvalMenu:
                 self._compare_menu,
                 self._master._tools.training_status_menu,
                 self._safety_eval_menu,
+                self._robustness_eval_menu,
                 self._routing_accuracy_menu,
                 self._contamination_menu,
             ]
@@ -780,6 +783,71 @@ class EvalMenu:
             "--suite", suite,
         ]
         self._master._run_script("safety_eval.py", args)
+        self._master._pause()
+
+    def _robustness_eval_menu(self) -> None:
+        """Run verifier-graded functional robustness evaluation on a checkpoint."""
+        _print_section_header(
+            "Robustness Evaluation",
+            "Functional drift under semantically-preserving docstring rewordings",
+        )
+
+        cli.print(
+            "  Reword each problem's docstring without changing the spec, then\n"
+            "  re-grade with the sandbox verifier. Reports:\n"
+            "    - robust_pass@1  — solved under the WORST rewording\n"
+            "    - consistency    — pass/fail verdict invariant across rewordings\n"
+            "    - fragility list — solved clean but failing a mere rewording\n"
+        )
+
+        ckpt_path = self._master._pick_checkpoint("Select checkpoint to evaluate:")
+        if ckpt_path is None:
+            return
+
+        config = self._master._config_for_checkpoint(ckpt_path)
+
+        set_options = [
+            {"label": "Built-in (20 problems)",
+             "detail": "Original core HumanEval-style set — fast"},
+            {"label": "Extended (62 problems)",
+             "detail": "Original + extended problems"},
+            {"label": "All (62 problems)",
+             "detail": "Alias for extended — full built-in set"},
+        ]
+        set_choice = cli.choose("Problem set:", set_options, allow_cancel=True)
+        if set_choice is None:
+            return
+        problems = ["builtin", "extended", "all"][set_choice]
+
+        from cola_coder.evaluation.perturbations import ALL_KINDS
+
+        kind_opts = [{"label": k, "detail": f"{k} perturbation"} for k in ALL_KINDS]
+        selected = cli.multi_select(
+            "Perturbation kinds:", kind_opts, preselected=list(range(len(ALL_KINDS)))
+        )
+        kinds = [ALL_KINDS[i] for i in selected] if selected else list(ALL_KINDS)
+
+        want_ci = cli.confirm("Attach bootstrap CI to robust_pass@1?", default=False)
+
+        cli.kv_table({
+            "Checkpoint": ckpt_path,
+            "Problems": problems,
+            "Perturbations": ", ".join(kinds),
+            "Bootstrap CI": "yes" if want_ci else "no",
+        }, title="Robustness Evaluation Config")
+
+        if not cli.confirm("Run robustness evaluation?"):
+            return
+
+        args = [
+            "--checkpoint", ckpt_path,
+            "--config", config,
+            "--problems", problems,
+            "--kinds", ",".join(kinds),
+        ]
+        if want_ci:
+            args.append("--ci")
+        self._master._run_script("robustness_eval.py", args)
         self._master._pause()
 
     def _contamination_menu(self) -> None:

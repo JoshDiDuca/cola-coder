@@ -48,6 +48,25 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   per-tier bootstrap CIs (combine EVAL-028 + EVAL-026 `difficulty_profile` tiers): a
   stratified variance-reduction estimator + per-difficulty error bars unique to this repo.
 
+- **UI-022..023** [ui, high] `done` (2026-06-14) — Batch 6 (parallel agents): data-sources
+  view (`/api/data-sources`, weighted code/text/math mix + languages), eval-over-training
+  history chart (`/api/eval-history`, pass@1/pass@5 vs step via Sparkline), and ActionsPanel
+  EDITABLE per-action args (run any allow-listed script with custom args as a bg job).
+  29 `/api` routes. +25 UI tests, tsc+vite green, ruff clean.
+
+### Eval / robustness (2026-06-14)
+- **EVAL-030** [eval, high] `done` (2026-06-14) — Verifier-graded functional robustness:
+  `evaluation/perturbations.py` (meaning-preserving docstring perturbations; invariant: only
+  prose mutated, `def`/entry_point/test_code byte-identical, AST-re-validated) +
+  `robustness_eval.py` (`robust_pass@1` worst-case, consistency_rate, fragility map; reuses the
+  sandbox verifier + `bootstrap_pass_at_k`) + `scripts/robustness_eval.py` + eval-menu entry.
+  +25 tests. Main-safe.
+- **EVAL-031** [eval, medium] `open` — Stratify robustness by verifier-effort difficulty tier
+  (EVAL-026) + bootstrap CI (EVAL-028) on robust_pass@1: "more fragile on harder problems, and is the drop credible?"
+- **DATA-068** [data curation, medium] `open` — Robustness-driven augmentation: feed fragile
+  (clean-pass/perturbed-fail) problems' reworded docstrings back as paraphrase-augmented SFT
+  prompts paired with the verified solution (ties EVAL-030 → RFT/SFT flywheel; WORKTREE — train data).
+
 ### Ops / perf (2026-06-13)
 - **PERF-001** [ops/training-throughput, high] `open` — The autonomous loop's own heavy
   CPU activity STARVES the live training. Diagnosed during a cycle: GPU at 99% util but

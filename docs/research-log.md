@@ -7,6 +7,50 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Robustness to input perturbation for code gen (rotate: safety/robustness)
+
+**Sources (2025–2026):**
+- *ReCode: Robustness Evaluation of Code Generation Models* — https://arxiv.org/abs/2212.10264.
+  30+ semantically-preserving natural transforms over 4 families (docstrings, function names,
+  code syntax, code format), >90% human-verified meaning-preserving; reports WORST-CASE
+  robustness. Code models degrade markedly under benign rewording/formatting.
+- *Evaluating Robustness of LLMs in Enterprise Applications: Perturbation Consistency* (2026) —
+  https://arxiv.org/html/2601.06341. Five perturbation families + a consistency metric;
+  positional reordering hurts most (−18 pts); training methodology beats parameter count for
+  robustness (an 8B out-robusts a 120B).
+- *PromptRobust: Evaluating Robustness of LLMs on Adversarial Prompts* —
+  https://arxiv.org/abs/2306.04528. 4-level attacks (char/word/sentence/semantic), 4,788
+  prompts; small benign perturbations cause large systematic accuracy drops → robustness must
+  be measured, not assumed.
+
+**Summary:** apply meaning-preserving transforms to a benchmark's INPUTS (for code: docstring
+paraphrase/typo/whitespace/casing, reorder doctest examples) while keeping the task identical,
+then measure quality drop. Headline = worst-case robust accuracy + a consistency rate. Public
+harnesses grade "still correct" with surface proxies (CodeBLEU/embedding similarity) because
+they lack ground truth.
+
+**Original idea / hypothesis (cola-coder-specific cross-technique) → realized as EVAL-030:**
+**Verifier-graded functional robustness ("robust pass@k").** Instead of CodeBLEU/similarity
+proxies, grade robustness with cola-coder's SANDBOX VERIFIER (`runner.evaluate_solution`):
+generate against the original docstring AND K meaning-preserving perturbations, then report
+robust_pass@1 (worst perturbation, execution-graded), consistency (verdict invariance), and a
+FRAGILITY map (problems solved clean but failing when merely reworded). Composes with EVAL-028
+(bootstrap CI on robust_pass@1) and EVAL-026 difficulty tiers (is the model more fragile on
+hard problems?) — a metric no public code-robustness harness can produce (none has an execution
+verifier on the perturbed inputs).
+
+**Implemented this cycle (EVAL-030 — eval, main-safe):** `evaluation/perturbations.py`
+(`PerturbedProblem`, `perturb_docstring`, `perturb_problem_set`; kinds typo/whitespace/casing/
+reorder_examples/paraphrase). HARD INVARIANT: only the docstring prose is mutated — the `def`
+signature, `entry_point`, and `test_code` stay byte-identical, and every variant is re-AST-parsed
+to confirm it still defines `entry_point` (task-changing perturbations are skipped). Plus
+`evaluation/robustness_eval.py` (`RobustnessReport`, `evaluate_robustness(generate_fn, ...)`
+reusing the verifier + `bootstrap_pass_at_k` for the CI), `scripts/robustness_eval.py`
+(`--checkpoint/--config/--kinds/--problems/--ci`, loads via `load_generator`), and an eval-menu
+"Robustness Evaluation" entry (no orphan). +25 tests, ruff clean. EVAL-031 (stratify robustness
+by difficulty tier + CI) and DATA-068 (robustness-driven paraphrase augmentation — worktree, train
+data) filed for follow-up.
+
 ## 2026-06-14 — pass@k uncertainty quantification: bootstrap CIs (rotate: evaluation)
 
 **Sources (2025–2026):**
