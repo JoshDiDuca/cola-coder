@@ -157,9 +157,11 @@ If checkpoint tests fail, DO NOT start training.
   models in `src/cola_coder/ui/schemas.py` are the source of truth, `scripts/gen_ts_types.py`
   generates `webui/src/types.gen.ts` (never hand-edited; drift-guarded by a test). Shared,
   intent-named formatters live in `webui/src/format.ts` — never copied into components.
-- Python is held to the same bar: explicit type hints on every public function (params +
-  return), Pydantic models for structured data (not bare dicts) at API boundaries, named
-  models over inline dict shapes, no `Any` where a concrete type or union fits.
+- **Python is held to the same bar — see `.claude/rules/python-typing.md`** (full 10-section
+  standard): explicit type hints on every public function (params + return), Pydantic models for
+  structured data (not bare dicts) at API boundaries, named models over inline dict shapes, no
+  `Any` where a concrete type or union fits, `logging` not `print`, `pathlib` not `os.path`,
+  specific exceptions (never bare `except`/silent swallow), f-strings, docstrings everywhere.
 - Use ruff. Line length: 100 (pyproject.toml)
 - Use pytest for tests. Type hints used but not strictly enforced
 - Use `from cola_coder.cli import cli` for all CLI output — never raw Rich imports
