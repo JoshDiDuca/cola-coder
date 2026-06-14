@@ -279,6 +279,26 @@ EVERY scenario. SEC-001/SEC-010 fixed timeout-kill + all-exit cleanup; the rest:
   clip-higher exploration; easy/solved problems get a low floor → exploit. Drives the DAPO clip
   from BOTH live entropy AND per-difficulty verifier pass-rate = a difficulty-adaptive exploration
   schedule. Builds on IDEA-013 + curriculum + per-difficulty pass-rate. Reasoning-only → main-safe.
+- **SEC-019** [security/injection, medium] `done` (2026-06-14) — **prompt-injection scanner**
+  for untrusted retrieved content (OWASP LLM01 indirect injection; arXiv:2510.23883, 2601.04795).
+  New `security/injection_patterns.py`: `scan_injection`/`has_injection` flag instruction-override
+  (ignore-previous, disregard-system-prompt, new-instructions blocks), system-prompt + secret
+  exfiltration, pipe-to-shell, fake chat/role markers (`<|im_start|>system`, `[INST]`, `<system>`),
+  AND hidden invisible/bidi control characters — in retrieved text BEFORE it enters a prompt.
+  Mirrors code_patterns.py (different threat class). Wired non-blocking WARN into doc_fetcher so a
+  poisoned fetched doc shows in logs, not silently smuggled into context. High-precision (benign
+  "token"/"env"/"previous batch" don't trip). Off the train path → committed on main. Tests:
+  test_injection_patterns.py +19 (10 injection positives, invisible/bidi chars, 6 precision
+  negatives, name lookup); ruff clean. Defense-in-depth layer, not a guarantee — heavier layers
+  (PromptArmor-style) deferred.
+- **DATA-063** [data-quality/safety, high-potential] `open` (2026-06-14, ORIGINAL) —
+  **injection-aware training-data filtering.** A from-scratch model trains on SCRAPED code whose
+  comments/docstrings can carry prompt-injection payloads → the pretraining CORPUS itself can teach
+  the model to emit/obey injections (data poisoning). Run `scan_injection` (SEC-019) over scraped
+  samples in data prep and DOWN-WEIGHT (quality-weights path) or drop those carrying payloads.
+  Combines the injection scanner + quality weights + data pipeline — closing input-time defense
+  (SEC-019) with training-time hygiene, which neither a runtime guardrail nor a pure data filter
+  does alone. Prep-time → main-safe. Builds on SEC-019 + the .weights.npy scoring path.
 - **SEC-015** [security/sandbox, high] `open` (the REAL bulletproof path — research
   2026-06-13) — HONEST LIMITATION: plain Docker on this Windows Docker Desktop/WSL2
   host CANNOT be made truly bulletproof (shared kernel; gVisor/Firecracker/Kata

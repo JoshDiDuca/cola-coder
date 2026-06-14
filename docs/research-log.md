@@ -7,6 +7,49 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Indirect prompt injection via retrieved content (rotate: safety)
+
+Sources:
+- Agentic AI Security: Threats, Defenses, Evaluation — https://arxiv.org/abs/2510.23883
+- Are AI-assisted Dev Tools Immune to Prompt Injection? — https://arxiv.org/pdf/2603.21642
+- Defense Against Indirect Prompt Injection via Tool Result Parsing — https://arxiv.org/pdf/2601.04795
+- OWASP LLM01 Prompt Injection — https://www.stackhawk.com/blog/owasp-llm01-prompt-injection/
+
+Findings:
+- **Prompt injection is OWASP LLM01** (top LLM risk, 3rd year running). The dominant vector is
+  now INDIRECT: poisoned RETRIEVED content (5 crafted docs flip RAG answers 90% of the time;
+  "3 lines of hidden markdown in a skill file" can exfiltrate SSH keys). Tool poisoning and
+  credential theft via tool output are new agentic surfaces.
+- **Hidden-content vectors:** zero-width / bidi control characters smuggle instructions that
+  are invisible to a human reviewing the doc.
+- **Defense-in-depth is the consensus architecture:** independent layers, each raising attack
+  cost. Input/retrieval scanning is the cheap first layer; PromptArmor (ICLR 2026) reaches
+  <1% FP/FN on AgentDojo as a heavier layer.
+- **Container escape is real (sandbox layer):** Docker shares the host kernel; production-safe
+  execution needs microVM/userspace-kernel isolation — reinforces the project's OPEN SEC-015
+  (true VM isolation unavailable on Windows Docker → hardened-Docker "raises the bar" only).
+
+**Implemented this cycle (SEC-019 — security/inference, main-safe):** canonical prompt-injection
+scanner `security/injection_patterns.py` — `scan_injection(text)` / `has_injection(text)` flag
+indirect-injection directives (ignore-previous-instructions, disregard-system-prompt, new-
+instructions blocks, system-prompt + secret exfiltration, pipe-to-shell, fake ChatML/[INST]/
+<system> role markers) AND hidden invisible/bidi control characters, in UNTRUSTED retrieved text
+BEFORE it enters a prompt. Mirrors code_patterns.py (different threat class). Wired as a
+non-blocking defense-in-depth WARN into the doc fetcher (poisoned fetched docs are now visible in
+logs, not silently smuggled into context). High-precision (benign uses of "token"/"env"/"previous
+batch" don't trip). +19 tests; ruff clean. Off the train path → committed on main.
+
+**ORIGINAL cross-technique idea (DATA-063): injection-aware training-data filtering.** A
+from-scratch model is trained on SCRAPED code whose comments/docstrings can carry prompt-injection
+payloads — so the pretraining CORPUS itself can teach the model to emit/obey injections (data
+poisoning). Run `scan_injection` (SEC-019) over scraped samples during data prep and DOWN-WEIGHT
+(via the quality-weights path) or drop the ones carrying injection payloads, so the model never
+learns them. Combines the injection scanner + quality weights + the data pipeline — closing the
+loop between input-time defense (SEC-019) and training-time hygiene, which neither a pure runtime
+guardrail nor a pure data filter does alone. Prep-time → main-safe. → DATA-063.
+
+---
+
 ## 2026-06-14 — FIM decoding quality: stopping & suffix bleed (rotate: inference/decoding)
 
 Sources:

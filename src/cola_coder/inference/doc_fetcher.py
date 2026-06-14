@@ -146,6 +146,19 @@ class DocFetcher:
             logger.warning("Empty markdown extracted from %s", url)
             return None
 
+        # Defense-in-depth (OWASP LLM01): fetched docs are UNTRUSTED retrieved
+        # content prepended to model prompts. Flag indirect prompt-injection
+        # directives / hidden control characters so a poisoned doc is visible in
+        # logs rather than silently smuggled into context. Non-blocking by design
+        # (docs may legitimately discuss these phrases); the signal is the value.
+        from ..security.injection_patterns import scan_injection
+        hits = scan_injection(markdown)
+        if hits:
+            logger.warning(
+                "Possible prompt injection in fetched doc %s: %s",
+                url, ", ".join(hits),
+            )
+
         # ---- Cache result ----
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
