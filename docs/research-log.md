@@ -7,6 +7,47 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Test-time scaling: verifiers + self-consistency (rotate: inference/decoding)
+
+Sources:
+- Multi-Agent Verification: scaling test-time compute with multiple verifiers — https://arxiv.org/pdf/2502.20379
+- DynScaling: efficient verifier-free inference scaling via dynamic sampling — https://arxiv.org/pdf/2506.16043
+- Seer Self-Consistency: advance budget estimation for adaptive TTS — researchgate 397556617
+- Speculative decoding benchmark for efficient TTS — https://arxiv.org/abs/2509.04474
+
+Findings:
+- **Best-of-N scales two ways:** more *samplers* (diverse candidates) AND more/diverse
+  *verifiers* (diverse verification signal). cola-coder already has the sampler axis
+  (generate_group) + one hard verifier (tsc/tests); the cheap win is adding a SECOND,
+  free verification signal that needs no extra model.
+- **Self-consistency = the free second signal.** Sampling N reasoning paths and taking the
+  most frequent answer beats single-sample; for code the standard cheap proxy is
+  AlphaCode-style **clustering by (normalized) program** and voting by cluster size —
+  correct solutions converge, wrong ones scatter. This composes with a verifier: vote
+  *within* the verified set.
+- **Efficiency is the 2026 theme:** redundant traces waste compute; adaptive-budget and
+  advance budget-estimation (Seer) allocate samples only where needed. cola-coder's
+  adaptive best-of-N (IDEA-009) already does the budget side.
+
+**Implemented this cycle (INFER-026):** self-consistency tiebreaker in `best_of_n._rank`.
+Ranking key went `(verified, secure, score)` → `(verified, secure, consistency, score)`,
+where `consistency` = size of the candidate's normalized-completion cluster
+(`_normalize_completion` collapses whitespace/blank lines, AlphaCode-style). So within the
+verified+secure tier the model's most-repeated solution wins, with score as final tiebreak.
+Backward-compatible (all-unique → all clusters size 1 → prior order). Pure inference → main.
++6 tests; 31 best-of-N tests + ruff green.
+
+**ORIGINAL cross-technique idea (IDEA-014): cluster-gated verifier budget.** In adaptive
+best-of-N, the sandbox verifier is the expensive step (a tsc/test run per candidate). Once
+candidates are clustered for self-consistency, verify only ONE representative per cluster,
+then propagate its verdict to the whole cluster — N candidates cost ~(#distinct clusters)
+sandbox runs instead of N. Combine with quality-weights: when budget-limited, verify the
+largest clusters first (most likely to be the consensus answer). Exploits cola-coder's rare
+combo — clustering + sandbox verifier + adaptive budget + quality weights — to cut the
+dominant test-time cost without losing the consensus signal. Builds on INFER-026 + IDEA-009.
+
+---
+
 ## 2026-06-14 — RLVR entropy dynamics (rotate: post-training / RLVR)
 
 Sources:

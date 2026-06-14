@@ -21,15 +21,20 @@ Verification is sandboxed end-to-end and language-aware:
 - No hard verifier available (e.g. tsc not installed) → SelfVerifier
   heuristics only
 
-The final ranking key is (verified, secure, score): a candidate that passed the
-hard verifier always beats one that didn't; within a verified tier, a SECURE
-candidate (no dangerous patterns — IDEA-008/SEC-017) beats an insecure one; then
-score combines the hard verifier signal with SelfVerifier's heuristic confidence.
+The final ranking key is (verified, secure, consistency, score): a candidate that
+passed the hard verifier always beats one that didn't; within a verified tier, a
+SECURE candidate (no dangerous patterns — IDEA-008/SEC-017) beats an insecure one;
+then SELF-CONSISTENCY breaks the tie — a completion the model produced repeatedly
+(largest normalized-equivalence cluster) is preferred (AlphaCode-style clustering /
+self-consistency voting, INFER-026); score (hard verifier + SelfVerifier heuristic)
+is the final tiebreak. Consistency is backward-compatible: when every completion is
+unique each cluster size is 1, so the prior (verified, secure, score) order stands.
 """
 
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -190,11 +195,35 @@ def _build_candidates(texts, verdicts, prompt: str, lang: str) -> "list[Candidat
     return candidates
 
 
+def _normalize_completion(completion: str) -> str:
+    """Normalize a completion for self-consistency clustering (INFER-026).
+
+    AlphaCode-style: collapse intra-line whitespace runs and drop blank lines so
+    that solutions differing only in trivial formatting land in the SAME cluster.
+    Comments are kept (cheap; per-language comment stripping is out of scope).
+    """
+    lines = (" ".join(line.split()) for line in completion.splitlines())
+    return "\n".join(ln for ln in lines if ln)
+
+
 def _rank(candidates: "list[CandidateResult]") -> "list[CandidateResult]":
-    """Rank best-first by (verified, secure, score) — see module docstring."""
+    """Rank best-first by (verified, secure, consistency, score) — see module docstring.
+
+    Self-consistency: cluster candidates by normalized completion and prefer the
+    one from the largest cluster (the model "voted" for that solution most often).
+    Annotates each candidate's ``details["consistency"]`` with its cluster size.
+    """
+    counts = Counter(_normalize_completion(c.completion) for c in candidates)
+    for c in candidates:
+        c.details["consistency"] = counts[_normalize_completion(c.completion)]
     return sorted(
         candidates,
-        key=lambda c: (c.verified, c.details.get("secure", True), c.score),
+        key=lambda c: (
+            c.verified,
+            c.details.get("secure", True),
+            c.details.get("consistency", 1),
+            c.score,
+        ),
         reverse=True,
     )
 

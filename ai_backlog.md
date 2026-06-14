@@ -468,6 +468,25 @@ cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N ve
   that omitted it). Tests: test_server_no_repeat_ngram.py::TestFimExposesRepetitionPenalty
   +3 (field present+default, settable, all 6 direct call sites forward it); 7 pass, ruff
   clean. Server-only, does not touch training.
+- **INFER-026** [inference/decoding, medium] `done` (2026-06-14) — **self-consistency
+  tiebreaker** in best-of-N (AlphaCode-style program clustering / self-consistency voting;
+  arXiv:2502.20379). `best_of_n._rank` key `(verified, secure, score)` →
+  `(verified, secure, consistency, score)`: `_normalize_completion` collapses
+  whitespace/blank lines, candidates cluster by normalized completion, and `consistency` =
+  cluster size annotates `details["consistency"]`. Within the verified+secure tier the
+  model's most-repeated solution wins (correct solutions converge), score is the final
+  tiebreak. A free SECOND verification signal needing no extra model. Backward-compatible:
+  all-unique → clusters size 1 → prior order preserved (30 existing best-of-N tests still
+  green). Pure inference → committed on main. Tests: test_best_of_n.py +6 (normalize
+  clusters/keeps-diffs, majority wins tie, all-unique→score, can't override verified or
+  secure tier); 31 best-of-N tests + ruff green.
+- **IDEA-014** [research/inference, medium-potential] `open` (2026-06-14, ORIGINAL) —
+  **cluster-gated verifier budget.** The sandbox verifier (tsc/test run per candidate) is
+  best-of-N's dominant cost. After clustering candidates for self-consistency (INFER-026),
+  verify only ONE representative per cluster and propagate the verdict to the cluster → N
+  candidates cost ~(#distinct clusters) sandbox runs, not N. Under a budget cap, verify the
+  largest clusters first (quality-weights-aware). Cuts the dominant test-time cost while
+  keeping the consensus signal. Builds on INFER-026 + adaptive best-of-N (IDEA-009).
 
 **Code / data / eval / docs**
 - **DATA-054** [data-quality, medium] `open` — Semantic (embedding/SimHash) dedup:

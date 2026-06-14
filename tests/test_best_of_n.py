@@ -386,3 +386,79 @@ class TestAdaptiveBudget:
         )
         assert result.best.details["secure"] is True
         assert "eval" not in result.best.completion
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Self-consistency tiebreaker (INFER-026)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestSelfConsistency:
+    """_rank prefers the most-frequently-generated solution within a tier."""
+
+    @staticmethod
+    def _cand(completion, *, verified=True, secure=True, score=0.5):
+        from cola_coder.inference.best_of_n import CandidateResult
+        return CandidateResult(
+            text=completion, completion=completion, verified=verified,
+            score=score, details={"secure": secure},
+        )
+
+    def test_normalize_clusters_trivial_formatting(self):
+        from cola_coder.inference.best_of_n import _normalize_completion
+        a = _normalize_completion("def f():\n    return  1\n")
+        b = _normalize_completion("def f():\n\n        return 1")
+        assert a == b  # whitespace runs + blank lines collapsed
+
+    def test_normalize_keeps_real_differences(self):
+        from cola_coder.inference.best_of_n import _normalize_completion
+        assert _normalize_completion("return 1") != _normalize_completion("return 2")
+
+    def test_majority_solution_wins_tie(self):
+        from cola_coder.inference.best_of_n import _rank
+        # Two identical (lower score) vs one unique (higher score), all verified+secure.
+        cands = [
+            self._cand("return 1", score=0.6),   # unique, higher score
+            self._cand("return 2", score=0.5),   # cluster of 2 ...
+            self._cand("return 2", score=0.5),   # ... self-consistent majority
+        ]
+        ranked = _rank(cands)
+        assert ranked[0].completion == "return 2"        # majority beats higher score
+        assert ranked[0].details["consistency"] == 2
+
+    def test_all_unique_falls_back_to_score(self):
+        from cola_coder.inference.best_of_n import _rank
+        cands = [
+            self._cand("return 1", score=0.3),
+            self._cand("return 2", score=0.9),
+            self._cand("return 3", score=0.5),
+        ]
+        ranked = _rank(cands)
+        # consistency == 1 for all -> prior (verified, secure, score) order stands.
+        assert ranked[0].score == 0.9
+        assert all(c.details["consistency"] == 1 for c in cands)
+
+    def test_consistency_cannot_override_verified_tier(self):
+        from cola_coder.inference.best_of_n import _rank
+        # An unverified majority (cluster of 3) must NOT beat a verified singleton.
+        cands = [
+            self._cand("BAD", verified=False, score=0.9),
+            self._cand("BAD", verified=False, score=0.9),
+            self._cand("BAD", verified=False, score=0.9),
+            self._cand("good", verified=True, score=0.1),
+        ]
+        ranked = _rank(cands)
+        assert ranked[0].verified is True
+        assert ranked[0].completion == "good"
+
+    def test_consistency_cannot_override_secure_tier(self):
+        from cola_coder.inference.best_of_n import _rank
+        # An insecure majority must not beat a secure singleton (both verified).
+        cands = [
+            self._cand("danger", secure=False, score=0.9),
+            self._cand("danger", secure=False, score=0.9),
+            self._cand("safe", secure=True, score=0.1),
+        ]
+        ranked = _rank(cands)
+        assert ranked[0].details["secure"] is True
+        assert ranked[0].completion == "safe"
