@@ -27,6 +27,8 @@ from .metrics_history import training_history
 from .pipeline import list_pipeline_runs, read_pipeline_run
 from .reasoning import read_reasoning
 from .router import router_overview
+from .scripts_catalog import list_scripts
+from .sft_data import list_sft_files, preview_sft
 from .status import get_system_status, get_training_status, list_checkpoints
 from .tokenize import tokenize_text
 from .tokenizer_info import tokenizer_info
@@ -59,4 +61,7 @@ __all__ = [
     "eval_history",
     "tokenize_text",
     "project_health",
+    "list_sft_files",
+    "preview_sft",
+    "list_scripts",
 ]

@@ -43,7 +43,11 @@ export default function ActionsPanel({ onRan }: { onRan?: () => void }) {
         setStarted(`started ${job.name} (${job.id})`);
         onRan?.();
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        const msg = e instanceof Error ? e.message : String(e);
+        // The backend returns HTTP 409 to refuse a trainer action while
+        // training is already running; surface that clearly instead of a
+        // generic failure (j<T> throws an Error whose message includes "409").
+        setError(msg.includes('409') ? 'refused: training already running' : msg);
       } finally {
         setRunning(null);
       }
@@ -73,7 +77,14 @@ export default function ActionsPanel({ onRan }: { onRan?: () => void }) {
             {actions.map((a) => (
               <tr key={a.key}>
                 <td>
-                  <div>{a.label}</div>
+                  <div>
+                    {a.label}
+                    {a.trainer && (
+                      <span className="tag running" style={{ marginLeft: 8 }}>
+                        trainer
+                      </span>
+                    )}
+                  </div>
                   <div className="muted mono">{a.script}</div>
                 </td>
                 <td>

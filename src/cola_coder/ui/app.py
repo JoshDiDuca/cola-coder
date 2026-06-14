@@ -48,6 +48,8 @@ from . import metrics_history as mh
 from . import pipeline as pl
 from . import reasoning as rs
 from . import router as rt
+from . import scripts_catalog as sc
+from . import sft_data as sd
 from . import status as st
 from . import tokenize as tkz
 from . import tokenizer_info as tk
@@ -88,6 +90,30 @@ ACTIONS: dict[str, dict] = {
     "completion_benchmark": {"script": "completion_benchmark.py", "label": "Completion benchmark",
                              "args": ["--checkpoint", "checkpoints/small/latest", "--config", "configs/small.yaml"]},
     "benchmark": {"script": "benchmark.py", "label": "Throughput benchmark (tok/s)", "args": []},
+    "regression_test": {"script": "regression_test.py", "label": "Regression test (quality tracking)",
+                        "args": ["--checkpoint", "checkpoints/small/latest", "--config", "configs/small.yaml"]},
+    "ts_benchmark": {"script": "ts_benchmark.py", "label": "TypeScript benchmark (tsc --strict)",
+                     "args": ["--checkpoint", "checkpoints/small/latest", "--config", "configs/small.yaml"]},
+    "depth_profile": {"script": "depth_profile.py", "label": "Depth / early-exit profile",
+                      "args": ["--checkpoint", "checkpoints/small/latest", "--config", "configs/small.yaml"]},
+    "robustness_eval": {"script": "robustness_eval.py", "label": "Robustness eval (perturbations)",
+                        "args": ["--checkpoint", "checkpoints/small/latest", "--config", "configs/small.yaml"]},
+    "generate_instructions": {"script": "generate_instructions.py", "label": "Generate instruction pairs",
+                              "args": ["--config", "configs/small.yaml"]},
+    # Trainer-class actions — REFUSED by /api/run while a training process is alive (never a 2nd trainer).
+    "train_sft": {"script": "train_sft.py", "label": "Instruction tune (SFT)", "trainer": True,
+                  "args": ["--data", "data/sft/instructions.jsonl", "--config", "configs/small.yaml",
+                           "--checkpoint", "checkpoints/small/latest", "--epochs", "2", "--lr", "2e-5"]},
+    "train_reasoning": {"script": "train_reasoning.py", "label": "GRPO reasoning training", "trainer": True,
+                        "args": ["--config", "configs/small.yaml", "--sft-warmup", "--reward", "combined"]},
+    "train_router": {"script": "train_router.py", "label": "Train semantic router", "trainer": True,
+                     "args": ["--arch", "mlp"]},
+    "upcycle_to_moe": {"script": "upcycle_to_moe.py", "label": "Upcycle dense -> MoE", "trainer": True,
+                       "args": ["--config", "configs/small.yaml"]},
+    "find_lr": {"script": "find_lr.py", "label": "LR range finder", "trainer": True,
+                "args": ["--config", "configs/small.yaml"]},
+    "full_pipeline": {"script": "full_pipeline.py", "label": "Full 10-stage pipeline", "trainer": True,
+                      "args": ["--config", "configs/small.yaml"]},
 }
 
 
@@ -188,6 +214,14 @@ def create_app(
         if key not in ACTIONS:
             raise HTTPException(status_code=400, detail=f"unknown action: {key!r}")
         spec = ACTIONS[key]
+        # Trainer-class actions (SFT/GRPO/router/MoE/LR-finder/full-pipeline) load the model
+        # and optimize on the GPU — refuse to launch one while the live trainer is running, so
+        # the UI can never spawn a second trainer that fights the pretraining run for VRAM.
+        if spec.get("trainer") and jobs.is_training_running():
+            return JSONResponse(
+                {"error": "training already running — refusing to start a second trainer"},
+                status_code=409,
+            )
         args = payload.get("args")
         if args is None:
             args = spec["args"]
@@ -280,6 +314,18 @@ def create_app(
     @app.get("/api/health")
     def health_get() -> dict:
         return hl.project_health(str(root))
+
+    @app.get("/api/sft")
+    def sft_list() -> list[dict]:
+        return sd.list_sft_files(str(root))
+
+    @app.get("/api/sft/preview")
+    def sft_preview(path: str, n: int = 10) -> dict:
+        return sd.preview_sft(path, n)
+
+    @app.get("/api/scripts")
+    def scripts_list() -> dict:
+        return sc.list_scripts(str(root))
 
     # Serve the built React app. Mount LAST so /api/* routes resolve first —
     # StaticFiles at "/" otherwise shadows every API route.

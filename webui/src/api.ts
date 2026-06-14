@@ -23,6 +23,9 @@ import type {
   EvalHistoryView,
   TokenizeResult,
   HealthSummary,
+  SftFile,
+  SftPreview,
+  ScriptsCatalog,
   ApiError,
 } from './types';
 
@@ -176,4 +179,18 @@ export function postTokenize(text: string): Promise<TokenizeResult | ApiError> {
 
 export function getHealth(): Promise<HealthSummary | ApiError> {
   return j<HealthSummary | ApiError>('/api/health');
+}
+
+export function getSftFiles(): Promise<SftFile[]> {
+  return j<SftFile[]>('/api/sft');
+}
+
+export function getSftPreview(path: string, n?: number): Promise<SftPreview | ApiError> {
+  const q = new URLSearchParams({ path });
+  if (n !== undefined) q.set('n', String(n));
+  return j<SftPreview | ApiError>(`/api/sft/preview?${q.toString()}`);
+}
+
+export function getScriptsCatalog(): Promise<ScriptsCatalog | ApiError> {
+  return j<ScriptsCatalog | ApiError>('/api/scripts');
 }

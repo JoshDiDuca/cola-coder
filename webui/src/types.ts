@@ -59,6 +59,38 @@ export interface ActionDef {
   script: string;
   label: string;
   args: string[];
+  trainer?: boolean;
+}
+
+export interface SftFile {
+  name: string;
+  path: string;
+  kind: string;
+  num_records: number;
+  size_bytes: number;
+  mtime: number;
+}
+
+export interface SftPreview {
+  path: string;
+  records: Record<string, unknown>[];
+  fields: string[];
+  count: number;
+  truncated: boolean;
+}
+
+export interface ScriptInfo {
+  name: string;
+  category: string;
+  purpose: string;
+  exists: boolean;
+}
+
+export interface ScriptsCatalog {
+  scripts: ScriptInfo[];
+  categories: string[];
+  count: number;
+  on_disk: number;
 }
 
 export interface ScoreSummary {

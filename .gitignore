@@ -3,6 +3,10 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# Training run logs (live trainer writes these to the repo root)
+train_*.log
+train_*.err
+
 # C extensions
 *.so
 

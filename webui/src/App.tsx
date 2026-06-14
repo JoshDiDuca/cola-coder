@@ -21,6 +21,8 @@ import DataSourcesPanel from './components/DataSourcesPanel';
 import EvalHistoryPanel from './components/EvalHistoryPanel';
 import HealthPanel from './components/HealthPanel';
 import TokenizePanel from './components/TokenizePanel';
+import SftDataPanel from './components/SftDataPanel';
+import ScriptsCatalogPanel from './components/ScriptsCatalogPanel';
 
 interface Snapshot {
   training: TrainingStatus;
@@ -95,6 +97,7 @@ export default function App() {
         <JobsPanel jobs={snap?.jobs ?? []} />
         <DatasetsPanel />
         <DataSourcesPanel />
+        <SftDataPanel />
         <ConfigsPanel />
         <PipelinePanel />
         <EvalsPanel />
@@ -106,6 +109,7 @@ export default function App() {
         <CheckpointDetailPanel checkpoints={snap?.checkpoints ?? []} />
         <RouterPanel />
         <ExportPanel />
+        <ScriptsCatalogPanel />
       </main>
     </>
   );
