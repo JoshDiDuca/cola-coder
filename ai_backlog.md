@@ -76,15 +76,24 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   keep highest-quality member when weights given, else centroid-distant); `--dedup semantic`
   (+threshold/clusters, runs after exact) + data-menu choice. +14 tests, numpy-only. Catches reordered/renamed near-dups.
 
-### Post-training / reward design (2026-06-14, researched — filed)
-- **EVAL-034** [eval, medium] `open` — Verifier-anchored function-step process-credit profiler
+### Post-training / reward design (2026-06-14)
+- **EVAL-034** [eval, medium] `done` (2026-06-14) — Verifier-anchored function-step process-credit profiler
   (`evaluation/process_credit.py`): AST function-as-steps, score each via sandbox verifier (assert subset
-  / executability probe), length-normalized process_score + fragility map. "Poor-man's PRM" — FunPRM's
-  clean reward without training a PRM. Reuses partial_credit.split_test_cases + runner.
+  / executability probe), length-normalized process_score (resists verbosity hack) + fragility map.
+  "Poor-man's PRM". `scripts/process_credit.py` + eval-menu entry. +22 tests. Reuses split_test_cases + runner.
 - **INFER-033** [inference, medium] `open` — Wire process_score as a best-of-N tie-break (above heuristic,
   below hard verified/secure verdict; back-compat: all-pass → no reorder).
 - **SEC-022** [security, low] `open` — Per-function scan_dangerous in the process profiler (SecCodePRM-style):
   localize WHICH function carries a dangerous pattern, feeding the secure best-of-N tie-break.
+
+### Optimizers / training-stability (2026-06-14, researched — filed)
+- **EVAL-035** [eval, medium] `open` — Spectral-Alignment health profiler (`evaluation/spectral_health.py`
+  + script + eval-menu): per-layer SA sign-collapse via power iteration to flag divergence risk before loss;
+  verifier-stratified by token region. Reuses depth_profile block-iteration + load_generator. Main-safe diagnostic.
+- **MODEL-047** [model/training, low, WORKTREE] `open` — online SA-monitored ZClip grad-norm z-score clamp
+  in the trainer (A/B-gated on a tiny Muon run; never merged while live).
+- **INFER-034** [inference/tooling, low] `open` — use SpectralHealthReport as an RFT checkpoint-acceptance
+  gate (reject a self-distilled candidate whose worst-layer sign-collapse regressed, before verifier eval).
 - **DATA-070** [data curation, medium] `open` — D4 diversification pass after semantic dedup (prune
   over-dense clusters toward a target size), reusing DATA-069's clustering.
 - **EVAL-033** [eval, low] `open` — Semantic-dedup audit: stratify a corpus by semantic-cluster size +
@@ -95,6 +104,11 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   convergence threshold + exec-validated safe-layer floor, A/B'd on HumanEval pass@1 + CI (EVAL-028).
 
 ### UI (2026-06-14)
+- **UI-030..031** [ui, high] `done` (2026-06-14) — Batch 10 (parallel agents): model-card view
+  (`/api/model-card` — arch/params/training-provenance/tokenizer + rendered markdown per checkpoint) +
+  features WRITE path (`POST /api/features/set` — line-level toggle preserving comments/order, atomic,
+  refuses unknown keys; FeaturesPanel gets toggle switches). First mutate-config endpoint. 38 `/api` routes.
+  +27 UI tests, tsc+vite green (56 modules).
 - **UI-028..029** [ui, high] `done` (2026-06-14) — Batch 9 (parallel agents): storage view
   (`/api/storage` — resolved tokenizer/data/checkpoint paths + capped disk footprint) + checkpoint
   COMPARE (`/api/checkpoints/compare` — param/tensor/metadata/dtype diff between two checkpoints, reuses

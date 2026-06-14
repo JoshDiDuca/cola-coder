@@ -7,6 +7,45 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Spectral-alignment / training-stability diagnostics (rotate: optimizers/stability)
+
+**Sources (2025):**
+- *Spectral Alignment as Predictor of Loss Explosion in DNN Training* — https://arxiv.org/html/2510.04202.
+  Per-layer Spectral Alignment (SA) = cosine between layer input activations and the principal left
+  singular vector u₁(W) (power iteration, no full SVD). Healthy = sign-balanced ~0; impending failure =
+  sign-collapse to one side. Detects nascent instability ~4,400 steps (Flash-Attn) / ~570 (FFN) BEFORE a
+  loss explosion — mechanistically upstream of grad-norm/loss spikes.
+- *ZClip: Adaptive Spike Mitigation for LLM Pre-Training* — https://arxiv.org/pdf/2504.02507. z-score
+  anomaly detection on grad norm vs an EMA; clip only statistical outliers.
+- *SPAM: Spike-Aware Adam with Momentum Reset* — https://arxiv.org/pdf/2501.06842. Conditional spike
+  clipping + momentum reset so accumulated momentum doesn't compound a spike.
+- *AdaGC: Adaptive Gradient Clipping* — https://arxiv.org/pdf/2502.11034. Per-param EMA-driven thresholds.
+
+**Summary:** divergence is predictable from per-layer weight+activation stats before the loss moves. SA
+(sign-collapse of the principal-singular-vector alignment) is the earliest, upstream signal; spike-aware
+optimizers react to the downstream grad-norm z-score. All are computable from a saved checkpoint's weights
++ one forward pass — no train-loop edit needed.
+
+**Original idea / hypothesis (cola-coder-specific cross-technique) → EVAL-035 (filed):**
+**Verifier-stratified spectral-alignment health map.** Combine SA with `depth_profile.py`'s block-iteration
+(already captures per-layer residuals over a real forward) and the verifier-effort difficulty tiers /
+correctness-critical token regions. Compute per-layer SA over a batch, stratify the sign-collapse statistic
+by token region (boilerplate vs assert-critical). Hypothesis: layers whose SA collapses are the layers whose
+hidden states DECIDE functional correctness — so a single checkpoint's spectral health predicts both
+divergence risk AND where instability lands. Also a checkpoint-acceptance gate for the RFT flywheel (reject a
+self-distilled checkpoint whose spectral health regressed before spending verifier-graded eval budget).
+Filed for a future cycle (main-safe checkpoint diagnostic).
+
+**Implemented this cycle (EVAL-034 — eval, main-safe):** verifier-anchored function-step process-credit
+profiler ("poor-man's PRM"). `evaluation/process_credit.py`: `decompose_functions` (Python AST, TS regex
+fallback via language_detect), `function_step_scores` (reuses `partial_credit.split_test_cases`; attributes
+each assert to the function(s) it references, per-function score = fraction of attributed asserts passing via
+an injected sandbox `execute_fn`; untested functions get an executability probe; `process_score` =
+LENGTH-NORMALIZED mean so a verbose vacuous function can't inflate it — resists FunPRM's verbosity hack),
+and `fragile_functions` (passes overall but a dead/non-executable function). `scripts/process_credit.py`
+(runs best-of-N with the real sandbox runner) + eval-menu "Process / Function-Step Credit" entry. +22 tests.
+INFER-033 (process_score as best-of-N tie-break) + SEC-022 (per-function scan_dangerous) open.
+
 ## 2026-06-14 — Process Reward Models for code (rotate: post-training/reward design)
 
 **Sources (2025–2026):**

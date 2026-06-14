@@ -41,6 +41,8 @@ class EvalMenu:
                  "detail": "Functional drift under semantically-preserving docstring rewordings"},
                 {"label": "Depth / Early-Exit Profile",
                  "detail": "Per-token logit-lens convergence depth — how many layers each token needs"},
+                {"label": "Process / Function-Step Credit",
+                 "detail": "Verifier-graded per-function process_score + fragile-function flags"},
                 {"label": "Routing Accuracy",
                  "detail": "Test semantic router classification accuracy across domains"},
                 {"label": "Data Contamination",
@@ -60,6 +62,7 @@ class EvalMenu:
                 self._safety_eval_menu,
                 self._robustness_eval_menu,
                 self._depth_profile_menu,
+                self._process_credit_menu,
                 self._routing_accuracy_menu,
                 self._contamination_menu,
             ]
@@ -920,6 +923,69 @@ class EvalMenu:
             return
 
         self._master._run_script("depth_profile.py", args)
+        self._master._pause()
+
+    def _process_credit_menu(self) -> None:
+        """Run the verifier-anchored function-step process-credit profiler on a checkpoint."""
+        _print_section_header(
+            "Process / Function-Step Credit",
+            "Verifier-graded per-function process_score",
+        )
+
+        cli.print(
+            "  A 'poor-man's PRM': decomposes each candidate into its functions\n"
+            "  ('steps') and grades every step with the sandbox verifier. Reports:\n"
+            "    - per-candidate process_score — length-normalized mean of step scores\n"
+            "    - fragile functions — dead / non-executable code that rides along\n"
+            "      on a candidate whose top-level tests still pass\n"
+        )
+
+        ckpt_path = self._master._pick_checkpoint("Select checkpoint to profile:")
+        if ckpt_path is None:
+            return
+
+        config = self._master._config_for_checkpoint(ckpt_path)
+
+        set_options = [
+            {"label": "Built-in (20 problems)",
+             "detail": "Original core HumanEval-style set — fast"},
+            {"label": "Extended (62 problems)",
+             "detail": "Original + extended problems"},
+            {"label": "All (62 problems)",
+             "detail": "Alias for extended — full built-in set"},
+        ]
+        set_choice = cli.choose("Problem set:", set_options, allow_cancel=True)
+        if set_choice is None:
+            return
+        problems = ["builtin", "extended", "all"][set_choice]
+
+        best_of_options = [
+            {"label": "1 (single sample)", "detail": "One candidate per problem — fastest"},
+            {"label": "4 (best-of-N)", "detail": "Sandbox-verified best-of-4 — profile the spread"},
+            {"label": "8 (best-of-N)", "detail": "Sandbox-verified best-of-8 — slower, denser"},
+        ]
+        best_choice = cli.choose("Candidates per problem:", best_of_options, allow_cancel=True)
+        if best_choice is None:
+            return
+        best_of = [1, 4, 8][best_choice]
+
+        args = [
+            "--checkpoint", ckpt_path,
+            "--config", config,
+            "--problems", problems,
+            "--best-of", str(best_of),
+        ]
+
+        cli.kv_table({
+            "Checkpoint": ckpt_path,
+            "Problems": problems,
+            "Best-of": str(best_of),
+        }, title="Process-Credit Config")
+
+        if not cli.confirm("Run process-credit profile?"):
+            return
+
+        self._master._run_script("process_credit.py", args)
         self._master._pause()
 
     def _contamination_menu(self) -> None:
