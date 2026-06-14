@@ -37,6 +37,24 @@ DANGEROUS_PATTERNS: list[tuple[str, str]] = [
     (r"dangerouslySetInnerHTML", "React dangerouslySetInnerHTML (XSS)"),
     (r"document\.write\s*\(", "document.write (XSS)"),
     (r"vm\.runInThisContext\s*\(", "vm.runInThisContext dynamic eval"),
+    # --- XSS via DOM sinks (CWE-79). Assignment only: the `(?!=)` excludes the
+    #     comparisons `== / ===` so reading/comparing innerHTML isn't flagged. ---
+    (r"\.(?:inner|outer)HTML\s*=(?!=)", "innerHTML/outerHTML assignment (XSS)"),
+    (r"\binsertAdjacentHTML\s*\(", "insertAdjacentHTML (XSS)"),
+    # --- eval-like code-as-string (CWE-95): a string literal as the first arg to
+    #     a timer (you normally pass a function). ---
+    (r"\bset(?:Timeout|Interval)\s*\(\s*['\"]", "setTimeout/Interval string-eval"),
+    # --- SQL injection (CWE-89): a SQL statement built with template
+    #     interpolation (`${...}`) or string concatenation (quote + `+`). ---
+    (r"(?:SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\b[^;\n]*\$\{",
+     "SQL injection (template interpolation)"),
+    (r"(?:SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\b[^;\n]*['\"]\s*\+",
+     "SQL injection (string concatenation)"),
+    # --- Weak cryptography (CWE-327): MD5 / SHA-1 for hashing. ---
+    (r"createHash\s*\(\s*['\"](?:md5|sha1)['\"]", "Weak hash (MD5/SHA-1) in createHash"),
+    (r"\bhashlib\.(?:md5|sha1)\s*\(", "Weak hash (MD5/SHA-1) in hashlib"),
+    # --- Command execution (CWE-78). ---
+    (r"\bos\.popen\s*\(", "os.popen() shell execution"),
 ]
 
 _COMPILED = [(re.compile(p, re.IGNORECASE), name) for p, name in DANGEROUS_PATTERNS]

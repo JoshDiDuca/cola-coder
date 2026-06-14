@@ -38,11 +38,32 @@ def test_detects_js_ts_dangers(code):
 
 
 @pytest.mark.parametrize("code", [
+    "el.innerHTML = userInput;",                       # CWE-79 XSS sink
+    "node.outerHTML = data;",                          # CWE-79 XSS sink
+    "el.insertAdjacentHTML('beforeend', html);",       # CWE-79 XSS sink
+    "setTimeout('doStuff()', 100);",                   # CWE-95 code-as-string
+    "setInterval(\"tick()\", 1000);",                  # CWE-95 code-as-string
+    "const q = `SELECT * FROM users WHERE id = ${id}`;",   # CWE-89 interpolation
+    "db.query('DELETE FROM t WHERE id=' + id);",       # CWE-89 concatenation
+    "const h = createHash('md5');",                    # CWE-327 weak hash
+    "digest = hashlib.sha1(data).hexdigest()",         # CWE-327 weak hash
+    "out = os.popen('ls').read()",                     # CWE-78 command exec
+])
+def test_detects_2026_cwe_classes(code):
+    assert is_dangerous(code), code
+
+
+@pytest.mark.parametrize("code", [
     "def add(a, b):\n    return a + b",
     "const x: number = 1;\nexport function add(a: number, b: number) { return a + b; }",
     "interface User { id: number; name: string }",
     "const m = /foo/; m.exec('foobar');",  # regex.exec is NOT flagged (precision)
     "el.innerText = safe;",
+    "if (el.innerHTML === expected) doThing();",  # comparison, not assignment
+    "const cur = el.innerHTML;",                  # reading innerHTML is fine
+    "setTimeout(() => render(), 100);",           # function arg, not a string
+    "const h = createHash('sha256');",            # strong hash not flagged
+    "const rows = await db.query('SELECT * FROM users');",  # static SQL, no interp
     "",
 ])
 def test_clean_code_not_flagged(code):

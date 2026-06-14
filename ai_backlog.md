@@ -281,6 +281,26 @@ EVERY scenario. SEC-001/SEC-010 fixed timeout-kill + all-exit cleanup; the rest:
   the backend configurable; default to hardened-Docker, document the upgrade. Also
   add a **deny-by-default seccomp profile** to the Docker backend (Docker's default
   is a permissive allow-list) — folded into SEC-012's scope. See docs/research-log.md.
+- **SEC-018** [security/static-scan, medium] `done` (2026-06-14) — **expanded CWE coverage**
+  in the canonical `scan_dangerous` scanner (`security/code_patterns.py`). Research: 12–65%
+  of LLM code carries CWE vulns (arXiv:2412.15004, 2510.22944); top classes are injection
+  (SQLi/XSS), weak crypto, command exec. Added high-precision patterns: XSS DOM sinks
+  (`innerHTML/outerHTML =` with `(?!=)` to skip `==`/`===`, `insertAdjacentHTML`), code-as-string
+  timers (`setTimeout/Interval('…')`), SQLi (template `${}` + string `+` concat), weak hash
+  (`createHash('md5'|'sha1')`, `hashlib.md5/sha1`), `os.popen`. Because this is the SINGLE
+  screen behind best-of-N ranking + GRPO security penalty + safety_eval + secure-pass@k
+  (EVAL-024), one change upgrades all four. Precision verified (reading innerHTML, sha256,
+  function-arg timers, static SQL all clean). Off the train path → committed on main. Tests:
+  test_code_patterns.py +11 (10 CWE positives, 5 added precision negatives); 36 scanner + 40
+  downstream (best-of-N/distillation) green, ruff clean.
+- **IDEA-016** [research/safety+data, high-potential] `open` (2026-06-14, ORIGINAL) —
+  **adversarial secure-FIM hardening.** Turn the scanner into a TRAINING signal: take a clean
+  sample, programmatically inject a known CWE (e.g. parametrized query → string-concat), and
+  build a dynamic-FIM task whose middle is the vulnerable span; the model must infill the
+  SECURE version, graded by `scan_dangerous` (clean) AND tsc/tests (still correct). Contrastive
+  secure/insecure minimal pairs, self-labeling (injector knows ground truth), verifier-graded —
+  dynamic FIM + scanner + sandbox + quality weights. Complements IDEA-015 (mine real gaps) with
+  synthetic coverage of rare CWEs. Prep-time/reasoning → main-safe.
 - **MODEL-029** [model/distillation, low] `open` — Reconcile + document the TWO
   distillation modes so they're not confused: (a) EXISTING white-box logit KD in
   `features/knowledge_distillation.py` + `features/distillation_helper.py` (KL on

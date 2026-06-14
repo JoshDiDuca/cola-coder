@@ -7,6 +7,46 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Insecure-code generation: CWE coverage (rotate: safety)
+
+Sources:
+- OWASP LLM Top 10 applied to code generation (Sonar) — https://www.sonarsource.com/resources/library/owasp-llm-code-generation/
+- Is Your Prompt Poisoning Code? Defect induction + mitigation — https://arxiv.org/pdf/2510.22944
+- From Vulnerabilities to Remediation: SLR of LLMs in code security — https://arxiv.org/pdf/2412.15004
+- LLMs for source code analysis (models + datasets) — https://arxiv.org/pdf/2503.17502
+
+Findings:
+- **12–65% of LLM-generated snippets violate basic secure-coding standards;** one study
+  found ~40% of Copilot output carried a CWE-classified vulnerability. So insecure
+  generation is the norm, not the exception — screening matters.
+- **Top classes:** injection (SQLi CWE-89, XSS CWE-79) dominate, then weak crypto
+  (CWE-327), insecure deserialization, command exec (CWE-78), poor input validation.
+- **No single static analyzer covers all classes** — but high-precision pattern screens
+  catch the common, high-severity ones cheaply (the rest need dynamic/fuzzing/LLM-judge).
+  Safety instructions + few-shot raise security accuracy 20–25%; a "vulnerability detector"
+  role helps — both relevant to later GRPO/distillation prompting.
+
+**Implemented this cycle (SEC-018):** expanded the canonical `scan_dangerous` scanner
+(`security/code_patterns.py`) — the SINGLE screen feeding best-of-N ranking, the GRPO
+security penalty, safety_eval, AND secure-pass@k (EVAL-024) — with high-precision patterns
+for the missing top-CWE classes: XSS DOM sinks (`innerHTML/outerHTML =`, `insertAdjacentHTML`;
+`(?!=)` excludes `==`/`===` comparisons), code-as-string timers (`setTimeout('…')`), SQLi via
+template interpolation and string concatenation, weak hashing (`createHash('md5'|'sha1')`,
+`hashlib.md5/sha1`), and `os.popen`. Improving the one scanner upgrades all four consumers at
+once. Precision held (reading innerHTML, `sha256`, function-arg timers, static SQL all clean).
++11 tests; 36 scanner + 40 downstream (best-of-N/distillation) green. Off the train path → main.
+
+**ORIGINAL cross-technique idea (IDEA-016): adversarial secure-FIM hardening.** cola-coder
+can turn its scanner into a *training signal* no eval-only pipeline can: take a clean code
+sample, programmatically inject a known CWE (e.g. swap a parametrized query for a string-concat
+one), and create a dynamic-FIM task whose middle is the vulnerable span — the model must
+infill the SECURE version, graded by `scan_dangerous` (no danger) AND tsc/tests (still
+correct). This is contrastive (secure vs insecure minimal pairs), self-labeling (the injector
+knows ground truth), and verifier-graded — combining dynamic FIM + scanner + sandbox + quality
+weights. Pairs naturally with IDEA-015 (mine real gaps) for synthetic coverage of rare CWEs. → IDEA-016.
+
+---
+
 ## 2026-06-14 — Beyond functional correctness: secure-pass@k (rotate: evaluation)
 
 Sources:
