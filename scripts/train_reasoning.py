@@ -92,12 +92,13 @@ def main():
     parser.add_argument(
         "--reward",
         type=str,
-        choices=["python_exec", "typescript", "combined"],
+        choices=["python_exec", "python_partial", "typescript", "combined"],
         default=None,
         help=(
             "Reward function to use during GRPO training "
             "(default: value from configs/reasoning.yaml, or 'python_exec'). "
-            "python_exec: run Python tests via subprocess. "
+            "python_exec: run Python tests via subprocess (all-or-nothing). "
+            "python_partial: fraction of individual assert cases passed (denser signal). "
             "typescript: score generated TypeScript with tsc --strict. "
             "combined: multi-signal reward (type check + syntax + style + completeness)."
         ),

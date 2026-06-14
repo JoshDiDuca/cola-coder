@@ -473,6 +473,25 @@ cola-coder's rare combo of dynamic FIM + sandbox test/tsc rewards + best-of-N ve
   scripts/generate_distillation_data.py (DRY). Static/execution-free → committed on main.
   Tests: test_distillation_generate.py reworked +4 (default-on drops dangerous, screen
   precedes verify, off-switch keeps raw + never executes, verify path isolated); 11 pass, ruff green.
+- **MODEL-041** [reasoning, medium] `done` (2026-06-14) — **fractional/partial-credit GRPO
+  reward** (EGCA-style finer credit; arXiv:2603.16158). `python_exec` runs the whole test block
+  all-or-nothing (1.0/0.0) → coarse credit + frequent zero-variance groups. New
+  `reasoning/rewards/partial_credit.py`: AST-splits the test block into individual `assert` cases
+  (non-assert top-level statements kept as shared SETUP prepended to each case) and returns the
+  FRACTION passed; binary fallback when no top-level asserts. Registered opt-in `python_partial`
+  (`--reward python_partial`, CLI choice + help). `info["correct"]` = full pass preserves the
+  trainer's pass_rate/collapse-guard. Denser signal, complements DAPO dynamic sampling; additive
+  (python_exec untouched). Reasoning-only → committed on main. Tests: test_partial_credit_reward.py
+  +9 (split asserts/setup, no-assert + syntax-error empties, all/partial/none-pass fractions,
+  shared-setup, binary fallback, registry wiring); reasoning-config-wiring green, ruff clean.
+- **IDEA-023** [research/post-training, high-potential] `open` (2026-06-14, ORIGINAL) —
+  **execution-trace token-level credit (full EGCA).** The sandbox already emits a TRACEBACK on
+  failure (failing assert + line number). Map the failing region to the candidate's tokens and
+  apply the negative advantage MORE strongly there in GRPO's per-token clipped surrogate, sparing
+  tokens whose asserts passed (from MODEL-041's per-case map). Token-level credit from the
+  verifier's execution trace — the localized GRPO update EGCA proposes, on the per-token logprobs
+  the trainer already has. Builds on MODEL-041 + the GRPO token surrogate + sandbox tracebacks.
+  Reasoning-only → main-safe.
 - **IDEA-018** [research/post-training, high-potential] `open` (2026-06-14, ORIGINAL) —
   **verifier-densified distillation reward.** OPD's edge is a DENSE per-token teacher reward
   vs the verifier's SPARSE end-of-sequence score. cola-coder has BOTH a teacher and a sandbox

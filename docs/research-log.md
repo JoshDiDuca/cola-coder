@@ -7,6 +7,46 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — RLVR reward design & credit assignment (rotate: post-training/RLVR)
+
+Sources:
+- Execution-Grounded Credit Assignment for GRPO in code (ICLR 2026 SPOT) — https://arxiv.org/html/2603.16158
+- JustRL: scaling a 1.5B LLM with a simple RL recipe (ICLR 2026) — https://iclr-blogposts.github.io/2026/blog/2026/justrl/
+- Group Relative Reward Rescaling (length without trade-offs) — https://arxiv.org/html/2603.10535
+- GRPO++ tricks — https://cameronrwolfe.substack.com/p/grpo-tricks
+
+Findings:
+- **Binary pass/fail is coarse credit.** RLVR optimizes unit-test pass rate, but GRPO with an
+  all-or-nothing reward suffers poor credit assignment (a 4/5-test solution looks identical to
+  0/5). EGCA localizes credit using EXECUTION TRACES; the cheap first step is FRACTIONAL test
+  reward (fraction of cases passed) — denser signal, fewer zero-variance groups.
+- **Avoid additive penalties:** additive length penalties create reward-hacking shortcuts;
+  multiplicative rescaling (GR3) is preferred. Response length tends to converge naturally
+  without explicit penalties — so for a code model, don't bolt on a length penalty.
+- **Simple recipes scale (JustRL):** a stable, minimal GRPO recipe beats over-engineered ones at
+  1.5B — favors the project's lean GRPO over feature creep.
+
+**Implemented this cycle (MODEL-041 — reasoning-only, main-safe):** fractional/partial-credit
+Python reward. The default `python_exec` runs the whole test block as one unit (1.0 all-pass /
+0.0 else). New `reasoning/rewards/partial_credit.py` splits the block into individual `assert`
+cases via the AST (keeping non-assert top-level statements as shared SETUP prepended to every
+case) and returns the FRACTION passed; falls back to binary when there are no top-level asserts.
+Registered as a new opt-in reward `python_partial` (`--reward python_partial`, CLI choice + help
+added). `info["correct"]` = full pass, so the trainer's pass_rate / collapse-guard accounting is
+preserved. Denser GRPO signal + fewer zero-variance groups (complements DAPO dynamic sampling).
+Additive new reward — `python_exec` untouched. +9 tests; reasoning-config-wiring green, ruff clean.
+
+**ORIGINAL cross-technique idea (IDEA-023): execution-trace token-level credit.** Full EGCA with
+cola-coder's assets. The sandbox already produces a TRACEBACK on failure (the failing assert, its
+line number). Map that failing region back to the candidate's tokens and apply the negative
+advantage MORE strongly to those tokens in GRPO's already-per-token clipped surrogate, while
+sparing tokens in regions whose asserts passed (from MODEL-041's per-case results). Turns the
+verifier's execution trace into TOKEN-LEVEL credit — the localized GRPO update EGCA proposes,
+built on the per-token logprobs the trainer already computes + the per-assert pass map. Builds on
+MODEL-041 + the GRPO token-level surrogate + sandbox tracebacks. Reasoning-only → main-safe. → IDEA-023.
+
+---
+
 ## 2026-06-14 — Synthetic data & model collapse (rotate: data curation)
 
 Sources:

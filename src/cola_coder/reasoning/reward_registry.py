@@ -313,6 +313,41 @@ class RewardRegistry:
 # Auto-register built-ins
 # ---------------------------------------------------------------------------
 
+def _make_python_partial_reward() -> RewardFunction:
+    """Fractional test-pass reward (EGCA-style finer credit, MODEL-041).
+
+    Like ``python_exec`` but returns the FRACTION of individual assert cases passed
+    instead of all-or-nothing — denser GRPO signal, fewer zero-variance groups.
+    """
+    from cola_coder.evaluation.runner import execute_code
+    from cola_coder.reasoning.rewards.partial_credit import fractional_python_reward
+    from cola_coder.reasoning.thinking_tokens import extract_thinking
+
+    def _execute(code: str, timeout: float) -> tuple[bool, str]:
+        return execute_code(code, timeout=timeout)
+
+    def _python_partial_reward(
+        generations: list[str],
+        test_code: str,
+        **kwargs: object,
+    ) -> tuple[list[float], list[dict]]:
+        rewards: list[float] = []
+        infos: list[dict] = []
+        for gen in generations:
+            # Score the ANSWER, not the <think> trace (BUG-110 parity).
+            _thinking, code = extract_thinking(gen)
+            frac, info = fractional_python_reward(code, test_code, _execute)
+            # `correct` (full pass) drives the trainer's pass_rate / collapse guard.
+            info["correct"] = frac >= 1.0
+            info["reward_type"] = "python_partial"
+            rewards.append(frac)
+            infos.append(info)
+        return rewards, infos
+
+    return _python_partial_reward  # type: ignore[return-value]
+
+
 RewardRegistry.register("python_exec", _make_python_reward)
+RewardRegistry.register("python_partial", _make_python_partial_reward)
 RewardRegistry.register("typescript", _make_typescript_reward)
 RewardRegistry.register("combined", _make_combined_reward)
