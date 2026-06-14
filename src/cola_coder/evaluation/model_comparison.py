@@ -10,10 +10,11 @@ multiple builds of your app and compare the results in a table.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .metrics import ProblemResult
 from .quality_report import STANDARD_PROMPTS, _count_params, _human_params, _read_metadata
 
 
@@ -33,6 +34,48 @@ class ComparisonResult:
     prompts: list[str]
     outputs: list[list[str]]    # outputs[model_idx][prompt_idx] = output text
     metrics: list[dict]         # Per-model: [{tokens_per_sec, avg_output_len, ...}]
+    # Optional per-model pass@k inputs: problem_results[model_idx] is a list of
+    # ProblemResult for that model on a SHARED problem set. Populated only when
+    # the comparison ran an actual eval (not free-form prompts); left empty for
+    # back-compat with prompt-only comparisons. Enables a statistically-honest
+    # pass@k verdict via ``significance_report`` (EVAL-029).
+    problem_results: list[list[ProblemResult]] = field(default_factory=list)
+
+    def significance_report(
+        self,
+        k: int = 1,
+        n_boot: int = 10_000,
+        ci: float = 0.95,
+        seed: int = 0,
+    ) -> str | None:
+        """Statistically-honest pass@k verdict between consecutive model pairs.
+
+        For each adjacent pair of models that have per-problem ``ProblemResult``
+        lists, report the paired-bootstrap pass@k delta and base the verdict on
+        whether the CI excludes 0 (EVAL-029). Returns ``None`` when fewer than two
+        models carry per-problem data (back-compat: prompt-only comparisons have
+        no problem-level correctness to bootstrap). Reuses the verdict helper in
+        ``regression`` — no bootstrap reimplementation here.
+        """
+        if len(self.problem_results) < 2 or any(
+            not pr for pr in self.problem_results[:2]
+        ):
+            return None
+        from .regression import assess_pass_at_k_significance
+
+        lines = [f"Pass@{k} significance (paired bootstrap, {ci:.0%} CI):"]
+        for i in range(len(self.problem_results) - 1):
+            a = self.problem_results[i]
+            b = self.problem_results[i + 1]
+            if not a or not b:
+                continue
+            name_a = self.models[i].get("name", f"Model {i + 1}")
+            name_b = self.models[i + 1].get("name", f"Model {i + 2}")
+            verdict = assess_pass_at_k_significance(
+                a, b, k=k, n_boot=n_boot, ci=ci, seed=seed
+            )
+            lines.append(f"  {name_a} -> {name_b}: {verdict.render()}")
+        return "\n".join(lines)
 
     def to_markdown(self) -> str:
         """Side-by-side markdown comparison."""
@@ -85,6 +128,16 @@ class ComparisonResult:
                 lines.append(
                     f"| {name} | {tps:.1f} | {avg_len:.0f} | {step_str} | {loss_str} |"
                 )
+
+        # Statistical significance of pass@k deltas, if per-problem data exists.
+        report = self.significance_report()
+        if report is not None:
+            lines.append("")
+            lines.append("## Statistical Significance")
+            lines.append("")
+            lines.append("```")
+            lines.append(report)
+            lines.append("```")
 
         return "\n".join(lines)
 

@@ -18,6 +18,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from .metrics import ProblemResult, compute_pass_at_k, paired_bootstrap_delta
+
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -359,6 +361,154 @@ def _check_baseline(output: str, baseline: RegressionBaseline) -> tuple[bool, li
 
 
 # ---------------------------------------------------------------------------
+# Statistical significance of a pass@k delta (EVAL-029)
+# ---------------------------------------------------------------------------
+#
+# A raw point-delta in pass@k between two checkpoints is meaningless on its own:
+# on a ~62-problem set the run-to-run noise easily swamps a +2pp move. A
+# checkpoint is only honestly declared an IMPROVEMENT or a REGRESSION when the
+# paired-bootstrap CI of the pass@k delta (B − A) EXCLUDES 0. Otherwise the move
+# is "within noise / not significant". All the statistics live in
+# ``metrics.paired_bootstrap_delta`` — this layer only turns its interval into a
+# verdict and a human-readable line. (EVAL-029)
+
+
+@dataclass
+class SignificanceVerdict:
+    """A statistically-assessed comparison of pass@k between two checkpoints.
+
+    ``delta`` / ``ci_lo`` / ``ci_hi`` are in pass@k probability units (0.0-1.0),
+    B − A (positive ⇒ B better). ``significant`` is True iff the CI excludes 0.
+    ``direction`` is "improvement" / "regression" / "within noise". When the
+    paired bootstrap could not run (no aggregate fallback either), the fields are
+    None and ``assessed`` is False.
+    """
+
+    k: int
+    delta: float | None
+    ci_lo: float | None
+    ci_hi: float | None
+    ci: float
+    significant: bool
+    direction: str  # "improvement" | "regression" | "within noise"
+    assessed: bool  # True if a paired-bootstrap CI was computed
+    note: str = ""
+
+    def render(self) -> str:
+        """One-line verdict, e.g.
+
+        ``pass@1: +6.1pp [95% CI +1.2 to +11.0] — significant improvement``
+        ``pass@1: +1.3pp [95% CI -2.1 to +4.8] — within noise``
+        """
+        if self.delta is None:
+            return f"pass@{self.k}: n/a — {self.note or 'not estimable'}"
+        delta_pp = self.delta * 100.0
+        head = f"pass@{self.k}: {delta_pp:+.1f}pp"
+        if not self.assessed:
+            tail = self.note or "raw delta only (significance not assessed)"
+            return f"{head} — {tail}"
+        lo_pp = self.ci_lo * 100.0
+        hi_pp = self.ci_hi * 100.0
+        ci_pct = f"{self.ci:.0%}"
+        body = f"{head} [{ci_pct} CI {lo_pp:+.1f} to {hi_pp:+.1f}]"
+        if self.direction == "within noise":
+            return f"{body} — within noise"
+        return f"{body} — significant {self.direction}"
+
+
+def assess_pass_at_k_significance(
+    results_a: list[ProblemResult],
+    results_b: list[ProblemResult],
+    k: int = 1,
+    n_boot: int = 10_000,
+    ci: float = 0.95,
+    seed: int = 0,
+) -> SignificanceVerdict:
+    """Decide whether B differs from A on pass@k beyond noise (EVAL-029).
+
+    Runs the paired bootstrap (``metrics.paired_bootstrap_delta``) on the shared
+    problem set and bases the verdict on whether the CI excludes 0:
+
+    - CI entirely above 0 → "improvement" (significant)
+    - CI entirely below 0 → "regression" (significant)
+    - CI spans 0          → "within noise"
+
+    Reuses the bootstrap primitive — never reimplements it. Deterministic for a
+    fixed ``seed``. Returns a verdict with ``delta=None`` when no paired problem
+    qualifies (disjoint problem sets, or no problem with >= k samples in both).
+    """
+    boot = paired_bootstrap_delta(
+        results_a, results_b, k, n_boot=n_boot, ci=ci, seed=seed
+    )
+    if boot is None:
+        return SignificanceVerdict(
+            k=k,
+            delta=None,
+            ci_lo=None,
+            ci_hi=None,
+            ci=ci,
+            significant=False,
+            direction="within noise",
+            assessed=False,
+            note="no shared problem with >= k samples in both models",
+        )
+    delta, lo, hi = boot
+    if lo > 0.0:
+        direction, significant = "improvement", True
+    elif hi < 0.0:
+        direction, significant = "regression", True
+    else:
+        direction, significant = "within noise", False
+    return SignificanceVerdict(
+        k=k,
+        delta=delta,
+        ci_lo=lo,
+        ci_hi=hi,
+        ci=ci,
+        significant=significant,
+        direction=direction,
+        assessed=True,
+    )
+
+
+def assess_aggregate_delta(
+    score_a: float | None,
+    score_b: float | None,
+    k: int = 1,
+    ci: float = 0.95,
+) -> SignificanceVerdict:
+    """Back-compat fallback when only AGGREGATE pass@k scores are available.
+
+    With no per-problem data the paired bootstrap can't run, so we report the
+    raw point-delta and flag clearly that significance was NOT assessed — never
+    silently presenting a raw delta as if it were a credible difference.
+    """
+    if score_a is None or score_b is None:
+        return SignificanceVerdict(
+            k=k,
+            delta=None,
+            ci_lo=None,
+            ci_hi=None,
+            ci=ci,
+            significant=False,
+            direction="within noise",
+            assessed=False,
+            note="aggregate pass@k not estimable",
+        )
+    return SignificanceVerdict(
+        k=k,
+        delta=score_b - score_a,
+        ci_lo=None,
+        ci_hi=None,
+        ci=ci,
+        significant=False,
+        direction="within noise",
+        assessed=False,
+        note="raw delta only — no per-problem data, significance not assessed",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Main suite class
 # ---------------------------------------------------------------------------
 
@@ -482,4 +632,43 @@ class RegressionSuite:
 
         lines.append(f"\n  Unchanged: {len(unchanged)}")
         lines.append("=" * 60)
+        return "\n".join(lines)
+
+    @staticmethod
+    def compare_pass_at_k(
+        results_a: list[ProblemResult],
+        results_b: list[ProblemResult],
+        k: int = 1,
+        label_a: str = "checkpoint A",
+        label_b: str = "checkpoint B",
+        n_boot: int = 10_000,
+        ci: float = 0.95,
+        seed: int = 0,
+    ) -> str:
+        """Statistically-honest pass@k comparison of two checkpoints (EVAL-029).
+
+        When per-problem ``ProblemResult`` lists are available for BOTH models on
+        the same problem set, the verdict is driven by the paired-bootstrap CI of
+        the pass@k delta — only a CI that EXCLUDES 0 declares an improvement or a
+        regression; otherwise the move is reported as "within noise". Reuses
+        ``paired_bootstrap_delta`` (never reimplements the bootstrap).
+        """
+        verdict = assess_pass_at_k_significance(
+            results_a, results_b, k=k, n_boot=n_boot, ci=ci, seed=seed
+        )
+        score_a = compute_pass_at_k(results_a, [k]).get(f"pass@{k}")
+        score_b = compute_pass_at_k(results_b, [k]).get(f"pass@{k}")
+        a_str = f"{score_a:.1%}" if score_a is not None else "n/a"
+        b_str = f"{score_b:.1%}" if score_b is not None else "n/a"
+
+        lines = [
+            "=" * 60,
+            f"PASS@{k} COMPARISON: {label_a}  vs  {label_b}",
+            "=" * 60,
+            f"  {label_a}: pass@{k} = {a_str}",
+            f"  {label_b}: pass@{k} = {b_str}",
+            "",
+            f"  {verdict.render()}",
+            "=" * 60,
+        ]
         return "\n".join(lines)

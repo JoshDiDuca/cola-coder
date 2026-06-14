@@ -21,9 +21,14 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   REFUSES if a trainer is alive (no second trainer). Built by parallel agents on disjoint
   files. ~135 UI tests, tsc --noEmit + vite build green.
 - **UI-017** [ui, high] `open` — Continue CLI→UI parity per docs/UI_SPEC.md (84-row map).
-  Next batches: router view (evaluate_router), export view (GGUF/Ollama/quant), data
-  collection/prepare wizards, expand the runnable-actions allow-list toward every menu
-  item, monitoring (training_dashboard / eval_history), self-play / GRPO launch controls.
+  Remaining: data collection/prepare wizards, eval_history monitoring, self-play / GRPO
+  launch controls, per-action arg forms (currently allow-list defaults only).
+- **UI-019..021** [ui, high] `done` (2026-06-14) — Batch 5 (parallel agents): router view
+  (`/api/router`, domains + router checkpoints), export view (`/api/exports`, GGUF/Ollama/
+  quant formats + existing artifacts), and a training-metrics CHART (`/api/metrics/history`
+  + dependency-free SVG `Sparkline`: loss curve + tok/s). Runnable-actions allow-list
+  expanded to 15 (added quality_report, safety_eval, completion_benchmark, benchmark,
+  env_check). 27 `/api` routes. +37 UI tests, tsc+vite green, ruff clean.
 - **UI-018** [ui, medium] `open` — Config EDITOR (write path): validate + save YAML configs
   from the browser (currently read-only). Guard against editing while a run uses the config.
 
@@ -32,9 +37,13 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   pass@k in `evaluation/metrics.py` (`pass_at_k_stderr`, `bootstrap_pass_at_k`,
   `paired_bootstrap_delta`); `format_results` renders `[95% CI lo–hi]`; `evaluate.py`
   `--no-bootstrap`/`--ci`. A bare pass@k on 62 problems was unfalsifiable. +10 tests.
-- **EVAL-029** [eval/regression, medium] `open` — Wire `paired_bootstrap_delta` into
-  `compare_models.py` + `evaluation/regression.py` so an "improvement"/"regression"
-  requires a paired-bootstrap CI excluding 0 (not a raw delta). Functions already exist.
+- **EVAL-029** [eval/regression, medium] `done` (2026-06-14) — Wired `paired_bootstrap_delta`
+  into significance verdicts: `regression.py` gains `SignificanceVerdict` +
+  `assess_pass_at_k_significance`/`assess_aggregate_delta` + `RegressionSuite.compare_pass_at_k`;
+  `model_comparison.py` `ComparisonResult` carries optional per-problem `ProblemResult` lists +
+  `significance_report`; `compare_models.py` gains `--ci`/`--n-boot` and prints
+  "+6.1pp [95% CI +1.2 to +11.0] — significant" vs "within noise", with raw-delta fallback when
+  only aggregate scores exist. +15 tests (66 regression pass). Already CLI-menu-wired (eval_menu).
 - **IDEA-028** [eval×difficulty, medium] `open` — Verifier-effort-STRATIFIED pass@k with
   per-tier bootstrap CIs (combine EVAL-028 + EVAL-026 `difficulty_profile` tiers): a
   stratified variance-reduction estimator + per-difficulty error bars unique to this repo.

@@ -81,6 +81,19 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Use only 3 short prompts and 128 max tokens (fast comparison).",
     )
+    parser.add_argument(
+        "--ci",
+        type=float,
+        default=0.95,
+        help="Confidence level for pass@k significance, when per-problem data "
+             "is available (default: 0.95).",
+    )
+    parser.add_argument(
+        "--n-boot",
+        type=int,
+        default=10_000,
+        help="Bootstrap resamples for the pass@k significance CI (default: 10000).",
+    )
     return parser.parse_args()
 
 
@@ -100,7 +113,11 @@ def _auto_detect_config(checkpoint_path: str) -> str | None:
     return None
 
 
-def _print_rich_comparison(result: "ComparisonResult") -> None:  # noqa: F821
+def _print_rich_comparison(
+    result: "ComparisonResult",  # noqa: F821
+    ci: float = 0.95,
+    n_boot: int = 10_000,
+) -> None:
     """Print the comparison using cli helpers."""
     from cola_coder.evaluation.quality_report import _human_params
 
@@ -156,6 +173,19 @@ def _print_rich_comparison(result: "ComparisonResult") -> None:  # noqa: F821
         avg_len = metric.get("avg_output_len", 0.0)
         perf_rows[name] = f"step={step_str}  loss={loss_str}  tok/s={tps_str}  avg_len={avg_len:.0f}"
     cli.kv_table(perf_rows, title="Metrics")
+
+    # Statistically-honest pass@k verdict (EVAL-029) — only when the comparison
+    # carried per-problem ProblemResult data. Free-form prompt comparisons have
+    # no problem-level correctness to bootstrap, so this is skipped with a note.
+    report = result.significance_report(ci=ci, n_boot=n_boot)
+    if report is not None:
+        cli.rule("Statistical Significance")
+        cli.print(report)
+    else:
+        cli.dim(
+            "Pass@k significance not assessed: this comparison used free-form "
+            "prompts (no per-problem pass/fail data)."
+        )
 
 
 def main() -> int:
@@ -238,7 +268,7 @@ def main() -> int:
         return 1
 
     # ── Display results ───────────────────────────────────────────────────
-    _print_rich_comparison(result)
+    _print_rich_comparison(result, ci=args.ci, n_boot=args.n_boot)
 
     # ── Save markdown ─────────────────────────────────────────────────────
     if args.output:
