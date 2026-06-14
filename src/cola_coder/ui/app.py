@@ -57,6 +57,7 @@ from . import sft_data as sd
 from . import status as st
 from . import storage_view as sv
 from . import system_info as si
+from . import schemas as sch
 from . import tokenize as tkz
 from . import tokenizer_info as tk
 from .jobs import JobManager
@@ -145,7 +146,7 @@ def create_app(
             "jobs": jobs.list(),
         }
 
-    @app.get("/api/status")
+    @app.get("/api/status", response_model=sch.StatusResponse)
     def status() -> dict:
         return {
             "training": st.get_training_status(log_path, err_path),
@@ -177,19 +178,19 @@ def create_app(
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
-    @app.get("/api/datasets")
+    @app.get("/api/datasets", response_model=list[sch.Dataset])
     def datasets(data_root: str = data_root) -> list[dict]:
         return ds.list_datasets(data_root)
 
-    @app.get("/api/datasets/preview")
+    @app.get("/api/datasets/preview", response_model=sch.Preview | sch.ErrorResponse)
     def datasets_preview(path: str, n: int = 20) -> dict:
         return ds.dataset_preview(path, n)
 
-    @app.get("/api/datasets/scores")
+    @app.get("/api/datasets/scores", response_model=sch.ScoreSummary | sch.ErrorResponse)
     def datasets_scores(path: str) -> dict:
         return ds.score_summary(path)
 
-    @app.get("/api/jobs")
+    @app.get("/api/jobs", response_model=list[sch.Job])
     def jobs_list() -> list[dict]:
         return jobs.list()
 
@@ -210,7 +211,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="job not found")
         return {"stopped": jobs.stop(job_id)}
 
-    @app.get("/api/actions")
+    @app.get("/api/actions", response_model=list[sch.ActionDef])
     def actions() -> list[dict]:
         return [{"key": k, **v} for k, v in ACTIONS.items()]
 
@@ -245,15 +246,15 @@ def create_app(
             return JSONResponse(result, status_code=409)
         return JSONResponse(result)
 
-    @app.get("/api/configs")
+    @app.get("/api/configs", response_model=list[sch.ConfigFile])
     def configs_list() -> list[dict]:
         return cfg.list_configs(str(root / "configs"))
 
-    @app.get("/api/config")
+    @app.get("/api/config", response_model=sch.ConfigContent | sch.ErrorResponse)
     def config_get(path: str) -> dict:
         return cfg.read_config(path)
 
-    @app.get("/api/pipeline/runs")
+    @app.get("/api/pipeline/runs", response_model=list[sch.PipelineRun])
     def pipeline_runs() -> list[dict]:
         return pl.list_pipeline_runs(str(root / "pipeline_runs"))
 
@@ -261,27 +262,27 @@ def create_app(
     def pipeline_run(path: str) -> dict:
         return pl.read_pipeline_run(path)
 
-    @app.get("/api/evals")
+    @app.get("/api/evals", response_model=list[sch.EvalResult])
     def evals_list() -> list[dict]:
         return ev.list_eval_results(str(root))
 
-    @app.get("/api/eval")
+    @app.get("/api/eval", response_model=sch.EvalDetail | sch.ErrorResponse)
     def eval_get(path: str) -> dict:
         return ev.read_eval_result(path)
 
-    @app.get("/api/logs")
+    @app.get("/api/logs", response_model=list[sch.LogFile])
     def logs_list() -> list[dict]:
         return lg.list_logs(str(root))
 
-    @app.get("/api/log")
+    @app.get("/api/log", response_model=sch.LogTail | sch.ErrorResponse)
     def log_get(path: str, lines: int = 200) -> dict:
         return lg.tail_log(path, lines)
 
-    @app.get("/api/features")
+    @app.get("/api/features", response_model=sch.FeaturesView)
     def features_get() -> dict:
         return ft.list_features(str(root / "configs" / "features.yaml"))
 
-    @app.post("/api/features/set")
+    @app.post("/api/features/set", response_model=sch.FeatureSetResult | sch.ErrorResponse)
     def features_set(payload: dict) -> dict:
         return fw.set_feature(
             str(payload.get("key", "")),
@@ -289,75 +290,75 @@ def create_app(
             str(root / "configs" / "features.yaml"),
         )
 
-    @app.get("/api/reasoning")
+    @app.get("/api/reasoning", response_model=sch.ReasoningView | sch.ErrorResponse)
     def reasoning_get() -> dict:
         return rs.read_reasoning(str(root / "configs" / "reasoning.yaml"))
 
-    @app.get("/api/tokenizer")
+    @app.get("/api/tokenizer", response_model=sch.TokenizerInfo | sch.ErrorResponse)
     def tokenizer_get() -> dict:
         return tk.tokenizer_info()
 
-    @app.get("/api/checkpoint")
+    @app.get("/api/checkpoint", response_model=sch.CheckpointDetail | sch.ErrorResponse)
     def checkpoint_get(path: str) -> dict:
         return cd.checkpoint_detail(path)
 
-    @app.get("/api/router")
+    @app.get("/api/router", response_model=sch.RouterOverview)
     def router_get() -> dict:
         return rt.router_overview(str(root))
 
-    @app.get("/api/exports")
+    @app.get("/api/exports", response_model=sch.ExportOverview)
     def exports_get() -> dict:
         return ex.export_overview(str(root))
 
-    @app.get("/api/metrics/history")
+    @app.get("/api/metrics/history", response_model=sch.MetricsHistory)
     def metrics_history() -> dict:
         return mh.training_history(log_path)
 
-    @app.get("/api/data-sources")
+    @app.get("/api/data-sources", response_model=sch.DataSourcesView)
     def data_sources() -> dict:
         return dsv.read_data_sources(str(root / "configs" / "data_sources.yaml"))
 
-    @app.get("/api/eval-history")
+    @app.get("/api/eval-history", response_model=sch.EvalHistoryView)
     def eval_history_get() -> dict:
         return eh.eval_history(str(root))
 
-    @app.post("/api/tokenize")
+    @app.post("/api/tokenize", response_model=sch.TokenizeResult | sch.ErrorResponse)
     def tokenize_post(payload: dict) -> dict:
         return tkz.tokenize_text(str(payload.get("text", "")))
 
-    @app.get("/api/health")
+    @app.get("/api/health", response_model=sch.HealthSummary)
     def health_get() -> dict:
         return hl.project_health(str(root))
 
-    @app.get("/api/sft")
+    @app.get("/api/sft", response_model=list[sch.SftFile])
     def sft_list() -> list[dict]:
         return sd.list_sft_files(str(root))
 
-    @app.get("/api/sft/preview")
+    @app.get("/api/sft/preview", response_model=sch.SftPreview | sch.ErrorResponse)
     def sft_preview(path: str, n: int = 10) -> dict:
         return sd.preview_sft(path, n)
 
-    @app.get("/api/scripts")
+    @app.get("/api/scripts", response_model=sch.ScriptsCatalog)
     def scripts_list() -> dict:
         return sc.list_scripts(str(root))
 
-    @app.get("/api/model-card")
+    @app.get("/api/model-card", response_model=sch.ModelCard | sch.ErrorResponse)
     def model_card_get(path: str) -> dict:
         return mc.build_model_card(path)
 
-    @app.get("/api/config-diff")
+    @app.get("/api/config-diff", response_model=sch.ConfigDiff | sch.ErrorResponse)
     def config_diff_get(a: str, b: str) -> dict:
         return cdf.compare_configs(a, b)
 
-    @app.get("/api/system-info")
+    @app.get("/api/system-info", response_model=sch.SystemInfo)
     def system_info_get() -> dict:
         return si.system_info(str(root))
 
-    @app.get("/api/storage")
+    @app.get("/api/storage", response_model=sch.StorageView)
     def storage_get() -> dict:
         return sv.read_storage(str(root))
 
-    @app.get("/api/checkpoints/compare")
+    @app.get("/api/checkpoints/compare", response_model=sch.CompareResult | sch.ErrorResponse)
     def checkpoints_compare_get(a: str, b: str) -> dict:
         return cc.compare_checkpoints(a, b)
 

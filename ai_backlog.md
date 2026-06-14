@@ -96,6 +96,23 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   `JSON.stringify`-display + per-component `humanBytes`/`fmtInt` across all 18 panels (6 parallel agents).
   tsc --noEmit EXIT 0, vite build green. Open JSON typed via the one principled `JsonValue` union.
   Follow-up TYPE-002: add FastAPI `response_model=` to endpoints for runtime 1:1 enforcement.
+- **TYPE-002** [tooling/quality, high] `done` (2026-06-14) — Wired `response_model=` on all 33 data
+  routes in `ui/app.py` (single `from . import schemas as sch` import). Path-reading single-object
+  endpoints use `Model | sch.ErrorResponse` unions (matching the TS `*OrError` aliases); list endpoints
+  use `list[Model]`. `_UiModel`'s `extra="forbid"` makes any backend dict drift a hard validation error
+  at the wire (not a silent mismatch) — verified the contract by validating each no-arg endpoint's real
+  output against its schema, then a TestClient sweep of all 21 no-arg + config/config-diff endpoints
+  (all 200, no response_model 500s). Surfaced & confirmed safe: `/api/tokenizer` returns `{error}` when
+  no tokenizer exists (the union handles it); `/api/eval-history`'s `__init__` re-export shadows its
+  submodule for late external imports, but app.py imports submodules first so the live route is fine.
+  Endpoints intentionally NOT wired: `/api/pipeline/run` (genuinely-open run JSON → `dict[str, JsonValue]`),
+  `/api/jobs/{id}/log` + `/api/jobs/{id}/stop` + `/api/run` + `/api/train/start` (ad-hoc control dicts).
+  63 UI tests + ruff green.
+- **TYPE-003** [tooling/quality, medium] `open` — Make `ui/*.py` functions RETURN the Pydantic models
+  (not bare dicts), closing the last gap to "endpoints return the model" in `.claude/rules/typing.md`.
+  BLOCKER: ~50+ existing unit tests subscript the returns (`get_training_status(...)["step"]`); Pydantic
+  v2 models don't support `[]`, so this needs a coordinated per-module test migration to attribute access
+  (`.step`). Do it module-by-module with parallel agents (disjoint files), each ending green or reverting.
 
 ### Optimizers / training-stability (2026-06-14)
 - **EVAL-035** [eval, medium] `done` (2026-06-14) — Spectral-Alignment divergence-risk diagnostic
