@@ -48,6 +48,12 @@ except ImportError:
     pass
 
 try:
+    from cola_coder.data.filters.repetition import RepetitionFilter  # noqa: F401
+    __all__.append("RepetitionFilter")
+except ImportError:
+    pass
+
+try:
     from cola_coder.data.filters.decontamination import DecontaminationFilter  # noqa: F401
     __all__.append("DecontaminationFilter")
 except ImportError:

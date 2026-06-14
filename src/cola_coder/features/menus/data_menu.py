@@ -1359,6 +1359,8 @@ class DataMenu:
              "Tree-sitter AST parsing (Python, TS, JS, Go, Rust, Java)"),
             ("Length Filter", "length.py",
              "Min/max line count validation"),
+            ("Repetition Filter", "repetition.py",
+             "Gopher/MassiveText repetition metrics — dup lines/paragraphs + n-grams"),
             ("Quality Filter", "quality.py",
              "Existing quality filter as composable plugin"),
             ("Quality Classifier", "quality_classifier.py",

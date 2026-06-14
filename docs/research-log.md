@@ -7,6 +7,55 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-14 — Gopher / MassiveText repetition filters: char-fraction degeneracy screen (rotate: data quality/curation)
+
+**Sources (2021–2026):** *The FineWeb Datasets: Decanting the Web for the Finest Text Data at Scale* —
+https://arxiv.org/html/2406.17557v1 (FineWeb re-derives MassiveText/Gopher's repetition filters via
+ablation, TIGHTENING the duplicated-line-character ratio from MassiveText's ≥0.2 to ≥0.1 — a single
+repetition metric removed 12.47% of tokens, more than any other quality screen). *RedPajama-Data-v2: 30T
+tokens with quality signals* — https://www.together.ai/blog/redpajama-data-v2 (ships the Gopher repetition
+annotations as reusable per-document QUALITY SIGNALS — duplicate-line/-paragraph fractions + top/duplicate
+n-gram char fractions — so curators threshold them as filters or feed them to selection). *data-prep-kit
+gopher_repetition_annotator* — https://github.com/data-prep-kit/data-prep-kit/blob/dev/transforms/universal/gopher_repetition_annotator/README.md
+(the canonical reference thresholds, from Gopher Table A1: dup line/para frac 0.30, dup line/para CHAR frac
+0.20, top 2/3/4-gram char frac 0.20/0.18/0.16, duplicate 5..10-gram char frac 0.15→0.10; reject if ANY exceeds).
+
+**Summary:** the established frontier pre-training quality screen for DEGENERATE documents (looping
+generations, copy-pasted boilerplate, accidental content duplication) is the Gopher repetition family: 13
+metrics measuring the *character mass* locked up in repeated lines, paragraphs, and word n-grams (2..10).
+For 2-4 grams it's the char fraction of the single MOST FREQUENT n-gram ("top"); for 5-10 grams the fraction
+covered by ALL repeated n-grams ("duplicate"). A doc is rejected if any metric exceeds its threshold. It is
+purely statistical, language-agnostic, CPU-only, no model — and catches a failure mode that exact/MinHash/
+semantic dedup (which compare ACROSS documents) structurally cannot: *within-document* repetition.
+
+**Original idea (filed) → DATA-071/072/073:** cola-coder's curation stack dedups ACROSS documents (exact
+SHA-256, MinHash near-dup in `combine.py`, semantic clustering in `semantic_dedup.py` per DATA-069) and scores
+quality per-file (`CodeScorer`), but the only WITHIN-document repetition signal it has is
+`CodeScorer._score_duplication` — exact duplicate *lines* only, folded into a soft 0.0-1.0 weight, blind to
+paragraph- and n-gram-level looping. The cross-technique idea is to add the full Gopher repetition family as a
+first-class composable `FilterPlugin` (the same `@register_filter` interface as `content`/`length`/`quality`),
+so a hard "this document is degenerate" reject runs in the prep pipeline ALONGSIDE the existing soft score —
+the two are complementary (score down-weights mediocre code; the repetition filter drops looping garbage
+outright). Unique to this repo: the metrics are also a natural EXTRA SIGNAL for the per-chunk
+`weight_scoring.py` path and a corpus-audit cross-tab against `semantic_dedup` cluster sizes (does
+within-doc repetition correlate with the redundant clusters?). DATA-072 (surface metrics as `CodeScorer`
+breakdown signals → quality weights) + DATA-073 (corpus repetition audit / threshold-ablation report,
+FineWeb-style "how many tokens does each metric remove") filed for future cycles.
+
+**Implemented this cycle (DATA-071 — data curation, main-safe):** Gopher/MassiveText repetition filter.
+`data/filters/repetition.py`: `compute_repetition_metrics` (pure function → `RepetitionMetrics`: dup
+line/para fractions + char fractions, top 2-4 gram char fractions, duplicate 5-10 gram char fractions, all
+bounded [0,1] via non-overlapping char COVERAGE — a naive chars×count overcounts overlapping windows and can
+exceed 1.0, a bug caught and fixed during test bring-up), `RepetitionThresholds` (dataclass of the published
+Gopher reference values, not bare dicts), and `@register_filter("repetition") RepetitionFilter` (FilterPlugin;
+"reject if ANY metric strictly exceeds" with the reason string naming the offending metric; line/para screens
+always run, n-gram screens skip docs < `min_words=50` per datatrove's short-doc guard; `setup()` overrides any
+threshold from YAML). Registered in `filters/__init__.py`; listed in the data-menu Advanced Filters table (no
+new script → no orphan). +19 tests (metric algebra, boundedness, empties, accept/reject + reason, short-doc
+skip, configurable min_words, default-thresholds-match-Gopher, setup overrides, registry wiring); existing
+`test_filters` (42) + `test_filter_registry_and_pii` intact. Pure-Python, no model/GPU/network. Closes the
+across-doc-dedup → within-doc-repetition gap in the curation stack.
+
 ## 2026-06-14 — Slopsquat triage: typosquatting detection by string distance (rotate: safety/robustness)
 
 **Sources (2020–2026):** *ConfuGuard: Using Metadata to Detect Active and Stealthy Package Confusion

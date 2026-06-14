@@ -148,6 +148,20 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   in the trainer (A/B-gated on a tiny Muon run; never merged while live).
 - **INFER-034** [inference/tooling, low] `open` — use SpectralHealthReport as an RFT checkpoint-acceptance
   gate (reject a self-distilled candidate whose worst-layer sign-collapse regressed, before verifier eval).
+- **DATA-071** [data curation, high] `done` (2026-06-14) — Gopher/MassiveText repetition filter
+  (`data/filters/repetition.py`): `@register_filter("repetition") RepetitionFilter` + pure
+  `compute_repetition_metrics` (`RepetitionMetrics` dataclass) computing dup line/para fractions + char
+  fractions, top 2-4 gram char fractions, duplicate 5-10 gram char fractions (published Gopher Table A1
+  thresholds in a `RepetitionThresholds` dataclass; reject if ANY strictly exceeds; n-gram screens skip docs
+  < min_words=50). Char fractions bounded [0,1] via non-overlapping coverage. Closes the within-document
+  repetition gap (across-doc dedup — exact/MinHash/semantic — can't see looping inside one file). Registered
+  + listed in data-menu Advanced Filters. +19 tests, CPU-only, no model/GPU. See research-log 2026-06-14.
+- **DATA-072** [data curation, medium] `open` — Surface DATA-071's repetition metrics as extra `CodeScorer`
+  breakdown signals → per-chunk quality weights (`weight_scoring.py`), so looping/boilerplate down-weights
+  the soft score in addition to the hard filter reject. Reuse `compute_repetition_metrics` (no recompute).
+- **DATA-073** [data curation/eval, low] `open` — Corpus repetition AUDIT: FineWeb-style threshold-ablation
+  report ("how many tokens does each Gopher metric remove") + cross-tab against `semantic_dedup` cluster
+  sizes (does within-doc repetition correlate with the semantically-redundant clusters?). Pure offline.
 - **DATA-070** [data curation, medium] `open` — D4 diversification pass after semantic dedup (prune
   over-dense clusters toward a target size), reusing DATA-069's clustering.
 - **EVAL-033** [eval, low] `open` — Semantic-dedup audit: stratify a corpus by semantic-cluster size +
@@ -158,6 +172,18 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   convergence threshold + exec-validated safe-layer floor, A/B'd on HumanEval pass@1 + CI (EVAL-028).
 
 ### UI (2026-06-14)
+- **UI-035** [ui, high] `done` (2026-06-14) — Inspect-tools parity: tokenizer-health + data-stats views
+  (parallel agents: backend keystone w/ DRY extraction + 2 disjoint frontend panels). Extracted the CLI
+  tools' logic into SHARED libs so CLI and UI run identical code: `cola_coder.tokenizer.health`
+  (run_health_checks battery) and `cola_coder.data.stats` (compute_data_stats incl. quality-tier
+  distribution + dtype-bounded unique-token estimate); refactored `scripts/{tokenizer_health,data_stats}.py`
+  to thin wrappers (deleted ~200 lines of dup) and repointed their existing tests at the libs. 2 new
+  endpoints `/api/tokenizer-health` + `/api/data-stats` (response_model error-unions; CPU-only — tokenizer
+  load + numpy mmap, no GPU). 2 new panels (TokenizerHealthPanel pass/fail table, DataStatsPanel token
+  stats + quality-tier bars). +4 Pydantic models, types regenerated (62 interfaces). 214 affected tests
+  green (incl. fixed regressions in the moved tests) + tsc + vite (218 KB).
+  Follow-up UI-034: extract a shared StageRunner so the pipeline manager can EXECUTE stages (the CLI's
+  ~600 lines of per-stage arg-building are blocking + coupled) behind the GPU/trainer guard.
 - **UI-033** [ui, high] `done` (2026-06-14) — Live job-log streaming + GPU-action guard (parallel agents:
   backend keystone + 2 disjoint frontend panels). Backend: SSE `GET /api/jobs/{id}/stream` follows a job's
   log file (initial tail then byte-offset incremental reads → no multibyte corruption), pushing strict
