@@ -166,6 +166,27 @@ ACTIONS: dict[str, dict] = {
     "export_model": {"script": "export_model.py", "label": "Export model (GGUF / Ollama / quantize)",
                      "args": ["--checkpoint", "checkpoints/small/latest", "--config", "configs/small.yaml",
                               "--action", "gguf-f16"]},
+    # Data / tokenizer prep (UI-087) — CPU, non-interactive; typed forms supply args.
+    "train_tokenizer": {"script": "train_tokenizer.py", "label": "Train tokenizer (BPE)", "args": []},
+    "prepare_fim": {"script": "prepare_fim_data.py", "label": "Prepare FIM data", "args": []},
+    "prepare_docs_data": {"script": "prepare_docs_data.py", "label": "Prepare docs data", "args": []},
+    "prepare_repo_context_data": {"script": "prepare_repo_context_data.py",
+                                  "label": "Prepare repo-context data", "args": []},
+    "generate_sft_data": {"script": "generate_sft_data.py", "label": "Generate SFT data", "args": []},
+    "generate_router_data": {"script": "generate_router_data.py", "label": "Generate router data", "args": []},
+    # Eval / inspect / analysis (UI-087). gpu=True for model-loading ones.
+    "run_eval_suite": {"script": "run_eval_suite.py", "label": "Run full eval suite", "gpu": True, "args": []},
+    "compare_models": {"script": "compare_models.py", "label": "Compare models", "gpu": True, "args": []},
+    "compare_checkpoints": {"script": "compare_checkpoints.py", "label": "Compare checkpoints",
+                            "gpu": True, "args": []},
+    "checkpoint_info": {"script": "checkpoint_info.py", "label": "Checkpoint info", "args": []},
+    "nano_benchmark": {"script": "nano_benchmark.py", "label": "Nano benchmark (fast)", "gpu": True, "args": []},
+    "model_card": {"script": "model_card.py", "label": "Generate model card", "gpu": True, "args": []},
+    "score_repos": {"script": "score_repos.py", "label": "Score repos (test execution)", "args": []},
+    "pld_analysis": {"script": "pld_analysis.py", "label": "PLD acceptance analysis (offline)", "args": []},
+    "check_contamination": {"script": "check_contamination.py", "label": "Check eval contamination", "args": []},
+    "evaluate_router": {"script": "evaluate_router.py", "label": "Evaluate router accuracy",
+                        "gpu": True, "args": []},
 }
 
 

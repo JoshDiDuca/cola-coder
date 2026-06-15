@@ -18,6 +18,15 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   Pipeline/Manager). One coherent panel per section, no grid. Built by 3 parallel agents (disjoint new
   files) wrapping the existing panels unchanged; App.tsx now imports 3 panels instead of 19. tsc + build green.
 
+### UI — wire 16 scripts as typed-form actions (2026-06-15)
+- **UI-087** [ui, high] `done` (2026-06-15) — Wired 16 non-interactive scripts as typed-form background
+  actions (ACTIONS 31→47), all 1:1 with argparse via action_params.py (parity test UI-072 guards every
+  flag exists in its script). Data/prep (CPU): train_tokenizer, prepare_fim, prepare_docs_data,
+  prepare_repo_context_data, generate_sft_data, generate_router_data. Eval/inspect: run_eval_suite(gpu),
+  compare_models(gpu), compare_checkpoints(gpu), checkpoint_info, nano_benchmark(gpu), model_card(gpu),
+  score_repos, pld_analysis, check_contamination, evaluate_router(gpu). 2 parallel extraction agents;
+  none interactive-only. Frontend auto-renders (data-driven ActionForm). 221 tests pass, tsc + build green.
+
 ### UI — parity audit + eval summary + specialists (2026-06-15)
 - **UI-082** [ui, medium] `done` (2026-06-15) — R9 CLI→UI parity audit (Explore agent): parity ~85%.
   Top remaining gaps logged: semantic search (needs index + embedder; index not built in dev),
