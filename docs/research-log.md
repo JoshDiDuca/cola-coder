@@ -7,6 +7,37 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-15 — Architecture: attention/final logit soft-capping as a layered logit-magnitude stack (rotate: architecture)
+
+**Sources (2024–2026):** *QK norm is probably a free lunch* — https://ishanjmukherjee.github.io/qk-norm
+(RMSNorm on Q/K bounds attention-logit growth → stable at high LR; `QK_norm_cap` 3% lower ppl than baseline).
+*Controlling changes to attention logits* — https://arxiv.org/pdf/2511.21377 (logit-capping family). *Gemma-2*
+(attention + final-logit soft-cap `cap·tanh(x/cap)`). *Methods of improving LLM training stability* —
+https://arxiv.org/pdf/2410.16682. *Scalable-Softmax Is Superior for Attention* — https://arxiv.org/pdf/2501.19399.
+*When/Why Attention Sinks Emerge* — https://arxiv.org/pdf/2410.10781.
+
+**Summary:** the 2026 stability stack for softmax transformers is a LAYERED control of logit magnitude:
+QK-Norm (bound Q/K before the dot-product), attention-logit soft-cap (bound pre-softmax scores), and
+final-logit soft-cap (bound the output logits) — each a cheap, training-stabilizing clamp that also tends to
+improve perplexity slightly and permits higher learning rates. cola-coder ALREADY has QK-Norm (the live
+small_react_best run trains with it). The missing, cheapest complementary piece is **soft-capping**:
+`y = cap * tanh(x / cap)` — a smooth bounded clamp, applied to attention logits and/or final logits, fully
+backward-compatible when disabled.
+
+**Original idea (cross-technique, cola-coder-specific): final-logit soft-cap as a RELIABILITY lever, measured by
+pass^k.** Beyond stability, a final-logit soft-cap softens an over-confident output distribution — and
+over-confidence is a plausible driver of the low-`pass^k` (inconsistent) failure mode quantified by EVAL-037.
+Hypothesis: for this small, data-bound model, enabling final-logit soft-cap raises `pass^k` (single-shot
+reliability — the IDE-completion regime) more than it changes `pass@k` (capability), i.e. it shrinks the
+capability-reliability gap. This makes soft-cap an architecture knob with a *measurable eval target* (run the
+EVAL-037 pass^k/gap before vs after), not just a training-stability nicety — and it composes with the existing
+QK-Norm to complete the layered logit-control stack, supporting the higher-LR Muon direction (MODEL-025/047).
+Tractable MAIN-SAFE first step (this cycle): a tested `soft_cap_logits(logits, cap)` helper + an OPT-IN,
+default-OFF config field wired into the attention/final path — DEFAULT-OFF so the live run is byte-identical;
+gated behind the full test_checkpoint + test_transformer suite. Wiring it into a config sweep is the follow-up.
+
+---
+
 ## 2026-06-15 — Safety: static CWE vulnerability screening as a shared data-filter + eval probe (rotate: safety)
 
 **Sources (2024–2026):** *Rethinking the Evaluation of Secure Code Generation* (ICSE 2026) —

@@ -254,6 +254,20 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   → Tokenizer. +2 models (gen_ts regen, 86 ifaces, 38 OrError), +2 test examples, 3 new files. pytest 89 +
   ruff + tsc + vite green (252 KB). Keystone integrated by main. (UI-017 partially addressed — arg editing now
   exists; remaining: structured per-arg forms + data-collection wizards.)
+- **MODEL-050** [architecture, high] `done` (2026-06-15) — Gemma-2-style logit SOFT-CAPPING (`y = cap*tanh(x/cap)`),
+  OPT-IN + DEFAULT-OFF. New `model/logit_cap.py` `soft_cap_logits(logits, cap)` (pure, returns input when cap<=0).
+  `ModelConfig` gains `attn_logit_softcap: 0.0` + `final_logit_softcap: 0.0` (0.0 = disabled). FINAL-logit cap is
+  WIRED in `Transformer.forward` after the LM head, strictly gated `if final_cap>0`. ATTN cap is NOT wired
+  (attention is always fused F.scaled_dot_product_attention with no eager logit hook — forcing an eager branch
+  would change the live run's numerics/perf; the field is reserved + the helper is tested). VERIFIED byte-identical
+  when off (torch.equal baseline) and live small_react_best config has no softcap key → unaffected. +tests/
+  test_logit_cap.py (11). CRITICAL gate passed: test_checkpoint (36+4skip) + test_model (19) green. See
+  research-log 2026-06-15. Completes the layered logit-control stack with the existing QK-Norm.
+- **MODEL-051** [architecture, medium] `open` — (a) Wire ATTENTION-logit soft-cap: add an eager attention branch
+  (used only when attn_logit_softcap>0) so the pre-softmax scores can be capped — keep the fused SDPA path as the
+  default (zero-cost when disabled). (b) Config sweep + measure: enable final_logit_softcap on a SMALL eval and
+  measure pass^k/pass@k (EVAL-037) before vs after to test the research-log hypothesis (soft-cap raises single-shot
+  reliability / shrinks the capability-reliability gap more than it changes capability).
 - **UI-058..059** [ui, medium] `done` (2026-06-15) — Batch (parallel agents, disjoint files). UI-058 Docs Browser
   (`GET /api/docs` + `GET /api/doc?path=`, `DocsList`/`DocFile`/`DocContent`; lists the 26 docs/ guides +
   deep-dives, lightweight no-dep markdown render; PATH-GUARDED read confined to docs/ — traversal/out-of-tree

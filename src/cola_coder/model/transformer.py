@@ -25,6 +25,7 @@ import torch.utils.checkpoint
 from .attention import GroupedQueryAttention
 from .config import ModelConfig
 from .feedforward import SwiGLUFFN
+from .logit_cap import soft_cap_logits
 from .normalization import RMSNorm
 from .rope import get_rope_freqs, yarn_attention_scale
 
@@ -395,6 +396,13 @@ class Transformer(nn.Module):
 
         # Step 5: Project to vocabulary logits
         logits = self.output(h)  # (batch, seq_len, vocab_size)
+
+        # Optional Gemma-2 final-logit soft-cap (y = cap*tanh(x/cap)). Strictly
+        # gated: when final_logit_softcap is 0.0 (the default in every config)
+        # this branch is skipped and the logits are byte-identical to before.
+        final_cap = getattr(self.config, "final_logit_softcap", 0.0)
+        if final_cap and final_cap > 0:
+            logits = soft_cap_logits(logits, final_cap)
 
         return logits
 

@@ -207,6 +207,15 @@ class ModelConfig:
     qk_norm: bool = False  # RMSNorm on Q/K per head (Gemma 2/3, OLMo 2, Qwen3) —
     # stabilizes attention logits, tolerates higher LR. Adds small per-layer params,
     # so only enable for configs with no existing checkpoints.
+    attn_logit_softcap: float = 0.0  # Gemma-2 soft-cap on PRE-softmax attention
+    # logits: y = cap*tanh(x/cap). 0.0 = OFF (default). NOTE: currently UNWIRED —
+    # the attention path is fused F.scaled_dot_product_attention (flash), which
+    # has no explicit-logits hook, so this field is reserved for a future eager
+    # attention branch. Adds NO params; 0.0 keeps the forward pass byte-identical.
+    final_logit_softcap: float = 0.0  # Gemma-2 soft-cap on the FINAL LM-head
+    # logits: y = cap*tanh(x/cap). 0.0 = OFF (default). A clean post-projection
+    # clamp that softens over-confident output distributions (a plausible driver
+    # of the low pass^k reliability gap). Adds NO params; 0.0 = byte-identical.
 
     @property
     def head_dim(self) -> int:
