@@ -104,6 +104,10 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   all 11 nav sections; self-contained global key listener, navigates via the same hash as Sidebar.
 
 ### Infra — training-liveness detection (2026-06-15)
+- **OPS-003a** [infra/ux, medium] `done` (2026-06-15) — Step-stall telemetry: `status.get_training_status`
+  now tracks (cross-poll cache) when the max step last advanced and returns `step_stalled_s`
+  (TrainingStatus schema). LiveTrainingPanel shows "step +<duration>" (warn past the 45-min threshold) so
+  the user/dashboard SEES hung-vs-slow directly. Pure stall logic unit-tested (6). gen_ts_types regen.
 - **OPS-003 / IDEA-015** [infra/safety, medium] `open` — Replace mtime-window liveness (BUG-136) with
   monotone STEP-progress detection: cache (max_step, time) between status polls; "alive" iff the parsed
   max step increased OR a newer step_* checkpoint appeared since the last poll. Immune to both

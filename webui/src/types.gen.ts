@@ -18,6 +18,7 @@ export interface TrainingStatus {
   tok_per_s: number | null;
   s_per_it: number | null;
   last_log_line: string | null;
+  step_stalled_s?: number | null;
 }
 
 export interface SystemStatus {

@@ -49,6 +49,9 @@ class TrainingStatus(_UiModel):
     tok_per_s: float | None
     s_per_it: float | None
     last_log_line: str | None
+    # Seconds since the training step last advanced (0 right after an advance);
+    # None until a step is seen. Surfaces hung-vs-slow on the dashboard (OPS-003).
+    step_stalled_s: float | None = None
 
 
 class SystemStatus(_UiModel):

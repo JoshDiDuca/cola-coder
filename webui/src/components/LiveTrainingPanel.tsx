@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TrainingStatus } from '../types';
 import { isApiError } from '../types';
-import { formatInteger, formatFloat, formatPercent } from '../format';
+import { formatInteger, formatFloat, formatPercent, formatDuration } from '../format';
 import { getLog } from '../api';
 
 // The training run is written to this log file (confirmed present in getLogs()).
@@ -64,6 +64,9 @@ export default function LiveTrainingPanel({
   const progressFraction = training?.progress_pct ?? null;
   // progress_pct is already a 0..100 percentage (matches TrainingPanel's bar usage).
   const fillPct = Math.max(0, Math.min(100, progressFraction ?? 0));
+  // Seconds since the step last advanced; warn past the 45-min "hung" threshold.
+  const stall = training?.step_stalled_s ?? null;
+  const stallWarn = stall !== null && stall > 2700;
 
   const tiles: StatTile[] = [
     { label: 'loss', value: formatFloat(training?.loss ?? null, 4) },
@@ -141,6 +144,14 @@ export default function LiveTrainingPanel({
             / {formatInteger(totalSteps)} steps
           </span>
           <span className="muted mono live-train-pct">{formatPercent(progressFraction)}</span>
+          {stall !== null && (
+            <span
+              className={`live-train-stall mono${stallWarn ? ' warn' : ''}`}
+              title="Time since the training step last advanced (dataloader-bound runs idle 22-30 min between steps; >45 min may indicate a stall)."
+            >
+              step +{formatDuration(stall)}
+            </span>
+          )}
         </div>
         <div
           className="bar live-train-bar"

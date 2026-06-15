@@ -2713,6 +2713,14 @@ body {
   font-size: 0.9rem;
 }
 
+.live-train-stall {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.live-train-stall.warn {
+  color: var(--warn);
+}
+
 .live-train-bar {
   height: 10px;
 }

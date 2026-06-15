@@ -138,7 +138,36 @@ def _empty_status(alive: bool) -> dict:
         "tok_per_s": None,
         "s_per_it": None,
         "last_log_line": None,
+        "step_stalled_s": None,
     }
+
+
+# Cross-poll step-progress cache (OPS-003): the dashboard recomputes status every
+# ~1s, so we can track WHEN the max step last advanced and surface the stall age —
+# the same signal the babysitting runbook uses to judge hung-vs-slow, made visible.
+_STEP_PROGRESS: dict[str, float | None] = {"max_step": None, "since": None}
+
+
+def _step_stall_seconds(step: int | None, now: float, cache: dict[str, float | None]) -> float | None:
+    """Seconds since the training step last ADVANCED (0 on advance/restart).
+
+    Pure given ``cache`` (mutated in place): updates the cached max step + the
+    timestamp it last changed. ``None`` until a step has ever been observed. A step
+    that goes DOWN (resume from an earlier checkpoint) counts as progress (resets).
+    """
+    if step is None:
+        since = cache.get("since")
+        return (now - since) if since is not None else None
+    prev = cache.get("max_step")
+    if prev is None or step != prev:  # advanced (or restarted) → progress
+        cache["max_step"] = float(step)
+        cache["since"] = now
+        return 0.0
+    since = cache.get("since")
+    if since is None:
+        cache["since"] = now
+        return 0.0
+    return max(0.0, now - since)
 
 
 def _parse_log(text: str) -> dict | None:
@@ -201,6 +230,8 @@ def get_training_status(
     Returns a dict with keys: alive, step, total_steps, progress_pct, loss,
     ppl, tok_per_s, s_per_it, last_log_line. Never raises.
     """
+    import time
+
     alive = is_training_active(log_path, err_path)
     status = _empty_status(alive)
 
@@ -210,6 +241,7 @@ def get_training_status(
         if parsed is not None:
             status.update(parsed)
             status["alive"] = alive
+            status["step_stalled_s"] = _step_stall_seconds(parsed["step"], time.time(), _STEP_PROGRESS)
             return status
 
     err_text = _read_text(err_path)
@@ -218,6 +250,7 @@ def get_training_status(
         if parsed is not None:
             status.update(parsed)
             status["alive"] = alive
+            status["step_stalled_s"] = _step_stall_seconds(parsed["step"], time.time(), _STEP_PROGRESS)
             return status
 
     return status
