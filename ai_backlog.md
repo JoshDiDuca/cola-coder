@@ -268,6 +268,16 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   default (zero-cost when disabled). (b) Config sweep + measure: enable final_logit_softcap on a SMALL eval and
   measure pass^k/pass@k (EVAL-037) before vs after to test the research-log hypothesis (soft-cap raises single-shot
   reliability / shrinks the capability-reliability gap more than it changes capability).
+- **MODEL-052** [optimizers, medium] `open` — Optimizer-aware quality weighting (original idea, research-log
+  2026-06-15). The project's `.weights.npy` quality weighting scales the LOSS per sample (magnitude), but the
+  EXISTING Muon optimizer (`training/optimizer.py`, used by 4080_max) ORTHOGONALIZES the 2D update — discarding
+  per-coordinate magnitude, keeping direction — so loss-level weighting is partly washed out for Muon-optimized
+  matrices (it still works for the AdamW-optimized embedding/head/scalars). Proposal: hybrid weighting keyed to the
+  optimizer split — loss-level weighting for the AdamW params, but DATA-SAMPLING-level (quality-weighted/curriculum
+  sampling) weighting for the Muon params (changes WHICH directions are seen → survives orthogonalization).
+  Measurable: a small AdamW-vs-Muon × loss-weighted-vs-sampling-weighted ablation on tiny. NOTE: this cycle a
+  duplicate standalone Muon impl was generated and DISCARDED (DRY) — the existing `optimizer.py` Muon is complete
+  (MODEL-025/047) and kept; the contribution here is the analysis + this experiment.
 - **UI-060** [ui, medium] `done` (2026-06-15) — Combine Datasets launcher (`CombineDatasetsPanel`): select 2+
   prepared `.npy` datasets, assign per-dataset weights, set output, and launch combine_datasets.py as a background
   job via runAction with `--datasets PATH:WEIGHT ... --output PATH` (the script's real non-interactive flags; no

@@ -7,6 +7,42 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-15 — Optimizers: Muon (Newton-Schulz orthogonalized momentum) for 2D hidden layers (rotate: optimizers)
+
+**Sources (2024–2026):** *Muon: An optimizer for hidden layers* — https://kellerjordan.github.io/posts/muon/
+(SGD-momentum update → quintic Newton-Schulz orthogonalization of the 2D update → apply; scalars/vectors and the
+input embedding + output head stay on AdamW; NS runs stably in bf16). *Muon Practical Guide* —
+https://medium.com/@jenwei0312/going-beyond-adamw-a-practical-guide-to-the-muon-optimizer-93d90e91dbd3 (~2×
+efficiency; each step costlier — NS is a cubic matmul). *Gram Newton-Schulz* (Tri Dao, 2026) —
+https://tridao.me/blog/2026/gram-newton-schulz/ (faster hardware-aware NS). *Error Feedback for Muon* —
+https://arxiv.org/pdf/2510.00643. *Preconditioning Benefits of Spectral Orthogonalization in Muon* —
+https://arxiv.org/pdf/2601.13474. Adopted in Kimi K2, GLM-5.
+
+**Summary:** Muon reaches a target loss in ~2× fewer steps than AdamW by orthogonalizing the momentum update for
+matrix (2D) parameters — replacing the raw update `M` with `≈ (M Mᵀ)^{-1/2} M` via a few Newton-Schulz iterations
+(no SVD). It is matrix-only: embeddings, the LM head, norms, and biases keep AdamW. **FINDING this cycle: cola-coder
+ALREADY implements Muon** — `training/optimizer.py` has `_zeropower_via_newtonschulz5` + a `class Muon` (single
+optimizer with a per-group `use_muon` flag doing the hybrid Muon-2D / AdamW-rest split), selectable via
+`optimizer: "muon"` and already used by `configs/4080_max.yaml`, with ~18 tests in test_modern_techniques.py.
+So the optimizer itself is DONE (MODEL-025/047). A subagent that re-implemented a standalone parallel Muon this
+cycle was DISCARDED to avoid a DRY violation / two code paths — the existing implementation is kept. The open
+contribution is therefore not the optimizer but how the project's quality-weighting interacts with it (below).
+
+**Original idea (cross-technique, cola-coder-specific): match the quality-weighting LEVEL to the optimizer's
+invariances.** The project scales the loss per sample by `.weights.npy` quality weights (training.md: a weighted
+mean over per-sequence losses). But Muon ORTHOGONALIZES the 2D update — it largely discards per-coordinate
+MAGNITUDE, keeping only direction. So loss-level magnitude weighting is partly washed out for Muon-optimized
+matrices, while it still works for the AdamW-optimized embedding/head/scalars. Proposal: a hybrid weighting
+strategy keyed to the optimizer split — keep loss-level quality weighting for the AdamW params, but realise quality
+preference for the Muon params at the DATA-SAMPLING level (quality-weighted / curriculum sampling, which changes
+WHICH directions are seen, surviving orthogonalization) — exactly the "weight at the sampling level instead"
+fallback the MODEL-025 entry hypothesised. This makes the project's existing `.weights.npy` system compatible with
+Muon. Measurable test: a small AdamW-vs-Muon × loss-weighted-vs-sampling-weighted ablation on tiny (the existing `"muon"` optimizer
+makes this directly runnable). Filed as MODEL-052. (No new optimizer code shipped this cycle — the existing Muon
+is complete; the contribution is this analysis + the filed weighting-interaction experiment.)
+
+---
+
 ## 2026-06-15 — Architecture: attention/final logit soft-capping as a layered logit-magnitude stack (rotate: architecture)
 
 **Sources (2024–2026):** *QK norm is probably a free lunch* — https://ishanjmukherjee.github.io/qk-norm
