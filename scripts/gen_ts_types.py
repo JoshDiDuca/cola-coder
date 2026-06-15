@@ -136,6 +136,8 @@ _MODEL_ORDER: list[str] = [
     "ReasoningProblemSet",
     "VocabToken",
     "VocabSearchResult",
+    "RunRequest",
+    "TrainStartRequest",
 ]
 
 # Models the frontend treats as ``Model | ApiError`` (mirrors webui/src/api.ts).

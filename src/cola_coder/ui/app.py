@@ -284,12 +284,11 @@ def create_app(
     def actions() -> list[dict]:
         return [{"key": k, **v} for k, v in ACTIONS.items()]
 
-    @app.post("/api/run")
-    def run(payload: dict) -> JSONResponse:
-        key = payload.get("action")
-        if key not in ACTIONS:
-            raise HTTPException(status_code=400, detail=f"unknown action: {key!r}")
-        spec = ACTIONS[key]
+    @app.post("/api/run", response_model=sch.Job | sch.ErrorResponse)
+    def run(req: sch.RunRequest) -> dict | JSONResponse:
+        if req.action not in ACTIONS:
+            raise HTTPException(status_code=400, detail=f"unknown action: {req.action!r}")
+        spec = ACTIONS[req.action]
         # Trainer-class actions (SFT/GRPO/router/MoE/LR-finder/full-pipeline) load the model
         # and optimize on the GPU — refuse to launch one while the live trainer is running, so
         # the UI can never spawn a second trainer that fights the pretraining run for VRAM.
@@ -298,22 +297,17 @@ def create_app(
                 {"error": "training already running — refusing to start a second trainer"},
                 status_code=409,
             )
-        args = payload.get("args")
-        if args is None:
-            args = spec["args"]
+        args = req.args if req.args is not None else spec["args"]
         cmd = [sys.executable, str(root / "scripts" / spec["script"]), *args]
-        job = jobs.start(name=key, cmd=cmd, cwd=str(root))
-        return JSONResponse(job)
+        return jobs.start(name=req.action, cmd=cmd, cwd=str(root))
 
-    @app.post("/api/train/start")
-    def train_start(payload: dict) -> JSONResponse:
-        config = payload.get("config", "configs/small.yaml")
-        resume = payload.get("resume")
-        result = jobs.start_training(config=config, resume=resume)
+    @app.post("/api/train/start", response_model=sch.Job | sch.ErrorResponse)
+    def train_start(req: sch.TrainStartRequest) -> dict | JSONResponse:
+        result = jobs.start_training(config=req.config, resume=req.resume)
         # start_training returns {"error": ...} when a trainer is already running.
         if "error" in result:
             return JSONResponse(result, status_code=409)
-        return JSONResponse(result)
+        return result
 
     @app.get("/api/configs", response_model=list[sch.ConfigFile])
     def configs_list() -> list[dict]:

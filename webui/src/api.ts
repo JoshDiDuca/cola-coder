@@ -48,6 +48,8 @@ import type {
   FiltersCatalog,
   ReasoningProblemSet,
   VocabSearchResult,
+  RunRequest,
+  TrainStartRequest,
   ApiError,
   JsonValue,
 } from './types';
@@ -122,16 +124,18 @@ export function getActions(): Promise<ActionDef[]> {
 }
 
 export function runAction(action: string, args?: string[]): Promise<Job> {
-  return j<Job>('/api/run', postJson({ action, args }));
+  const body: RunRequest = { action, args: args ?? null };
+  return j<Job>('/api/run', postJson(body));
 }
 
 export function startTraining(
   config: string,
   resume?: string
 ): Promise<Job | ApiError> {
+  const body: TrainStartRequest = { config, resume: resume ?? null };
   return j<Job | ApiError>(
     '/api/train/start',
-    postJson({ config, resume })
+    postJson(body)
   );
 }
 

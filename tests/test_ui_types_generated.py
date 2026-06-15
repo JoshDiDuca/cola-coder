@@ -313,6 +313,8 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "problems": [], "count": 0, "difficulties": ["easy", "medium", "hard"],
         "languages": ["python"],
     },
+    "RunRequest": {"action": "prepare_data", "args": ["--config", "configs/small.yaml"]},
+    "TrainStartRequest": {"config": "configs/small.yaml", "resume": None},
     "VocabToken": {"id": 42, "piece": "Ġconst", "is_special": False},
     "VocabSearchResult": {
         "query": "const", "vocab_size": 32768, "total_matches": 3, "truncated": False,

@@ -692,6 +692,16 @@ export interface VocabSearchResult {
   special_tokens: VocabToken[];
 }
 
+export interface RunRequest {
+  action: string;
+  args?: string[] | null;
+}
+
+export interface TrainStartRequest {
+  config?: string;
+  resume?: string | null;
+}
+
 export interface ApiError {
   error: string;
 }

@@ -254,13 +254,14 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   → Tokenizer. +2 models (gen_ts regen, 86 ifaces, 38 OrError), +2 test examples, 3 new files. pytest 89 +
   ruff + tsc + vite green (252 KB). Keystone integrated by main. (UI-017 partially addressed — arg editing now
   exists; remaining: structured per-arg forms + data-collection wizards.)
-- **TYPE-003** [typing, medium] `open` — `/api/run` and `/api/train/start` in `ui/app.py` are weakly typed:
-  `def run(payload: dict)` / `def train_start(payload: dict)` with no `response_model`, returning bare
-  `JSONResponse`. Violates the schema-first bar (typing.md). FIX: add `RunRequest{action: str; args: list[str]
-  | None}` and `TrainStartRequest{config: str; resume: str | None}` Pydantic models; annotate the endpoints
-  (`req: sch.RunRequest`) with `response_model=sch.Job | sch.ErrorResponse`; regen types so the frontend
-  `runAction`/`startTraining` calls are typed end-to-end. Low risk — the existing client bodies ({action,args}
-  / {config,resume}) already match. (Discovered building the Action Launcher panel this cycle.)
+- **TYPE-003** [typing, medium] `done` (2026-06-15) — Typed the weakly-typed `/api/run` + `/api/train/start`.
+  Added `RunRequest{action: str; args: list[str] | None}` and `TrainStartRequest{config: str; resume: str |
+  None}` Pydantic models (registered in gen_ts_types `_MODEL_ORDER`); endpoints now take the typed body with
+  `response_model=sch.Job | sch.ErrorResponse`. Fixed `jobs.start()` to include `returncode: None` so its
+  return is a COMPLETE `Job` (was missing the required field — only worked before because validation was
+  bypassed by bare `JSONResponse`). Typed `runAction`/`startTraining` bodies in api.ts. Verified: unknown
+  action→400, extra key→422 (extra=forbid now enforced), valid run→200 returning a validated Job; 91 tests
+  pass, ruff clean, frontend tsc clean.
 - **OBS-001** [tooling/observability, low] `open` — benchmark.py, nano_benchmark.py and safety_eval.py print
   metrics to console but DON'T persist JSON, so the new UI-044/045 viewers have nothing to read until a run
   is saved. Add an opt-in `--json/--output` persist path (inference_benchmark.py already has one) writing to

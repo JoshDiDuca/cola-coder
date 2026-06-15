@@ -56,6 +56,7 @@ class JobManager:
             "cmd": list(cmd),
             "log": str(log_path),
             "started": time.time(),
+            "returncode": None,
         }
         self._jobs[job_id] = {"meta": meta, "proc": proc, "log_handle": log_handle}
         return dict(meta)

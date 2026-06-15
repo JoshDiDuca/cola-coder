@@ -725,6 +725,20 @@ class VocabSearchResult(_UiModel):
     special_tokens: list[VocabToken]
 
 
+class RunRequest(_UiModel):
+    """Body for ``POST /api/run`` — launch an allow-listed action as a job."""
+
+    action: str
+    args: list[str] | None = None
+
+
+class TrainStartRequest(_UiModel):
+    """Body for ``POST /api/train/start``."""
+
+    config: str = "configs/small.yaml"
+    resume: str | None = None
+
+
 class ErrorResponse(_UiModel):
     """Maps to the TS ``ApiError`` interface."""
 
