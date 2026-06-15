@@ -40,7 +40,9 @@ Replace each page's card-grid with a single master→detail screen.
   Repo scores not yet in the screen ("More tools" temp area — fold in, 1:1).
 - Evaluation — ✅ screen built (EvalScreen): unified artifacts + history/benchmarks/safety/regression.
 - Run & Jobs — ◻ master-detail: jobs list → job detail/live-log; actions via typed forms (see R3).
-- Configs & Pipeline — ◻ configs list→viewer/diff + pipeline runs→stage timeline + the Training launcher (R4).
+- Configs & Pipeline — ✅ screen built (PipelineScreen, UI-071): runs list → stage timeline detail +
+  lifecycle actions (reset/override/delete) + New Run; one-click PipelineLauncher embedded at top.
+  Configs/VRAM/LR/ConfigDiff kept in "More tools" (fold in next).
 - Tokenizer — ◻ single screen w/ tabs (info/health/tokenize/vocab). Currently BROKEN (see R6).
 - System & Tools — ◻ low-quality, needs full rebuild as master-detail (list of tools → detail).
 - Dashboard (overview) — ✅ hero + GPU gauges + metrics chart + health + sysinfo (stays a dashboard,
@@ -60,14 +62,17 @@ Replace each page's card-grid with a single master→detail screen.
 - Follow-up: a parity test asserting every `ACTIONS` key has a non-empty `ACTION_PARAMS` entry (and that
   each param's `flag` actually appears in the script's argparse) would lock 1:1 permanently — backlog.
 
-### R4 — One-click FULL TRAINING PIPELINE launcher  ◻ NOT STARTED
+### R4 — One-click FULL TRAINING PIPELINE launcher  ✅ DONE (UI-071)
 - **"A full pipeline for training, one click with all of the options available for me to choose. EVERYTHING."**
-- A dedicated Train screen: choose config/model-size, which of the 10 stages to run (checkboxes),
-  SFT/GRPO/MoE/context-extension toggles, hyperparams (epochs, lr, batch, steps), reward/problem set,
-  tokenizer, data source — ALL as form fields → one "Run pipeline" button launching the full pipeline
-  as a background job (respecting the no-second-trainer guard).
-- Acceptance: every option `full_pipeline.py`/`train.py` accept is a control; one click launches; the
-  live run is never disrupted.
+- ✅ `PipelineLauncher.tsx`: mode toggle (Full pipeline `full_pipeline` vs hardware-Auto `auto_pipeline`);
+  a 10-stage checkbox selector (All/None, optional-stage marks 4 & 7) compiling to `--stages` CSV; all
+  remaining options (start/stop/skip-optional/auto-resume/dry-run/tokenizer/config) as typed ActionForm
+  controls; a live read-only command preview; trainer-guard warning banner + 409 "second trainer refused"
+  surfaced as an error chip. One "Run pipeline" button → background job.
+- ✅ Backend: `train` + `auto_pipeline` added to ACTIONS (trainer-class, guarded); typed specs were
+  already in action_params.py so the launcher gets full form definitions.
+- ✅ Acceptance met: every `full_pipeline`/`auto_pipeline`/`train` option is a control; one click launches
+  as a background job; trainer guard protects the live run (verified). Embedded at top of PipelineScreen.
 
 ### R5 — Live training monitor (dashboard)  ✅ DONE
 - LiveTrainingPanel on the Dashboard (top): run name + live pulsing status, big step/total + progress
@@ -167,5 +172,10 @@ Replace each page's card-grid with a single master→detail screen.
 - 2026-06-15: R3 done (UI-070). Typed argument forms shipped — `ActionParam`/`ActionDef.params` schema,
   `action_params.py` 1:1 spec for all 29 actions (validated at import), `/api/actions` merge,
   `ActionForm.tsx` typed controls + `ActionsPanel` rewire. Verified: ruff clean, 111 drift tests,
-  /api/actions ActionDef-validated, tsc + vite build green. Next: R4 one-click pipeline launcher (the
-  `full_pipeline`/`auto_pipeline`/`train` specs are already in action_params.py, ready to wire).
+  /api/actions ActionDef-validated, tsc + vite build green.
+- 2026-06-15: R4 + R2-pipeline done (UI-071). One-click full pipeline launcher (PipelineLauncher: mode
+  toggle, 10-stage checkboxes, typed options, command preview, trainer-guard) + Configs & Pipeline
+  master-detail screen (PipelineScreen: runs list → stage timeline + lifecycle). `train` + `auto_pipeline`
+  added to ACTIONS (trainer-guarded). Built via 2 parallel agents on disjoint files. Verified: ruff,
+  111 drift tests, tsc clean, vite build green (86 modules). Next: R2 remaining = Tokenizer screen +
+  fold "More tools" extras into Checkpoints/Data/Pipeline screens; then R10 inference playground.
