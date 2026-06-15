@@ -34,6 +34,8 @@ import DataStatsPanel from './components/DataStatsPanel';
 import CheckpointHealthPanel from './components/CheckpointHealthPanel';
 import ProjectMemoryPanel from './components/ProjectMemoryPanel';
 import VectorIndexPanel from './components/VectorIndexPanel';
+import SecurityScanPanel from './components/SecurityScanPanel';
+import EnvCheckPanel from './components/EnvCheckPanel';
 import CollapsibleSection from './components/CollapsibleSection';
 
 interface Snapshot {
@@ -136,6 +138,7 @@ export default function App() {
           <DataSourcesPanel />
           <SftDataPanel />
           <VectorIndexPanel />
+          <SecurityScanPanel />
         </CollapsibleSection>
 
         {/* Configs & pipeline. */}
@@ -161,6 +164,7 @@ export default function App() {
 
         {/* System & tools. */}
         <CollapsibleSection title="System & Tools" storageKey="sec.tools">
+          <EnvCheckPanel />
           <FeaturesPanel />
           <ReasoningPanel />
           <ProjectMemoryPanel />

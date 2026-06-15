@@ -243,6 +243,23 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "embedding_dim": 384, "size_bytes": 5242880,
         "path": "data/vector_index", "last_updated": "2026-06-15T12:00:00+00:00",
     },
+    "ThreatInfo": {
+        "file_path": "data/x.py", "name": "ReverseShell", "severity": "high",
+        "scanner": "yara", "details": "matched rule shell_001",
+    },
+    "MalwareScanResult": {
+        "path": "data/processed", "files_scanned": 42, "is_clean": True,
+        "threats": [], "duration_ms": 1234.5,
+    },
+    "EnvCheckItem": {
+        "name": "PyTorch", "ok": True, "value": "2.10.0+cu128", "detail": None,
+    },
+    "EnvCheckReport": {
+        "python_version": "3.10.0", "torch_version": "2.10.0+cu128",
+        "cuda_available": True, "gpu_name": "NVIDIA GeForce RTX 4080 SUPER",
+        "vram_gb": 16.0, "hf_token_set": True,
+        "passed": 11, "failed": 0, "ok": True, "checks": [],
+    },
     "DataStats": {
         "data_path": "data/processed/train_data.npy", "file_size_mb": 12.3,
         "shape": [100, 64], "num_chunks": 100, "seq_len": 64, "total_tokens": 6400,

@@ -542,6 +542,42 @@ export interface IndexStats {
   last_updated: string | null;
 }
 
+export interface ThreatInfo {
+  file_path: string;
+  name: string;
+  severity: string;
+  scanner: string;
+  details: string | null;
+}
+
+export interface MalwareScanResult {
+  path: string;
+  files_scanned: number;
+  is_clean: boolean;
+  threats: ThreatInfo[];
+  duration_ms: number;
+}
+
+export interface EnvCheckItem {
+  name: string;
+  ok: boolean;
+  value: string;
+  detail: string | null;
+}
+
+export interface EnvCheckReport {
+  python_version: string;
+  torch_version: string | null;
+  cuda_available: boolean;
+  gpu_name: string | null;
+  vram_gb: number | null;
+  hf_token_set: boolean;
+  passed: number;
+  failed: number;
+  ok: boolean;
+  checks: EnvCheckItem[];
+}
+
 export interface ApiError {
   error: string;
 }
@@ -584,3 +620,5 @@ export type DataStatsOrError = DataStats | ApiError;
 export type CheckpointHealthOrError = CheckpointHealth | ApiError;
 export type MemoryStatsOrError = MemoryStats | ApiError;
 export type IndexStatsOrError = IndexStats | ApiError;
+export type MalwareScanResultOrError = MalwareScanResult | ApiError;
+export type EnvCheckReportOrError = EnvCheckReport | ApiError;

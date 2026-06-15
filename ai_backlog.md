@@ -188,6 +188,20 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   `IndexStats`; reads `retrieval/vector_store.py` JSON sidecar without loading embeddings) → Data.
   +4 Pydantic models (gen_ts_types regen, 67 ifaces), +4 test examples, 6 new files. pytest 70 + tsc +
   vite green (227 KB). Keystone files integrated by main; agents built only their 2 files each.
+- **UI-040..041** [ui, medium] `done` (2026-06-15) — Batch (parallel agents, disjoint files): 2 views.
+  UI-040 Security/Malware Scan (`GET /api/security/scan?path=&max_files=`, `MalwareScanResult`/`ThreatInfo`;
+  bounded synchronous `CompositeMalwareScanner` over a path, fail-closed `is_clean and not had_errors`,
+  exhaustive severity switch) → Data. UI-041 Environment Check (`GET /api/env-check`, `EnvCheckReport`/
+  `EnvCheckItem`; python/torch/CUDA/GPU/VRAM/deps/HF_TOKEN, structured not just a log) → System & Tools.
+  +4 Pydantic models (gen_ts_types regen, 71 ifaces, 31 OrError), +4 test examples, 4 new files. pytest 74
+  + ruff + tsc + vite green (232 KB). Keystone integrated by main; agents built only their 2 files each.
+- **OPS-001** [tooling/infra, high] `open` — Autonomous training babysitting is BLOCKED when the trainer
+  runs at higher OS integrity than the agent shell: `taskkill /F /T` returns Access-Denied for the whole
+  tree (verified 2026-06-15 on the live hung run, PIDs 38260/13336/workers). The babysitter correctly
+  detects the hang (avg GPU power <130W) but cannot kill/relaunch. WORKAROUND: launch training from a
+  NON-elevated shell (same integrity as the agent) so `ps/cola-train-resume.ps1` recovery works; otherwise
+  the human must kill+relaunch from an elevated PowerShell. Consider a privileged helper or a UI/IPC
+  shutdown channel the trainer honors (cooperative stop file) so recovery never needs taskkill.
 - **BUG-130** [bug, medium] `open` — `features/menus/tools_menu.py` project-memory action calls a
   NON-EXISTENT API (`MemoryManager.initialize()`, `list_recent()`, `MemoryUpdater`, a `project.db`).
   The real store (`memory/manager.py`) is markdown-file-based (`.cola/memory/*.md`, `_iter_sections`,

@@ -42,6 +42,7 @@ from . import configs as cfg
 from . import data_sources_view as dsv
 from . import data_stats_view as dst
 from . import datasets as ds
+from . import env_check_view as ecv
 from . import eval_history as eh
 from . import evals as ev
 from . import exports as ex
@@ -57,6 +58,7 @@ from . import pipeline_ops as po
 from . import reasoning as rs
 from . import retrieval_stats_view as rsv
 from . import router as rt
+from . import security_scan_view as ssv
 from . import scripts_catalog as sc
 from . import sft_data as sd
 from . import status as st
@@ -472,6 +474,16 @@ def create_app(
              response_model=sch.IndexStats | sch.ErrorResponse)
     def retrieval_index_stats_get() -> dict:
         return rsv.index_stats()
+
+    @app.get("/api/security/scan",
+             response_model=sch.MalwareScanResult | sch.ErrorResponse)
+    def security_scan_get(path: str, max_files: int = 500) -> dict:
+        return ssv.scan_summary(path, max_files)
+
+    @app.get("/api/env-check",
+             response_model=sch.EnvCheckReport | sch.ErrorResponse)
+    def env_check_get() -> dict:
+        return ecv.env_check()
 
     @app.get("/api/data-stats", response_model=sch.DataStats | sch.ErrorResponse)
     def data_stats_get(

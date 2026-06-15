@@ -575,6 +575,42 @@ class IndexStats(_UiModel):
     last_updated: str | None
 
 
+class ThreatInfo(_UiModel):
+    file_path: str
+    name: str
+    severity: str
+    scanner: str
+    details: str | None
+
+
+class MalwareScanResult(_UiModel):
+    path: str
+    files_scanned: int
+    is_clean: bool
+    threats: list[ThreatInfo]
+    duration_ms: float
+
+
+class EnvCheckItem(_UiModel):
+    name: str
+    ok: bool
+    value: str
+    detail: str | None
+
+
+class EnvCheckReport(_UiModel):
+    python_version: str
+    torch_version: str | None
+    cuda_available: bool
+    gpu_name: str | None
+    vram_gb: float | None
+    hf_token_set: bool
+    passed: int
+    failed: int
+    ok: bool
+    checks: list[EnvCheckItem]
+
+
 class ErrorResponse(_UiModel):
     """Maps to the TS ``ApiError`` interface."""
 

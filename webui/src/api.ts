@@ -39,6 +39,8 @@ import type {
   CheckpointHealth,
   MemoryStats,
   IndexStats,
+  MalwareScanResult,
+  EnvCheckReport,
   ApiError,
   JsonValue,
 } from './types';
@@ -312,6 +314,19 @@ export function getMemoryStats(): Promise<MemoryStats | ApiError> {
 
 export function getIndexStats(): Promise<IndexStats | ApiError> {
   return j<IndexStats | ApiError>('/api/retrieval/index-stats');
+}
+
+export function scanForMalware(
+  path: string,
+  maxFiles?: number,
+): Promise<MalwareScanResult | ApiError> {
+  const q = new URLSearchParams({ path });
+  if (maxFiles !== undefined) q.set('max_files', String(maxFiles));
+  return j<MalwareScanResult | ApiError>(`/api/security/scan?${q.toString()}`);
+}
+
+export function getEnvCheck(): Promise<EnvCheckReport | ApiError> {
+  return j<EnvCheckReport | ApiError>('/api/env-check');
 }
 
 export function getDataStats(
