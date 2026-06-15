@@ -2283,3 +2283,36 @@ systems the project already has. Filed as DATA-072.
 - [Rethinking Benchmark and Contamination with Rephrased Samples (arXiv:2311.04850)](https://arxiv.org/abs/2311.04850)
 - [Inference-Time Decontamination (arXiv:2406.13990)](https://arxiv.org/pdf/2406.13990)
 - StarCoder/BigCode decontamination procedure (prompt + canonical solution, 13-gram overlap).
+
+---
+
+## 2026-06-15 — Eval rigor: generalized consistency metric G-Pass@k_τ
+
+**Area:** evaluation. **2025 technique.** Pass@k (Chen et al. 2021) measures *capability*
+under best-of-k — "≥1 of k samples correct" — but rewards lucky one-offs and says nothing
+about *reliability*. "Are Your LLMs Capable of Stable Reasoning?" (arXiv:2412.13147)
+introduces **G-Pass@k_τ**: the unbiased probability that AT LEAST a τ-fraction of k samples
+are correct. τ tunes how much consistency the score demands and recovers the two endpoints
+exactly — τ→1/k is pass@k (≥1), τ=1 is pass^k (all-k). The τ-sweep exposes models that are
+capable-but-flaky (high pass@k, low G-Pass@k_{0.5}), which a single pass@k hides.
+
+**State of the project + what shipped.** `evaluation/metrics.py` already had both *extremes*
+(`pass_at_k`, `pass_hat_k` + aggregators) but not the interpolation between them. Added
+`g_pass_at_k(n, c, k, tau)` — the right-tail hypergeometric mass at threshold ⌈τ·k⌉ —
+with tests proving it reduces to `pass_at_k` at τ=1/k and `pass_hat_k` at τ=1, is monotone
+non-increasing in τ, and matches an explicit hypergeometric sum. Pure/combinatorial,
+MAIN-SAFE (offline metric; never touches training or generation).
+
+**Original idea — IDEA-008: consistency-targeted GRPO advantage shaping.** The project's GRPO
+already generates a group of G solutions per problem and rewards correct ones. Today the
+group reward signal is per-sample correctness; the GROUP's *consistency* (how many of G pass)
+is discarded. Idea: add a small per-group bonus proportional to G-Pass@k_{τ} of the group
+(or to the reliability gap pass@k − pass^k) so the policy is pushed toward problems it can
+solve *consistently*, not just occasionally — directly optimizing the metric that predicts
+deployment reliability. Cross-technique: GRPO (reasoning module) × G-Pass@k (this metric) ×
+the existing group-rollout machinery. MAIN-SAFE to prototype offline on recorded rollouts
+before any training wiring. Filed as EVAL-040.
+
+**Sources:**
+- [Are Your LLMs Capable of Stable Reasoning? — G-Pass@k (arXiv:2412.13147)](https://arxiv.org/abs/2412.13147)
+- [Evaluating Large Language Models Trained on Code — pass@k (arXiv:2107.03374)](https://arxiv.org/abs/2107.03374)

@@ -18,6 +18,17 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   Pipeline/Manager). One coherent panel per section, no grid. Built by 3 parallel agents (disjoint new
   files) wrapping the existing panels unchanged; App.tsx now imports 3 panels instead of 19. tsc + build green.
 
+### Eval — generalized consistency metric (2026-06-15)
+- **EVAL-039** [eval, medium] `done` (2026-06-15) — Added `g_pass_at_k(n, c, k, tau)` to
+  evaluation/metrics.py: unbiased G-Pass@k_τ (arXiv:2412.13147), the hypergeometric right-tail at
+  ⌈τ·k⌉ correct. Interpolates between the project's existing extremes — reduces to `pass_at_k` at
+  τ=1/k and `pass_hat_k` at τ=1. Tests prove both reductions + monotonicity + explicit-hypergeometric
+  match (38 pass). Pure, MAIN-SAFE.
+- **EVAL-040 / IDEA-008** [eval/post-training, medium] `open` — Consistency-targeted GRPO: add a
+  per-group bonus ∝ G-Pass@k_τ of the rollout group (or the reliability gap pass@k − pass^k) so the
+  policy optimizes for *consistently* solvable problems, not lucky one-offs. Prototype offline on
+  recorded rollouts first. Reuses GRPO group machinery + the new metric.
+
 ### UI — config editing + command palette (2026-06-15)
 - **UI-078** [ui, high] `done` (2026-06-15) — Config EDITING (R11): `POST /api/config/write` +
   `configs.write_config` (YAML-validate + path-traversal guard + atomic temp/replace; refuses bad edits

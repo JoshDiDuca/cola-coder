@@ -144,6 +144,58 @@ def pass_hat_k(n: int, c: int, k: int) -> float:
     return result
 
 
+def g_pass_at_k(n: int, c: int, k: int, tau: float) -> float:
+    """Generalized G-Pass@k_τ: unbiased P(at least ⌈τ·k⌉ of k samples are correct).
+
+    The tunable interpolation between the two consistency extremes the project
+    already has (G-Pass@k, arXiv:2412.13147, "Are Your LLMs Capable of Stable
+    Reasoning?"): ``pass_at_k`` is "≥1 of k correct" and ``pass_hat_k`` is "all k
+    correct". G-Pass@k_τ requires AT LEAST a τ-fraction of the k draws to be correct,
+    so τ controls how much *consistency* (not just best-of-k luck) the score demands.
+
+    With ``c`` of ``n`` samples correct, drawing k WITHOUT replacement, the count of
+    correct draws is Hypergeometric(n, c, k); this returns its right-tail mass at the
+    threshold ``t = ceil(tau * k)``::
+
+        G-Pass@k_τ = Σ_{j=t}^{k}  C(c, j) · C(n−c, k−j) / C(n, k)
+
+    Reduces exactly to ``pass_at_k`` when ``t == 1`` (e.g. ``tau <= 1/k``) and to
+    ``pass_hat_k`` when ``t == k`` (``tau == 1``).
+
+    Args:
+        n: Total number of samples generated.
+        c: Number of correct samples.
+        k: The k in G-Pass@k.
+        tau: Consistency threshold in (0, 1] — the required fraction of correct draws.
+
+    Returns:
+        Estimated probability that at least ⌈τ·k⌉ of k sampled solutions are correct.
+
+    Raises:
+        ValueError: If ``n <= 0``, ``k`` not in ``[1, n]``, ``c`` not in ``[0, n]``,
+            or ``tau`` not in ``(0, 1]`` — the estimator is undefined for those inputs.
+    """
+    if n <= 0:
+        raise ValueError(f"n must be positive, got {n}")
+    if not 1 <= k <= n:
+        raise ValueError(f"k must be in [1, {n}], got {k}")
+    if not 0 <= c <= n:
+        raise ValueError(f"c must be in [0, {n}], got {c}")
+    if not 0.0 < tau <= 1.0:
+        raise ValueError(f"tau must be in (0, 1], got {tau}")
+
+    threshold = math.ceil(tau * k)
+    # j correct draws is possible only for max(0, k-(n-c)) <= j <= min(k, c).
+    denom = math.comb(n, k)
+    total = 0.0
+    for j in range(threshold, k + 1):
+        if j > c or (k - j) > (n - c):
+            continue
+        total += math.comb(c, j) * math.comb(n - c, k - j) / denom
+
+    return total
+
+
 def compute_pass_hat_k(
     results: list[ProblemResult],
     k_values: list[int] = [1, 5, 10],
