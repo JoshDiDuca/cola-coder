@@ -18,6 +18,20 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   Pipeline/Manager). One coherent panel per section, no grid. Built by 3 parallel agents (disjoint new
   files) wrapping the existing panels unchanged; App.tsx now imports 3 panels instead of 19. tsc + build green.
 
+### Data quality — decontamination (2026-06-15)
+- **DATA-072 / BUG-133** [data-quality/bug, high] `done` (2026-06-15) — `DecontaminationFilter` screened
+  only the eval PROMPT, missing the canonical SOLUTION + hidden TESTS — the most damaging leakage and the
+  exact target of the 2026 standard (prompt + canonical_solution reference). ALSO its benchmark loader
+  imported `get_all_problems` from `evaluation.problem_loader` (no such symbol — it's in
+  `evaluation.humaneval`), so `ImportError` → silent `[]` → `benchmark=True` was a NO-OP. Fixed both:
+  correct import; emit prompt + canonical_solution + test_code as separate references. Tests: solution-only
+  contamination now dropped; loader exposes all three fields (8 pass). 8-18% of HumanEval overlaps public
+  pretraining corpora, so this directly protects pass@k honesty. See research-log 2026-06-15.
+- **DATA-072b / IDEA-007** [data-quality, medium] `open` — Soft decontamination: fold a graded containment
+  penalty into `.weights.npy` (weight ∝ 1−containment above a floor) instead of a hard drop, so
+  near-threshold paraphrases are down-weighted not kept-at-full. Reuses quality-weighted training + the
+  containment score already computed.
+
 ### Inference — speculative decoding (2026-06-15)
 - **MODEL-044** [inference, high] `open` — Wire `PromptLookupDrafter` into `CodeGenerator.generate()`
   for REAL prompt-lookup speculative decoding (exact greedy verification → byte-identical output,

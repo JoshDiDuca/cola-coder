@@ -28,10 +28,29 @@ from cola_coder.features.data_leakage_detector import _containment, _shingles
 
 
 def _load_benchmark_texts() -> list[str]:
-    """Best-effort load of built-in eval problem prompts (empty on any failure)."""
+    """Best-effort load of built-in eval problem texts (empty on any failure).
+
+    Emits the prompt AND the canonical solution AND the test code of every problem
+    as SEPARATE reference texts. The 2026 standard decontamination procedure
+    (StarCoder/Llama) screens against the prompt + canonical solution concatenation —
+    a training file that contains the reference SOLUTION (or the hidden tests) to an
+    eval problem is contamination even when the prompt itself never appears, so
+    prompt-only screening misses the most damaging leakage. Each field is a distinct
+    reference so containment is judged per-component.
+    """
     try:
-        from cola_coder.evaluation.problem_loader import get_all_problems
-        return [getattr(p, "prompt", "") for p in get_all_problems() if getattr(p, "prompt", "")]
+        # NOTE: get_all_problems lives in .humaneval, not .problem_loader. The prior
+        # import targeted problem_loader (no such symbol) → ImportError → silent [],
+        # so `benchmark=True` was a no-op. Import from the module that defines it.
+        from cola_coder.evaluation.humaneval import get_all_problems
+
+        texts: list[str] = []
+        for p in get_all_problems():
+            for field in ("prompt", "canonical_solution", "test_code"):
+                value = getattr(p, field, "")
+                if value:
+                    texts.append(value)
+        return texts
     except Exception:  # noqa: BLE001 — decontamination must never crash data prep
         return []
 

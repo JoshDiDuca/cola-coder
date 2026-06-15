@@ -2244,3 +2244,42 @@ drafter into the generate loop is filed as MODEL-044.
 - [Faster In-Context Learning via N-Gram Trie (EMNLP 2025)](https://aclanthology.org/2025.emnlp-main.911.pdf)
 - [Scaling Up, Speeding Up: A Benchmark of Speculative Decoding (arXiv 2509.04474)](https://arxiv.org/pdf/2509.04474)
 - [GRIFFIN: Effective Token Alignment for Faster Speculative Decoding (arXiv 2502.11018)](https://arxiv.org/pdf/2502.11018)
+
+---
+
+## 2026-06-15 — Data quality: benchmark decontamination must include the SOLUTION
+
+**Area:** data quality / eval integrity. **2026 best practice.** The standard
+decontamination procedure (StarCoder/Llama) forms the reference text by concatenating
+the **prompt AND the canonical solution**, tokenizes, and drops any training sample
+whose n-gram (n≈8-13) overlap with a benchmark instance exceeds a threshold. The
+reported stakes are large: **8-18% of HumanEval overlaps** pretraining corpora like
+RedPajama-1T and StarCoder-Data — uncaught, that directly inflates pass@k. N-gram
+string matching is the cheap high-precision layer; it misses paraphrased/translated
+leakage (arXiv:2311.04850), for which embedding/LLM detection is needed (deferred).
+
+**Findings + fix (this cycle).** The project's `DecontaminationFilter` (DATA-065) only
+screened against the problem **prompt** — so a training file containing the reference
+**solution** or the hidden **tests** (the most damaging leakage, and exactly what the
+2026 procedure targets) passed through. Worse, its built-in benchmark loader imported
+`get_all_problems` from `evaluation.problem_loader`, where that symbol does not exist
+(it lives in `evaluation.humaneval`) → `ImportError` → silent `[]`, so `benchmark=True`
+was a **no-op**. Both fixed: import from `.humaneval`; emit prompt + canonical_solution
++ test_code as separate reference texts. Tests: a record containing ONLY the solution
+(under a different signature) is now dropped; the loader exposes all three fields.
+
+**Original idea — IDEA-007: contamination-aware quality weight (soft decontam).** Hard
+n-gram decontam is binary (drop ≥ threshold, keep below) and brittle at the boundary —
+a paraphrased eval problem just under threshold slips in at full training weight. Since
+the project ALREADY emits per-sample quality weights (`.weights.npy`) consumed by
+`language_modeling_loss`, fold a *graded* contamination penalty INTO the weight instead
+of a hard cut: weight ∝ (1 − containment) above a low floor, so near-benchmark samples
+are progressively down-weighted rather than kept-or-killed. Cross-technique: decontam
+(DATA-065) × quality-weighted training × the containment score already computed. Cheaper
+than embedding detection, strictly safer than a single hard threshold, and reuses two
+systems the project already has. Filed as DATA-072.
+
+**Sources:**
+- [Rethinking Benchmark and Contamination with Rephrased Samples (arXiv:2311.04850)](https://arxiv.org/abs/2311.04850)
+- [Inference-Time Decontamination (arXiv:2406.13990)](https://arxiv.org/pdf/2406.13990)
+- StarCoder/BigCode decontamination procedure (prompt + canonical solution, 13-gram overlap).
