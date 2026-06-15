@@ -60,10 +60,12 @@ from . import pipeline_ops as po
 from . import project_health_view as phv
 from . import reasoning as rs
 from . import reasoning_problems_view as rpv
+from . import regression_history_view as rhv
 from . import retrieval_stats_view as rsv
 from . import router as rt
 from . import safety_eval_view as sev
 from . import security_scan_view as ssv
+from . import scoring_config_view as scv
 from . import scripts_catalog as sc
 from . import sft_data as sd
 from . import status as st
@@ -520,6 +522,16 @@ def create_app(
              response_model=sch.VocabSearchResult | sch.ErrorResponse)
     def vocab_search_get(query: str = "", path: str | None = None, limit: int = 200) -> dict:
         return vxv.vocab_search(query, path, limit)
+
+    @app.get("/api/scoring-config",
+             response_model=sch.ScoringConfig | sch.ErrorResponse)
+    def scoring_config_get() -> dict:
+        return scv.scoring_config()
+
+    @app.get("/api/regression-history",
+             response_model=sch.RegressionHistory | sch.ErrorResponse)
+    def regression_history_get() -> dict:
+        return rhv.regression_history(str(root))
 
     @app.get("/api/data-stats", response_model=sch.DataStats | sch.ErrorResponse)
     def data_stats_get(

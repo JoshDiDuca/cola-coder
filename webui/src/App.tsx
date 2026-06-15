@@ -44,6 +44,8 @@ import FiltersCatalogPanel from './components/FiltersCatalogPanel';
 import ReasoningProblemsPanel from './components/ReasoningProblemsPanel';
 import ActionLauncherPanel from './components/ActionLauncherPanel';
 import VocabExplorerPanel from './components/VocabExplorerPanel';
+import ScoringConfigPanel from './components/ScoringConfigPanel';
+import RegressionHistoryPanel from './components/RegressionHistoryPanel';
 import CollapsibleSection from './components/CollapsibleSection';
 
 interface Snapshot {
@@ -149,6 +151,7 @@ export default function App() {
           <VectorIndexPanel />
           <SecurityScanPanel />
           <FiltersCatalogPanel />
+          <ScoringConfigPanel />
         </CollapsibleSection>
 
         {/* Configs & pipeline. */}
@@ -166,6 +169,7 @@ export default function App() {
           <EvalHistoryPanel />
           <BenchmarkResultsPanel />
           <SafetyEvalPanel />
+          <RegressionHistoryPanel />
         </CollapsibleSection>
 
         {/* Tokenizer. */}

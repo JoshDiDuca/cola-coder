@@ -315,6 +315,28 @@ _EXAMPLES: dict[str, dict[str, object]] = {
     },
     "RunRequest": {"action": "prepare_data", "args": ["--config", "configs/small.yaml"]},
     "TrainStartRequest": {"config": "configs/small.yaml", "resume": None},
+    "ScorerConfigEntry": {
+        "name": "tsc", "enabled": True, "weight": 0.3, "available": True,
+        "purpose": "Score TypeScript files using tsc --noEmit via SandboxedRunner.",
+    },
+    "ScoringConfig": {
+        "path": "configs/scoring.yaml", "scorers": [], "count": 0,
+        "enabled_count": 0, "curriculum": None,
+    },
+    "RegressionMetric": {
+        "name": "pass_rate", "value": 0.9, "baseline": None,
+        "delta": None, "regressed": True,
+    },
+    "RegressionRun": {
+        "name": "results_v1.json", "path": "regression/results_v1.json",
+        "checkpoint": "checkpoints/tiny/step_00017000", "mtime": 1781493866.07,
+        "passed": False,
+        "metrics": [{
+            "name": "pass_rate", "value": 0.9, "baseline": None,
+            "delta": None, "regressed": True,
+        }],
+    },
+    "RegressionHistory": {"runs": [], "count": 0},
     "VocabToken": {"id": 42, "piece": "Ġconst", "is_special": False},
     "VocabSearchResult": {
         "query": "const", "vocab_size": 32768, "total_matches": 3, "truncated": False,

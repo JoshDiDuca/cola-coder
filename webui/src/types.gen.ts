@@ -692,6 +692,44 @@ export interface VocabSearchResult {
   special_tokens: VocabToken[];
 }
 
+export interface ScorerConfigEntry {
+  name: string;
+  enabled: boolean;
+  weight: number;
+  available: boolean;
+  purpose: string;
+}
+
+export interface ScoringConfig {
+  path: string;
+  scorers: ScorerConfigEntry[];
+  count: number;
+  enabled_count: number;
+  curriculum: string | null;
+}
+
+export interface RegressionMetric {
+  name: string;
+  value: number | null;
+  baseline: number | null;
+  delta: number | null;
+  regressed: boolean;
+}
+
+export interface RegressionRun {
+  name: string;
+  path: string;
+  checkpoint: string | null;
+  mtime: number;
+  passed: boolean;
+  metrics: RegressionMetric[];
+}
+
+export interface RegressionHistory {
+  runs: RegressionRun[];
+  count: number;
+}
+
 export interface RunRequest {
   action: string;
   args?: string[] | null;
@@ -753,3 +791,5 @@ export type SafetyEvalResultsOrError = SafetyEvalResults | ApiError;
 export type FiltersCatalogOrError = FiltersCatalog | ApiError;
 export type ReasoningProblemSetOrError = ReasoningProblemSet | ApiError;
 export type VocabSearchResultOrError = VocabSearchResult | ApiError;
+export type ScoringConfigOrError = ScoringConfig | ApiError;
+export type RegressionHistoryOrError = RegressionHistory | ApiError;

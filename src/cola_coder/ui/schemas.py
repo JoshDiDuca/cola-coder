@@ -725,6 +725,44 @@ class VocabSearchResult(_UiModel):
     special_tokens: list[VocabToken]
 
 
+class ScorerConfigEntry(_UiModel):
+    name: str
+    enabled: bool
+    weight: float
+    available: bool
+    purpose: str
+
+
+class ScoringConfig(_UiModel):
+    path: str
+    scorers: list[ScorerConfigEntry]
+    count: int
+    enabled_count: int
+    curriculum: str | None
+
+
+class RegressionMetric(_UiModel):
+    name: str
+    value: float | None
+    baseline: float | None
+    delta: float | None
+    regressed: bool
+
+
+class RegressionRun(_UiModel):
+    name: str
+    path: str
+    checkpoint: str | None
+    mtime: float
+    passed: bool
+    metrics: list[RegressionMetric]
+
+
+class RegressionHistory(_UiModel):
+    runs: list[RegressionRun]
+    count: int
+
+
 class RunRequest(_UiModel):
     """Body for ``POST /api/run`` — launch an allow-listed action as a job."""
 

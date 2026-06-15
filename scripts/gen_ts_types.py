@@ -136,6 +136,11 @@ _MODEL_ORDER: list[str] = [
     "ReasoningProblemSet",
     "VocabToken",
     "VocabSearchResult",
+    "ScorerConfigEntry",
+    "ScoringConfig",
+    "RegressionMetric",
+    "RegressionRun",
+    "RegressionHistory",
     "RunRequest",
     "TrainStartRequest",
 ]
@@ -182,6 +187,8 @@ _OR_ERROR: list[str] = [
     "FiltersCatalog",
     "ReasoningProblemSet",
     "VocabSearchResult",
+    "ScoringConfig",
+    "RegressionHistory",
 ]
 
 

@@ -48,6 +48,8 @@ import type {
   FiltersCatalog,
   ReasoningProblemSet,
   VocabSearchResult,
+  ScoringConfig,
+  RegressionHistory,
   RunRequest,
   TrainStartRequest,
   ApiError,
@@ -64,9 +66,11 @@ async function j<T>(url: string, opts?: RequestInit): Promise<T> {
 
 // Request bodies are keyed by string; values are JSON-serializable, and an
 // optional field may be `undefined` (JSON.stringify simply drops it).
-type JsonRequestBody = { [key: string]: JsonValue | undefined };
-
-function postJson(body: JsonRequestBody): RequestInit {
+// Accepts any typed request object (named schema models like RunRequest, or
+// inline literals). Generic over `object` so concrete interfaces — which lack an
+// implicit index signature — are assignable; the body is JSON-serialized here at
+// the single request boundary.
+function postJson<T extends object>(body: T): RequestInit {
   return {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -369,6 +373,14 @@ export function searchVocab(query: string, limit?: number): Promise<VocabSearchR
   const q = new URLSearchParams({ query });
   if (limit !== undefined) q.set('limit', String(limit));
   return j<VocabSearchResult | ApiError>(`/api/vocab-search?${q.toString()}`);
+}
+
+export function getScoringConfig(): Promise<ScoringConfig | ApiError> {
+  return j<ScoringConfig | ApiError>('/api/scoring-config');
+}
+
+export function getRegressionHistory(): Promise<RegressionHistory | ApiError> {
+  return j<RegressionHistory | ApiError>('/api/regression-history');
 }
 
 export function getDataStats(

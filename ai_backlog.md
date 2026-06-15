@@ -254,6 +254,15 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   → Tokenizer. +2 models (gen_ts regen, 86 ifaces, 38 OrError), +2 test examples, 3 new files. pytest 89 +
   ruff + tsc + vite green (252 KB). Keystone integrated by main. (UI-017 partially addressed — arg editing now
   exists; remaining: structured per-arg forms + data-collection wizards.)
+- **UI-050..051** [ui, medium] `done` (2026-06-15) — Batch (parallel agents, disjoint files): 2 read-only
+  views. UI-050 Scoring Config (`GET /api/scoring-config`, `ScoringConfig`/`ScorerConfigEntry`; merges
+  configs/scoring.yaml enabled/weight with `registry.list_available_scorers` availability + scorer-class
+  purpose — surfaces the new DATA-072 educational_value scorer) → Data. UI-051 Regression History
+  (`GET /api/regression-history`, `RegressionHistory`/`RegressionRun`/`RegressionMetric`; scans
+  regression_test.py `--save` JSON artifacts, empty-state until saved) → Evaluation. +5 models (gen_ts regen,
+  93 ifaces), +5 test examples, 4 new files. ALSO fixed a tsc break committed in TYPE-003: `postJson` is now
+  generic `<T extends object>` so named request interfaces (RunRequest/TrainStartRequest) are assignable.
+  pytest 96 + ruff + tsc + vite green (257 KB).
 - **TYPE-003** [typing, medium] `done` (2026-06-15) — Typed the weakly-typed `/api/run` + `/api/train/start`.
   Added `RunRequest{action: str; args: list[str] | None}` and `TrainStartRequest{config: str; resume: str |
   None}` Pydantic models (registered in gen_ts_types `_MODEL_ORDER`); endpoints now take the typed body with
