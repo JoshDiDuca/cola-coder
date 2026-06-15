@@ -103,6 +103,13 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 - **UI-079** [ui, medium] `done` (2026-06-15) — `CommandPalette` (⌘K/Ctrl-K): fuzzy quick-switcher over
   all 11 nav sections; self-contained global key listener, navigates via the same hash as Sidebar.
 
+### Infra — training-liveness detection (2026-06-15)
+- **OPS-003 / IDEA-015** [infra/safety, medium] `open` — Replace mtime-window liveness (BUG-136) with
+  monotone STEP-progress detection: cache (max_step, time) between status polls; "alive" iff the parsed
+  max step increased OR a newer step_* checkpoint appeared since the last poll. Immune to both
+  false-negatives (slow-patch stale mtime) and false-positives (fresh mtime 45 min after a clean stop);
+  needs no process access. Encodes the runbook's own "step advancing" criterion into the live gate.
+
 ### Optimizers — cautious masking (2026-06-15)
 - **MODEL-048a** [optimizers, medium] `done` (2026-06-15) — Added pure `cautious_mask(update, grad)`
   (C-Optim, arXiv:2411.16085) + wired into the custom `Muon` (both Muon + embedded-AdamW steps) behind a

@@ -2512,3 +2512,32 @@ Muon RMS-matching. The pure mask shipped here is the substrate; filed as MODEL-0
 **Sources:**
 - [Cautious Optimizers: Improving Training with One Line of Code (arXiv:2411.16085)](https://arxiv.org/abs/2411.16085)
 - [Muon / Moonlight — update-RMS matching (arXiv:2502.16982)](https://arxiv.org/abs/2502.16982)
+
+---
+
+## 2026-06-15 — Infra/safety: robust training-liveness under elevation + slow I/O (BUG-136)
+
+**Area:** observability / inference-safety (not a paper technique — a hard-won systems lesson,
+logged because it bit twice). The UI must refuse GPU inference while the live trainer runs, but
+the trainer is launched at higher OS integrity (OPS-001) so psutil can't see it — detection
+falls back to the freshness of its progress files. The trap: a freshness THRESHOLD is only as
+good as your model of the producer's cadence. This dataloader-bound 125M run writes progress
+every 22-30 min in slow patches (documented, normal), so a 10-min window false-negatived →
+the gate silently stopped refusing → a UI generation could contend with the live run for VRAM.
+Two-cycle arc: OPS-002 added the freshness fallback (good); BUG-136 found its window was 4x too
+tight for the real cadence. Fix: set the liveness window to the SAME number the runbook already
+uses to call a run "hung" (45 min) — derive the threshold from the documented SLO, don't guess —
+and OR the freshest of all progress files. Fail toward over-blocking (refuse inference a bit too
+long after a stop) rather than under-blocking (contend with a live run).
+
+**Original idea — IDEA-015: liveness from monotone STEP progress, not mtime.** mtime is a proxy:
+it goes stale during slow patches (false-negative) and stays fresh for 45 min after a clean stop
+(false-positive). The ground truth the runbook actually uses is the *max step number advancing*.
+A tiny stateful detector — cache (max_step, wall_time) between status polls and report "alive" iff
+the parsed max step increased since the last poll OR a newer step_* checkpoint dir appeared — is
+immune to both failure modes and needs no process access. The SSE snapshot already recomputes
+status on a tick, so it has the natural cadence to diff against. Cross-cutting: the babysitting
+runbook's own "step advancing" criterion, encoded into the live gate. Filed as OPS-003.
+
+**Sources:** internal — the project's TRAINING SAFETY runbook (the 45-min "hung" SLO and the
+"step number is the only reliable signal" rule are the authority this fix derives from).
