@@ -2410,3 +2410,264 @@ body {
   flex: 1;
   min-width: 160px;
 }
+
+/* ============================================================
+   MASTER-DETAIL SCREEN LAYOUT (list + selected-item detail)
+   ============================================================ */
+.md {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+.md-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: sticky;
+  top: 86px;
+  max-height: calc(100vh - 120px);
+  overflow: auto;
+}
+
+.md-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px 4px;
+}
+
+.md-list-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.md-list-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.md-item {
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 11px 13px;
+  cursor: pointer;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.md-item:hover {
+  border-color: #3a4250;
+}
+
+.md-item.active {
+  border-color: var(--accent);
+  background: rgba(79, 156, 249, 0.1);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.md-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.md-item-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.md-item-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.md-item-meta {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
+.md-list-empty,
+.md-detail-empty {
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  border-radius: 9px;
+  font-size: 13px;
+}
+
+.md-detail {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Detail-pane action toolbar */
+.md-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.md-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.md-detail-title {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+  min-width: 0;
+  word-break: break-word;
+}
+
+@media (max-width: 820px) {
+  .md {
+    grid-template-columns: 1fr;
+  }
+  .md-list {
+    position: static;
+    max-height: none;
+  }
+}
+
+/* Secondary "More tools" area below a master-detail screen (keeps 1:1 coverage). */
+.md-more {
+  margin-top: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.md-more-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--muted);
+  font-weight: 700;
+  border-top: 1px solid var(--border);
+  padding-top: 18px;
+}
+
+/* Checkpoints screen detail sub-sections */
+.ck-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ck-subline {
+  margin-top: 4px;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+/* Data screen */
+.data-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.data-launch-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.data-launch-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 12px 14px;
+}
+
+.data-launch-hint {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.data-launch-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.data-launch-note {
+  font-size: 11px;
+}
+
+.data-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.data-detail-id {
+  min-width: 0;
+}
+
+.data-detail-path {
+  font-size: 11px;
+  word-break: break-all;
+  margin-top: 2px;
+}
+
+/* Evaluation screen */
+.es-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.es-head {
+  justify-content: space-between;
+}
+
+.es-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 12px;
+  background: var(--panel);
+}
+
+.es-delta {
+  font-family: var(--mono);
+}
+
+.es-delta--up {
+  color: var(--good);
+}
+
+.es-delta--down {
+  color: var(--bad);
+}

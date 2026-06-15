@@ -25,7 +25,9 @@ Last updated: 2026-06-15.
 ### R1 — App shell & navigation  ✅ DONE (UI-063)
 Sidebar (grouped nav) + routed pages (hash router) + topbar w/ live status. One page at a time.
 
-### R2 — Master–detail screens for every section  ◻ IN PROGRESS
+### R2 — Master–detail screens for every section  ◧ 3 INTEGRATED, rest pending
+INTEGRATED + live (UI-068): Checkpoints, Data, Eval now render master-detail screens (MasterDetail.tsx
+primitive). Dropped tools kept in a temporary "More tools" area below each (1:1 preserved) until folded in.
 Replace each page's card-grid with a single master→detail screen.
 - Checkpoints — ✅ screen built (CheckpointsScreen): list → Health/Compare/Export. **Gap:** Model Card,
   Training Manifest, Router, Average (model-soup), Export-artifacts not yet in the screen (kept in a
