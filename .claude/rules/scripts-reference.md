@@ -64,6 +64,7 @@
 | `compare_models.py` | Side-by-side model comparison |
 | `run_eval_suite.py` | Run all evaluations in sequence |
 | `test_type_reward.py` | Test GRPO TypeScript reward function |
+| `pld_analysis.py` | Offline prompt-lookup-decoding acceptance analysis over a .npy token corpus (no model) — args: --data, --max-ngram, --min-ngram, --num-pred, --sample, --seed-len |
 
 ## Checkpoint Management
 | Script | Purpose |

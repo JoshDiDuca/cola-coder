@@ -49,6 +49,8 @@ class EvalMenu:
                  "detail": "Test semantic router classification accuracy across domains"},
                 {"label": "Data Contamination",
                  "detail": "Check eval problems for leakage into the training corpus"},
+                {"label": "PLD Acceptance Analysis",
+                 "detail": "Offline prompt-lookup speculative-decoding acceptance + speedup (no model)"},
             ]
 
             choice = cli.choose("Select category:", options, allow_cancel=True)
@@ -68,6 +70,7 @@ class EvalMenu:
                 self._process_credit_menu,
                 self._routing_accuracy_menu,
                 self._contamination_menu,
+                self._pld_analysis_menu,
             ]
             handlers[choice]()
 
@@ -1108,6 +1111,80 @@ class EvalMenu:
             args += ["--train-jsonl", corpus]
 
         self._master._run_script("check_contamination.py", args)
+        self._master._pause()
+
+    def _pld_analysis_menu(self) -> None:
+        """Offline prompt-lookup-decoding acceptance analysis over a token corpus."""
+        _print_section_header(
+            "PLD Acceptance Analysis",
+            "Offline prompt-lookup speculative-decoding acceptance + speedup",
+        )
+
+        cli.print(
+            "  Replays the draft-free PLD drafter over a tokenized .npy corpus and\n"
+            "  reports acceptance rate, mean accepted length, draft hit rate, and an\n"
+            "  idealised step-count speedup. Pure offline — no model, no GPU.\n"
+        )
+
+        from pathlib import Path
+
+        try:
+            data = input(
+                "  Tokenized corpus path (.npy, shape [N, seq] or [tokens]): "
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            cli.warn("Cancelled.")
+            return
+        if not data or not Path(data).exists():
+            cli.error("Data path not found.")
+            self._master._pause()
+            return
+
+        ngram_options = [
+            {"label": "Reference (max=3, min=1, num-pred=10)",
+             "detail": "Upstream PLD defaults — high hit rate, lots of short matches"},
+            {"label": "Specific (max=4, min=2, num-pred=8)",
+             "detail": "Longer, more specific matches — fewer false continuations"},
+            {"label": "Aggressive (max=5, min=1, num-pred=16)",
+             "detail": "Long continuations — best case for repetitive code"},
+        ]
+        ngram_choice = cli.choose("Drafter preset:", ngram_options, allow_cancel=True)
+        if ngram_choice is None:
+            return
+        presets = [(3, 1, 10), (4, 2, 8), (5, 1, 16)]
+        max_ngram, min_ngram, num_pred = presets[ngram_choice]
+
+        sample_options = [
+            {"label": "First 200 sequences", "detail": "Fast sample"},
+            {"label": "First 1000 sequences", "detail": "Larger sample"},
+            {"label": "All sequences", "detail": "Whole corpus — slowest"},
+        ]
+        sample_choice = cli.choose("Sample size:", sample_options, allow_cancel=True)
+        if sample_choice is None:
+            return
+        sample = [200, 1000, None][sample_choice]
+
+        args = [
+            "--data", data,
+            "--max-ngram", str(max_ngram),
+            "--min-ngram", str(min_ngram),
+            "--num-pred", str(num_pred),
+            "--seed-len", "1",
+        ]
+        if sample is not None:
+            args += ["--sample", str(sample)]
+
+        cli.kv_table({
+            "Corpus": data,
+            "max/min ngram": f"{max_ngram}/{min_ngram}",
+            "num-pred": str(num_pred),
+            "Sample": "all" if sample is None else str(sample),
+        }, title="PLD Analysis Config")
+
+        if not cli.confirm("Run PLD acceptance analysis?"):
+            return
+
+        self._master._run_script("pld_analysis.py", args)
         self._master._pause()
 
     def _routing_accuracy_menu(self) -> None:

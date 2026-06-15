@@ -203,6 +203,27 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   subprocess sweep that project_health.py runs, proxies labelled in detail) → System & Tools. +4 models
   (gen_ts_types regen, 75 ifaces, 33 OrError), +4 test examples, 4 new files. pytest 78 + ruff + tsc + vite
   green (237 KB). Keystone integrated by main.
+- **UI-046..047** [ui, medium] `done` (2026-06-15) — Batch (parallel agents, disjoint files): 2 read-only
+  catalog views. UI-046 Data Filters Catalog (`GET /api/filters-catalog`, `FiltersCatalog`/`FilterInfo`;
+  enumerates the 11 `@register_filter` plugins across 4 categories via the real `data/registry`) → Data.
+  UI-047 Reasoning Problems browser (`GET /api/reasoning-problems?which=`, `ReasoningProblemSet`/
+  `ReasoningProblem`; reads the real `evaluation/problem_loader.load_problem_set` — 67 problems) →
+  System & Tools. +4 models (gen_ts_types regen, 84 ifaces, 37 OrError), +4 test examples, 4 new files.
+  pytest 87 + ruff + tsc + vite green (246 KB). Keystone integrated by main.
+- **INFER-035** [inference, high] `done` (2026-06-15) — Prompt-Lookup Decoding (PLD) OFFLINE acceptance
+  analysis. The dangling untracked module `inference/prompt_lookup.py` (draft-free n-gram speculative
+  drafter + `analyze_acceptance` measuring α / mean accepted length / idealised speedup with NO model in
+  the loop — the "acceptance-first" discipline the 2026 spec-decoding literature mandates) is now brought
+  under version control, TESTED (tests/test_prompt_lookup.py, 26 tests inc. a lossless-invariant property
+  test) and WIRED end-to-end: `scripts/pld_analysis.py` CLI (loads a .npy token corpus, reports
+  acceptance/speedup via cli.kv_table) + an eval-menu entry. MAIN-SAFE (pure-Python, no torch/GPU/model).
+  Smoke: 83% acceptance / 2.56x speedup on a repetitive corpus. See research-log 2026-06-15. 138 tests pass.
+- **INFER-036** [inference, medium] `open` — Context-seeded PLD (original cross-technique idea, research-log
+  2026-06-15): seed the PLD drafter's lookup datastore with the RETRIEVED repo-context tokens (the project's
+  `--repo`/`retrieval/vector_store` assembly), REST-style, in addition to the running buffer — a tiered,
+  draft-free, training-free, lossless drafter specialised for IDE code completion. First step is OFFLINE:
+  extend `analyze_acceptance` to A/B buffer-only vs buffer+repo α on real .npy corpora (no hot-path change)
+  to size the win before any live-decoder integration. The DATA-071 n-gram machinery is reusable for indexing.
 - **UI-044..045** [ui, medium] `done` (2026-06-15) — Batch (parallel agents, disjoint files): 2 read-only
   results viewers → Evaluation section. UI-044 Benchmark Results (`GET /api/benchmark-results`,
   `BenchmarkResults`/`BenchmarkRun`; scans conventional drop dirs for `inference_benchmark.py --json`

@@ -7,6 +7,49 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-15 — Speculative decoding for code: draft-free Prompt-Lookup + the acceptance-first discipline (rotate: inference)
+
+**Sources (2023–2026):** *Prompt Lookup Decoding* (apoorvumang, 2023) — https://github.com/apoorvumang/prompt-lookup-decoding
+(draft-free single-model speculative drafter: match the running suffix n-gram against earlier context, copy the
+continuation; lossless — the target still verifies every token). *REST: Retrieval-Based Speculative Decoding*
+(NAACL 2024) — https://arxiv.org/abs/2311.08252 (generalises PLD to an external (context→continuation) datastore).
+*EAGLE-3 / feature-level drafting* and *Medusa* (extra MLP heads) — the trained-drafter frontier, ~0.75–0.85
+acceptance on structured/code text. *Speculative Decoding 2-3x Faster LLM Inference (2026)* —
+https://blog.premai.io/speculative-decoding-2-3x-faster-llm-inference-2026/ (now production-standard in
+vLLM/SGLang/TRT-LLM; NVIDIA 3.6× on H200; real acceptance 0.6–0.85, code/structured at the top of that band).
+*Training-Free Loosely Speculative Decoding* — https://arxiv.org/pdf/2511.22972 (accept SEMANTICALLY-equivalent
+drafts beyond exact match — a lossy variant). *Speculative Speculative Decoding* (ICLR 2026) — https://arxiv.org/pdf/2603.03251.
+
+**Summary:** speculative decoding (draft K tokens cheaply, verify them in ONE target forward pass, keep the
+longest correct prefix + 1 bonus token) is the dominant 2026 inference speedup, 2–3.6×. The two axes are
+(a) draft source — trained head (EAGLE/Medusa, highest acceptance, needs training) vs **draft-free** (PLD/REST,
+zero training, zero extra params, just string-matching), and (b) acceptance rate α, the first-order predictor of
+speedup. The literature's discipline: **measure α on YOUR corpus BEFORE wiring a drafter into the hot path** —
+mean-accepted-length and α determine whether per-step overhead erodes the theoretical win. Code is the best-case
+domain for draft-free PLD: identifiers, imports, type annotations, and boilerplate recur VERBATIM within a file,
+so the running buffer is itself a high-yield draft datastore at zero cost.
+
+**cola-coder fit:** this project is a code model whose flagship use is IDE inline-completion (FIM) — exactly where
+PLD shines and where a 2× latency cut is directly user-visible. It already has the pieces: an `inference/`
+KV-cache generator, `--repo` repo-context assembly, and a `retrieval/vector_store`. The offline half now exists
+and is tested: `inference/prompt_lookup.py` (`PromptLookupDrafter` + `analyze_acceptance`) measures α / mean
+accepted length / idealised speedup over a recorded trace with NO model in the loop — implementing the
+"acceptance-first" discipline above. (This cycle: tested + wired into a `scripts/pld_analysis.py` CLI + eval menu.)
+
+**Original idea (cross-technique, cola-coder-specific): _context-seeded PLD_ — fuse PLD with the project's repo
+retrieval.** Vanilla PLD only mines the *running buffer*. But for IDE code completion the highest-yield verbatim
+continuations live in the **open file + imported/retrieved neighbour files** the project already assembles for
+`--repo`/vector_store context. Proposal: seed the PLD lookup datastore with the *retrieved repo context tokens*
+(REST-style, but the datastore is the user's own session repo, not a global corpus) in ADDITION to the running
+buffer — a tiered, draft-free, training-free, lossless drafter specialised for code. Tier 1: running-buffer
+n-gram (locality). Tier 2: retrieved-repo n-gram (cross-file recurrence: re-typing an import, a known signature,
+a sibling component). The existing `analyze_acceptance` harness can A/B buffer-only vs buffer+repo α on real
+prepared `.npy` corpora to size the win before any hot-path change — and the project's DATA-071 n-gram machinery
+is reusable for the datastore indexing. Open question: does adding the repo datastore raise α enough to beat the
+extra lookup cost, given code's already-high buffer-only α? Measure first (that is the whole point of the harness).
+
+---
+
 ## 2026-06-14 — Gopher / MassiveText repetition filters: char-fraction degeneracy screen (rotate: data quality/curation)
 
 **Sources (2021–2026):** *The FineWeb Datasets: Decanting the Web for the Finest Text Data at Scale* —
