@@ -52,14 +52,21 @@ def _to_int(value: str) -> int | None:
     return int(f) if f is not None else None
 
 
-# The per-step tqdm ``.err`` file is rewritten every training step (~20s here),
-# so an ``.err`` modified within this window means training is actively running.
-# This is robust to the live trainer being launched at HIGHER OS INTEGRITY than
-# this process (OPS-001), where psutil cannot read its cmdline and the
-# nvidia-smi compute-app name shows only "[Insufficient Permissions]". Generous
-# enough (10 min) never to false-negative on a slow step; the 100-step ``.log``
-# can legitimately be 22-30 min stale, so only the per-step ``.err`` is used.
-_TRAIN_FRESH_MAX_AGE_S = 600.0
+# An ``.err``/``.log`` modified within this window means training is actively
+# running. Robust to the live trainer being launched at HIGHER OS INTEGRITY than
+# this process (OPS-001), where psutil cannot read its cmdline.
+#
+# BUG-136: this was 600s (10 min), but this dataloader-bound 125M run can take
+# 22-30 min between log/progress writes (per the babysitting rules) — a NORMAL
+# slow patch, not a stall. A 10-min window false-negatived during those gaps, so
+# the inference gates (generate/chat/fim/best-of) would STOP refusing and let a UI
+# generation contend with the live trainer for the GPU. Widened to 45 min to match
+# the documented cadence — the SAME threshold the babysitting uses to call a run
+# "hung" (no progress >45 min). Conservative: after a clean stop the gate stays
+# "busy" for up to 45 min, which only over-protects (refuses inference) — the safe
+# direction. Both the per-step ``.err`` AND the 100-step ``.log`` mtime are checked
+# (whichever is fresher), since either advancing means the run is alive.
+_TRAIN_FRESH_MAX_AGE_S = 2700.0
 
 
 def _is_training_alive() -> bool:
@@ -78,34 +85,46 @@ def _is_training_alive() -> bool:
     return False
 
 
-def _training_progress_fresh(err_path: str, max_age_s: float = _TRAIN_FRESH_MAX_AGE_S) -> bool:
-    """True if the per-step tqdm ``.err`` was modified within ``max_age_s``.
+def _training_progress_fresh(
+    err_path: str,
+    log_path: str | None = None,
+    max_age_s: float = _TRAIN_FRESH_MAX_AGE_S,
+) -> bool:
+    """True if the trainer's ``.err`` OR ``.log`` was modified within ``max_age_s``.
 
-    Elevation-proof fallback for ``alive`` detection: the running trainer rewrites
-    this file every step regardless of OS integrity, so a fresh mtime is a reliable
-    "training is active" signal even when the process itself is unreadable (OPS-001).
+    Elevation-proof ``alive`` detection: the running trainer rewrites these files as
+    it progresses regardless of OS integrity, so a fresh mtime on EITHER is a reliable
+    "training is active" signal even when the process is unreadable (OPS-001). Checks
+    both and takes the freshest, since during a slow patch one may lag the other.
     """
     import time
 
-    try:
-        age = time.time() - Path(err_path).stat().st_mtime
-    except (OSError, ValueError):
-        return False
-    return 0 <= age <= max_age_s
+    now = time.time()
+    freshest: float | None = None
+    for path in (err_path, log_path):
+        if path is None:
+            continue
+        try:
+            age = now - Path(path).stat().st_mtime
+        except (OSError, ValueError):
+            continue
+        if age >= 0 and (freshest is None or age < freshest):
+            freshest = age
+    return freshest is not None and freshest <= max_age_s
 
 
 def is_training_active(
     log_path: str = "train_small_react_best.log",
     err_path: str = "train_small_react_best.err",
 ) -> bool:
-    """Robust "is training running" check: process scan OR fresh per-step progress.
+    """Robust "is training running" check: process scan OR fresh progress files.
 
     The single source of truth for every training guard (dashboard ``alive``, the
-    inference gate, the second-trainer guard). The ``log_path`` argument is kept
-    for signature symmetry with ``get_training_status`` (only ``err_path`` mtime is
-    trusted — the 100-step ``.log`` can be far staler than a real stall).
+    inference gate, the second-trainer guard). Trusts the freshest of the per-step
+    ``.err`` and the 100-step ``.log`` within a 45-min window matching this run's
+    documented slow cadence (BUG-136).
     """
-    return _is_training_alive() or _training_progress_fresh(err_path)
+    return _is_training_alive() or _training_progress_fresh(err_path, log_path)
 
 
 def _empty_status(alive: bool) -> dict:

@@ -42,6 +42,25 @@ def test_progress_fresh_false_for_missing_err(tmp_path: Path) -> None:
     assert st._training_progress_fresh(str(tmp_path / "nope.err")) is False
 
 
+def test_progress_fresh_tolerates_slow_dataloader_gap(tmp_path: Path) -> None:
+    """BUG-136: this dataloader-bound run can go 22-30 min between writes — a NORMAL
+    slow patch, not a stall. The window must keep treating it as active (a 10-min
+    window false-negatived, breaking the inference gate)."""
+    err = tmp_path / "train.err"
+    _write_fresh(err, age_s=22 * 60)  # 22 minutes — within the 45-min cadence window
+    assert st._TRAIN_FRESH_MAX_AGE_S >= 22 * 60
+    assert st._training_progress_fresh(str(err)) is True
+
+
+def test_progress_fresh_uses_freshest_of_err_and_log(tmp_path: Path) -> None:
+    """Either the per-step .err OR the 100-step .log being fresh ⇒ active."""
+    err = tmp_path / "train.err"
+    log = tmp_path / "train.log"
+    _write_fresh(err, age_s=st._TRAIN_FRESH_MAX_AGE_S + 600.0)  # err stale
+    _write_fresh(log, age_s=30.0)  # but log just written
+    assert st._training_progress_fresh(str(err), str(log)) is True
+
+
 def test_is_training_active_true_on_fresh_progress(tmp_path: Path) -> None:
     """Even with no detectable train.py process, fresh progress ⇒ active."""
     err = tmp_path / "train.err"
