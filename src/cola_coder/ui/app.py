@@ -55,6 +55,7 @@ from . import metrics_history as mh
 from . import model_card as mc
 from . import pipeline as pl
 from . import pipeline_ops as po
+from . import project_health_view as phv
 from . import reasoning as rs
 from . import retrieval_stats_view as rsv
 from . import router as rt
@@ -68,6 +69,7 @@ from . import schemas as sch
 from . import tokenize as tkz
 from . import tokenizer_health_view as thv
 from . import tokenizer_info as tk
+from . import vram_estimate_view as vev
 from .jobs import JobManager
 
 _MISSING_DIST_HTML = (
@@ -484,6 +486,16 @@ def create_app(
              response_model=sch.EnvCheckReport | sch.ErrorResponse)
     def env_check_get() -> dict:
         return ecv.env_check()
+
+    @app.get("/api/vram-estimate",
+             response_model=sch.VramEstimate | sch.ErrorResponse)
+    def vram_estimate_get(config: str) -> dict:
+        return vev.vram_estimate(config)
+
+    @app.get("/api/project-health",
+             response_model=sch.ProjectHealthReport | sch.ErrorResponse)
+    def project_health_get() -> dict:
+        return phv.project_health()
 
     @app.get("/api/data-stats", response_model=sch.DataStats | sch.ErrorResponse)
     def data_stats_get(

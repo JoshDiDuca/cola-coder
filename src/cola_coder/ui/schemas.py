@@ -611,6 +611,36 @@ class EnvCheckReport(_UiModel):
     checks: list[EnvCheckItem]
 
 
+class VramComponent(_UiModel):
+    name: str
+    mb: float
+
+
+class VramEstimate(_UiModel):
+    config: str
+    params_millions: float
+    precision: str
+    batch_size: int
+    seq_len: int
+    components: list[VramComponent]
+    total_mb: float
+    budget_mb: float
+    fits: bool
+
+
+class HealthDimension(_UiModel):
+    name: str
+    score: float
+    detail: str
+
+
+class ProjectHealthReport(_UiModel):
+    overall_score: float
+    grade: str
+    dimensions: list[HealthDimension]
+    summary: str
+
+
 class ErrorResponse(_UiModel):
     """Maps to the TS ``ApiError`` interface."""
 

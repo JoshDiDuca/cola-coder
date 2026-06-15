@@ -260,6 +260,21 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "vram_gb": 16.0, "hf_token_set": True,
         "passed": 11, "failed": 0, "ok": True, "checks": [],
     },
+    "VramComponent": {"name": "model weights", "mb": 206.2},
+    "VramEstimate": {
+        "config": "small.yaml", "params_millions": 100.7, "precision": "bf16",
+        "batch_size": 12, "seq_len": 2048,
+        "components": [{"name": "model weights", "mb": 206.2}],
+        "total_mb": 10749.4, "budget_mb": 16384.0, "fits": True,
+    },
+    "HealthDimension": {
+        "name": "Features", "score": 1.0,
+        "detail": "170/170 modules declare FEATURE_ENABLED",
+    },
+    "ProjectHealthReport": {
+        "overall_score": 1.0, "grade": "A",
+        "dimensions": [], "summary": "Grade A — all dimensions strong.",
+    },
     "DataStats": {
         "data_path": "data/processed/train_data.npy", "file_size_mb": 12.3,
         "shape": [100, 64], "num_chunks": 100, "seq_len": 64, "total_tokens": 6400,

@@ -36,6 +36,8 @@ import ProjectMemoryPanel from './components/ProjectMemoryPanel';
 import VectorIndexPanel from './components/VectorIndexPanel';
 import SecurityScanPanel from './components/SecurityScanPanel';
 import EnvCheckPanel from './components/EnvCheckPanel';
+import VramEstimatePanel from './components/VramEstimatePanel';
+import ProjectHealthPanel from './components/ProjectHealthPanel';
 import CollapsibleSection from './components/CollapsibleSection';
 
 interface Snapshot {
@@ -144,6 +146,7 @@ export default function App() {
         {/* Configs & pipeline. */}
         <CollapsibleSection title="Configs & Pipeline" storageKey="sec.pipeline">
           <ConfigsPanel />
+          <VramEstimatePanel />
           <ConfigDiffPanel />
           <PipelinePanel />
           <PipelineManagerPanel />
@@ -165,6 +168,7 @@ export default function App() {
         {/* System & tools. */}
         <CollapsibleSection title="System & Tools" storageKey="sec.tools">
           <EnvCheckPanel />
+          <ProjectHealthPanel />
           <FeaturesPanel />
           <ReasoningPanel />
           <ProjectMemoryPanel />

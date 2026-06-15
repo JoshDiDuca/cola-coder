@@ -121,6 +121,10 @@ _MODEL_ORDER: list[str] = [
     "MalwareScanResult",
     "EnvCheckItem",
     "EnvCheckReport",
+    "VramComponent",
+    "VramEstimate",
+    "HealthDimension",
+    "ProjectHealthReport",
 ]
 
 # Models the frontend treats as ``Model | ApiError`` (mirrors webui/src/api.ts).
@@ -158,6 +162,8 @@ _OR_ERROR: list[str] = [
     "IndexStats",
     "MalwareScanResult",
     "EnvCheckReport",
+    "VramEstimate",
+    "ProjectHealthReport",
 ]
 
 

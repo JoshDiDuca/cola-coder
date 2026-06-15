@@ -195,6 +195,14 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   `EnvCheckItem`; python/torch/CUDA/GPU/VRAM/deps/HF_TOKEN, structured not just a log) → System & Tools.
   +4 Pydantic models (gen_ts_types regen, 71 ifaces, 31 OrError), +4 test examples, 4 new files. pytest 74
   + ruff + tsc + vite green (232 KB). Keystone integrated by main; agents built only their 2 files each.
+- **UI-042..043** [ui, medium] `done` (2026-06-15) — Batch (parallel agents, disjoint files): 2 views.
+  UI-042 VRAM Estimate (`GET /api/vram-estimate?config=`, `VramEstimate`/`VramComponent`; reuses the real
+  `features/vram_estimator.estimate_vram` math, GPU-independent, per-component breakdown + fits-16GB badge)
+  → Configs & Pipeline. UI-043 Project Health (`GET /api/project-health`, `ProjectHealthReport`/
+  `HealthDimension`; CHEAP filesystem-derived dimensions — deliberately avoids the heavy pytest/ruff/--help
+  subprocess sweep that project_health.py runs, proxies labelled in detail) → System & Tools. +4 models
+  (gen_ts_types regen, 75 ifaces, 33 OrError), +4 test examples, 4 new files. pytest 78 + ruff + tsc + vite
+  green (237 KB). Keystone integrated by main.
 - **OPS-001** [tooling/infra, high] `open` — Autonomous training babysitting is BLOCKED when the trainer
   runs at higher OS integrity than the agent shell: `taskkill /F /T` returns Access-Denied for the whole
   tree (verified 2026-06-15 on the live hung run, PIDs 38260/13336/workers). The babysitter correctly
@@ -202,16 +210,16 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   NON-elevated shell (same integrity as the agent) so `ps/cola-train-resume.ps1` recovery works; otherwise
   the human must kill+relaunch from an elevated PowerShell. Consider a privileged helper or a UI/IPC
   shutdown channel the trainer honors (cooperative stop file) so recovery never needs taskkill.
-- **BUG-130** [bug, medium] `open` — `features/menus/tools_menu.py` project-memory action calls a
-  NON-EXISTENT API (`MemoryManager.initialize()`, `list_recent()`, `MemoryUpdater`, a `project.db`).
-  The real store (`memory/manager.py`) is markdown-file-based (`.cola/memory/*.md`, `_iter_sections`,
-  `.stats()`, `.export()`). The CLI menu item is broken; the new UI-038 view uses the real API. Fix the
-  CLI to match. (Discovered while building UI-038.)
-- **BUG-131** [bug, medium] `open` — `master_menu/_vector_store_stats` constructs `VectorStore(str(path))`
-  (passes a path where `embed_dim: int` is expected) and reads `stats()` keys that don't exist
-  (`document_count`/`size_mb`/`last_updated`); real `stats()` returns `total_items`/`embed_dim`/
-  `memory_mb`/`unique_sources`. CLI vector-store stats is broken; UI-039 reads the JSON sidecar directly.
-  Fix the CLI. (Discovered while building UI-039.)
+- **BUG-130** [bug, medium] `done` (2026-06-15) — `features/menus/tools_menu.py` project-memory action
+  called a NON-EXISTENT API (`MemoryManager.initialize()`, `list_recent()`, `MemoryUpdater`, a `project.db`).
+  FIXED: rewrote the project-memory submenu to the real markdown store API (`MemoryManager(project_root)`,
+  `is_initialized`/`init_project`/`export`/`compact`/`stats`, module-level `_iter_sections`); dropped the
+  unbacked "Edit Memory Entry" option; friendly message when uninitialized. +tests/test_cli_menu_fixes.py.
+- **BUG-131** [bug, medium] `done` (2026-06-15) — `master_menu/_vector_store_stats` constructed
+  `VectorStore(str(path))` (path where `embed_dim: int` is expected) and read non-existent `stats()` keys.
+  FIXED: rewrote to check for the persisted `{base}.json` at `data/vector_index`, `VectorStore()` +
+  `store.load(base)`, and display the real `stats()` keys (`total_items`/`embed_dim`/`memory_mb`/
+  `unique_sources`); friendly "no index built yet" when absent. +tests/test_cli_menu_fixes.py.
 - **UI-034** [ui, high] `open` — Execute pipeline stages from the UI. FINDING (this cycle): the CLI's
   per-stage handlers in `pipeline_menu.py` are INTERACTIVE and multi-command (they call cli.confirm/
   cli.choose, prompt to train a tokenizer, pick datasets, choose scoring) — NOT a pure argv builder. So

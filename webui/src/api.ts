@@ -41,6 +41,8 @@ import type {
   IndexStats,
   MalwareScanResult,
   EnvCheckReport,
+  VramEstimate,
+  ProjectHealthReport,
   ApiError,
   JsonValue,
 } from './types';
@@ -327,6 +329,14 @@ export function scanForMalware(
 
 export function getEnvCheck(): Promise<EnvCheckReport | ApiError> {
   return j<EnvCheckReport | ApiError>('/api/env-check');
+}
+
+export function getVramEstimate(config: string): Promise<VramEstimate | ApiError> {
+  return j<VramEstimate | ApiError>(`/api/vram-estimate?config=${encodeURIComponent(config)}`);
+}
+
+export function getProjectHealth(): Promise<ProjectHealthReport | ApiError> {
+  return j<ProjectHealthReport | ApiError>('/api/project-health');
 }
 
 export function getDataStats(

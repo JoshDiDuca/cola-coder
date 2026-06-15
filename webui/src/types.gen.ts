@@ -578,6 +578,36 @@ export interface EnvCheckReport {
   checks: EnvCheckItem[];
 }
 
+export interface VramComponent {
+  name: string;
+  mb: number;
+}
+
+export interface VramEstimate {
+  config: string;
+  params_millions: number;
+  precision: string;
+  batch_size: number;
+  seq_len: number;
+  components: VramComponent[];
+  total_mb: number;
+  budget_mb: number;
+  fits: boolean;
+}
+
+export interface HealthDimension {
+  name: string;
+  score: number;
+  detail: string;
+}
+
+export interface ProjectHealthReport {
+  overall_score: number;
+  grade: string;
+  dimensions: HealthDimension[];
+  summary: string;
+}
+
 export interface ApiError {
   error: string;
 }
@@ -622,3 +652,5 @@ export type MemoryStatsOrError = MemoryStats | ApiError;
 export type IndexStatsOrError = IndexStats | ApiError;
 export type MalwareScanResultOrError = MalwareScanResult | ApiError;
 export type EnvCheckReportOrError = EnvCheckReport | ApiError;
+export type VramEstimateOrError = VramEstimate | ApiError;
+export type ProjectHealthReportOrError = ProjectHealthReport | ApiError;
