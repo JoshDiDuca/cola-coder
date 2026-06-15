@@ -233,6 +233,18 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   views correctly ship as empty-state scanners that light up once those scripts persist JSON — filed as
   DATA/OBS items below. +5 models (gen_ts_types regen, 80 ifaces, 35 OrError), +5 test examples, 4 new
   files. pytest 83 + ruff + tsc + vite green (242 KB). Keystone integrated by main.
+- **DATA-072** [data-quality, high] `done` (2026-06-15) — Static educational-value scorer (FineWeb-Edu/Stack-Edu
+  proxy, NO LLM, CPU-only). New `data/scorers/educational_value.py` (`EducationalValueScorer`, ScorerProtocol)
+  combining 5 weighted signals: comment/docstring density (0.25), example/test presence (0.20), identifier-naming
+  quality (0.20), structural completeness (0.20), non-degenerate (0.15, reuses DATA-071 `compute_repetition_metrics`).
+  Reuses shared `is_js_ts`/`ScoreMapper` per DRY. Registered in scorers/registry + configs/scoring.yaml
+  (enabled:false, weight 0.1) + data_menu Score & Filter option. +tests/test_educational_value_scorer.py (20 tests).
+  132 tests pass, ruff clean. See research-log 2026-06-15. Score-cascade follow-up = DATA-073.
+- **DATA-073** [data-quality, medium] `open` — Educational-value CASCADE gate (original idea, research-log
+  2026-06-15): use the cheap DATA-072 static prior to BOUND the expensive LLM-judge annotation budget — route only
+  documents whose static score lands in an *uncertain* middle band to `train_judge_classifier.py`'s judge; skip
+  confidently-good/-bad docs. Fuses DATA-072 + the existing judge-distillation pipeline. First step: measure the
+  static prior's score distribution on a real corpus to choose the uncertain band, then wire the routing in score_data.
 - **UI-048..049** [ui, medium] `done` (2026-06-15) — Batch (parallel agents, disjoint files). UI-048 Action
   Launcher (`ActionLauncherPanel.tsx`; lets the user pick an allow-listed action, EDIT its args, and launch as
   a background job via the existing `runAction(action, args)` — the UI-017 per-action arg-form gap; trainer

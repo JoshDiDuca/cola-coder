@@ -124,6 +124,9 @@ def _instantiate_scorer(
         elif name == "injection_safety":
             from cola_coder.data.scorers.injection_scorer import InjectionScorer
             return InjectionScorer()
+        elif name == "educational_value":
+            from cola_coder.data.scorers.educational_value import EducationalValueScorer
+            return EducationalValueScorer()
         elif name == "classifier":
             from cola_coder.data.scorers.classifier import ClassifierScorer
             model_dir = cfg.get("model_dir", "models/quality_classifier")

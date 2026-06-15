@@ -1180,6 +1180,8 @@ class DataMenu:
             {"label": "All enabled scorers", "detail": "Use scoring.yaml config"},
             {"label": "Full (tsc + eslint + heuristic)", "detail": "Comprehensive"},
             {"label": "Quick (heuristic only)", "detail": "Fast heuristic-based scoring"},
+            {"label": "Educational value (FineWeb-Edu proxy)",
+             "detail": "Cheap static educational-quality scorer (no LLM)"},
         ]
         scorer_choice = cli.choose("Scorers:", scorer_options, allow_cancel=True)
         if scorer_choice is None:
@@ -1188,6 +1190,8 @@ class DataMenu:
             args.extend(["--scorers", "tsc,eslint,heuristic"])
         elif scorer_choice == 2:
             args.extend(["--scorers", "heuristic"])
+        elif scorer_choice == 3:
+            args.extend(["--scorers", "educational_value"])
 
         self._master._run_script("score_data.py", args)
         self._master._pause()

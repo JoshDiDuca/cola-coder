@@ -7,6 +7,38 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-15 — Educational-value data filtering: LLM-annotated classifiers (FineWeb-Edu / Stack-Edu) + a cheap static prior (rotate: data quality)
+
+**Sources (2024–2026):** *FineWeb-Edu / The FineWeb Datasets* — https://arxiv.org/html/2406.17557v1 (LLM-as-annotator:
+Llama-3-70B rates documents 0–5 for "educational value", a lightweight embedding regressor is trained on those
+labels and applied at scale; educational filtering beat every prior heuristic on downstream benchmarks). *Stack-Edu*
+(BigCode/SmolLM2 line) — Llama-3-70B-Instruct annotates 500k code fragments 0–5 on educational+structural quality,
+then per-language StarEncoder classifiers (F1 > 0.7 most languages) filter The-Stack-v2. *The Stack v2 / StarCoder2* —
+https://github.com/bigcode-project/starcoder2 (improved license+language detection + filtering heuristics). *Rewriting
+Pre-Training Data Boosts LLM Performance in Math and Code* — https://arxiv.org/pdf/2505.02881 (model-rewritten data, a
+synthesis-side complement to filtering). *Phi-1 "Textbooks Are All You Need"* — the canonical "quality beats quantity,
+even by 100×" result that motivates educational filtering for code.
+
+**Summary:** the 2026 canonical pre-training pipeline for code is dedup → quality/educational filtering → reweight toward
+educational sources, at large token scale. The frontier quality signal is no longer a hand-tuned heuristic but an
+**educational-value classifier**: an expensive LLM annotates a sample 0–5, a cheap model distills those labels, and the
+cheap model scores the whole corpus. cola-coder already has the distillation HALF of this exactly: `train_judge_classifier.py`
+distills LLM-judge scores into a local TF-IDF classifier, plus 11 static `data/filters/` and `data/scorers/`. What it
+lacks is a code-specific *educational-value* target and a way to bound the (expensive) LLM-annotation budget.
+
+**Original idea (cross-technique, cola-coder-specific): a CHEAP static educational-value prior as a cascade gate.**
+Build a no-LLM, CPU-only `EducationalValueScorer` (a `data/scorers` plugin) that combines signals the project can compute
+for free — comment/docstring density, presence of a usage example or test, identifier-naming quality, structural
+completeness (defs/returns/imports balance), and the DATA-071 Gopher repetition score (penalise boilerplate/degenerate)
+— into a 0–1 educational proxy. Use it two ways: (a) directly as a curriculum/reweighting signal (`.weights.npy`), and
+(b) as a **cascade gate that slashes the LLM-judge annotation budget** — only documents whose static prior is in the
+*uncertain* middle band get routed to the expensive judge classifier; confidently-good and confidently-bad docs skip it.
+This fuses the project's existing judge-distillation pipeline + DATA-071 repetition machinery with the FineWeb-Edu/Stack-Edu
+educational-value paradigm at a fraction of the LLM cost. Tractable MAIN-SAFE first step (this cycle): the static scorer
+itself, registered + tested; the cascade routing and any LLM annotation are follow-ups (filed as DATA backlog items).
+
+---
+
 ## 2026-06-15 — Speculative decoding for code: draft-free Prompt-Lookup + the acceptance-first discipline (rotate: inference)
 
 **Sources (2023–2026):** *Prompt Lookup Decoding* (apoorvumang, 2023) — https://github.com/apoorvumang/prompt-lookup-decoding
