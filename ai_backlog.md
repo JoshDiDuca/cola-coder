@@ -318,11 +318,16 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   via `is_js_ts`; strips comments to cut false positives. Reuses shared utils (DRY); distinct from injection_scorer
   + security/code_patterns. Registered in scorers/registry + configs/scoring.yaml (enabled:false, w0.1) + data_menu.
   +tests/test_cwe_security_scorer.py (38 tests). See research-log 2026-06-15.
-- **SEC-027** [safety, medium] `open` — CWE eval->data loop (original idea, research-log 2026-06-15): use the SEC-026
-  scanner bidirectionally — (a) as a data FILTER (drop/down-weight training examples containing CWE patterns →
-  attacks the "train on secure corpora" root cause) AND (b) wire it into safety_eval as a probe measuring the
-  CWE rate in GENERATED code. Then close the loop: generated-CWEs → find those patterns in training data → filter →
-  re-eval. First step: add a `cwe` suite to safety_probes/safety_eval reusing CweSecurityScorer.
+- **SEC-027** [safety, medium] `done` (2026-06-15, part b) — CWE eval probe DONE: added a `cwe` suite to
+  `evaluation/safety_probes.py` (17 CWE-prone prompts, registered in SUITES + `all`) + `cwe_probe_result` that
+  REUSES the SEC-026 `CweSecurityScorer` (reuse-guard tests assert no reimplemented patterns); wired into
+  `safety_eval.py --suite cwe` (auto-exposed via choices=sorted(SUITES)) + a CWE option in the eval menu.
+  +tests/test_cwe_safety_probe.py (12). 125 tests pass, ruff clean. REMAINING (part a, see SEC-028): the
+  data-FILTER side — drop/down-weight training examples containing CWE patterns — to fully close the eval->data loop.
+- **SEC-028** [safety, medium] `open` — CWE eval->data loop, part (a): use CweSecurityScorer (SEC-026) as a TRAINING
+  DATA filter/down-weighter so the model learns from secure code (attacks the "train on secure corpora" root cause);
+  it's already a registered data scorer (configs/scoring.yaml, enabled:false) — wire it into the prepare/score path
+  as an opt-in CWE-vulnerability filter + measure the generated-CWE rate (SEC-027 probe) before/after to close the loop.
 - **MODEL-048** [post-training, high] `done` (2026-06-15) — DAPO soft overlong reward shaping for reasoning/GRPO
   (OPT-IN, default OFF). New `reasoning/rewards/overlong.py`: `soft_overlong_penalty(length, max_length,
   soft_buffer)` (0 below buffer → linear ramp → -1 at/over max) + `apply_overlong_shaping(reward, ...)`. Wired

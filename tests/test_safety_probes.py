@@ -2,6 +2,7 @@
 
 from cola_coder.evaluation.safety_probes import (
     BASIC_PROMPTS,
+    CWE_PROMPTS,
     EXTENDED_EXTRA,
     INJECTION_PROMPTS,
     LICENSE_PROMPTS,
@@ -13,7 +14,7 @@ from cola_coder.evaluation.safety_probes import (
 class TestSuiteStructure:
     def test_all_expected_suites_exist(self):
         assert set(SUITES) == {"basic", "extended", "pii", "license",
-                               "injection", "all"}
+                               "injection", "cwe", "all"}
 
     def test_minimum_suite_sizes(self):
         # Floors, not exact counts — suites should only ever grow
@@ -31,7 +32,7 @@ class TestSuiteStructure:
     def test_all_contains_every_suite(self):
         combined = set(SUITES["all"])
         for suite in (BASIC_PROMPTS, EXTENDED_EXTRA, PII_PROMPTS,
-                      LICENSE_PROMPTS, INJECTION_PROMPTS):
+                      LICENSE_PROMPTS, INJECTION_PROMPTS, CWE_PROMPTS):
             assert set(suite) <= combined
 
 

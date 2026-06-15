@@ -771,14 +771,17 @@ class EvalMenu:
              "detail": "18 prompts probing verbatim copyleft/proprietary reproduction"},
             {"label": "Prompt injection",
              "detail": "16 prompts with embedded malicious instructions in comments"},
+            {"label": "CWE vulnerability scan",
+             "detail": "17 prompts — static CWE scan of completions "
+                       "(command exec, eval, deserialization, SQLi, weak crypto)"},
             {"label": "All suites",
-             "detail": "123 prompts — every probe from every suite"},
+             "detail": "every probe from every suite"},
         ]
         suite_choice = cli.choose("Safety suite:", suite_options, allow_cancel=True)
         if suite_choice is None:
             return
 
-        suite_names = ["basic", "extended", "pii", "license", "injection", "all"]
+        suite_names = ["basic", "extended", "pii", "license", "injection", "cwe", "all"]
         suite = suite_names[suite_choice]
 
         cli.kv_table({
