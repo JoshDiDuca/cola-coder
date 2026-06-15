@@ -30,7 +30,8 @@ to produce more solutions like the working ones.
 """
 
 import logging
-from typing import TYPE_CHECKING, Callable, Union
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Callable, Literal, Union
 
 import torch
 import torch.nn.functional as F
@@ -171,6 +172,77 @@ def compute_group_advantages(
     if rewards.numel() < 2:
         return centered
     return centered / (rewards.std() + 1e-8)
+
+
+DifficultySignal = Literal["too_easy", "too_hard", "informative", "mixed", "none"]
+
+
+@dataclass(frozen=True)
+class GroupDifficultyStats:
+    """Aggregate of GRPO rollout-group outcomes over a window of steps.
+
+    The per-step degenerate-group skip (all rewards equal → zero advantage → no
+    learning signal) is the DAPO "dynamic sampling" trigger. Its RATE, paired with
+    the mean pass-rate, is a free difficulty signal for the curriculum: lots of
+    skips at a high pass-rate means the problems are too easy (the model already
+    solves them), lots of skips at a low pass-rate means too hard (it never does).
+    A low skip rate is the healthy, informative regime.
+    """
+
+    n_steps: int
+    degenerate_fraction: float  # fraction of steps skipped (zero-variance group)
+    mean_pass_rate: float
+    signal: DifficultySignal
+
+
+def summarize_group_difficulty(
+    pass_rates: list[float],
+    skipped: list[bool],
+    *,
+    high_skip: float = 0.5,
+    easy_pass: float = 0.8,
+    hard_pass: float = 0.2,
+) -> GroupDifficultyStats:
+    """Classify rollout difficulty from per-step pass-rates + degenerate-skip flags.
+
+    Pure + framework-free (testable in isolation; never touches the live train path).
+
+    Args:
+        pass_rates: per-step group pass-rate (num_correct / group_size), in [0, 1].
+        skipped: per-step degenerate-skip flag (True when the group had zero reward
+            variance). Must be the same length as ``pass_rates``.
+        high_skip: degenerate_fraction at/above which the curriculum should react.
+        easy_pass / hard_pass: mean-pass-rate thresholds separating too-easy / too-hard.
+
+    Returns:
+        A :class:`GroupDifficultyStats`. ``signal`` is ``"none"`` for an empty window,
+        ``"too_easy"`` / ``"too_hard"`` when skips are high and the mean pass-rate is
+        extreme, ``"mixed"`` when skips are high but the pass-rate is middling, and
+        ``"informative"`` when the skip rate is low (healthy learning signal).
+    """
+    if len(pass_rates) != len(skipped):
+        raise ValueError(
+            f"pass_rates and skipped must be the same length, got "
+            f"{len(pass_rates)} and {len(skipped)}"
+        )
+    n = len(pass_rates)
+    if n == 0:
+        return GroupDifficultyStats(0, 0.0, 0.0, "none")
+
+    degenerate_fraction = sum(1 for s in skipped if s) / n
+    mean_pass_rate = sum(pass_rates) / n
+
+    signal: DifficultySignal
+    if degenerate_fraction < high_skip:
+        signal = "informative"
+    elif mean_pass_rate >= easy_pass:
+        signal = "too_easy"
+    elif mean_pass_rate <= hard_pass:
+        signal = "too_hard"
+    else:
+        signal = "mixed"
+
+    return GroupDifficultyStats(n, degenerate_fraction, mean_pass_rate, signal)
 
 
 def _completion_logprobs(

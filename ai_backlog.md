@@ -54,6 +54,16 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 - **UI-079** [ui, medium] `done` (2026-06-15) — `CommandPalette` (⌘K/Ctrl-K): fuzzy quick-switcher over
   all 11 nav sections; self-contained global key listener, navigates via the same hash as Sidebar.
 
+### Post-training — GRPO difficulty signal (2026-06-15)
+- **MODEL-045a** [post-training, medium] `done` (2026-06-15) — Added pure `summarize_group_difficulty()`
+  + `GroupDifficultyStats` to grpo.py: aggregates the DAPO degenerate-skip rate + mean pass-rate over a
+  window into a tunable difficulty signal (too_easy / too_hard / informative / mixed). 7 tests. The skip
+  was previously per-step only; this is the missing aggregate the curriculum can act on. MAIN-SAFE (pure).
+- **MODEL-045 / IDEA-010** [post-training, medium] `open` — Skip-rate-driven curriculum autoscaling: feed
+  `summarize_group_difficulty`'s signal back into e2h difficulty selection live (promote on sustained
+  too_easy, demote on too_hard, hold on informative) — turns DAPO's wasted-rollout detector into the
+  next-problem controller with zero extra forward passes. Reuses dynamic-sampling + e2h + entropy-controller pattern.
+
 ### Safety — insecure-output detection (2026-06-15)
 - **SEC-025** [safety/data-quality, high] `done` (2026-06-15) — `CweSecurityScorer` gained CWE-295
   (disabled TLS/cert verification: `verify=False`, `ssl._create_unverified_context`, `CERT_NONE`,

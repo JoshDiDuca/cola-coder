@@ -2352,3 +2352,35 @@ reuses three existing systems. Filed as SEC-026.
 - [Security & Quality in LLM-Generated Code: Multi-Language Multi-Model (arXiv:2502.01853)](https://arxiv.org/html/2502.01853v2)
 - [Assessing the Quality and Security of AI-Generated Code (arXiv:2508.14727)](https://arxiv.org/pdf/2508.14727)
 - [OWASP LLM Top 10 for code generation (Sonar)](https://www.sonarsource.com/resources/library/owasp-llm-code-generation/)
+
+---
+
+## 2026-06-15 — Post-training: the GRPO degenerate-skip rate is a free curriculum signal
+
+**Area:** post-training / RL. **2025 technique.** DAPO (arXiv:2503.14476) "dynamic sampling":
+in GRPO, a rollout group whose rewards are all identical (all-pass or all-fail) has zero
+advantage variance → contributes no gradient. DAPO over-samples/filters these so the effective
+batch stays full of learning signal; Dr. GRPO (arXiv:2503.20783) separately drops the std
+normalization (which over-weights near-degenerate groups). The project already implements BOTH
+(grpo.py: `dynamic_sampling` + `max_resample_attempts` + a per-step zero-variance skip guard;
+`advantage_norm="mean"` for Dr. GRPO).
+
+**Gap + what shipped.** The degenerate skip was only a per-step event (a printed line + a
+`{"skipped": True}` metric) — no AGGREGATE. But the skip RATE over a window, paired with the
+mean pass-rate, IS the difficulty diagnostic the curriculum wants: many skips at high pass-rate
+⇒ problems too easy (already solved), many skips at low pass-rate ⇒ too hard (never solved),
+few skips ⇒ the informative regime. Added a pure, framework-free `summarize_group_difficulty()`
+→ `GroupDifficultyStats(degenerate_fraction, mean_pass_rate, signal)` with tunable thresholds,
+fully unit-tested. MAIN-SAFE (pure aggregator; not wired into the live train path).
+
+**Original idea — IDEA-010: skip-rate-driven curriculum autoscaling.** The e2h curriculum
+(MODEL-042) advances on a schedule. Close the loop instead: feed `summarize_group_difficulty`'s
+signal back into difficulty selection live — on a sustained `"too_easy"` window promote harder
+problems (or raise the verifier-effort tier), on `"too_hard"` demote, on `"informative"` hold.
+This turns DAPO's wasted-rollout detector (already computed) into the controller for WHICH
+problems to sample next, with zero extra forward passes. Cross-technique: DAPO dynamic sampling
+× the e2h curriculum × the entropy controller's closed-loop pattern (IDEA-013). Filed as MODEL-045.
+
+**Sources:**
+- [DAPO: an Open-Source LLM RL System at Scale — dynamic sampling (arXiv:2503.14476)](https://arxiv.org/abs/2503.14476)
+- [Understanding R1-Zero-Like Training / Dr. GRPO (arXiv:2503.20783)](https://arxiv.org/abs/2503.20783)
