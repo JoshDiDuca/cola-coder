@@ -124,6 +124,9 @@ def _instantiate_scorer(
         elif name == "injection_safety":
             from cola_coder.data.scorers.injection_scorer import InjectionScorer
             return InjectionScorer()
+        elif name == "cwe_security":
+            from cola_coder.data.scorers.cwe_security import CweSecurityScorer
+            return CweSecurityScorer()
         elif name == "educational_value":
             from cola_coder.data.scorers.educational_value import EducationalValueScorer
             return EducationalValueScorer()

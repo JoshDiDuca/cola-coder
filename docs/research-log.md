@@ -7,6 +7,39 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-15 — Safety: static CWE vulnerability screening as a shared data-filter + eval probe (rotate: safety)
+
+**Sources (2024–2026):** *Rethinking the Evaluation of Secure Code Generation* (ICSE 2026) —
+https://conf.researchr.org/details/icse-2026/icse-2026-research-track/175 (eval must measure security AND
+functionality together; many mitigations degrade base performance >50%). *Spring 2026 GenAI Code Security Update*
+(Veracode) — https://www.veracode.com/blog/spring-2026-genai-code-security/ (AI models still routinely emit
+insecure code). *A Systematic Literature Review of LLMs in Code Security* — https://arxiv.org/pdf/2412.15004
+(SVEN/SafeCoder fine-tune on curated secure data; ProSec preference-learns, ~35% vuln reduction; MA-CoT embeds
+CWE mitigation guidance; vulnerabilities span ~18 CWE categories across C/Python/Go/JS). *Enhancing Reliability
+in LLM-Based Secure Code Generation* — https://arxiv.org/html/2605.24300.
+
+**Summary:** the consensus 2026 finding is that **the training-data problem is the root cause** — until models
+learn from secure-code corpora, generated code keeps reproducing the same CWE patterns. cola-coder already has
+secrets/PII/dangerous-pattern safety probes (safety_eval), a malware scanner, slopsquat import triage (SEC-023),
+and an injection scorer — but NO broad static CWE screen covering the recurring high-frequency weaknesses:
+CWE-78 (OS command injection, `os.system`/`subprocess(..., shell=True)`), CWE-502 (unsafe deserialization,
+`pickle.loads`/`yaml.load`), CWE-89 (SQL injection via string-built queries), CWE-327/328 (weak crypto md5/sha1),
+CWE-330 (insecure `random` for secrets), CWE-22 (path traversal), CWE-95 (`eval`/`exec`). These are detectable
+purely statically (regex/AST on code as TEXT — never executing it), language-aware for Python + TS/JS.
+
+**Original idea (cross-technique, cola-coder-specific): ONE static CWE scanner, used bidirectionally to close the
+eval→data loop.** The same screen plugs into BOTH ends: (a) as a **data-quality scorer/filter** (down-weight or
+drop training examples that themselves contain CWE patterns — directly attacking the "train on secure corpora"
+root cause, complementing DATA-072 educational-value), AND (b) as an **eval safety probe** (measure the CWE rate
+in the model's *generated* code). That makes the loop explicit: CWEs the model emits → the SAME detector finds
+those patterns in the training data → filter/reweight them out → re-evaluate the generated-CWE rate. It reuses
+the project's `language_detect` + `ScoreMapper` + `SandboxedRunner` discipline (static only, untrusted code is
+never run), and composes with the existing injection scorer (this adds the non-injection CWE families). Tractable
+MAIN-SAFE first step (this cycle): the static `CweSecurityScorer` (pattern set + per-CWE findings + a 0–1 score)
+registered as a data scorer, with tests; wiring it into safety_eval as a probe is the filed follow-up.
+
+---
+
 ## 2026-06-15 — Post-training: DAPO overlong reward shaping + length-bias fixes for GRPO (rotate: post-training)
 
 **Sources (2025–2026):** *DAPO: An Open-Source LLM RL System at Scale* — https://arxiv.org/pdf/2503.14476

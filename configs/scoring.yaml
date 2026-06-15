@@ -80,6 +80,10 @@ scoring:
       enabled: false       # opt-in; pairs with the InjectionFilter (hard-drop)
       weight: 0.1
 
+    cwe_security:          # SEC-024: static CWE vuln screen (non-injection families)
+      enabled: false       # opt-in; pure-Python, deterministic, no execution
+      weight: 0.1
+
     educational_value:     # FineWeb-Edu/Stack-Edu cheap static proxy (no LLM)
       enabled: false       # opt-in; pure-Python, CPU-only, deterministic
       weight: 0.1

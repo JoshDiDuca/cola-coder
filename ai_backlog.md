@@ -254,6 +254,26 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   → Tokenizer. +2 models (gen_ts regen, 86 ifaces, 38 OrError), +2 test examples, 3 new files. pytest 89 +
   ruff + tsc + vite green (252 KB). Keystone integrated by main. (UI-017 partially addressed — arg editing now
   exists; remaining: structured per-arg forms + data-collection wizards.)
+- **UI-056..057** [ui, medium] `done` (2026-06-15) — Batch (parallel agents, disjoint files): 2 read-only views
+  that surface the autonomous loop's OWN state. UI-056 Backlog Viewer (`GET /api/backlog`, `BacklogView`/
+  `BacklogItem`; parses ai_backlog.md into a filterable table — 288 items, 66 open/222 done — status+category
+  filters, badges) → System & Tools. UI-057 Research Log viewer (`GET /api/research-log`, `ResearchLog`/
+  `ResearchEntry`; parses docs/research-log.md — 56 entries, date/area/source-count/original-idea badges) →
+  System & Tools. +4 models (gen_ts regen, 104 ifaces), +4 test examples, 4 new files. pytest 145 + ruff + tsc +
+  vite green (272 KB). Keystone integrated by main.
+- **SEC-026** [safety, high] `done` (2026-06-15) — Static CWE vulnerability scorer (`data/scorers/cwe_security.py`,
+  `CweSecurityScorer`). No-execution regex/pattern screen for the recurring CWE families NOT covered by the
+  injection scorer: CWE-78 (cmd injection), CWE-94/95 (eval/exec), CWE-502 (unsafe deserialization), CWE-89 (SQL
+  injection), CWE-327/328 (weak crypto md5/sha1), CWE-330 (insecure random near secrets), CWE-22 (path traversal).
+  Structured per-CWE findings {cwe,name,severity,line} + a graded 0-1 score via shared `ScoreMapper`; language-aware
+  via `is_js_ts`; strips comments to cut false positives. Reuses shared utils (DRY); distinct from injection_scorer
+  + security/code_patterns. Registered in scorers/registry + configs/scoring.yaml (enabled:false, w0.1) + data_menu.
+  +tests/test_cwe_security_scorer.py (38 tests). See research-log 2026-06-15.
+- **SEC-027** [safety, medium] `open` — CWE eval->data loop (original idea, research-log 2026-06-15): use the SEC-026
+  scanner bidirectionally — (a) as a data FILTER (drop/down-weight training examples containing CWE patterns →
+  attacks the "train on secure corpora" root cause) AND (b) wire it into safety_eval as a probe measuring the
+  CWE rate in GENERATED code. Then close the loop: generated-CWEs → find those patterns in training data → filter →
+  re-eval. First step: add a `cwe` suite to safety_probes/safety_eval reusing CweSecurityScorer.
 - **MODEL-048** [post-training, high] `done` (2026-06-15) — DAPO soft overlong reward shaping for reasoning/GRPO
   (OPT-IN, default OFF). New `reasoning/rewards/overlong.py`: `soft_overlong_penalty(length, max_length,
   soft_buffer)` (0 below buffer → linear ramp → -1 at/over max) + `apply_overlong_shaping(reward, ...)`. Wired

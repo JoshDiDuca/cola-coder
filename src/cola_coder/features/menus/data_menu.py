@@ -1182,6 +1182,8 @@ class DataMenu:
             {"label": "Quick (heuristic only)", "detail": "Fast heuristic-based scoring"},
             {"label": "Educational value (FineWeb-Edu proxy)",
              "detail": "Cheap static educational-quality scorer (no LLM)"},
+            {"label": "CWE security (static vuln screen)",
+             "detail": "Down-weight code with CWE-78/95/502/89/327/330/22 patterns (no execution)"},
         ]
         scorer_choice = cli.choose("Scorers:", scorer_options, allow_cancel=True)
         if scorer_choice is None:
@@ -1192,6 +1194,8 @@ class DataMenu:
             args.extend(["--scorers", "heuristic"])
         elif scorer_choice == 3:
             args.extend(["--scorers", "educational_value"])
+        elif scorer_choice == 4:
+            args.extend(["--scorers", "cwe_security"])
 
         self._master._run_script("score_data.py", args)
         self._master._pause()
