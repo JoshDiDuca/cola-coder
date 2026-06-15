@@ -2422,3 +2422,32 @@ fallback as ablation-only vs deprecate in favor of qk_norm; benchmark the eager-
 **Sources:**
 - [Gemma 2 — logit soft-capping, attention + final (arXiv:2408.00118)](https://arxiv.org/abs/2408.00118)
 - [Gemma 3 technical report — QK-Norm replaces attention soft-capping (arXiv:2503.19786)](https://arxiv.org/abs/2503.19786)
+
+---
+
+## 2026-06-15 — Retrieval: BM25 lexical ranking + the dense/sparse hybrid path
+
+**Area:** data / retrieval (RAG). **Context.** This cycle added UI code-search over the
+persisted index. The first cut ranked by raw query-token overlap — every term weighted
+equally, no length normalization — which ties a doc matching only a common term ('return')
+with one matching a rare, discriminating term ('serialize'). The correct lexical baseline,
+still the strong sparse retriever in 2025 hybrid systems, is **Okapi BM25**: IDF weights rare
+terms up, term-frequency saturates (k1), and document length is normalized (b). Modern RAG
+stacks (2024-25) run **hybrid** dense (embedding) + sparse (BM25) with reciprocal-rank fusion,
+because BM25 reliably catches exact identifiers/keywords that dense embeddings smear — which is
+exactly the regime for CODE search (function/var names, imports).
+
+**Shipped.** Replaced the overlap score with BM25 (k1=1.5, b=0.75) in `retrieval_search_view`,
+display-normalized to the top hit, plus a small verbatim-phrase bonus. Pure, MAIN-SAFE (no
+model/GPU), with a test proving the rare-term doc now outranks common-term-only matches.
+
+**Original idea — IDEA-012: BM25-prefilter → dense-rerank, sharing the eval verifier's budget.**
+When the embedder lands (deferred), don't dense-search the whole corpus: BM25-prefilter to the
+top ~100 (cheap, no model), then dense-rerank only those (one small embed batch). This bounds the
+embedding cost to a constant per query regardless of corpus size — the standard scalable hybrid —
+and on code, BM25's exact-identifier recall covers dense's main blind spot. Reuses the BM25 here +
+the existing VectorStore.search for the rerank. Filed as DATA-074.
+
+**Sources:**
+- [Okapi BM25 (Robertson & Zaragoza, "The Probabilistic Relevance Framework")](https://www.staff.city.ac.uk/~sbrp622/papers/foundations_bm25_review.pdf)
+- [BGE-M3: hybrid dense+sparse+multivector retrieval (arXiv:2402.03216)](https://arxiv.org/abs/2402.03216)

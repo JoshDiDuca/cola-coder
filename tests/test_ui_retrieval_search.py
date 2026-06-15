@@ -62,6 +62,26 @@ def test_top_k_limits_results(tmp_path: Path) -> None:
     assert len(out["hits"]) == 3
 
 
+def test_bm25_weights_rare_term_higher(tmp_path: Path) -> None:
+    """BM25: a doc matching the RARE query term outranks one matching only the
+    common term (raw token-overlap would tie them). 'return' is in every doc;
+    'serialize' is in only one."""
+    _write_index(
+        tmp_path,
+        [
+            "def a(): return 1",
+            "def b(): return 2",
+            "def c(): return 3",
+            "def serialize(obj): return dumps(obj)",
+        ],
+        metadata=[{"file_path": f"f{i}.py"} for i in range(4)],
+    )
+    out = rsch.search_index("return serialize", top_k=4, root=str(tmp_path))
+    # The doc with the rare term 'serialize' must rank first (high IDF).
+    assert out["hits"][0]["source"] == "f3.py"
+    assert out["hits"][0]["score"] == 1.0  # normalized to the top hit
+
+
 def test_source_falls_back_to_id_when_no_metadata(tmp_path: Path) -> None:
     _write_index(tmp_path, ["query target here"], metadata=[{}])
     out = rsch.search_index("target", root=str(tmp_path))

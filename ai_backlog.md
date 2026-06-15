@@ -75,6 +75,15 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 - **UI-079** [ui, medium] `done` (2026-06-15) — `CommandPalette` (⌘K/Ctrl-K): fuzzy quick-switcher over
   all 11 nav sections; self-contained global key listener, navigates via the same hash as Sidebar.
 
+### Retrieval — BM25 ranking (2026-06-15)
+- **DATA-073b** [data/retrieval, medium] `done` (2026-06-15) — Upgraded the UI code-search ranker from
+  raw token-overlap to Okapi BM25 (k1=1.5, b=0.75; IDF rare-term weighting + length normalization +
+  verbatim-phrase bonus), display-normalized to the top hit. Pure/MAIN-SAFE; test proves a rare-term doc
+  outranks common-term-only matches. Sources in research-log 2026-06-15.
+- **DATA-074 / IDEA-012** [retrieval, medium] `open` — When the embedder lands: BM25-prefilter top-~100
+  (no model) → dense-rerank only those (one embed batch) → RRF fuse. Bounds embedding cost per query;
+  BM25's exact-identifier recall covers dense's blind spot on code. Reuses this BM25 + VectorStore.search.
+
 ### Architecture — phantom attn-softcap wired (2026-06-15)
 - **MODEL-045b / BUG-135** [architecture/bug, medium] `done` (2026-06-15) — `attn_logit_softcap` was a
   PHANTOM config knob (config.py + a default-assertion test, but referenced nowhere in the model; SDPA

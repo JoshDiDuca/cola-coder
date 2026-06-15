@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
+from collections import Counter
 from pathlib import Path
 
 from . import retrieval_stats_view as rsv
@@ -28,9 +30,52 @@ _TOKEN_RE = re.compile(r"[A-Za-z0-9_]+")
 _SNIPPET_CHARS = 240
 _SOURCE_KEYS = ("file_path", "path", "repo_name", "source", "id")
 
+# BM25 (Okapi) parameters — the standard lexical-ranking baseline. k1 controls
+# term-frequency saturation, b controls document-length normalization.
+_BM25_K1 = 1.5
+_BM25_B = 0.75
+
 
 def _tokens(text: str) -> set[str]:
     return {t.lower() for t in _TOKEN_RE.findall(text)}
+
+
+def _token_list(text: str) -> list[str]:
+    return [t.lower() for t in _TOKEN_RE.findall(text)]
+
+
+def _bm25_scores(query_tokens: set[str], doc_tokens: list[list[str]]) -> list[float]:
+    """Okapi BM25 score per document for the query terms.
+
+    Rewards rare query terms (IDF) and saturates repeated terms, with
+    document-length normalization — strictly better ranking than raw token
+    overlap, which weights every term equally and ignores length. Pure/no model.
+    """
+    n_docs = len(doc_tokens)
+    if n_docs == 0:
+        return []
+    doc_freq: dict[str, int] = {}
+    for toks in doc_tokens:
+        for term in set(toks) & query_tokens:
+            doc_freq[term] = doc_freq.get(term, 0) + 1
+    avgdl = sum(len(toks) for toks in doc_tokens) / n_docs
+    idf = {
+        term: math.log(1 + (n_docs - df + 0.5) / (df + 0.5))
+        for term, df in doc_freq.items()
+    }
+
+    scores: list[float] = []
+    for toks in doc_tokens:
+        tf = Counter(toks)
+        dl = len(toks)
+        norm = _BM25_K1 * (1 - _BM25_B + _BM25_B * (dl / avgdl if avgdl > 0 else 1.0))
+        score = 0.0
+        for term in query_tokens:
+            freq = tf.get(term, 0)
+            if freq and term in idf:
+                score += idf[term] * (freq * (_BM25_K1 + 1)) / (freq + norm)
+        scores.append(score)
+    return scores
 
 
 def _source_of(meta: object) -> str | None:
@@ -82,28 +127,28 @@ def search_index(query: str, top_k: int = 10, root: str | None = None) -> dict:
 
     q_tokens = _tokens(query)
     q_lower = query.lower()
-    scored: list[tuple[float, int]] = []
+    # BM25 over the indexed chunks (non-str entries become empty docs → score 0).
+    doc_tokens = [_token_list(t) if isinstance(t, str) else [] for t in texts]
+    bm25 = _bm25_scores(q_tokens, doc_tokens)
+    # Small bonus when the full query appears verbatim (phrase match beats bag-of-words).
+    raw_scores: list[float] = []
     for i, text in enumerate(texts):
-        if not isinstance(text, str):
-            continue
-        doc_tokens = _tokens(text)
-        if not q_tokens:
-            overlap = 0.0
-        else:
-            overlap = len(q_tokens & doc_tokens) / len(q_tokens)
-        substring_bonus = 0.5 if q_lower in text.lower() else 0.0
-        score = overlap + substring_bonus
-        if score > 0:
-            scored.append((score, i))
+        score = bm25[i]
+        if isinstance(text, str) and q_lower and q_lower in text.lower():
+            score += 0.5
+        raw_scores.append(score)
 
+    scored = [(s, i) for i, s in enumerate(raw_scores) if s > 0]
     scored.sort(key=lambda pair: (-pair[0], pair[1]))
+    # Normalize the displayed 0-1 score relative to the top hit (BM25 is unbounded).
+    top_score = scored[0][0] if scored else 1.0
     hits = []
     for score, i in scored[: max(0, top_k)]:
         meta = metadata[i] if i < len(metadata) else {}
         hits.append(
             {
                 "id": str(ids[i]) if i < len(ids) else str(i),
-                "score": round(min(1.0, score), 4),
+                "score": round(score / top_score if top_score > 0 else 0.0, 4),
                 "snippet": _snippet(texts[i], query),
                 "source": _source_of(meta),
             }
