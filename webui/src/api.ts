@@ -50,6 +50,8 @@ import type {
   VocabSearchResult,
   ScoringConfig,
   RegressionHistory,
+  LrFinderResults,
+  RepoScoresResult,
   RunRequest,
   TrainStartRequest,
   ApiError,
@@ -381,6 +383,14 @@ export function getScoringConfig(): Promise<ScoringConfig | ApiError> {
 
 export function getRegressionHistory(): Promise<RegressionHistory | ApiError> {
   return j<RegressionHistory | ApiError>('/api/regression-history');
+}
+
+export function getLrFinderResults(): Promise<LrFinderResults | ApiError> {
+  return j<LrFinderResults | ApiError>('/api/lr-finder-results');
+}
+
+export function getRepoScores(): Promise<RepoScoresResult | ApiError> {
+  return j<RepoScoresResult | ApiError>('/api/repo-scores');
 }
 
 export function getDataStats(

@@ -141,6 +141,11 @@ _MODEL_ORDER: list[str] = [
     "RegressionMetric",
     "RegressionRun",
     "RegressionHistory",
+    "LrPoint",
+    "LrFinderRun",
+    "LrFinderResults",
+    "RepoScore",
+    "RepoScoresResult",
     "RunRequest",
     "TrainStartRequest",
 ]
@@ -189,6 +194,8 @@ _OR_ERROR: list[str] = [
     "VocabSearchResult",
     "ScoringConfig",
     "RegressionHistory",
+    "LrFinderResults",
+    "RepoScoresResult",
 ]
 
 

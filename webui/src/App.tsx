@@ -46,6 +46,8 @@ import ActionLauncherPanel from './components/ActionLauncherPanel';
 import VocabExplorerPanel from './components/VocabExplorerPanel';
 import ScoringConfigPanel from './components/ScoringConfigPanel';
 import RegressionHistoryPanel from './components/RegressionHistoryPanel';
+import LrFinderPanel from './components/LrFinderPanel';
+import RepoScoresPanel from './components/RepoScoresPanel';
 import CollapsibleSection from './components/CollapsibleSection';
 
 interface Snapshot {
@@ -152,12 +154,14 @@ export default function App() {
           <SecurityScanPanel />
           <FiltersCatalogPanel />
           <ScoringConfigPanel />
+          <RepoScoresPanel />
         </CollapsibleSection>
 
         {/* Configs & pipeline. */}
         <CollapsibleSection title="Configs & Pipeline" storageKey="sec.pipeline">
           <ConfigsPanel />
           <VramEstimatePanel />
+          <LrFinderPanel />
           <ConfigDiffPanel />
           <PipelinePanel />
           <PipelineManagerPanel />

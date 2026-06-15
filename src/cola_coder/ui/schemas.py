@@ -763,6 +763,43 @@ class RegressionHistory(_UiModel):
     count: int
 
 
+class LrPoint(_UiModel):
+    lr: float
+    loss: float
+
+
+class LrFinderRun(_UiModel):
+    name: str
+    path: str
+    config: str | None
+    suggested_lr: float | None
+    min_loss: float | None
+    num_points: int
+    mtime: float
+    points: list[LrPoint]
+
+
+class LrFinderResults(_UiModel):
+    runs: list[LrFinderRun]
+    count: int
+
+
+class RepoScore(_UiModel):
+    repo: str
+    score: float
+    stars: int | None
+    language: str | None
+    license: str | None
+    reason: str | None
+
+
+class RepoScoresResult(_UiModel):
+    path: str
+    repos: list[RepoScore]
+    count: int
+    mtime: float
+
+
 class RunRequest(_UiModel):
     """Body for ``POST /api/run`` — launch an allow-listed action as a job."""
 

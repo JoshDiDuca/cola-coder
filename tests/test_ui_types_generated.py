@@ -337,6 +337,20 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         }],
     },
     "RegressionHistory": {"runs": [], "count": 0},
+    "LrPoint": {"lr": 3.0e-4, "loss": 1.8},
+    "LrFinderRun": {
+        "name": "lr_finder_result.json", "path": "lr_finder/lr_finder_result.json",
+        "config": "configs/tiny.yaml", "suggested_lr": 3.0e-4, "min_loss": 1.62,
+        "num_points": 200, "mtime": 1.0, "points": [],
+    },
+    "LrFinderResults": {"runs": [], "count": 0},
+    "RepoScore": {
+        "repo": "awesome-ts", "score": 0.95, "stars": 1200,
+        "language": "typescript", "license": "MIT", "reason": "verified",
+    },
+    "RepoScoresResult": {
+        "path": "reports/repo_scores.json", "repos": [], "count": 0, "mtime": 1781498379.5,
+    },
     "VocabToken": {"id": 42, "piece": "Ġconst", "is_special": False},
     "VocabSearchResult": {
         "query": "const", "vocab_size": 32768, "total_matches": 3, "truncated": False,

@@ -730,6 +730,43 @@ export interface RegressionHistory {
   count: number;
 }
 
+export interface LrPoint {
+  lr: number;
+  loss: number;
+}
+
+export interface LrFinderRun {
+  name: string;
+  path: string;
+  config: string | null;
+  suggested_lr: number | null;
+  min_loss: number | null;
+  num_points: number;
+  mtime: number;
+  points: LrPoint[];
+}
+
+export interface LrFinderResults {
+  runs: LrFinderRun[];
+  count: number;
+}
+
+export interface RepoScore {
+  repo: string;
+  score: number;
+  stars: number | null;
+  language: string | null;
+  license: string | null;
+  reason: string | null;
+}
+
+export interface RepoScoresResult {
+  path: string;
+  repos: RepoScore[];
+  count: number;
+  mtime: number;
+}
+
 export interface RunRequest {
   action: string;
   args?: string[] | null;
@@ -793,3 +830,5 @@ export type ReasoningProblemSetOrError = ReasoningProblemSet | ApiError;
 export type VocabSearchResultOrError = VocabSearchResult | ApiError;
 export type ScoringConfigOrError = ScoringConfig | ApiError;
 export type RegressionHistoryOrError = RegressionHistory | ApiError;
+export type LrFinderResultsOrError = LrFinderResults | ApiError;
+export type RepoScoresResultOrError = RepoScoresResult | ApiError;

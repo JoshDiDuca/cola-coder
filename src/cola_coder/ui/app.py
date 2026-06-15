@@ -36,6 +36,8 @@ from fastapi.staticfiles import StaticFiles
 
 from . import benchmark_results_view as brv
 from . import checkpoint_detail as cd
+from . import lr_finder_view as lfv
+from . import repo_scores_view as rscv
 from . import filters_catalog_view as fcv
 from . import checkpoint_health_view as chv
 from . import checkpoints_compare as cc
@@ -532,6 +534,16 @@ def create_app(
              response_model=sch.RegressionHistory | sch.ErrorResponse)
     def regression_history_get() -> dict:
         return rhv.regression_history(str(root))
+
+    @app.get("/api/lr-finder-results",
+             response_model=sch.LrFinderResults | sch.ErrorResponse)
+    def lr_finder_results_get() -> dict:
+        return lfv.lr_finder_results(str(root))
+
+    @app.get("/api/repo-scores",
+             response_model=sch.RepoScoresResult | sch.ErrorResponse)
+    def repo_scores_get() -> dict:
+        return rscv.repo_scores(str(root))
 
     @app.get("/api/data-stats", response_model=sch.DataStats | sch.ErrorResponse)
     def data_stats_get(
