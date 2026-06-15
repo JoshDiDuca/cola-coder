@@ -251,6 +251,49 @@ class TestDryAndNonDuplication:
         assert scan_cwe(code, PY) == []
 
 
+class TestTlsVerificationDisabled:
+    """CWE-295 — improper/disabled certificate verification (top AI-code insecurity)."""
+
+    def test_requests_verify_false(self):
+        code = "import requests\nrequests.get('https://api.example.com', verify=False)\n"
+        assert "CWE-295" in _cwes(CweSecurityScorer().score(code, PY))
+
+    def test_unverified_ssl_context(self):
+        code = "import ssl\nctx = ssl._create_unverified_context()\n"
+        assert "CWE-295" in _cwes(CweSecurityScorer().score(code, PY))
+
+    def test_node_reject_unauthorized_false(self):
+        code = "const agent = new https.Agent({ rejectUnauthorized: false });\n"
+        assert "CWE-295" in _cwes(CweSecurityScorer().score(code, TS))
+
+    def test_secure_request_is_clean(self):
+        code = "import requests\nrequests.get('https://api.example.com', timeout=5)\n"
+        assert "CWE-295" not in _cwes(CweSecurityScorer().score(code, PY))
+
+
+class TestWeakCipher:
+    """CWE-327 — weak/broken symmetric cipher or ECB mode."""
+
+    def test_des_new(self):
+        code = "from Crypto.Cipher import DES\nc = DES.new(key, DES.MODE_ECB)\n"
+        assert "CWE-327" in _cwes(CweSecurityScorer().score(code, PY))
+
+    def test_ecb_mode(self):
+        code = "from cryptography.hazmat.primitives.ciphers import modes\nm = modes.ECB()\n"
+        assert "CWE-327" in _cwes(CweSecurityScorer().score(code, PY))
+
+    def test_js_createcipheriv_rc4(self):
+        code = "const c = crypto.createCipheriv('rc4', key, iv);\n"
+        assert "CWE-327" in _cwes(CweSecurityScorer().score(code, JS))
+
+    def test_aes_gcm_is_clean(self):
+        code = (
+            "from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes\n"
+            "c = Cipher(algorithms.AES(key), modes.GCM(iv))\n"
+        )
+        assert "CWE-327" not in _cwes(CweSecurityScorer().score(code, PY))
+
+
 def mod_path() -> str:
     import cola_coder.data.scorers.cwe_security as mod
     assert mod.__file__ is not None

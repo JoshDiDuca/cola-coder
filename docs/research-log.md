@@ -2316,3 +2316,39 @@ before any training wiring. Filed as EVAL-040.
 **Sources:**
 - [Are Your LLMs Capable of Stable Reasoning? — G-Pass@k (arXiv:2412.13147)](https://arxiv.org/abs/2412.13147)
 - [Evaluating Large Language Models Trained on Code — pass@k (arXiv:2107.03374)](https://arxiv.org/abs/2107.03374)
+
+---
+
+## 2026-06-15 — Safety: insecure-output detection for AI-generated code (data + eval)
+
+**Area:** safety / data quality. **2026 stakes.** AI-generated code is measurably less
+secure: studies report secrets exposure +40% in AI projects, CVSS≥7 vulns ~2.5× more
+common than human code, and 12-65% of generated snippets triggering a CWE depending on
+task/lang/prompt. The prevalent classes: hard-coded credentials (CWE-259/798), injection
+(CWE-78/89/94), unsafe deserialization (CWE-502), **disabled TLS/cert verification
+(CWE-295)**, and **crypto misuse — weak ciphers/modes (CWE-327: DES/3DES/RC4/ECB)**. Best
+practice is static screening in the pipeline (pre-commit/PR) — exactly the project's
+data-quality `CweSecurityScorer` (down-weights vulnerable training samples) + `safety_eval`.
+
+**Findings + fixes (this cycle).** The project's `cwe_security` scorer covered 78/89/94/95/
+502/327-hash/330/22 but had NO **CWE-295** (disabled cert verification — `verify=False`,
+`ssl._create_unverified_context`, `rejectUnauthorized:false`) and no **weak symmetric
+cipher / ECB** (DES/3DES/RC4/Blowfish, `MODE_ECB`, `createCipheriv('rc4'…)`). Added both
+(Python + JS/TS), with tests. **Also fixed BUG-134:** `_strip_line_comments` applied the JS
+`//` rule to PYTHON code, so any line containing a URL (`https://…`) was truncated at the
+`//` — silently eating the rest of the line and causing false negatives for EVERY pattern on
+URL-bearing lines (e.g. `requests.get(url, verify=False)`). Comment stripping is now
+language-gated. This raises recall across the whole scorer, not just the new rules.
+
+**Original idea — IDEA-009: severity-graded security weight, not a binary gate.** The scorer
+already maps weighted CWE demerits → a 0-1 score; close the loop by feeding that directly into
+the data pipeline's per-sample `.weights.npy` (a CWE-laden sample trains at reduced weight
+rather than being kept-or-dropped), AND surface a corpus-level "CWE density per 1k samples"
+metric in `data_stats` so a regression in incoming data quality is visible before training.
+Cross-technique: CweSecurityScorer × quality-weighted training × data_stats. MAIN-SAFE,
+reuses three existing systems. Filed as SEC-026.
+
+**Sources:**
+- [Security & Quality in LLM-Generated Code: Multi-Language Multi-Model (arXiv:2502.01853)](https://arxiv.org/html/2502.01853v2)
+- [Assessing the Quality and Security of AI-Generated Code (arXiv:2508.14727)](https://arxiv.org/pdf/2508.14727)
+- [OWASP LLM Top 10 for code generation (Sonar)](https://www.sonarsource.com/resources/library/owasp-llm-code-generation/)

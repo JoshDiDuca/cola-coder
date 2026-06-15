@@ -153,6 +153,26 @@ _PATTERNS: list[CwePattern] = [
                    r"|\bfs\.(?:readFile|readFileSync|writeFile|writeFileSync|createReadStream)\s*\("
                    r"[^)]*(?:\+|\$\{)[^)]*\.\.[\\/]"),
                "js_ts"),
+
+    # === CWE-295: improper certificate / TLS verification (disabled) ===
+    # Secrets/TLS misconfig is a top class in AI-generated code (2026 surveys):
+    # disabling cert verification silently exposes every request to MITM.
+    CwePattern("CWE-295", "TLS certificate verification disabled (verify=False)", "high",
+               _rx(r"\bverify\s*=\s*False\b"), "python"),
+    CwePattern("CWE-295", "unverified SSL context / CERT_NONE", "high",
+               _rx(r"\bssl\._create_unverified_context\s*\(|\bssl\.CERT_NONE\b|"
+                   r"\bcheck_hostname\s*=\s*False\b"), "python"),
+    CwePattern("CWE-295", "Node TLS verification disabled (rejectUnauthorized: false)", "high",
+               _rx(r"\brejectUnauthorized\s*:\s*false\b|"
+                   r"\bNODE_TLS_REJECT_UNAUTHORIZED\b\s*[=:]\s*['\"]?0"), "js_ts"),
+
+    # === CWE-327: weak symmetric cipher / insecure mode (DES, 3DES, RC4, ECB) ===
+    CwePattern("CWE-327", "weak/broken symmetric cipher (DES/3DES/RC4/Blowfish) or ECB mode", "medium",
+               _rx(r"\b(?:DES|DES3|ARC4|Blowfish)\.new\s*\(|\bMODE_ECB\b|"
+                   r"\bmodes\.ECB\s*\(|\balgorithms\.(?:TripleDES|ARC4|Blowfish)\s*\("), "python"),
+    CwePattern("CWE-327", "weak cipher (DES/RC4) or ECB mode via createCipheriv", "medium",
+               _rx(r"\bcreateCipheriv\s*\(\s*['\"](?:des|des3|rc4|rc2)[^'\"]*['\"]|"
+                   r"['\"][a-z0-9]+-ecb['\"]"), "js_ts"),
 ]
 
 # Severity weights: a higher-severity finding subtracts more "demerit points",
@@ -183,13 +203,16 @@ class CweFinding:
     snippet: str
 
 
-def _strip_line_comments(code: str) -> str:
-    """Remove ``#`` and ``//`` single-line comments (precision: skip dead code).
+def _strip_line_comments(code: str, js_ts: bool) -> str:
+    """Remove single-line comments for the code's LANGUAGE (precision: skip dead code).
 
-    Block comments and string literals are intentionally left intact (cheap
-    tradeoff documented in the module docstring).
+    Language-gated: only ``//`` for JS/TS, only ``#`` for Python. Applying the JS
+    ``//`` rule to Python (BUG-134) clobbered any line containing ``//`` — most
+    importantly URLs like ``https://...`` — eating the rest of the line and causing
+    false negatives for EVERY pattern on that line (e.g. ``requests.get(url, verify=False)``).
+    Block comments and string literals are left intact (documented tradeoff).
     """
-    return _JS_LINE_COMMENT.sub("", _PY_COMMENT.sub("", code))
+    return _JS_LINE_COMMENT.sub("", code) if js_ts else _PY_COMMENT.sub("", code)
 
 
 def _line_of(code: str, index: int) -> int:
@@ -207,8 +230,8 @@ def scan_cwe(code: str, metadata: dict[str, object] | None = None) -> list[CweFi
     if not code or not code.strip():
         return []
 
-    scanned = _strip_line_comments(code)
     js_ts = is_js_ts(code, metadata)
+    scanned = _strip_line_comments(code, js_ts)
 
     findings: list[CweFinding] = []
     for pat in _PATTERNS:

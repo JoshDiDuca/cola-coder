@@ -45,6 +45,20 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 - **UI-079** [ui, medium] `done` (2026-06-15) — `CommandPalette` (⌘K/Ctrl-K): fuzzy quick-switcher over
   all 11 nav sections; self-contained global key listener, navigates via the same hash as Sidebar.
 
+### Safety — insecure-output detection (2026-06-15)
+- **SEC-025** [safety/data-quality, high] `done` (2026-06-15) — `CweSecurityScorer` gained CWE-295
+  (disabled TLS/cert verification: `verify=False`, `ssl._create_unverified_context`, `CERT_NONE`,
+  `check_hostname=False`, `rejectUnauthorized:false`, `NODE_TLS_REJECT_UNAUTHORIZED=0`) and CWE-327 weak
+  symmetric cipher / ECB (DES/3DES/RC4/Blowfish, `MODE_ECB`, `modes.ECB`, `createCipheriv('rc4'…)`),
+  Python + JS/TS. 8 new tests. Both are top AI-code insecurity classes (2026 surveys).
+- **BUG-134** [bug, high] `done` (2026-06-15) — `_strip_line_comments` applied the JS `//` rule to PYTHON
+  code, truncating any line at a URL's `//` (e.g. `requests.get(url, verify=False)`) → false negatives for
+  EVERY pattern on URL-bearing lines. Comment stripping is now language-gated (only `#` for Python, only
+  `//` for JS/TS). Raises recall across the whole scorer; surfaced while adding SEC-025.
+- **SEC-026 / IDEA-009** [safety/data-quality, medium] `open` — Feed the CweSecurityScorer's graded score
+  into `.weights.npy` (down-weight, not drop) + add a corpus "CWE density / 1k samples" metric to
+  data_stats so incoming-data security regressions are visible pre-training.
+
 ### Data quality — decontamination (2026-06-15)
 - **DATA-072 / BUG-133** [data-quality/bug, high] `done` (2026-06-15) — `DecontaminationFilter` screened
   only the eval PROMPT, missing the canonical SOLUTION + hidden TESTS — the most damaging leakage and the
