@@ -18,6 +18,14 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   Pipeline/Manager). One coherent panel per section, no grid. Built by 3 parallel agents (disjoint new
   files) wrapping the existing panels unchanged; App.tsx now imports 3 panels instead of 19. tsc + build green.
 
+### UI — config editing + command palette (2026-06-15)
+- **UI-078** [ui, high] `done` (2026-06-15) — Config EDITING (R11): `POST /api/config/write` +
+  `configs.write_config` (YAML-validate + path-traversal guard + atomic temp/replace; refuses bad edits
+  before touching disk; safe vs the running trainer which read its config at launch) + `ConfigEditorPanel`
+  (pick → edit → Validate & Save, dirty/revert, truncation-guard). 5 backend tests + drift examples.
+- **UI-079** [ui, medium] `done` (2026-06-15) — `CommandPalette` (⌘K/Ctrl-K): fuzzy quick-switcher over
+  all 11 nav sections; self-contained global key listener, navigates via the same hash as Sidebar.
+
 ### Data quality — decontamination (2026-06-15)
 - **DATA-072 / BUG-133** [data-quality/bug, high] `done` (2026-06-15) — `DecontaminationFilter` screened
   only the eval PROMPT, missing the canonical SOLUTION + hidden TESTS — the most damaging leakage and the

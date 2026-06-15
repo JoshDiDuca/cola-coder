@@ -966,6 +966,21 @@ class FimRequest(_UiModel):
     top_k: int = 50
 
 
+class ConfigWriteRequest(_UiModel):
+    """Body for ``POST /api/config/write`` — save edited YAML config text."""
+
+    path: str
+    content: str
+
+
+class ConfigWriteResult(_UiModel):
+    """Result of a successful config write (validated YAML, atomic on-disk replace)."""
+
+    ok: bool
+    path: str
+    bytes_written: int
+
+
 class ErrorResponse(_UiModel):
     """Maps to the TS ``ApiError`` interface."""
 

@@ -340,6 +340,8 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "checkpoint": "checkpoints/small/latest", "config": "configs/small.yaml",
         "max_tokens": 128, "temperature": 0.2, "top_p": 0.9, "top_k": 50,
     },
+    "ConfigWriteRequest": {"path": "configs/small.yaml", "content": "model:\n  dim: 768\n"},
+    "ConfigWriteResult": {"ok": True, "path": "configs/small.yaml", "bytes_written": 18},
     "ScorerConfigEntry": {
         "name": "tsc", "enabled": True, "weight": 0.3, "available": True,
         "purpose": "Score TypeScript files using tsc --noEmit via SandboxedRunner.",

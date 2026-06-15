@@ -25,6 +25,8 @@ import SystemInfoPanel from './components/SystemInfoPanel';
 import CheckpointToolsPanel from './components/CheckpointToolsPanel';
 import DataToolsPanel from './components/DataToolsPanel';
 import PipelineToolsPanel from './components/PipelineToolsPanel';
+import ConfigEditorPanel from './components/ConfigEditorPanel';
+import CommandPalette from './components/CommandPalette';
 
 interface Snapshot {
   training: TrainingStatus;
@@ -126,6 +128,7 @@ function Page({
         <>
           <PipelineScreen trainingAlive={alive} />
           <PipelineToolsPanel />
+          <ConfigEditorPanel />
         </>
       );
     case 'eval':
@@ -177,6 +180,7 @@ export default function App() {
 
   return (
     <div className="app">
+      <CommandPalette />
       <Sidebar active={active} onNavigate={navigate} training={snap?.training ?? null} connected={connected} />
 
       <div className="app-main">

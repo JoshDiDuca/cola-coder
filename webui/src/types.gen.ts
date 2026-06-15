@@ -904,6 +904,17 @@ export interface FimRequest {
   top_k?: number;
 }
 
+export interface ConfigWriteRequest {
+  path: string;
+  content: string;
+}
+
+export interface ConfigWriteResult {
+  ok: boolean;
+  path: string;
+  bytes_written: number;
+}
+
 export interface ApiError {
   error: string;
 }
@@ -965,3 +976,4 @@ export type TrainingManifestsOrError = TrainingManifests | ApiError;
 export type LrFinderResultsOrError = LrFinderResults | ApiError;
 export type RepoScoresResultOrError = RepoScoresResult | ApiError;
 export type InferenceResultOrError = InferenceResult | ApiError;
+export type ConfigWriteResultOrError = ConfigWriteResult | ApiError;

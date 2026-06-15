@@ -487,6 +487,19 @@ def create_app(
     def config_get(path: str) -> dict:
         return cfg.read_config(path)
 
+    @app.post("/api/config/write", response_model=sch.ConfigWriteResult | sch.ErrorResponse)
+    def config_write(req: sch.ConfigWriteRequest) -> dict | JSONResponse:
+        """Validate + atomically write an edited YAML config (R11).
+
+        Refuses (400) any path outside configs/ or any content that does not parse as
+        YAML — a config is never corrupted from the UI. Safe vs. the live trainer,
+        which read its config at launch.
+        """
+        result = cfg.write_config(req.path, req.content, configs_dir=str(root / "configs"))
+        if "error" in result:
+            return JSONResponse(result, status_code=400)
+        return result
+
     @app.get("/api/pipeline/runs", response_model=list[sch.PipelineRun])
     def pipeline_runs() -> list[dict]:
         return pl.list_pipeline_runs(str(root / "pipeline_runs"))

@@ -163,6 +163,8 @@ _MODEL_ORDER: list[str] = [
     "ChatMessage",
     "ChatRequest",
     "FimRequest",
+    "ConfigWriteRequest",
+    "ConfigWriteResult",
 ]
 
 # Models the frontend treats as ``Model | ApiError`` (mirrors webui/src/api.ts).
@@ -217,6 +219,7 @@ _OR_ERROR: list[str] = [
     "LrFinderResults",
     "RepoScoresResult",
     "InferenceResult",
+    "ConfigWriteResult",
 ]
 
 

@@ -63,6 +63,8 @@ import type {
   InferenceResult,
   ChatRequest,
   FimRequest,
+  ConfigWriteRequest,
+  ConfigWriteResult,
   ApiError,
   JsonValue,
 } from './types';
@@ -178,6 +180,12 @@ export function getConfigs(): Promise<ConfigFile[]> {
 
 export function getConfig(path: string): Promise<ConfigContent> {
   return j<ConfigContent>(`/api/config?path=${encodeURIComponent(path)}`);
+}
+
+// Save an edited YAML config. Backend validates YAML + path (inside configs/)
+// before writing atomically; returns 400 (ApiError) on invalid YAML / bad path.
+export function writeConfig(req: ConfigWriteRequest): Promise<ConfigWriteResult | ApiError> {
+  return j<ConfigWriteResult | ApiError>('/api/config/write', postJson(req));
 }
 
 export function getPipelineRuns(): Promise<PipelineRun[]> {

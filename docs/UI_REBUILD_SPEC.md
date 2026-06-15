@@ -147,9 +147,13 @@ Replace each page's card-grid with a single master→detail screen.
   frontend disables the action + shows a banner when `trainingAlive`.
 - ◻ REMAINING: best-of-N + --repo context, streaming output (SSE). Build on the same gated pattern.
 
-### R11 — Settings / features / storage editing  ◻ PARTIAL
-- features.yaml toggles (FeaturesPanel ✅ exists), storage.yaml view (StoragePanel ✅), config EDIT
-  (write path) is still read-only (backlog UI-018). Fold into the relevant screens.
+### R11 — Settings / features / storage editing  ✅ CONFIG EDIT DONE (UI-078)
+- features.yaml toggles (FeaturesPanel ✅), storage.yaml view (StoragePanel ✅).
+- ✅ Config EDIT (UI-078): `POST /api/config/write` (validates YAML + path-traversal guard + atomic
+  write; refuses bad edits BEFORE touching disk; safe vs the running trainer) + `ConfigEditorPanel`
+  (pick config → edit YAML → Validate & Save, dirty/revert, truncation-guard, backend error verbatim).
+  On the Configs & Pipeline page. 5 backend tests.
+- Bonus (UI-079): ⌘K/Ctrl-K `CommandPalette` — fuzzy quick-switcher across all 11 sections.
 
 ---
 
