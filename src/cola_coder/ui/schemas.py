@@ -920,13 +920,50 @@ class InferenceRequest(_UiModel):
 
 
 class InferenceResult(_UiModel):
-    """Result of a one-shot ``/api/generate`` call (the completion only)."""
+    """Result of a one-shot ``/api/generate`` / ``/api/chat`` / ``/api/fim`` call.
+
+    ``completion`` holds the generated text (the reply for chat, the infill for
+    FIM). Shared across all three inference endpoints to keep the contract small.
+    """
 
     completion: str
     prompt: str
     checkpoint: str
     tokens_generated: int
     elapsed_s: float
+
+
+class ChatMessage(_UiModel):
+    """One turn in a chat conversation."""
+
+    role: Literal["system", "user", "assistant"]
+    content: str
+
+
+class ChatRequest(_UiModel):
+    """Body for ``POST /api/chat`` — multi-turn chat. Gated like ``/api/generate``."""
+
+    messages: list[ChatMessage]
+    checkpoint: str
+    config: str
+    use_chat_template: bool = True
+    max_tokens: int = 256
+    temperature: float = 0.7
+    top_p: float = 0.9
+    top_k: int = 50
+
+
+class FimRequest(_UiModel):
+    """Body for ``POST /api/fim`` — fill-in-the-middle. Gated like ``/api/generate``."""
+
+    prefix: str
+    suffix: str
+    checkpoint: str
+    config: str
+    max_tokens: int = 128
+    temperature: float = 0.2
+    top_p: float = 0.9
+    top_k: int = 50
 
 
 class ErrorResponse(_UiModel):

@@ -13,6 +13,8 @@ import SystemScreen from './components/screens/SystemScreen';
 import PipelineScreen from './components/screens/PipelineScreen';
 import TokenizerScreen from './components/screens/TokenizerScreen';
 import InferenceScreen from './components/screens/InferenceScreen';
+import ChatScreen from './components/screens/ChatScreen';
+import FimScreen from './components/screens/FimScreen';
 
 import LiveTrainingPanel from './components/LiveTrainingPanel';
 import TrainingPanel from './components/TrainingPanel';
@@ -117,6 +119,10 @@ function Page({
       return (
         <InferenceScreen checkpoints={checkpoints.map((c) => c.path)} trainingAlive={alive} />
       );
+    case 'chat':
+      return <ChatScreen checkpoints={checkpoints.map((c) => c.path)} trainingAlive={alive} />;
+    case 'fim':
+      return <FimScreen checkpoints={checkpoints.map((c) => c.path)} trainingAlive={alive} />;
     case 'checkpoints':
       return (
         <>

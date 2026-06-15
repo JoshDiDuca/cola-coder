@@ -877,6 +877,33 @@ export interface InferenceResult {
   elapsed_s: number;
 }
 
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+export interface ChatRequest {
+  messages: ChatMessage[];
+  checkpoint: string;
+  config: string;
+  use_chat_template?: boolean;
+  max_tokens?: number;
+  temperature?: number;
+  top_p?: number;
+  top_k?: number;
+}
+
+export interface FimRequest {
+  prefix: string;
+  suffix: string;
+  checkpoint: string;
+  config: string;
+  max_tokens?: number;
+  temperature?: number;
+  top_p?: number;
+  top_k?: number;
+}
+
 export interface ApiError {
   error: string;
 }

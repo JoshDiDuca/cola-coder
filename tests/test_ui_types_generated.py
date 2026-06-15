@@ -328,6 +328,18 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "completion": "    return a + b", "prompt": "def add(a, b):",
         "checkpoint": "checkpoints/small/latest", "tokens_generated": 6, "elapsed_s": 1.2,
     },
+    "ChatMessage": {"role": "user", "content": "Write a bubble sort in Python."},
+    "ChatRequest": {
+        "messages": [{"role": "user", "content": "hi"}],
+        "checkpoint": "checkpoints/small/latest", "config": "configs/small.yaml",
+        "use_chat_template": True, "max_tokens": 256, "temperature": 0.7,
+        "top_p": 0.9, "top_k": 50,
+    },
+    "FimRequest": {
+        "prefix": "def add(a, b):\n    return ", "suffix": "\n",
+        "checkpoint": "checkpoints/small/latest", "config": "configs/small.yaml",
+        "max_tokens": 128, "temperature": 0.2, "top_p": 0.9, "top_k": 50,
+    },
     "ScorerConfigEntry": {
         "name": "tsc", "enabled": True, "weight": 0.3, "available": True,
         "purpose": "Score TypeScript files using tsc --noEmit via SandboxedRunner.",

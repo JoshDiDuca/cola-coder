@@ -61,6 +61,8 @@ import type {
   TrainStartRequest,
   InferenceRequest,
   InferenceResult,
+  ChatRequest,
+  FimRequest,
   ApiError,
   JsonValue,
 } from './types';
@@ -137,6 +139,17 @@ export function jobLogStreamUrl(id: string, tail = 200): string {
 // message contains "409"); it may also resolve an ApiError body.
 export function generateText(req: InferenceRequest): Promise<InferenceResult | ApiError> {
   return j<InferenceResult | ApiError>('/api/generate', postJson(req));
+}
+
+// Multi-turn chat. Gated like /api/generate (409 while training is live).
+export function chatGenerate(req: ChatRequest): Promise<InferenceResult | ApiError> {
+  return j<InferenceResult | ApiError>('/api/chat', postJson(req));
+}
+
+// Fill-in-the-middle completion. Gated like /api/generate; 400 if the
+// tokenizer lacks <|fim_*|> tokens.
+export function fimGenerate(req: FimRequest): Promise<InferenceResult | ApiError> {
+  return j<InferenceResult | ApiError>('/api/fim', postJson(req));
 }
 
 export function getActions(): Promise<ActionDef[]> {

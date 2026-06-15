@@ -135,14 +135,17 @@ Replace each page's card-grid with a single master→detail screen.
 - Known CLI bugs surfaced while building must be fixed (BUG-130/131 done; scrape_github interactive
   BUG-132 open — its launcher is blocked until it has non-interactive flags).
 
-### R10 — Generate / Chat / Inference playground (use the model from the UI)  ◧ CODE-GEN DONE (UI-074)
-- ✅ `InferenceScreen` + `POST /api/generate`: prompt + checkpoint/config pickers + sampling controls
-  (temperature/max_tokens/top_p/top_k), completion view + token/elapsed stats. Model loaded per request
-  and freed (no persistent VRAM). GPU-aware: REFUSED (409) while training is live — and the guard is now
-  elevation-proof (OPS-002: detects the live trainer via per-step `.err` freshness, not just psutil).
-  Frontend disables Generate + shows a banner when `trainingAlive`.
-- ◻ REMAINING: multi-turn chat (chat-format auto), FIM completion, best-of-N + --repo context, streaming
-  output (SSE). These build on the same gated pattern.
+### R10 — Generate / Chat / Inference playground (use the model from the UI)  ◧ GEN+CHAT+FIM DONE
+- ✅ `InferenceScreen` + `POST /api/generate` (UI-074): one-shot code gen, sampling controls, completion
+  + token/elapsed stats.
+- ✅ `ChatScreen` + `POST /api/chat` (UI-075): multi-turn chat, ChatML-or-plain formatting (`use_chat_template`),
+  per-reply stats, transcript bubbles, system-prompt seed.
+- ✅ `FimScreen` + `POST /api/fim` (UI-076): fill-in-the-middle (prefix/suffix), infill + stitched preview;
+  clear message when the tokenizer lacks `<|fim_*|>` tokens.
+- All three: a "Playground" nav group. Model loaded per request and freed (no persistent VRAM). GPU-aware —
+  REFUSED (409) while training is live via the elevation-proof guard (OPS-002, shared `_training_busy()`);
+  frontend disables the action + shows a banner when `trainingAlive`.
+- ◻ REMAINING: best-of-N + --repo context, streaming output (SSE). Build on the same gated pattern.
 
 ### R11 — Settings / features / storage editing  ◻ PARTIAL
 - features.yaml toggles (FeaturesPanel ✅ exists), storage.yaml view (StoragePanel ✅), config EDIT

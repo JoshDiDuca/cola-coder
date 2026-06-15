@@ -23,6 +23,11 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 - **UI-074** [ui, high] `done` (2026-06-15) — Inference playground (R10): `/api/generate` (gated) +
   `InferenceScreen` (prompt + sampling controls, completion view, training-alive guard). Generation
   loads the model per request and frees it; refused while training is live.
+- **UI-075** [ui, high] `done` (2026-06-15) — Chat playground (R10): `ChatScreen` + gated `POST /api/chat`
+  (ChatML-or-plain via `use_chat_template`); multi-turn transcript, per-reply stats, system-prompt seed.
+- **UI-076** [ui, high] `done` (2026-06-15) — FIM playground (R10): `FimScreen` + gated `POST /api/fim`
+  (`tokenizer.fim_prompt`); infill + stitched preview; clear message when tokenizer lacks `<|fim_*|>`.
+  Backend DRY: shared `_training_busy()` gate + `_run_generation()` across generate/chat/fim.
 - **OPS-002** [bug/safety, critical] `done` (2026-06-15) — Training-active detection FAILED under
   OPS-001 (trainer launched at higher OS integrity → psutil can't read its cmdline → `alive`=False
   while training ran). This broke the dashboard `alive` flag AND every GPU guard; `/api/generate`

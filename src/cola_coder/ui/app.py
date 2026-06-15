@@ -167,6 +167,30 @@ ACTIONS: dict[str, dict] = {
 }
 
 
+def _build_chat_prompt(messages: list[tuple[str, str]], use_chat_template: bool) -> str:
+    """Build a generation prompt from chat turns.
+
+    Mirrors the inference server: ChatML (with a trailing empty assistant turn,
+    minus its closing marker, so the model continues the reply) for instruction-
+    tuned checkpoints, or plain newline concatenation for base models. Falls back
+    to concatenation if the ChatML template is unavailable.
+    """
+    if use_chat_template:
+        try:
+            from cola_coder.tokenizer.chat_template import format_chat
+
+            dicts = [{"role": role, "content": content} for role, content in messages]
+            dicts.append({"role": "assistant", "content": ""})
+            prompt = format_chat(dicts)
+            for marker in ("<|im_end|>\n", "<|im_end|>"):
+                if prompt.endswith(marker):
+                    return prompt[: -len(marker)]
+            return prompt
+        except ImportError:
+            pass
+    return "\n".join(content for _role, content in messages)
+
+
 def create_app(
     *,
     job_manager: JobManager | None = None,
@@ -338,40 +362,44 @@ def create_app(
             return JSONResponse(result, status_code=409)
         return result
 
-    @app.post("/api/generate", response_model=sch.InferenceResult | sch.ErrorResponse)
-    def generate_text(req: sch.InferenceRequest) -> dict | JSONResponse:
-        """One-shot code generation for the inference playground.
+    def _training_busy() -> JSONResponse | None:
+        """Return a 409 JSONResponse if training is live, else None.
 
-        REFUSED (409) while a training run is live — a UI generation loads the
-        model on the GPU and would contend with the live trainer. The model is
-        loaded per request and freed afterward so the UI server holds no GPU
-        memory between calls.
+        Robust guard: the cmdline scan misses a trainer launched at higher OS
+        integrity (OPS-001), so also trust the per-step progress freshness — the
+        same signal the dashboard 'alive' flag uses. Either positive refuses, so a
+        UI generation can never contend with the live trainer for the GPU.
         """
-        # Robust guard: the cmdline scan misses a trainer launched at higher OS
-        # integrity (OPS-001), so also trust the per-step progress freshness — the
-        # same signal the dashboard 'alive' flag uses. Either positive refuses.
         if jobs.is_training_running() or st.is_training_active(log_path, err_path):
             return JSONResponse(
                 {"error": "training is running — generation refused to protect the "
                           "live run (free the GPU first)"},
                 status_code=409,
             )
+        return None
+
+    def _run_generation(
+        prompt: str, checkpoint: str, config: str,
+        *, max_tokens: int, temperature: float, top_p: float, top_k: int,
+    ) -> dict | JSONResponse:
+        """Load a checkpoint, generate from ``prompt``, free the model, return result.
+
+        Shared by /api/generate, /api/chat, /api/fim. The model is loaded per
+        request and freed afterward so the UI server holds no GPU memory between
+        calls. Callers MUST check ``_training_busy()`` first.
+        """
         try:
             import time
 
             from cola_coder.inference.loading import load_generator
 
-            ckpt = req.checkpoint if Path(req.checkpoint).is_absolute() else str(root / req.checkpoint)
-            conf = req.config if Path(req.config).is_absolute() else str(root / req.config)
+            ckpt = checkpoint if Path(checkpoint).is_absolute() else str(root / checkpoint)
+            conf = config if Path(config).is_absolute() else str(root / config)
             generator, _config, _tok = load_generator(ckpt, conf)
             start = time.perf_counter()
             completion = generator.generate(
-                req.prompt,
-                max_new_tokens=req.max_tokens,
-                temperature=req.temperature,
-                top_p=req.top_p,
-                top_k=req.top_k,
-                return_new_only=True,
+                prompt, max_new_tokens=max_tokens, temperature=temperature,
+                top_p=top_p, top_k=top_k, return_new_only=True,
             )
             elapsed = time.perf_counter() - start
             n_tokens = len(_tok.encode(completion)) if hasattr(_tok, "encode") else 0
@@ -384,16 +412,72 @@ def create_app(
             except ImportError:
                 pass
             return sch.InferenceResult(
-                completion=completion,
-                prompt=req.prompt,
-                checkpoint=req.checkpoint,
-                tokens_generated=n_tokens,
-                elapsed_s=elapsed,
+                completion=completion, prompt=prompt, checkpoint=checkpoint,
+                tokens_generated=n_tokens, elapsed_s=elapsed,
             ).model_dump()
         except FileNotFoundError as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
         except Exception as exc:  # noqa: BLE001 - surface any load/generate failure to the UI
             return JSONResponse({"error": f"generation failed: {exc}"}, status_code=500)
+
+    @app.post("/api/generate", response_model=sch.InferenceResult | sch.ErrorResponse)
+    def generate_text(req: sch.InferenceRequest) -> dict | JSONResponse:
+        """One-shot code generation for the inference playground (gated, see above)."""
+        busy = _training_busy()
+        if busy is not None:
+            return busy
+        return _run_generation(
+            req.prompt, req.checkpoint, req.config,
+            max_tokens=req.max_tokens, temperature=req.temperature,
+            top_p=req.top_p, top_k=req.top_k,
+        )
+
+    @app.post("/api/chat", response_model=sch.InferenceResult | sch.ErrorResponse)
+    def chat(req: sch.ChatRequest) -> dict | JSONResponse:
+        """Multi-turn chat. Gated like /api/generate. ChatML formatting (best with
+        instruction-tuned checkpoints) or plain concatenation for base models."""
+        busy = _training_busy()
+        if busy is not None:
+            return busy
+        prompt = _build_chat_prompt(
+            [(m.role, m.content) for m in req.messages], req.use_chat_template
+        )
+        return _run_generation(
+            prompt, req.checkpoint, req.config,
+            max_tokens=req.max_tokens, temperature=req.temperature,
+            top_p=req.top_p, top_k=req.top_k,
+        )
+
+    @app.post("/api/fim", response_model=sch.InferenceResult | sch.ErrorResponse)
+    def fim(req: sch.FimRequest) -> dict | JSONResponse:
+        """Fill-in-the-middle completion. Gated like /api/generate. Requires the
+        tokenizer's <|fim_*|> tokens; returns a clear error if absent."""
+        busy = _training_busy()
+        if busy is not None:
+            return busy
+        try:
+            from cola_coder.inference.loading import resolve_tokenizer_path
+            from cola_coder.tokenizer.tokenizer_utils import CodeTokenizer
+
+            ckpt = req.checkpoint if Path(req.checkpoint).is_absolute() else str(root / req.checkpoint)
+            conf = req.config if Path(req.config).is_absolute() else str(root / req.config)
+            tok = CodeTokenizer(str(resolve_tokenizer_path(Path(ckpt), conf)))
+            if not tok.has_fim_tokens():
+                return JSONResponse(
+                    {"error": "tokenizer has no <|fim_*|> tokens — this checkpoint's "
+                              "tokenizer was not trained with FIM support"},
+                    status_code=400,
+                )
+            prompt = tok.fim_prompt(req.prefix, req.suffix)
+        except FileNotFoundError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        except Exception as exc:  # noqa: BLE001
+            return JSONResponse({"error": f"FIM prompt build failed: {exc}"}, status_code=500)
+        return _run_generation(
+            prompt, req.checkpoint, req.config,
+            max_tokens=req.max_tokens, temperature=req.temperature,
+            top_p=req.top_p, top_k=req.top_k,
+        )
 
     @app.get("/api/configs", response_model=list[sch.ConfigFile])
     def configs_list() -> list[dict]:

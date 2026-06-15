@@ -6,6 +6,8 @@ export type SectionId =
   | 'overview'
   | 'run'
   | 'inference'
+  | 'chat'
+  | 'fim'
   | 'pipeline'
   | 'checkpoints'
   | 'data'
@@ -17,6 +19,8 @@ export type IconName =
   | 'dashboard'
   | 'play'
   | 'terminal'
+  | 'message'
+  | 'code'
   | 'sliders'
   | 'box'
   | 'database'
@@ -42,8 +46,15 @@ export const NAV: NavGroup[] = [
     items: [
       { id: 'overview', label: 'Dashboard', icon: 'dashboard', subtitle: 'Live training, GPU & system health' },
       { id: 'run', label: 'Run & Jobs', icon: 'play', subtitle: 'Launch actions and watch background jobs' },
-      { id: 'inference', label: 'Inference', icon: 'terminal', subtitle: 'Generate from a checkpoint (playground)' },
       { id: 'eval', label: 'Evaluation', icon: 'chart', subtitle: 'HumanEval, benchmarks, safety & regressions' },
+    ],
+  },
+  {
+    group: 'Playground',
+    items: [
+      { id: 'inference', label: 'Generate', icon: 'terminal', subtitle: 'One-shot code generation from a checkpoint' },
+      { id: 'chat', label: 'Chat', icon: 'message', subtitle: 'Multi-turn chat with a checkpoint' },
+      { id: 'fim', label: 'FIM', icon: 'code', subtitle: 'Fill-in-the-middle code completion' },
     ],
   },
   {
