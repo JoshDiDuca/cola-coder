@@ -730,6 +730,36 @@ export interface RegressionHistory {
   count: number;
 }
 
+export interface BacklogItem {
+  id: string;
+  category: string;
+  severity: string;
+  status: string;
+  date: string | null;
+  description: string;
+}
+
+export interface BacklogView {
+  items: BacklogItem[];
+  count: number;
+  open_count: number;
+  done_count: number;
+}
+
+export interface ResearchEntry {
+  date: string;
+  title: string;
+  area: string | null;
+  source_count: number;
+  has_original_idea: boolean;
+  summary: string;
+}
+
+export interface ResearchLog {
+  entries: ResearchEntry[];
+  count: number;
+}
+
 export interface TrainingManifest {
   model: string;
   path: string;
@@ -851,6 +881,8 @@ export type ReasoningProblemSetOrError = ReasoningProblemSet | ApiError;
 export type VocabSearchResultOrError = VocabSearchResult | ApiError;
 export type ScoringConfigOrError = ScoringConfig | ApiError;
 export type RegressionHistoryOrError = RegressionHistory | ApiError;
+export type BacklogViewOrError = BacklogView | ApiError;
+export type ResearchLogOrError = ResearchLog | ApiError;
 export type TrainingManifestsOrError = TrainingManifests | ApiError;
 export type LrFinderResultsOrError = LrFinderResults | ApiError;
 export type RepoScoresResultOrError = RepoScoresResult | ApiError;

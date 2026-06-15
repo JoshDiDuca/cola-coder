@@ -763,6 +763,36 @@ class RegressionHistory(_UiModel):
     count: int
 
 
+class BacklogItem(_UiModel):
+    id: str
+    category: str
+    severity: str
+    status: str
+    date: str | None
+    description: str
+
+
+class BacklogView(_UiModel):
+    items: list[BacklogItem]
+    count: int
+    open_count: int
+    done_count: int
+
+
+class ResearchEntry(_UiModel):
+    date: str
+    title: str
+    area: str | None
+    source_count: int
+    has_original_idea: bool
+    summary: str
+
+
+class ResearchLog(_UiModel):
+    entries: list[ResearchEntry]
+    count: int
+
+
 class TrainingManifest(_UiModel):
     model: str
     path: str

@@ -50,6 +50,8 @@ import LrFinderPanel from './components/LrFinderPanel';
 import RepoScoresPanel from './components/RepoScoresPanel';
 import TrainingManifestPanel from './components/TrainingManifestPanel';
 import CheckpointAveragePanel from './components/CheckpointAveragePanel';
+import BacklogPanel from './components/BacklogPanel';
+import ResearchLogPanel from './components/ResearchLogPanel';
 import CollapsibleSection from './components/CollapsibleSection';
 
 interface Snapshot {
@@ -196,6 +198,8 @@ export default function App() {
           <ReasoningPanel />
           <ProjectMemoryPanel />
           <ReasoningProblemsPanel />
+          <BacklogPanel />
+          <ResearchLogPanel />
           <ScriptsCatalogPanel />
           <StoragePanel />
         </CollapsibleSection>

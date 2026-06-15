@@ -50,6 +50,8 @@ import type {
   VocabSearchResult,
   ScoringConfig,
   RegressionHistory,
+  BacklogView,
+  ResearchLog,
   TrainingManifests,
   LrFinderResults,
   RepoScoresResult,
@@ -396,6 +398,14 @@ export function getRepoScores(): Promise<RepoScoresResult | ApiError> {
 
 export function getTrainingManifests(): Promise<TrainingManifests | ApiError> {
   return j<TrainingManifests | ApiError>('/api/training-manifests');
+}
+
+export function getBacklog(): Promise<BacklogView | ApiError> {
+  return j<BacklogView | ApiError>('/api/backlog');
+}
+
+export function getResearchLog(): Promise<ResearchLog | ApiError> {
+  return j<ResearchLog | ApiError>('/api/research-log');
 }
 
 export function getDataStats(

@@ -34,6 +34,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import backlog_view as blv
 from . import benchmark_results_view as brv
 from . import checkpoint_detail as cd
 from . import lr_finder_view as lfv
@@ -63,6 +64,7 @@ from . import project_health_view as phv
 from . import reasoning as rs
 from . import reasoning_problems_view as rpv
 from . import regression_history_view as rhv
+from . import research_log_view as rlv
 from . import retrieval_stats_view as rsv
 from . import router as rt
 from . import safety_eval_view as sev
@@ -553,6 +555,14 @@ def create_app(
              response_model=sch.TrainingManifests | sch.ErrorResponse)
     def training_manifests_get() -> dict:
         return tmv.training_manifests(str(root / "checkpoints"))
+
+    @app.get("/api/backlog", response_model=sch.BacklogView | sch.ErrorResponse)
+    def backlog_get() -> dict:
+        return blv.backlog(str(root))
+
+    @app.get("/api/research-log", response_model=sch.ResearchLog | sch.ErrorResponse)
+    def research_log_get() -> dict:
+        return rlv.research_log(str(root))
 
     @app.get("/api/data-stats", response_model=sch.DataStats | sch.ErrorResponse)
     def data_stats_get(
