@@ -319,6 +319,15 @@ _EXAMPLES: dict[str, dict[str, object]] = {
     },
     "RunRequest": {"action": "prepare_data", "args": ["--config", "configs/small.yaml"]},
     "TrainStartRequest": {"config": "configs/small.yaml", "resume": None},
+    "InferenceRequest": {
+        "prompt": "def add(a, b):", "checkpoint": "checkpoints/small/latest",
+        "config": "configs/small.yaml", "max_tokens": 256, "temperature": 0.8,
+        "top_p": 0.9, "top_k": 50,
+    },
+    "InferenceResult": {
+        "completion": "    return a + b", "prompt": "def add(a, b):",
+        "checkpoint": "checkpoints/small/latest", "tokens_generated": 6, "elapsed_s": 1.2,
+    },
     "ScorerConfigEntry": {
         "name": "tsc", "enabled": True, "weight": 0.3, "available": True,
         "purpose": "Score TypeScript files using tsc --noEmit via SandboxedRunner.",

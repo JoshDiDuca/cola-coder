@@ -11,6 +11,8 @@ import EvalScreen from './components/screens/EvalScreen';
 import RunScreen from './components/screens/RunScreen';
 import SystemScreen from './components/screens/SystemScreen';
 import PipelineScreen from './components/screens/PipelineScreen';
+import TokenizerScreen from './components/screens/TokenizerScreen';
+import InferenceScreen from './components/screens/InferenceScreen';
 
 import LiveTrainingPanel from './components/LiveTrainingPanel';
 import TrainingPanel from './components/TrainingPanel';
@@ -24,10 +26,6 @@ import VramEstimatePanel from './components/VramEstimatePanel';
 import LrFinderPanel from './components/LrFinderPanel';
 import PipelinePanel from './components/PipelinePanel';
 import PipelineManagerPanel from './components/PipelineManagerPanel';
-import TokenizerPanel from './components/TokenizerPanel';
-import TokenizerHealthPanel from './components/TokenizerHealthPanel';
-import TokenizePanel from './components/TokenizePanel';
-import VocabExplorerPanel from './components/VocabExplorerPanel';
 import ModelCardPanel from './components/ModelCardPanel';
 import TrainingManifestPanel from './components/TrainingManifestPanel';
 import CheckpointAveragePanel from './components/CheckpointAveragePanel';
@@ -115,6 +113,10 @@ function Page({
       );
     case 'run':
       return <RunScreen jobs={snap?.jobs ?? []} trainingAlive={alive} />;
+    case 'inference':
+      return (
+        <InferenceScreen checkpoints={checkpoints.map((c) => c.path)} trainingAlive={alive} />
+      );
     case 'checkpoints':
       return (
         <>
@@ -170,14 +172,7 @@ function Page({
     case 'eval':
       return <EvalScreen />;
     case 'tokenizer':
-      return (
-        <div className="page-grid">
-          <TokenizerPanel />
-          <TokenizerHealthPanel />
-          <TokenizePanel />
-          <VocabExplorerPanel />
-        </div>
-      );
+      return <TokenizerScreen />;
     case 'system':
       return <SystemScreen />;
     default: {

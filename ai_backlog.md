@@ -11,6 +11,26 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+### UI rebuild — typed forms, pipeline, inference, screens (2026-06-15)
+- **UI-070** [ui, high] `done` (2026-06-15) — Typed argument forms (R3): `ActionParam`/`ActionDef.params`
+  + `action_params.py` 1:1 argparse spec for all actions; `ActionForm.tsx`; `/api/actions` merge.
+- **UI-071** [ui, high] `done` (2026-06-15) — One-click full pipeline launcher (R4) + Configs & Pipeline
+  master-detail screen (R2). `train` + `auto_pipeline` added to ACTIONS (trainer-guarded).
+- **UI-072** [tooling, medium] `done` (2026-06-15) — Static CLI↔UI parity test locking the 1:1 invariant
+  (64 checks across 31 actions, no script execution).
+- **UI-073** [ui, high] `done` (2026-06-15) — Tokenizer master-detail screen (R2/R6): tabbed
+  info/health/tokenize/vocab single screen replacing the 4-panel grid.
+- **UI-074** [ui, high] `done` (2026-06-15) — Inference playground (R10): `/api/generate` (gated) +
+  `InferenceScreen` (prompt + sampling controls, completion view, training-alive guard). Generation
+  loads the model per request and frees it; refused while training is live.
+- **OPS-002** [bug/safety, critical] `done` (2026-06-15) — Training-active detection FAILED under
+  OPS-001 (trainer launched at higher OS integrity → psutil can't read its cmdline → `alive`=False
+  while training ran). This broke the dashboard `alive` flag AND every GPU guard; `/api/generate`
+  initially returned 200 and ran a generation concurrent with the live train. FIX: `status.is_training_active()`
+  now ORs the psutil scan with per-step `.err` tqdm mtime freshness (≤600s) — elevation-proof. Wired
+  into `get_training_status().alive` (dashboard/frontend guard) and the `/api/generate` 409 gate. Tests:
+  tests/test_ui_training_guard.py (6). The 100-step `.log` is deliberately NOT used (can be 22-30 min stale).
+
 ### Local Web UI — React+TS/Vite over FastAPI (2026-06-14)
 - **UI-001..016** [ui, high] `done` (2026-06-14) — React+TS+Vite dashboard in `webui/`
   over the FastAPI backend `src/cola_coder/ui/` with SSE push (no polling). Shipped views:

@@ -338,6 +338,63 @@ def create_app(
             return JSONResponse(result, status_code=409)
         return result
 
+    @app.post("/api/generate", response_model=sch.InferenceResult | sch.ErrorResponse)
+    def generate_text(req: sch.InferenceRequest) -> dict | JSONResponse:
+        """One-shot code generation for the inference playground.
+
+        REFUSED (409) while a training run is live — a UI generation loads the
+        model on the GPU and would contend with the live trainer. The model is
+        loaded per request and freed afterward so the UI server holds no GPU
+        memory between calls.
+        """
+        # Robust guard: the cmdline scan misses a trainer launched at higher OS
+        # integrity (OPS-001), so also trust the per-step progress freshness — the
+        # same signal the dashboard 'alive' flag uses. Either positive refuses.
+        if jobs.is_training_running() or st.is_training_active(log_path, err_path):
+            return JSONResponse(
+                {"error": "training is running — generation refused to protect the "
+                          "live run (free the GPU first)"},
+                status_code=409,
+            )
+        try:
+            import time
+
+            from cola_coder.inference.loading import load_generator
+
+            ckpt = req.checkpoint if Path(req.checkpoint).is_absolute() else str(root / req.checkpoint)
+            conf = req.config if Path(req.config).is_absolute() else str(root / req.config)
+            generator, _config, _tok = load_generator(ckpt, conf)
+            start = time.perf_counter()
+            completion = generator.generate(
+                req.prompt,
+                max_new_tokens=req.max_tokens,
+                temperature=req.temperature,
+                top_p=req.top_p,
+                top_k=req.top_k,
+                return_new_only=True,
+            )
+            elapsed = time.perf_counter() - start
+            n_tokens = len(_tok.encode(completion)) if hasattr(_tok, "encode") else 0
+            del generator
+            try:
+                import torch
+
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except ImportError:
+                pass
+            return sch.InferenceResult(
+                completion=completion,
+                prompt=req.prompt,
+                checkpoint=req.checkpoint,
+                tokens_generated=n_tokens,
+                elapsed_s=elapsed,
+            ).model_dump()
+        except FileNotFoundError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        except Exception as exc:  # noqa: BLE001 - surface any load/generate failure to the UI
+            return JSONResponse({"error": f"generation failed: {exc}"}, status_code=500)
+
     @app.get("/api/configs", response_model=list[sch.ConfigFile])
     def configs_list() -> list[dict]:
         return cfg.list_configs(str(root / "configs"))

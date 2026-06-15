@@ -43,7 +43,8 @@ Replace each page's card-grid with a single master→detail screen.
 - Configs & Pipeline — ✅ screen built (PipelineScreen, UI-071): runs list → stage timeline detail +
   lifecycle actions (reset/override/delete) + New Run; one-click PipelineLauncher embedded at top.
   Configs/VRAM/LR/ConfigDiff kept in "More tools" (fold in next).
-- Tokenizer — ◻ single screen w/ tabs (info/health/tokenize/vocab). Currently BROKEN (see R6).
+- Tokenizer — ✅ screen built (TokenizerScreen, UI-073): tabbed info/health/tokenize/vocab single screen
+  replacing the 4-panel grid. Resolver fixed (R6).
 - System & Tools — ◻ low-quality, needs full rebuild as master-detail (list of tools → detail).
 - Dashboard (overview) — ✅ hero + GPU gauges + metrics chart + health + sysinfo (stays a dashboard,
   not master-detail) — but must become the LIVE TRAINING MONITOR (see R5).
@@ -134,12 +135,14 @@ Replace each page's card-grid with a single master→detail screen.
 - Known CLI bugs surfaced while building must be fixed (BUG-130/131 done; scrape_github interactive
   BUG-132 open — its launcher is blocked until it has non-interactive flags).
 
-### R10 — Generate / Chat / Inference playground (use the model from the UI)  ◻ NOT STARTED
-- The CLI has run.py / chat.py / generate.py (REPLs) + best-of-N verified generation + FIM. The UI has
-  NO way to actually USE the model. Add an inference screen: code generation (with --language, --repo
-  context, --best-of N), multi-turn chat (chat-format auto), and FIM completion — streaming output.
-- GPU-aware: generation needs the GPU the live trainer uses — must NOT contend with / disrupt training
-  (queue, warn, or require the user to confirm; never auto-run heavy generation during the live train).
+### R10 — Generate / Chat / Inference playground (use the model from the UI)  ◧ CODE-GEN DONE (UI-074)
+- ✅ `InferenceScreen` + `POST /api/generate`: prompt + checkpoint/config pickers + sampling controls
+  (temperature/max_tokens/top_p/top_k), completion view + token/elapsed stats. Model loaded per request
+  and freed (no persistent VRAM). GPU-aware: REFUSED (409) while training is live — and the guard is now
+  elevation-proof (OPS-002: detects the live trainer via per-step `.err` freshness, not just psutil).
+  Frontend disables Generate + shows a banner when `trainingAlive`.
+- ◻ REMAINING: multi-turn chat (chat-format auto), FIM completion, best-of-N + --repo context, streaming
+  output (SSE). These build on the same gated pattern.
 
 ### R11 — Settings / features / storage editing  ◻ PARTIAL
 - features.yaml toggles (FeaturesPanel ✅ exists), storage.yaml view (StoragePanel ✅), config EDIT

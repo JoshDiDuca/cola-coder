@@ -158,6 +158,8 @@ _MODEL_ORDER: list[str] = [
     "RepoScoresResult",
     "RunRequest",
     "TrainStartRequest",
+    "InferenceRequest",
+    "InferenceResult",
 ]
 
 # Models the frontend treats as ``Model | ApiError`` (mirrors webui/src/api.ts).
@@ -211,6 +213,7 @@ _OR_ERROR: list[str] = [
     "TrainingManifests",
     "LrFinderResults",
     "RepoScoresResult",
+    "InferenceResult",
 ]
 
 

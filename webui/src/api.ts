@@ -59,6 +59,8 @@ import type {
   RepoScoresResult,
   RunRequest,
   TrainStartRequest,
+  InferenceRequest,
+  InferenceResult,
   ApiError,
   JsonValue,
 } from './types';
@@ -128,6 +130,13 @@ export function stopJob(id: string): Promise<{ stopped: boolean }> {
 // a fetch) because EventSource manages its own connection + auto-reconnect.
 export function jobLogStreamUrl(id: string, tail = 200): string {
   return `/api/jobs/${encodeURIComponent(id)}/stream?tail=${tail}`;
+}
+
+// One-shot inference for the playground. The backend refuses with HTTP 409
+// while a training run is live (the j() helper then throws an Error whose
+// message contains "409"); it may also resolve an ApiError body.
+export function generateText(req: InferenceRequest): Promise<InferenceResult | ApiError> {
+  return j<InferenceResult | ApiError>('/api/generate', postJson(req));
 }
 
 export function getActions(): Promise<ActionDef[]> {

@@ -903,6 +903,32 @@ class TrainStartRequest(_UiModel):
     resume: str | None = None
 
 
+class InferenceRequest(_UiModel):
+    """Body for ``POST /api/generate`` — one-shot code generation from the UI.
+
+    Refused (HTTP 409) while a training run is live so a UI generation can never
+    contend with the live trainer for the GPU.
+    """
+
+    prompt: str
+    checkpoint: str
+    config: str
+    max_tokens: int = 256
+    temperature: float = 0.8
+    top_p: float = 0.9
+    top_k: int = 50
+
+
+class InferenceResult(_UiModel):
+    """Result of a one-shot ``/api/generate`` call (the completion only)."""
+
+    completion: str
+    prompt: str
+    checkpoint: str
+    tokens_generated: int
+    elapsed_s: float
+
+
 class ErrorResponse(_UiModel):
     """Maps to the TS ``ApiError`` interface."""
 

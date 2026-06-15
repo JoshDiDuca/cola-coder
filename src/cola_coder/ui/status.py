@@ -52,6 +52,16 @@ def _to_int(value: str) -> int | None:
     return int(f) if f is not None else None
 
 
+# The per-step tqdm ``.err`` file is rewritten every training step (~20s here),
+# so an ``.err`` modified within this window means training is actively running.
+# This is robust to the live trainer being launched at HIGHER OS INTEGRITY than
+# this process (OPS-001), where psutil cannot read its cmdline and the
+# nvidia-smi compute-app name shows only "[Insufficient Permissions]". Generous
+# enough (10 min) never to false-negative on a slow step; the 100-step ``.log``
+# can legitimately be 22-30 min stale, so only the per-step ``.err`` is used.
+_TRAIN_FRESH_MAX_AGE_S = 600.0
+
+
 def _is_training_alive() -> bool:
     """True if a python process whose cmdline contains 'train.py' is running."""
     try:
@@ -66,6 +76,36 @@ def _is_training_alive() -> bool:
         if any("train.py" in str(part) for part in cmdline):
             return True
     return False
+
+
+def _training_progress_fresh(err_path: str, max_age_s: float = _TRAIN_FRESH_MAX_AGE_S) -> bool:
+    """True if the per-step tqdm ``.err`` was modified within ``max_age_s``.
+
+    Elevation-proof fallback for ``alive`` detection: the running trainer rewrites
+    this file every step regardless of OS integrity, so a fresh mtime is a reliable
+    "training is active" signal even when the process itself is unreadable (OPS-001).
+    """
+    import time
+
+    try:
+        age = time.time() - Path(err_path).stat().st_mtime
+    except (OSError, ValueError):
+        return False
+    return 0 <= age <= max_age_s
+
+
+def is_training_active(
+    log_path: str = "train_small_react_best.log",
+    err_path: str = "train_small_react_best.err",
+) -> bool:
+    """Robust "is training running" check: process scan OR fresh per-step progress.
+
+    The single source of truth for every training guard (dashboard ``alive``, the
+    inference gate, the second-trainer guard). The ``log_path`` argument is kept
+    for signature symmetry with ``get_training_status`` (only ``err_path`` mtime is
+    trusted — the 100-step ``.log`` can be far staler than a real stall).
+    """
+    return _is_training_alive() or _training_progress_fresh(err_path)
 
 
 def _empty_status(alive: bool) -> dict:
@@ -142,7 +182,7 @@ def get_training_status(
     Returns a dict with keys: alive, step, total_steps, progress_pct, loss,
     ppl, tok_per_s, s_per_it, last_log_line. Never raises.
     """
-    alive = _is_training_alive()
+    alive = is_training_active(log_path, err_path)
     status = _empty_status(alive)
 
     log_text = _read_text(log_path)

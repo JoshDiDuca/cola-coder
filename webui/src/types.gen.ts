@@ -859,6 +859,24 @@ export interface TrainStartRequest {
   resume?: string | null;
 }
 
+export interface InferenceRequest {
+  prompt: string;
+  checkpoint: string;
+  config: string;
+  max_tokens?: number;
+  temperature?: number;
+  top_p?: number;
+  top_k?: number;
+}
+
+export interface InferenceResult {
+  completion: string;
+  prompt: string;
+  checkpoint: string;
+  tokens_generated: number;
+  elapsed_s: number;
+}
+
 export interface ApiError {
   error: string;
 }
@@ -919,3 +937,4 @@ export type ResearchLogOrError = ResearchLog | ApiError;
 export type TrainingManifestsOrError = TrainingManifests | ApiError;
 export type LrFinderResultsOrError = LrFinderResults | ApiError;
 export type RepoScoresResultOrError = RepoScoresResult | ApiError;
+export type InferenceResultOrError = InferenceResult | ApiError;

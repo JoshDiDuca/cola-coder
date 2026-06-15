@@ -5,6 +5,7 @@
 export type SectionId =
   | 'overview'
   | 'run'
+  | 'inference'
   | 'pipeline'
   | 'checkpoints'
   | 'data'
@@ -15,6 +16,7 @@ export type SectionId =
 export type IconName =
   | 'dashboard'
   | 'play'
+  | 'terminal'
   | 'sliders'
   | 'box'
   | 'database'
@@ -40,6 +42,7 @@ export const NAV: NavGroup[] = [
     items: [
       { id: 'overview', label: 'Dashboard', icon: 'dashboard', subtitle: 'Live training, GPU & system health' },
       { id: 'run', label: 'Run & Jobs', icon: 'play', subtitle: 'Launch actions and watch background jobs' },
+      { id: 'inference', label: 'Inference', icon: 'terminal', subtitle: 'Generate from a checkpoint (playground)' },
       { id: 'eval', label: 'Evaluation', icon: 'chart', subtitle: 'HumanEval, benchmarks, safety & regressions' },
     ],
   },
