@@ -13,6 +13,7 @@ import DocsBrowserPanel from '../DocsBrowserPanel';
 import ScriptsCatalogPanel from '../ScriptsCatalogPanel';
 import StoragePanel from '../StoragePanel';
 import SpecialistsPanel from '../SpecialistsPanel';
+import RetrievalSearchPanel from '../RetrievalSearchPanel';
 
 // ── Master-detail "System & Tools" screen ───────────────────────────────────
 // Left: a static, typed catalog of system/diagnostic tools, grouped by area via
@@ -34,6 +35,7 @@ const SYSTEM_TOOLS: readonly SystemTool[] = [
   { id: 'reasoning', title: 'Reasoning Config', subtitle: 'Configuration', render: () => <ReasoningPanel /> },
   { id: 'specialists', title: 'Domain Specialists', subtitle: 'Configuration', render: () => <SpecialistsPanel /> },
   { id: 'problems', title: 'Reasoning Problems', subtitle: 'Configuration', render: () => <ReasoningProblemsPanel /> },
+  { id: 'search', title: 'Code Search', subtitle: 'Knowledge', render: () => <RetrievalSearchPanel /> },
   { id: 'memory', title: 'Project Memory', subtitle: 'Knowledge', render: () => <ProjectMemoryPanel /> },
   { id: 'backlog', title: 'Backlog', subtitle: 'Knowledge', render: () => <BacklogPanel /> },
   { id: 'research', title: 'Research Log', subtitle: 'Knowledge', render: () => <ResearchLogPanel /> },

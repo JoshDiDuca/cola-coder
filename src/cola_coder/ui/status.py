@@ -243,6 +243,57 @@ def get_system_status() -> dict:
     return result
 
 
+def get_gpu_processes() -> dict:
+    """List processes using the GPU via ``nvidia-smi --query-compute-apps``.
+
+    Best-effort: ``available=False`` when nvidia-smi is missing/errors. A process
+    whose name the OS hides (the elevated trainer shows as
+    '[Insufficient Permissions]' under OPS-001) is still reported by PID and flips
+    ``restricted=True`` — directly useful for spotting GPU contention with the run.
+    Never raises.
+    """
+    out: dict = {"available": False, "count": 0, "processes": [], "restricted": False}
+    try:
+        proc = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-compute-apps=pid,process_name,used_memory",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return out
+    if proc.returncode != 0:
+        return out
+
+    out["available"] = True
+    processes: list[dict] = []
+    restricted = False
+    for line in proc.stdout.strip().splitlines():
+        if not line.strip():
+            continue
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 2:
+            continue
+        pid = _to_int(parts[0])
+        if pid is None:
+            continue
+        name = parts[1] or "unknown"
+        if "Insufficient Permissions" in name or "Not Found" in name:
+            restricted = True
+        used = _to_float(parts[2]) if len(parts) >= 3 else None
+        processes.append({"pid": pid, "name": name, "used_memory_mb": used})
+
+    out["processes"] = processes
+    out["count"] = len(processes)
+    out["restricted"] = restricted
+    return out
+
+
 def list_checkpoints(ckpt_root: str = "checkpoints") -> list[dict]:
     """Enumerate checkpoints under ckpt_root/<model>/step_*.
 

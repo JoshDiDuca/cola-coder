@@ -66,6 +66,8 @@ import type {
   ConfigWriteRequest,
   ConfigWriteResult,
   SpecialistsView,
+  RetrievalSearchResult,
+  GpuProcesses,
   ApiError,
   JsonValue,
 } from './types';
@@ -205,6 +207,18 @@ export function getConfig(path: string): Promise<ConfigContent> {
 // Router specialist registry (configs/specialists.yaml), read-only.
 export function getSpecialists(): Promise<SpecialistsView | ApiError> {
   return j<SpecialistsView | ApiError>('/api/specialists');
+}
+
+// Lexical search over the persisted retrieval index (no model/GPU; empty when no index).
+export function searchRetrieval(q: string, topK = 10): Promise<RetrievalSearchResult | ApiError> {
+  return j<RetrievalSearchResult | ApiError>(
+    `/api/retrieval/search?q=${encodeURIComponent(q)}&top_k=${topK}`,
+  );
+}
+
+// Processes currently holding the GPU (nvidia-smi compute-apps) — GPU-contention view.
+export function getGpuProcesses(): Promise<GpuProcesses> {
+  return j<GpuProcesses>('/api/gpu/processes');
 }
 
 // Save an edited YAML config. Backend validates YAML + path (inside configs/)

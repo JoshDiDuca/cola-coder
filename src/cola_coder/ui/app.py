@@ -67,6 +67,7 @@ from . import reasoning_problems_view as rpv
 from . import regression_history_view as rhv
 from . import research_log_view as rlv
 from . import retrieval_stats_view as rsv
+from . import retrieval_search_view as rsch
 from . import router as rt
 from . import safety_eval_view as sev
 from . import security_scan_view as ssv
@@ -770,6 +771,15 @@ def create_app(
              response_model=sch.IndexStats | sch.ErrorResponse)
     def retrieval_index_stats_get() -> dict:
         return rsv.index_stats()
+
+    @app.get("/api/retrieval/search",
+             response_model=sch.RetrievalSearchResult | sch.ErrorResponse)
+    def retrieval_search_get(q: str, top_k: int = 10) -> dict:
+        return rsch.search_index(q, top_k=top_k, root=str(root))
+
+    @app.get("/api/gpu/processes", response_model=sch.GpuProcesses)
+    def gpu_processes_get() -> dict:
+        return st.get_gpu_processes()
 
     @app.get("/api/security/scan",
              response_model=sch.MalwareScanResult | sch.ErrorResponse)

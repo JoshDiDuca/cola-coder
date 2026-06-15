@@ -28,6 +28,7 @@ import PipelineToolsPanel from './components/PipelineToolsPanel';
 import ConfigEditorPanel from './components/ConfigEditorPanel';
 import CommandPalette from './components/CommandPalette';
 import CheckpointEvalSummary from './components/CheckpointEvalSummary';
+import GpuProcessesPanel from './components/GpuProcessesPanel';
 
 interface Snapshot {
   training: TrainingStatus;
@@ -99,6 +100,7 @@ function Page({
           <MetricsChartPanel />
           <HealthPanel />
           <SystemInfoPanel />
+          <GpuProcessesPanel />
         </div>
       );
     case 'run':

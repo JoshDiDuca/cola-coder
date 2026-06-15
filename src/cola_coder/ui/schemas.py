@@ -979,6 +979,43 @@ class FimRequest(_UiModel):
     top_k: int = 50
 
 
+class RetrievalHit(_UiModel):
+    """One lexical-search hit from the persisted retrieval index."""
+
+    id: str
+    score: float
+    snippet: str
+    source: str | None = None
+
+
+class RetrievalSearchResult(_UiModel):
+    """Result of ``GET /api/retrieval/search`` — lexical rank over indexed chunks."""
+
+    query: str
+    exists: bool
+    total_indexed: int
+    hits: list[RetrievalHit]
+
+
+class GpuProcess(_UiModel):
+    """One process holding the GPU (from nvidia-smi compute-apps)."""
+
+    pid: int
+    name: str
+    used_memory_mb: float | None
+
+
+class GpuProcesses(_UiModel):
+    """Processes currently using the GPU. ``available`` is False when nvidia-smi
+    is absent; ``restricted`` flags entries whose name is hidden by OS integrity
+    (the elevated trainer shows as '[Insufficient Permissions]' under OPS-001)."""
+
+    available: bool
+    count: int
+    processes: list[GpuProcess]
+    restricted: bool
+
+
 class SpecialistEntry(_UiModel):
     """One domain specialist from ``configs/specialists.yaml`` (router registry)."""
 

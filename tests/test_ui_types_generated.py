@@ -328,6 +328,16 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "completion": "    return a + b", "prompt": "def add(a, b):",
         "checkpoint": "checkpoints/small/latest", "tokens_generated": 6, "elapsed_s": 1.2,
     },
+    "RetrievalHit": {
+        "id": "doc_3", "score": 0.83, "snippet": "def add(a, b): return a + b",
+        "source": "utils/math.py",
+    },
+    "RetrievalSearchResult": {
+        "query": "add two numbers", "exists": True, "total_indexed": 1200,
+        "hits": [],
+    },
+    "GpuProcess": {"pid": 2620, "name": "python.exe", "used_memory_mb": 6512.0},
+    "GpuProcesses": {"available": True, "count": 1, "processes": [], "restricted": False},
     "SpecialistEntry": {
         "domain": "react", "checkpoint": "checkpoints/react/latest",
         "config": "configs/tiny.yaml", "keywords": ["react", "jsx"],

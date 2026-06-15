@@ -29,8 +29,15 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 - **UI-084** [ui, medium] `done` (2026-06-15) — Specialist registry view (`/api/specialists` reads
   configs/specialists.yaml) + `SpecialistsPanel` on System & Tools (Vision: router + per-domain
   specialists). Read-only, first-class empty state (registry empty in dev). 6 backend tests.
-- **UI-085 / DATA-073** [ui, low] `open` — Semantic/lexical search over the vector index once an index is
-  built (`/api/retrieval/search`); lexical is MAIN-SAFE (no model), semantic needs the matching embedder.
+- **UI-085 / DATA-073** [ui, low] `done` (2026-06-15) — Lexical search over the retrieval index:
+  `/api/retrieval/search` (retrieval_search_view: token-overlap rank over the stored texts, MAIN-SAFE no
+  model/GPU, graceful "index not built") + `RetrievalSearchPanel` on System & Tools (Code Search). 6 tests.
+  Semantic (embedding) search deferred (needs the matching embedder; no index built in dev).
+- **UI-086** [ui, medium] `done` (2026-06-15) — GPU-processes view: `/api/gpu/processes`
+  (status.get_gpu_processes via nvidia-smi compute-apps; reports PID+mem even for OS-hidden elevated
+  procs, flags `restricted`) + `GpuProcessesPanel` on the Dashboard (auto-refresh). Directly surfaces
+  GPU contention with the live trainer — on-theme with training safety. Verified `restricted=True` (sees
+  the elevated run).
 
 ### UI — streaming chat + FIM (2026-06-15)
 - **UI-081** [ui, high] `done` (2026-06-15) — Extended token-by-token streaming to Chat + FIM (R10):

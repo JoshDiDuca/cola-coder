@@ -3883,3 +3883,123 @@ body {
   line-height: 1.5;
   color: var(--muted);
 }
+
+/* ---------- Retrieval / code search (RetrievalSearchPanel.tsx) ---------- */
+.rsearch-help {
+  margin-bottom: 10px;
+}
+.rsearch-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.rsearch-query {
+  flex: 1 1 auto;
+}
+.rsearch-topk {
+  width: 72px;
+  flex: 0 0 auto;
+}
+.rsearch-empty {
+  padding: 12px 0;
+}
+.rsearch-meta {
+  margin-bottom: 10px;
+}
+.rsearch-results {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rsearch-hit {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+}
+.rsearch-hit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rsearch-hit-source {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 75%;
+}
+.rsearch-score {
+  flex: 0 0 auto;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.rsearch-snippet {
+  margin: 0;
+  padding: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+}
+
+/* ---------- GPU processes (GpuProcessesPanel.tsx) ---------- */
+.gpuproc-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.gpuproc-head {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--border);
+}
+.gpuproc-list {
+  display: flex;
+  flex-direction: column;
+}
+.gpuproc-row {
+  display: grid;
+  grid-template-columns: 72px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.gpuproc-row:last-child {
+  border-bottom: none;
+}
+.gpuproc-pid {
+  color: var(--text);
+  text-align: right;
+}
+.gpuproc-name {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gpuproc-mem {
+  color: var(--text);
+  text-align: right;
+  white-space: nowrap;
+}
+.gpuproc-note {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 6px 8px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}

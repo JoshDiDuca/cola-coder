@@ -877,6 +877,33 @@ export interface InferenceResult {
   elapsed_s: number;
 }
 
+export interface RetrievalHit {
+  id: string;
+  score: number;
+  snippet: string;
+  source?: string | null;
+}
+
+export interface RetrievalSearchResult {
+  query: string;
+  exists: boolean;
+  total_indexed: number;
+  hits: RetrievalHit[];
+}
+
+export interface GpuProcess {
+  pid: number;
+  name: string;
+  used_memory_mb: number | null;
+}
+
+export interface GpuProcesses {
+  available: boolean;
+  count: number;
+  processes: GpuProcess[];
+  restricted: boolean;
+}
+
 export interface SpecialistEntry {
   domain: string;
   checkpoint: string;
@@ -1000,3 +1027,4 @@ export type RepoScoresResultOrError = RepoScoresResult | ApiError;
 export type InferenceResultOrError = InferenceResult | ApiError;
 export type ConfigWriteResultOrError = ConfigWriteResult | ApiError;
 export type SpecialistsViewOrError = SpecialistsView | ApiError;
+export type RetrievalSearchResultOrError = RetrievalSearchResult | ApiError;
