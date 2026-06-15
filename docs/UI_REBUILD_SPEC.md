@@ -32,12 +32,12 @@ System = tool list → reused panel detail. Dropped tools kept in a temporary "M
 Checkpoints/Data (1:1 preserved) until folded in. REMAINING screens: Configs & Pipeline, Tokenizer
 (Dashboard stays a dashboard — now with the live monitor).
 Replace each page's card-grid with a single master→detail screen.
-- Checkpoints — ✅ screen built (CheckpointsScreen): list → Health/Compare/Export. **Gap:** Model Card,
-  Training Manifest, Router, Average (model-soup), Export-artifacts not yet in the screen (kept in a
-  temporary "More tools" area — must be folded into the screen, 1:1).
+- Checkpoints — ✅ screen built (CheckpointsScreen): list → Health/Compare/Export. ✅ FOLDED (UI-077):
+  Model Card / Training Manifest / Router / Average / Export now in a single tabbed `CheckpointToolsPanel`
+  (no more card-grid).
 - Data — ✅ screen built (DataScreen): datasets → stats/preview/scores + Collect/Prepare launchers.
-  **Gap:** Combine, DataSources, SFT data, Vector index, Security scan, Filters catalog, Scoring config,
-  Repo scores not yet in the screen ("More tools" temp area — fold in, 1:1).
+  ✅ FOLDED (UI-077): Combine / DataSources / SFT / Vector index / Security / Filters / Scoring / Repo
+  scores now in a single tabbed `DataToolsPanel`.
 - Evaluation — ✅ screen built (EvalScreen): unified artifacts + history/benchmarks/safety/regression.
 - Run & Jobs — ◻ master-detail: jobs list → job detail/live-log; actions via typed forms (see R3).
 - Configs & Pipeline — ✅ screen built (PipelineScreen, UI-071): runs list → stage timeline detail +

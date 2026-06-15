@@ -22,25 +22,9 @@ import SystemPanel from './components/SystemPanel';
 import MetricsChartPanel from './components/MetricsChartPanel';
 import HealthPanel from './components/HealthPanel';
 import SystemInfoPanel from './components/SystemInfoPanel';
-import ConfigsPanel from './components/ConfigsPanel';
-import ConfigDiffPanel from './components/ConfigDiffPanel';
-import VramEstimatePanel from './components/VramEstimatePanel';
-import LrFinderPanel from './components/LrFinderPanel';
-import PipelinePanel from './components/PipelinePanel';
-import PipelineManagerPanel from './components/PipelineManagerPanel';
-import ModelCardPanel from './components/ModelCardPanel';
-import TrainingManifestPanel from './components/TrainingManifestPanel';
-import CheckpointAveragePanel from './components/CheckpointAveragePanel';
-import RouterPanel from './components/RouterPanel';
-import ExportPanel from './components/ExportPanel';
-import CombineDatasetsPanel from './components/CombineDatasetsPanel';
-import DataSourcesPanel from './components/DataSourcesPanel';
-import SftDataPanel from './components/SftDataPanel';
-import VectorIndexPanel from './components/VectorIndexPanel';
-import SecurityScanPanel from './components/SecurityScanPanel';
-import FiltersCatalogPanel from './components/FiltersCatalogPanel';
-import ScoringConfigPanel from './components/ScoringConfigPanel';
-import RepoScoresPanel from './components/RepoScoresPanel';
+import CheckpointToolsPanel from './components/CheckpointToolsPanel';
+import DataToolsPanel from './components/DataToolsPanel';
+import PipelineToolsPanel from './components/PipelineToolsPanel';
 
 interface Snapshot {
   training: TrainingStatus;
@@ -127,52 +111,21 @@ function Page({
       return (
         <>
           <CheckpointsScreen checkpoints={checkpoints} />
-          <div className="md-more">
-            <div className="md-more-label">More tools</div>
-            <div className="page-grid">
-              <ModelCardPanel checkpoints={checkpoints} />
-              <TrainingManifestPanel />
-              <CheckpointAveragePanel checkpoints={checkpoints} />
-              <RouterPanel />
-              <ExportPanel />
-            </div>
-          </div>
+          <CheckpointToolsPanel checkpoints={checkpoints} />
         </>
       );
     case 'data':
       return (
         <>
           <DataScreen />
-          <div className="md-more">
-            <div className="md-more-label">More tools</div>
-            <div className="page-grid">
-              <CombineDatasetsPanel />
-              <DataSourcesPanel />
-              <SftDataPanel />
-              <VectorIndexPanel />
-              <SecurityScanPanel />
-              <FiltersCatalogPanel />
-              <ScoringConfigPanel />
-              <RepoScoresPanel />
-            </div>
-          </div>
+          <DataToolsPanel />
         </>
       );
     case 'pipeline':
       return (
         <>
           <PipelineScreen trainingAlive={alive} />
-          <div className="md-more">
-            <div className="md-more-label">More tools</div>
-            <div className="page-grid">
-              <ConfigsPanel />
-              <VramEstimatePanel />
-              <LrFinderPanel />
-              <ConfigDiffPanel />
-              <PipelinePanel />
-              <PipelineManagerPanel />
-            </div>
-          </div>
+          <PipelineToolsPanel />
         </>
       );
     case 'eval':

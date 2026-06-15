@@ -3474,3 +3474,28 @@ body {
   border-radius: 3px;
   padding: 0 2px;
 }
+
+/* ---------- Section tools tabbed containers (Checkpoint/Data/Pipeline) ---------- */
+.dtools-tabs,
+.ptools-tabs,
+.ctools-tabs {
+  flex-wrap: wrap;
+}
+
+.dtools-body,
+.ptools-body,
+.ctools-body {
+  margin-top: 12px;
+}
+
+/* Wrapped panels are themselves `.card card-wide`; flatten the nested card so the
+   tab container owns the chrome and we don't double-frame. */
+.dtools-body > .card,
+.ptools-body > .card,
+.ctools-body > .card {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}

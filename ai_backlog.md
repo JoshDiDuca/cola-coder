@@ -11,6 +11,13 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+### UI polish — fold "More tools" card-grids (2026-06-15)
+- **UI-077** [ui, medium] `done` (2026-06-15) — Replaced the last three "More tools" card-GRIDS
+  (Checkpoints/Data/Pipeline) with single tabbed containers: `CheckpointToolsPanel` (Model Card/Manifest/
+  Average/Router/Export), `DataToolsPanel` (8 data tools), `PipelineToolsPanel` (Configs/VRAM/LR/Diff/
+  Pipeline/Manager). One coherent panel per section, no grid. Built by 3 parallel agents (disjoint new
+  files) wrapping the existing panels unchanged; App.tsx now imports 3 panels instead of 19. tsc + build green.
+
 ### Inference — speculative decoding (2026-06-15)
 - **MODEL-044** [inference, high] `open` — Wire `PromptLookupDrafter` into `CodeGenerator.generate()`
   for REAL prompt-lookup speculative decoding (exact greedy verification → byte-identical output,
