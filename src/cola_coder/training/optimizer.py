@@ -26,6 +26,25 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 
 
+def cautious_mask(update: torch.Tensor, grad: torch.Tensor) -> torch.Tensor:
+    """Cautious-optimizer mask (C-Optim, Liang et al. 2024, arXiv:2411.16085).
+
+    Zeroes the elements of ``update`` whose sign DISAGREES with the raw gradient
+    (i.e. ``update * grad <= 0`` — momentum/preconditioning pointing the wrong way),
+    then rescales the surviving elements so the masked update keeps the same mean
+    magnitude. A nearly-free modification (one elementwise compare + scale) that
+    speeds convergence and is applied on top of any base optimizer (AdamW, Muon).
+
+    Pure: returns a new tensor, does not mutate inputs. ``grad`` must match
+    ``update``'s shape. With full sign agreement this is the identity.
+    """
+    mask = (update * grad > 0).to(update.dtype)
+    # Rescale by (numel / kept) so the average surviving-element magnitude is
+    # preserved (keeps the effective step size comparable to the unmasked step).
+    scale = mask.numel() / mask.sum().clamp_min(1.0)
+    return update * mask * scale
+
+
 # ── Muon (MomentUm Orthogonalized by Newton-Schulz) ─────────────────────────
 #
 # 2025-26 state of the art for pretraining hidden layers (Keller Jordan's
@@ -89,7 +108,11 @@ class Muon(torch.optim.Optimizer):
         betas: tuple[float, float] = (0.9, 0.95),
         eps: float = 1e-8,
         weight_decay: float = 0.1,
+        cautious: bool = False,
     ) -> None:
+        # Cautious masking (arXiv:2411.16085): opt-in, default off → byte-identical
+        # to the standard step, so existing runs/checkpoints are unaffected.
+        self.cautious = cautious
         defaults = dict(
             lr=lr, momentum=momentum, ns_steps=ns_steps,
             betas=betas, eps=eps, weight_decay=weight_decay,
@@ -140,6 +163,8 @@ class Muon(torch.optim.Optimizer):
             # Decoupled weight decay (same convention as AdamW below)
             if group["weight_decay"] > 0.0:
                 p.mul_(1.0 - group["lr"] * group["weight_decay"])
+            if self.cautious:
+                update = cautious_mask(update, g)
             p.add_(update, alpha=-group["lr"] * scale)
 
     def _adamw_step(self, group: dict) -> None:
@@ -163,7 +188,12 @@ class Muon(torch.optim.Optimizer):
             denom = (exp_avg_sq / bias2).sqrt_().add_(group["eps"])
             if group["weight_decay"] > 0.0:
                 p.mul_(1.0 - group["lr"] * group["weight_decay"])
-            p.addcdiv_(exp_avg / bias1, denom, value=-group["lr"])
+            if self.cautious:
+                update = cautious_mask((exp_avg / bias1) / denom, g)
+                p.add_(update, alpha=-group["lr"])
+            else:
+                # Original fused path — byte-identical to pre-cautious behavior.
+                p.addcdiv_(exp_avg / bias1, denom, value=-group["lr"])
 
 
 def create_optimizer(
@@ -173,6 +203,7 @@ def create_optimizer(
     betas: tuple[float, float] = (0.9, 0.95),
     optimizer: str = "adamw",
     muon_lr: float = 0.02,
+    cautious: bool = False,
 ) -> torch.optim.Optimizer:
     """Create AdamW optimizer with weight decay only on appropriate parameters.
 
@@ -240,6 +271,7 @@ def create_optimizer(
             adamw_lr=learning_rate,
             betas=betas,
             weight_decay=weight_decay,
+            cautious=cautious,
         )
 
     param_groups = [

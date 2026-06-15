@@ -2480,3 +2480,35 @@ pre-allocated cache, the implementation behind the estimate).
 **Sources:**
 - [KVQuant: towards 10M context length LLM inference (arXiv:2401.18079)](https://arxiv.org/abs/2401.18079)
 - [KIVI: tuning-free asymmetric 2-bit KV-cache quantization (arXiv:2402.02750)](https://arxiv.org/abs/2402.02750)
+
+---
+
+## 2026-06-15 — Optimizers: cautious masking (C-Optim) on the custom Muon
+
+**Area:** optimizers. **Technique.** Cautious Optimizers (Liang et al. 2024, arXiv:2411.16085)
+add one line to any momentum optimizer (Adam, Lion, Muon): zero the update elements whose sign
+DISAGREES with the current gradient (``u*g <= 0`` — momentum/preconditioning pulling the wrong
+way), then rescale the survivors. Reported ~1.4x speedup to a target loss on LLM pretraining at
+negligible cost (one elementwise compare). It's a strict, theory-preserving modification (keeps
+the loss a descent direction).
+
+**Shipped.** Added a pure, tested ``cautious_mask(update, grad)`` and wired it into the project's
+custom ``Muon`` (both the Muon-orthogonalized and embedded-AdamW steps), behind a ``cautious``
+flag (default OFF → the standard step is byte-identical; existing runs/checkpoints unaffected;
+the default AdamW path keeps its fused ``addcdiv_``). ``create_optimizer(..., cautious=...)``
+threads it through. Tests: the mask (sign agreement kept, disagreement zeroed, magnitude-preserving
+rescale, all-disagree stays finite, no input mutation) + the wiring (cautious=False reproduces the
+standard Muon step exactly; cautious=True changes the orthogonalized update without NaN). MAIN-SAFE:
+opt-in, never wired into the live run's already-launched optimizer.
+
+**Original idea — IDEA-014: cautious × Muon RMS-matching interaction (ablation).** Muon already
+rescales each matrix's update by ``sqrt(max(1, rows/cols))`` (Moonlight RMS-matching). Cautious then
+masks ~half the elements and rescales by ``numel/kept`` to preserve MEAN magnitude — but after
+orthogonalization the surviving elements aren't i.i.d., so the two rescales may compound and over-step
+on tall/wide matrices. Open question for a small ablation: does cautious-on-Muon want a gentler
+(e.g. sqrt) kept-rescale, or per-row masking, vs the global ``numel/kept``? Cross-technique: C-Optim ×
+Muon RMS-matching. The pure mask shipped here is the substrate; filed as MODEL-048.
+
+**Sources:**
+- [Cautious Optimizers: Improving Training with One Line of Code (arXiv:2411.16085)](https://arxiv.org/abs/2411.16085)
+- [Muon / Moonlight — update-RMS matching (arXiv:2502.16982)](https://arxiv.org/abs/2502.16982)

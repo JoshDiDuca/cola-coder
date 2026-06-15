@@ -92,6 +92,17 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 - **UI-079** [ui, medium] `done` (2026-06-15) — `CommandPalette` (⌘K/Ctrl-K): fuzzy quick-switcher over
   all 11 nav sections; self-contained global key listener, navigates via the same hash as Sidebar.
 
+### Optimizers — cautious masking (2026-06-15)
+- **MODEL-048a** [optimizers, medium] `done` (2026-06-15) — Added pure `cautious_mask(update, grad)`
+  (C-Optim, arXiv:2411.16085) + wired into the custom `Muon` (both Muon + embedded-AdamW steps) behind a
+  `cautious` flag (default OFF → standard step byte-identical; default AdamW keeps fused addcdiv_).
+  `create_optimizer(cautious=...)` threads it. 7 tests (mask semantics + off==standard + on-changes-step).
+  MAIN-SAFE (opt-in; live run's optimizer already launched). ~1.4x reported convergence gain when enabled.
+- **MODEL-048 / IDEA-014** [optimizers, low] `open` — Ablation: does cautious-on-Muon double-rescale
+  (Muon's sqrt(rows/cols) RMS-match × cautious's numel/kept) over-step on tall/wide matrices? Try a
+  gentler kept-rescale or per-row masking. Also expose `cautious` via reasoning/training config + a small
+  tiny-config A/B before any real-run adoption.
+
 ### Inference memory — KV-cache quant estimate (2026-06-15)
 - **MODEL-047a** [inference/tooling, medium] `done` (2026-06-15) — VRAM estimator gained a `kv_cache_bits`
   param (default 16 → unchanged; 8/4 = int8/int4) scaling ONLY the KV-cache term, so it can model KV
