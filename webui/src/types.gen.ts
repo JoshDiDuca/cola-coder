@@ -877,6 +877,22 @@ export interface InferenceResult {
   elapsed_s: number;
 }
 
+export interface SpecialistEntry {
+  domain: string;
+  checkpoint: string;
+  config?: string | null;
+  keywords?: string[];
+  confidence_threshold?: number | null;
+  description?: string | null;
+}
+
+export interface SpecialistsView {
+  path: string;
+  exists: boolean;
+  count: number;
+  specialists: SpecialistEntry[];
+}
+
 export interface GenStreamChunk {
   delta: string;
   done: boolean;
@@ -983,3 +999,4 @@ export type LrFinderResultsOrError = LrFinderResults | ApiError;
 export type RepoScoresResultOrError = RepoScoresResult | ApiError;
 export type InferenceResultOrError = InferenceResult | ApiError;
 export type ConfigWriteResultOrError = ConfigWriteResult | ApiError;
+export type SpecialistsViewOrError = SpecialistsView | ApiError;

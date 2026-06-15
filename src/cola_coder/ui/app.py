@@ -72,6 +72,7 @@ from . import safety_eval_view as sev
 from . import security_scan_view as ssv
 from . import scoring_config_view as scv
 from . import scripts_catalog as sc
+from . import specialists_view as spv
 from . import sft_data as sd
 from . import status as st
 from . import storage_view as sv
@@ -689,6 +690,10 @@ def create_app(
     @app.get("/api/checkpoint", response_model=sch.CheckpointDetail | sch.ErrorResponse)
     def checkpoint_get(path: str) -> dict:
         return cd.checkpoint_detail(path)
+
+    @app.get("/api/specialists", response_model=sch.SpecialistsView | sch.ErrorResponse)
+    def specialists_get() -> dict:
+        return spv.specialists_view(str(root))
 
     @app.get("/api/router", response_model=sch.RouterOverview)
     def router_get() -> dict:

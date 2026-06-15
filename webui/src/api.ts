@@ -65,6 +65,7 @@ import type {
   FimRequest,
   ConfigWriteRequest,
   ConfigWriteResult,
+  SpecialistsView,
   ApiError,
   JsonValue,
 } from './types';
@@ -199,6 +200,11 @@ export function getConfigs(): Promise<ConfigFile[]> {
 
 export function getConfig(path: string): Promise<ConfigContent> {
   return j<ConfigContent>(`/api/config?path=${encodeURIComponent(path)}`);
+}
+
+// Router specialist registry (configs/specialists.yaml), read-only.
+export function getSpecialists(): Promise<SpecialistsView | ApiError> {
+  return j<SpecialistsView | ApiError>('/api/specialists');
 }
 
 // Save an edited YAML config. Backend validates YAML + path (inside configs/)

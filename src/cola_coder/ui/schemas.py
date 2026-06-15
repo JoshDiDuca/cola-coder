@@ -979,6 +979,26 @@ class FimRequest(_UiModel):
     top_k: int = 50
 
 
+class SpecialistEntry(_UiModel):
+    """One domain specialist from ``configs/specialists.yaml`` (router registry)."""
+
+    domain: str
+    checkpoint: str
+    config: str | None = None
+    keywords: list[str] = []
+    confidence_threshold: float | None = None
+    description: str | None = None
+
+
+class SpecialistsView(_UiModel):
+    """The router specialist registry (Vision: router + per-domain 50M specialists)."""
+
+    path: str
+    exists: bool
+    count: int
+    specialists: list[SpecialistEntry]
+
+
 class ConfigWriteRequest(_UiModel):
     """Body for ``POST /api/config/write`` — save edited YAML config text."""
 

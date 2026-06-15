@@ -18,6 +18,20 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   Pipeline/Manager). One coherent panel per section, no grid. Built by 3 parallel agents (disjoint new
   files) wrapping the existing panels unchanged; App.tsx now imports 3 panels instead of 19. tsc + build green.
 
+### UI — parity audit + eval summary + specialists (2026-06-15)
+- **UI-082** [ui, medium] `done` (2026-06-15) — R9 CLI→UI parity audit (Explore agent): parity ~85%.
+  Top remaining gaps logged: semantic search (needs index + embedder; index not built in dev),
+  background-training scheduler (OPS-001 elevation-risky), LLM-judge annotate (interactive script).
+- **UI-083** [ui, high] `done` (2026-06-15) — Dashboard `CheckpointEvalSummary` (R5 remainder): compact
+  "Latest evaluation" tile aggregating newest eval artifact + auto-eval snapshot + regression verdict
+  from existing /api/evals, /api/eval-history, /api/regression-history (no new backend). Open the app →
+  see what's training AND its latest quality.
+- **UI-084** [ui, medium] `done` (2026-06-15) — Specialist registry view (`/api/specialists` reads
+  configs/specialists.yaml) + `SpecialistsPanel` on System & Tools (Vision: router + per-domain
+  specialists). Read-only, first-class empty state (registry empty in dev). 6 backend tests.
+- **UI-085 / DATA-073** [ui, low] `open` — Semantic/lexical search over the vector index once an index is
+  built (`/api/retrieval/search`); lexical is MAIN-SAFE (no model), semantic needs the matching embedder.
+
 ### UI — streaming chat + FIM (2026-06-15)
 - **UI-081** [ui, high] `done` (2026-06-15) — Extended token-by-token streaming to Chat + FIM (R10):
   `POST /api/chat/stream` + `/api/fim/stream` (shared `_stream_response` helper extracted from

@@ -328,6 +328,14 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "completion": "    return a + b", "prompt": "def add(a, b):",
         "checkpoint": "checkpoints/small/latest", "tokens_generated": 6, "elapsed_s": 1.2,
     },
+    "SpecialistEntry": {
+        "domain": "react", "checkpoint": "checkpoints/react/latest",
+        "config": "configs/tiny.yaml", "keywords": ["react", "jsx"],
+        "confidence_threshold": 0.6, "description": "React specialist",
+    },
+    "SpecialistsView": {
+        "path": "configs/specialists.yaml", "exists": True, "count": 0, "specialists": [],
+    },
     "GenStreamChunk": {"delta": "    return a + b", "done": False, "error": None},
     "ChatMessage": {"role": "user", "content": "Write a bubble sort in Python."},
     "ChatRequest": {

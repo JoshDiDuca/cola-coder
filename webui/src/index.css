@@ -3748,3 +3748,138 @@ body {
     opacity: 0;
   }
 }
+
+/* ---------- Dashboard eval summary (CheckpointEvalSummary.tsx, R5) ---------- */
+.evalsum-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.evalsum-row {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.evalsum-row:last-child {
+  border-bottom: none;
+}
+.evalsum-label {
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.evalsum-body {
+  min-width: 0;
+}
+.evalsum-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+.evalsum-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.evalsum-metric {
+  color: var(--muted);
+}
+.evalsum-value {
+  font-weight: 700;
+}
+.evalsum-when {
+  font-size: 12px;
+}
+.evalsum-summary {
+  flex-basis: 100%;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.evalsum-delta-ok {
+  color: var(--good);
+}
+.evalsum-delta-bad {
+  color: var(--bad);
+}
+.evalsum-err {
+  color: var(--bad);
+  font-size: 12px;
+}
+
+/* ---------- Specialists registry (SpecialistsPanel.tsx) ---------- */
+.spec-help {
+  margin: 6px 0 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.spec-empty {
+  padding: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  line-height: 1.5;
+}
+.spec-empty-path {
+  margin-top: 8px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.spec-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.spec-row {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel2);
+}
+.spec-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.spec-threshold {
+  font-size: 11px;
+}
+.spec-kv {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin: 2px 0;
+  font-size: 12px;
+}
+.spec-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 8px 0 4px;
+}
+.spec-chip {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+.spec-desc {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}

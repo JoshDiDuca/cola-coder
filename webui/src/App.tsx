@@ -27,6 +27,7 @@ import DataToolsPanel from './components/DataToolsPanel';
 import PipelineToolsPanel from './components/PipelineToolsPanel';
 import ConfigEditorPanel from './components/ConfigEditorPanel';
 import CommandPalette from './components/CommandPalette';
+import CheckpointEvalSummary from './components/CheckpointEvalSummary';
 
 interface Snapshot {
   training: TrainingStatus;
@@ -92,6 +93,7 @@ function Page({
       return (
         <div className="page-grid">
           <LiveTrainingPanel training={snap?.training ?? null} />
+          <CheckpointEvalSummary />
           <TrainingPanel training={snap?.training ?? null} />
           <SystemPanel system={snap?.system ?? null} />
           <MetricsChartPanel />

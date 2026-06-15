@@ -160,6 +160,8 @@ _MODEL_ORDER: list[str] = [
     "TrainStartRequest",
     "InferenceRequest",
     "InferenceResult",
+    "SpecialistEntry",
+    "SpecialistsView",
     "GenStreamChunk",
     "ChatMessage",
     "ChatRequest",
@@ -221,6 +223,7 @@ _OR_ERROR: list[str] = [
     "RepoScoresResult",
     "InferenceResult",
     "ConfigWriteResult",
+    "SpecialistsView",
 ]
 
 
