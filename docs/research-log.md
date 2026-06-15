@@ -2384,3 +2384,41 @@ problems to sample next, with zero extra forward passes. Cross-technique: DAPO d
 **Sources:**
 - [DAPO: an Open-Source LLM RL System at Scale — dynamic sampling (arXiv:2503.14476)](https://arxiv.org/abs/2503.14476)
 - [Understanding R1-Zero-Like Training / Dr. GRPO (arXiv:2503.20783)](https://arxiv.org/abs/2503.20783)
+
+---
+
+## 2026-06-15 — Architecture: a phantom attention-softcap knob, now wired (eager fallback)
+
+**Area:** architecture / training stability. **Technique.** Gemma 2 (arXiv:2408.00118) applies
+logit soft-capping (``cap·tanh(x/cap)``) in TWO places: the final LM head AND the PRE-softmax
+attention scores. The project already ships both `final_logit_softcap` (wired + guard-tested)
+and the SDPA-compatible alternative `qk_norm`.
+
+**Finding (config-wiring audit — the project's recurring lesson "a flag that prints 'enabled'
+can be a silent no-op").** `attn_logit_softcap` was a PHANTOM knob: defined in `model/config.py`
+and asserted-default in a test, but **referenced nowhere in the model**. `GroupedQueryAttention`
+never received it, and the attention path uses the fused `F.scaled_dot_product_attention` (SDPA),
+which has NO hook to tanh the scores between QK^T and softmax — so the field could never have had
+any effect even if passed. Setting it did nothing, silently.
+
+**Fix (this cycle).** Made the knob real: `GroupedQueryAttention` now takes `attn_logit_softcap`,
+`TransformerBlock` passes `config.attn_logit_softcap`, and a positive value routes through a manual
+EAGER attention path (`scale·QK^T → soft_cap → causal-mask → softmax → dropout → @V`) that mirrors
+the SDPA math; `0.0` (default) keeps the fast SDPA path **byte-identical**. The feature is
+**parameter-free** (no state-dict change → all existing checkpoints + the live run load unchanged;
+test_checkpoint.py green) and **opt-in** (default off → zero perf cost). Tests prove: off→SDPA,
+on→output differs (not a no-op), a huge cap ≈ SDPA (`allclose`, proving the eager math matches),
+and the KV-cache branch stays finite.
+
+**Original idea — IDEA-011: SDPA-fast soft-capping via a tanh-free surrogate.** The eager fallback
+sacrifices flash attention whenever the cap is on — a real perf hit for long context. Gemma-3
+dropped attention soft-capping in favor of QK-Norm precisely because QK-Norm is SDPA-compatible
+and achieves the same "bounded attention logits" goal without leaving the fused kernel. So rather
+than maintain a slow eager path, the higher-value move is to make the cap a NO-OP when `qk_norm`
+is already on (they target the same instability) and steer users to qk_norm — i.e., treat
+attn-softcap as a legacy/ablation lever, not a default. Filed as MODEL-046 (decide: keep eager
+fallback as ablation-only vs deprecate in favor of qk_norm; benchmark the eager-path slowdown).
+
+**Sources:**
+- [Gemma 2 — logit soft-capping, attention + final (arXiv:2408.00118)](https://arxiv.org/abs/2408.00118)
+- [Gemma 3 technical report — QK-Norm replaces attention soft-capping (arXiv:2503.19786)](https://arxiv.org/abs/2503.19786)

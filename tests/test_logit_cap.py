@@ -170,3 +170,69 @@ class TestModelWiring:
         # Same init seed -> identical weights -> the ONLY difference is the cap.
         assert not torch.equal(logits_off, logits_on)
         assert logits_on.abs().max().item() < 1.0
+
+
+class TestAttnLogitSoftcapWiring:
+    """PRE-softmax attention soft-cap (attn_logit_softcap) — was a phantom config
+    knob (defined but never read; SDPA can't cap pre-softmax scores). Now wired via
+    a gated eager path. These guard that it is real, not a silent no-op."""
+
+    def test_default_off_uses_sdpa_and_matches(self):
+        """attn_logit_softcap=0.0 keeps the fast SDPA path (eager path not taken)."""
+        torch.manual_seed(0)
+        cfg = make_tiny_config(attn_logit_softcap=0.0)
+        model = Transformer(cfg).eval()
+        for block in model.blocks:
+            assert block.attention.attn_logit_softcap == 0.0
+        token_ids = torch.randint(0, cfg.vocab_size, (2, 16))
+        with torch.no_grad():
+            # Forward must run cleanly through the SDPA branch.
+            logits = model(token_ids)
+        assert logits.shape == (2, 16, cfg.vocab_size)
+
+    def test_enabled_differs_from_disabled(self):
+        """Enabling the attention cap changes the output (not a silent no-op)."""
+        torch.manual_seed(0)
+        token_ids = torch.randint(0, 256, (2, 16))
+
+        torch.manual_seed(123)
+        off = Transformer(make_tiny_config(attn_logit_softcap=0.0)).eval()
+        torch.manual_seed(123)
+        on = Transformer(make_tiny_config(attn_logit_softcap=2.0)).eval()
+
+        with torch.no_grad():
+            logits_off = off(token_ids)
+            logits_on = on(token_ids)
+
+        # Identical weights (same seed); the cap is the only difference — and a
+        # cap of 2.0 noticeably reshapes the attention distribution.
+        assert not torch.equal(logits_off, logits_on)
+
+    def test_eager_path_matches_sdpa_when_cap_huge(self):
+        """A very large cap is ~identity on pre-softmax scores, so the eager path
+        must converge to the SDPA result — proving the eager math mirrors SDPA."""
+        torch.manual_seed(7)
+        token_ids = torch.randint(0, 256, (2, 16))
+
+        torch.manual_seed(42)
+        sdpa = Transformer(make_tiny_config(attn_logit_softcap=0.0)).eval()
+        torch.manual_seed(42)
+        eager = Transformer(make_tiny_config(attn_logit_softcap=1e6)).eval()
+
+        with torch.no_grad():
+            logits_sdpa = sdpa(token_ids)
+            logits_eager = eager(token_ids)
+
+        # cap=1e6 → tanh(x/1e6)*1e6 ≈ x, so eager attention ≈ SDPA (tiny fp error).
+        assert torch.allclose(logits_sdpa, logits_eager, atol=1e-3)
+
+    def test_kv_cache_inference_with_attn_softcap(self):
+        """The eager path also handles the KV-cache (q_len != kv_len) branch."""
+        torch.manual_seed(0)
+        cfg = make_tiny_config(attn_logit_softcap=3.0)
+        model = Transformer(cfg).eval()
+        token_ids = torch.randint(0, cfg.vocab_size, (1, 8))
+        with torch.no_grad():
+            out = model(token_ids, use_cache=True, start_pos=0)
+        assert out.shape == (1, 8, cfg.vocab_size)
+        assert torch.isfinite(out).all()

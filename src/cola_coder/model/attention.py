@@ -22,6 +22,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from .logit_cap import soft_cap_logits
 from .normalization import RMSNorm
 from .rope import apply_rope
 
@@ -38,6 +39,7 @@ class GroupedQueryAttention(nn.Module):
         dropout: float = 0.0,
         qk_norm: bool = False,
         attn_logit_scale: float = 1.0,
+        attn_logit_softcap: float = 0.0,
     ):
         """
         Args:
@@ -68,6 +70,11 @@ class GroupedQueryAttention(nn.Module):
         # 1/sqrt(head_dim) for scaled dot-product, times an optional YaRN
         # temperature multiplier (mscale**2; 1.0 = standard attention).
         self.scale = (self.head_dim ** -0.5) * attn_logit_scale
+        # Gemma-2 pre-softmax attention soft-cap. SDPA (flash/mem-efficient) has no
+        # hook to tanh the scores between QK^T and softmax, so a positive cap routes
+        # through a manual eager attention path; 0.0 (default) keeps the fast SDPA
+        # path byte-identical. Parameter-free, so it never changes the state dict.
+        self.attn_logit_softcap = attn_logit_softcap
 
         # Projection matrices (no bias — modern transformers skip bias for efficiency)
         self.q_proj = nn.Linear(dim, n_heads * self.head_dim, bias=False)
@@ -190,11 +197,13 @@ class GroupedQueryAttention(nn.Module):
             v = v.unsqueeze(2).expand(-1, -1, self.n_groups, -1, -1)
             v = v.reshape(batch, self.n_heads, -1, self.head_dim)
 
-        # Use PyTorch's fused scaled_dot_product_attention (SDPA).
-        # Auto-dispatches to Flash Attention 2 > memory-efficient > math fallback.
-        # is_causal=True is faster than constructing + applying an explicit mask.
         drop_p = self.dropout_p if self.training else 0.0
-        if use_cache:
+        if self.attn_logit_softcap > 0.0:
+            # Eager path: SDPA can't tanh the pre-softmax scores, so when soft-cap
+            # is enabled we compute attention manually. Matches the SDPA math
+            # (same scale, causal masking, dropout) plus the Gemma-2 cap.
+            output = self._eager_attention(q, k, v, mask=mask, use_cache=use_cache, drop_p=drop_p)
+        elif use_cache:
             # Inference with KV-cache: q_len != kv_len, need explicit mask
             output = F.scaled_dot_product_attention(
                 q, k, v, attn_mask=mask, dropout_p=drop_p, scale=self.scale,
@@ -210,3 +219,44 @@ class GroupedQueryAttention(nn.Module):
 
         # Final projection back to model dimension
         return self.out_proj(output)
+
+    def _eager_attention(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        *,
+        mask: torch.Tensor | None,
+        use_cache: bool,
+        drop_p: float,
+    ) -> torch.Tensor:
+        """Manual scaled-dot-product attention with Gemma-2 pre-softmax soft-capping.
+
+        Only used when ``attn_logit_softcap > 0`` (SDPA cannot cap pre-softmax
+        scores). Mirrors the SDPA branch: ``scale`` on QK^T, the soft-cap, causal
+        masking (explicit ``mask`` for the KV-cache path, an implicit causal mask
+        for training), softmax, attention dropout, then the value matmul.
+
+        q/k/v are (batch, n_heads, q_len|kv_len, head_dim) with KV already expanded
+        to n_heads (GQA handled by the caller).
+        """
+        q_len = q.shape[-2]
+        kv_len = k.shape[-2]
+        scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+        scores = soft_cap_logits(scores, self.attn_logit_softcap)
+
+        if use_cache:
+            if mask is not None:
+                scores = scores + mask
+        else:
+            # Training: causal mask — position i attends only to j <= i.
+            causal = torch.triu(
+                torch.full((q_len, kv_len), float("-inf"), device=scores.device, dtype=scores.dtype),
+                diagonal=1,
+            )
+            scores = scores + causal
+
+        attn = torch.softmax(scores, dim=-1)
+        if drop_p > 0.0:
+            attn = F.dropout(attn, p=drop_p, training=self.training)
+        return torch.matmul(attn, v)

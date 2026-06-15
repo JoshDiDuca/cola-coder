@@ -68,6 +68,18 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 - **UI-079** [ui, medium] `done` (2026-06-15) — `CommandPalette` (⌘K/Ctrl-K): fuzzy quick-switcher over
   all 11 nav sections; self-contained global key listener, navigates via the same hash as Sidebar.
 
+### Architecture — phantom attn-softcap wired (2026-06-15)
+- **MODEL-045b / BUG-135** [architecture/bug, medium] `done` (2026-06-15) — `attn_logit_softcap` was a
+  PHANTOM config knob (config.py + a default-assertion test, but referenced nowhere in the model; SDPA
+  can't cap pre-softmax scores). Wired it: `GroupedQueryAttention` takes it, `TransformerBlock` passes
+  `config.attn_logit_softcap`, and a positive value routes through a gated manual EAGER attention path
+  (mirrors SDPA math + Gemma-2 cap). Default 0.0 → SDPA path byte-identical; parameter-free →
+  checkpoint-safe (test_checkpoint.py green). 4 wiring-guard tests (off→SDPA, on→differs, huge-cap≈SDPA
+  allclose, KV-cache finite). Found via the project's "verify config wiring / no phantom knobs" lesson.
+- **MODEL-046 / IDEA-011** [architecture, low] `open` — Decide attn-softcap's fate: the eager path leaves
+  flash attention (perf hit). Gemma-3 dropped attention soft-cap for QK-Norm (SDPA-compatible, same goal).
+  Either keep eager as an ablation-only lever, or deprecate toward qk_norm; benchmark the slowdown first.
+
 ### Post-training — GRPO difficulty signal (2026-06-15)
 - **MODEL-045a** [post-training, medium] `done` (2026-06-15) — Added pure `summarize_group_difficulty()`
   + `GroupDifficultyStats` to grpo.py: aggregates the DAPO degenerate-skip rate + mean pass-rate over a

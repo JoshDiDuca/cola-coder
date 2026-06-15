@@ -132,6 +132,7 @@ class TransformerBlock(nn.Module):
             dropout=config.dropout,
             qk_norm=getattr(config, "qk_norm", False),
             attn_logit_scale=attn_logit_scale,
+            attn_logit_softcap=getattr(config, "attn_logit_softcap", 0.0),
         )
 
         # FFN: dense SwiGLU by default, or a Mixture-of-Experts FFN when this
