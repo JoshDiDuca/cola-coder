@@ -36,6 +36,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import benchmark_results_view as brv
 from . import checkpoint_detail as cd
+from . import filters_catalog_view as fcv
 from . import checkpoint_health_view as chv
 from . import checkpoints_compare as cc
 from . import config_diff as cdf
@@ -58,6 +59,7 @@ from . import pipeline as pl
 from . import pipeline_ops as po
 from . import project_health_view as phv
 from . import reasoning as rs
+from . import reasoning_problems_view as rpv
 from . import retrieval_stats_view as rsv
 from . import router as rt
 from . import safety_eval_view as sev
@@ -508,6 +510,16 @@ def create_app(
              response_model=sch.SafetyEvalResults | sch.ErrorResponse)
     def safety_eval_results_get() -> dict:
         return sev.safety_eval_results(str(root))
+
+    @app.get("/api/filters-catalog",
+             response_model=sch.FiltersCatalog | sch.ErrorResponse)
+    def filters_catalog_get() -> dict:
+        return fcv.filters_catalog()
+
+    @app.get("/api/reasoning-problems",
+             response_model=sch.ReasoningProblemSet | sch.ErrorResponse)
+    def reasoning_problems_get(which: str = "all") -> dict:
+        return rpv.reasoning_problems(which)
 
     @app.get("/api/data-stats", response_model=sch.DataStats | sch.ErrorResponse)
     def data_stats_get(

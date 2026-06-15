@@ -681,6 +681,35 @@ class SafetyEvalResults(_UiModel):
     count: int
 
 
+class FilterInfo(_UiModel):
+    name: str
+    category: str
+    purpose: str
+    module: str
+    default_enabled: bool
+
+
+class FiltersCatalog(_UiModel):
+    filters: list[FilterInfo]
+    count: int
+    categories: list[str]
+
+
+class ReasoningProblem(_UiModel):
+    id: str
+    difficulty: str
+    language: str
+    prompt_preview: str
+    has_tests: bool
+
+
+class ReasoningProblemSet(_UiModel):
+    problems: list[ReasoningProblem]
+    count: int
+    difficulties: list[str]
+    languages: list[str]
+
+
 class ErrorResponse(_UiModel):
     """Maps to the TS ``ApiError`` interface."""
 

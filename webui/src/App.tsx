@@ -40,6 +40,8 @@ import VramEstimatePanel from './components/VramEstimatePanel';
 import ProjectHealthPanel from './components/ProjectHealthPanel';
 import BenchmarkResultsPanel from './components/BenchmarkResultsPanel';
 import SafetyEvalPanel from './components/SafetyEvalPanel';
+import FiltersCatalogPanel from './components/FiltersCatalogPanel';
+import ReasoningProblemsPanel from './components/ReasoningProblemsPanel';
 import CollapsibleSection from './components/CollapsibleSection';
 
 interface Snapshot {
@@ -143,6 +145,7 @@ export default function App() {
           <SftDataPanel />
           <VectorIndexPanel />
           <SecurityScanPanel />
+          <FiltersCatalogPanel />
         </CollapsibleSection>
 
         {/* Configs & pipeline. */}
@@ -176,6 +179,7 @@ export default function App() {
           <FeaturesPanel />
           <ReasoningPanel />
           <ProjectMemoryPanel />
+          <ReasoningProblemsPanel />
           <ScriptsCatalogPanel />
           <StoragePanel />
         </CollapsibleSection>

@@ -45,6 +45,8 @@ import type {
   ProjectHealthReport,
   BenchmarkResults,
   SafetyEvalResults,
+  FiltersCatalog,
+  ReasoningProblemSet,
   ApiError,
   JsonValue,
 } from './types';
@@ -347,6 +349,15 @@ export function getBenchmarkResults(): Promise<BenchmarkResults | ApiError> {
 
 export function getSafetyEvalResults(): Promise<SafetyEvalResults | ApiError> {
   return j<SafetyEvalResults | ApiError>('/api/safety-eval-results');
+}
+
+export function getFiltersCatalog(): Promise<FiltersCatalog | ApiError> {
+  return j<FiltersCatalog | ApiError>('/api/filters-catalog');
+}
+
+export function getReasoningProblems(which?: string): Promise<ReasoningProblemSet | ApiError> {
+  const qs = which !== undefined ? `?which=${encodeURIComponent(which)}` : '';
+  return j<ReasoningProblemSet | ApiError>(`/api/reasoning-problems${qs}`);
 }
 
 export function getDataStats(

@@ -648,6 +648,35 @@ export interface SafetyEvalResults {
   count: number;
 }
 
+export interface FilterInfo {
+  name: string;
+  category: string;
+  purpose: string;
+  module: string;
+  default_enabled: boolean;
+}
+
+export interface FiltersCatalog {
+  filters: FilterInfo[];
+  count: number;
+  categories: string[];
+}
+
+export interface ReasoningProblem {
+  id: string;
+  difficulty: string;
+  language: string;
+  prompt_preview: string;
+  has_tests: boolean;
+}
+
+export interface ReasoningProblemSet {
+  problems: ReasoningProblem[];
+  count: number;
+  difficulties: string[];
+  languages: string[];
+}
+
 export interface ApiError {
   error: string;
 }
@@ -696,3 +725,5 @@ export type VramEstimateOrError = VramEstimate | ApiError;
 export type ProjectHealthReportOrError = ProjectHealthReport | ApiError;
 export type BenchmarkResultsOrError = BenchmarkResults | ApiError;
 export type SafetyEvalResultsOrError = SafetyEvalResults | ApiError;
+export type FiltersCatalogOrError = FiltersCatalog | ApiError;
+export type ReasoningProblemSetOrError = ReasoningProblemSet | ApiError;
