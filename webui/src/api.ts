@@ -50,6 +50,7 @@ import type {
   VocabSearchResult,
   ScoringConfig,
   RegressionHistory,
+  TrainingManifests,
   LrFinderResults,
   RepoScoresResult,
   RunRequest,
@@ -391,6 +392,10 @@ export function getLrFinderResults(): Promise<LrFinderResults | ApiError> {
 
 export function getRepoScores(): Promise<RepoScoresResult | ApiError> {
   return j<RepoScoresResult | ApiError>('/api/repo-scores');
+}
+
+export function getTrainingManifests(): Promise<TrainingManifests | ApiError> {
+  return j<TrainingManifests | ApiError>('/api/training-manifests');
 }
 
 export function getDataStats(

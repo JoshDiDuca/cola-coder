@@ -77,6 +77,7 @@ from . import schemas as sch
 from . import tokenize as tkz
 from . import tokenizer_health_view as thv
 from . import tokenizer_info as tk
+from . import training_manifest_view as tmv
 from . import vocab_explorer_view as vxv
 from . import vram_estimate_view as vev
 from .jobs import JobManager
@@ -144,6 +145,9 @@ ACTIONS: dict[str, dict] = {
                 "args": ["--config", "configs/small.yaml"]},
     "full_pipeline": {"script": "full_pipeline.py", "label": "Full 10-stage pipeline", "trainer": True,
                       "args": ["--config", "configs/small.yaml"]},
+    # CPU weight-averaging (model soup) — not a trainer; the UI panel supplies --checkpoints explicitly.
+    "average_checkpoints": {"script": "average_checkpoints.py", "label": "Average checkpoints (model soup)",
+                            "args": ["--method", "uniform", "--output", "checkpoints/soup"]},
 }
 
 
@@ -544,6 +548,11 @@ def create_app(
              response_model=sch.RepoScoresResult | sch.ErrorResponse)
     def repo_scores_get() -> dict:
         return rscv.repo_scores(str(root))
+
+    @app.get("/api/training-manifests",
+             response_model=sch.TrainingManifests | sch.ErrorResponse)
+    def training_manifests_get() -> dict:
+        return tmv.training_manifests(str(root / "checkpoints"))
 
     @app.get("/api/data-stats", response_model=sch.DataStats | sch.ErrorResponse)
     def data_stats_get(

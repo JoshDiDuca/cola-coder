@@ -254,6 +254,15 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   → Tokenizer. +2 models (gen_ts regen, 86 ifaces, 38 OrError), +2 test examples, 3 new files. pytest 89 +
   ruff + tsc + vite green (252 KB). Keystone integrated by main. (UI-017 partially addressed — arg editing now
   exists; remaining: structured per-arg forms + data-collection wizards.)
+- **UI-054..055** [ui, medium] `done` (2026-06-15) — Batch (parallel agents, disjoint files). UI-054 Training
+  Manifest viewer (`GET /api/training-manifests`, `TrainingManifests`/`TrainingManifest`; per-checkpoint
+  provenance — flattens the nested `training_manifest.yaml` model/training sections + scans newest step_* for
+  latest_step; 3 real rows) → Checkpoints & Models. UI-055 Checkpoint Averaging (Model Soup) LAUNCHER
+  (`CheckpointAveragePanel`; multi-select 2+ checkpoints + method/output → launches average_checkpoints.py as a
+  background job via runAction; new `average_checkpoints` ACTIONS allow-list entry, CPU not trainer) →
+  Checkpoints & Models. +2 models (gen_ts regen, 100 ifaces), +2 test examples, 3 new files. Fixed the endpoint
+  to pass the checkpoints dir (not project root) to the manifest scanner. pytest 103 + ruff + tsc + vite green
+  (267 KB).
 - **UI-052..053** [ui, medium] `done` (2026-06-15) — Batch (parallel agents, disjoint files): 2 read-only
   viewers. UI-052 LR Finder Results (`GET /api/lr-finder-results`, `LrFinderResults`/`LrFinderRun`/`LrPoint`;
   loss-vs-LR curve via dependency-free SVG + suggested-LR badge; find_lr.py only saves a PNG today so it

@@ -337,6 +337,13 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         }],
     },
     "RegressionHistory": {"runs": [], "count": 0},
+    "TrainingManifest": {
+        "model": "small_react_best", "path": "checkpoints/small_react_best/training_manifest.yaml",
+        "config": "cola-coder/train.py", "dim": 768, "n_layers": 12, "n_heads": 12,
+        "seq_len": 1024, "batch_size": 24, "learning_rate": 6e-4, "max_steps": 150000,
+        "latest_step": 9000, "created_at": "2026-06-13T14:07:57+00:00", "mtime": 1.0,
+    },
+    "TrainingManifests": {"manifests": [], "count": 0},
     "LrPoint": {"lr": 3.0e-4, "loss": 1.8},
     "LrFinderRun": {
         "name": "lr_finder_result.json", "path": "lr_finder/lr_finder_result.json",

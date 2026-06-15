@@ -763,6 +763,27 @@ class RegressionHistory(_UiModel):
     count: int
 
 
+class TrainingManifest(_UiModel):
+    model: str
+    path: str
+    config: str | None
+    dim: int | None
+    n_layers: int | None
+    n_heads: int | None
+    seq_len: int | None
+    batch_size: int | None
+    learning_rate: float | None
+    max_steps: int | None
+    latest_step: int | None
+    created_at: str | None
+    mtime: float
+
+
+class TrainingManifests(_UiModel):
+    manifests: list[TrainingManifest]
+    count: int
+
+
 class LrPoint(_UiModel):
     lr: float
     loss: float

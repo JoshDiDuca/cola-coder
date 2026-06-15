@@ -730,6 +730,27 @@ export interface RegressionHistory {
   count: number;
 }
 
+export interface TrainingManifest {
+  model: string;
+  path: string;
+  config: string | null;
+  dim: number | null;
+  n_layers: number | null;
+  n_heads: number | null;
+  seq_len: number | null;
+  batch_size: number | null;
+  learning_rate: number | null;
+  max_steps: number | null;
+  latest_step: number | null;
+  created_at: string | null;
+  mtime: number;
+}
+
+export interface TrainingManifests {
+  manifests: TrainingManifest[];
+  count: number;
+}
+
 export interface LrPoint {
   lr: number;
   loss: number;
@@ -830,5 +851,6 @@ export type ReasoningProblemSetOrError = ReasoningProblemSet | ApiError;
 export type VocabSearchResultOrError = VocabSearchResult | ApiError;
 export type ScoringConfigOrError = ScoringConfig | ApiError;
 export type RegressionHistoryOrError = RegressionHistory | ApiError;
+export type TrainingManifestsOrError = TrainingManifests | ApiError;
 export type LrFinderResultsOrError = LrFinderResults | ApiError;
 export type RepoScoresResultOrError = RepoScoresResult | ApiError;

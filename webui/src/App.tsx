@@ -48,6 +48,8 @@ import ScoringConfigPanel from './components/ScoringConfigPanel';
 import RegressionHistoryPanel from './components/RegressionHistoryPanel';
 import LrFinderPanel from './components/LrFinderPanel';
 import RepoScoresPanel from './components/RepoScoresPanel';
+import TrainingManifestPanel from './components/TrainingManifestPanel';
+import CheckpointAveragePanel from './components/CheckpointAveragePanel';
 import CollapsibleSection from './components/CollapsibleSection';
 
 interface Snapshot {
@@ -139,6 +141,8 @@ export default function App() {
           <CheckpointDetailPanel checkpoints={snap?.checkpoints ?? []} />
           <CheckpointComparePanel checkpoints={snap?.checkpoints ?? []} />
           <CheckpointHealthPanel checkpoints={snap?.checkpoints ?? []} />
+          <CheckpointAveragePanel checkpoints={snap?.checkpoints ?? []} />
+          <TrainingManifestPanel />
           <ModelCardPanel checkpoints={snap?.checkpoints ?? []} />
           <RouterPanel />
           <ExportPanel />
