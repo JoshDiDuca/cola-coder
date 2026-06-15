@@ -151,6 +151,10 @@ ACTIONS: dict[str, dict] = {
     # CPU weight-averaging (model soup) — not a trainer; the UI panel supplies --checkpoints explicitly.
     "average_checkpoints": {"script": "average_checkpoints.py", "label": "Average checkpoints (model soup)",
                             "args": ["--method", "uniform", "--output", "checkpoints/soup"]},
+    # CPU dataset mixing — the UI panel supplies "--datasets PATH:WEIGHT ... --output PATH" explicitly
+    # (default args empty: a bare launch would drop into the interactive TUI, which a job can't answer).
+    "combine_datasets": {"script": "combine_datasets.py", "label": "Combine datasets (weighted mix)",
+                         "args": []},
 }
 
 

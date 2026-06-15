@@ -268,6 +268,17 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   default (zero-cost when disabled). (b) Config sweep + measure: enable final_logit_softcap on a SMALL eval and
   measure pass^k/pass@k (EVAL-037) before vs after to test the research-log hypothesis (soft-cap raises single-shot
   reliability / shrinks the capability-reliability gap more than it changes capability).
+- **UI-060** [ui, medium] `done` (2026-06-15) — Combine Datasets launcher (`CombineDatasetsPanel`): select 2+
+  prepared `.npy` datasets, assign per-dataset weights, set output, and launch combine_datasets.py as a background
+  job via runAction with `--datasets PATH:WEIGHT ... --output PATH` (the script's real non-interactive flags; no
+  phantom MinHash knob — that path is TUI-only). New `combine_datasets` ACTIONS entry (CPU, default args `[]`).
+  → Data. No schema change. tsc + vite green (281 KB).
+- **BUG-132** [tooling, medium] `open` — `scripts/scrape_github.py` is INTERACTIVE (only `--tokenizer` is a CLI
+  flag; mode/language/min-stars/license/max-repos/output are gathered via cli.choose/input prompts). Launching it
+  as a UI background job (stdin=DEVNULL) would HANG on the first prompt, so the GitHub-scraper UI launcher was NOT
+  shipped this cycle (panel discarded). FIX: add a non-interactive flag set (`--language --min-stars --license
+  --max-repos --output-dir --non-interactive`/preset bypass) so it's UI-launchable; then ship the launcher.
+  (Discovered building the scraper launcher.)
 - **UI-058..059** [ui, medium] `done` (2026-06-15) — Batch (parallel agents, disjoint files). UI-058 Docs Browser
   (`GET /api/docs` + `GET /api/doc?path=`, `DocsList`/`DocFile`/`DocContent`; lists the 26 docs/ guides +
   deep-dives, lightweight no-dep markdown render; PATH-GUARDED read confined to docs/ — traversal/out-of-tree

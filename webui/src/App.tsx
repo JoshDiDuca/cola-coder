@@ -54,6 +54,7 @@ import BacklogPanel from './components/BacklogPanel';
 import ResearchLogPanel from './components/ResearchLogPanel';
 import DocsBrowserPanel from './components/DocsBrowserPanel';
 import CollectDataPanel from './components/CollectDataPanel';
+import CombineDatasetsPanel from './components/CombineDatasetsPanel';
 import CollapsibleSection from './components/CollapsibleSection';
 
 interface Snapshot {
@@ -155,6 +156,7 @@ export default function App() {
         {/* Data. */}
         <CollapsibleSection title="Data" storageKey="sec.data">
           <CollectDataPanel />
+          <CombineDatasetsPanel />
           <DatasetsPanel />
           <DataStatsPanel />
           <DataSourcesPanel />
