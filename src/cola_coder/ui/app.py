@@ -73,6 +73,7 @@ from . import schemas as sch
 from . import tokenize as tkz
 from . import tokenizer_health_view as thv
 from . import tokenizer_info as tk
+from . import vocab_explorer_view as vxv
 from . import vram_estimate_view as vev
 from .jobs import JobManager
 
@@ -520,6 +521,11 @@ def create_app(
              response_model=sch.ReasoningProblemSet | sch.ErrorResponse)
     def reasoning_problems_get(which: str = "all") -> dict:
         return rpv.reasoning_problems(which)
+
+    @app.get("/api/vocab-search",
+             response_model=sch.VocabSearchResult | sch.ErrorResponse)
+    def vocab_search_get(query: str = "", path: str | None = None, limit: int = 200) -> dict:
+        return vxv.vocab_search(query, path, limit)
 
     @app.get("/api/data-stats", response_model=sch.DataStats | sch.ErrorResponse)
     def data_stats_get(

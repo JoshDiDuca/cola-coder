@@ -47,6 +47,7 @@ import type {
   SafetyEvalResults,
   FiltersCatalog,
   ReasoningProblemSet,
+  VocabSearchResult,
   ApiError,
   JsonValue,
 } from './types';
@@ -358,6 +359,12 @@ export function getFiltersCatalog(): Promise<FiltersCatalog | ApiError> {
 export function getReasoningProblems(which?: string): Promise<ReasoningProblemSet | ApiError> {
   const qs = which !== undefined ? `?which=${encodeURIComponent(which)}` : '';
   return j<ReasoningProblemSet | ApiError>(`/api/reasoning-problems${qs}`);
+}
+
+export function searchVocab(query: string, limit?: number): Promise<VocabSearchResult | ApiError> {
+  const q = new URLSearchParams({ query });
+  if (limit !== undefined) q.set('limit', String(limit));
+  return j<VocabSearchResult | ApiError>(`/api/vocab-search?${q.toString()}`);
 }
 
 export function getDataStats(

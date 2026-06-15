@@ -42,6 +42,8 @@ import BenchmarkResultsPanel from './components/BenchmarkResultsPanel';
 import SafetyEvalPanel from './components/SafetyEvalPanel';
 import FiltersCatalogPanel from './components/FiltersCatalogPanel';
 import ReasoningProblemsPanel from './components/ReasoningProblemsPanel';
+import ActionLauncherPanel from './components/ActionLauncherPanel';
+import VocabExplorerPanel from './components/VocabExplorerPanel';
 import CollapsibleSection from './components/CollapsibleSection';
 
 interface Snapshot {
@@ -122,6 +124,7 @@ export default function App() {
             onRan={() => { /* jobs arrive via the event stream */ }}
             trainingAlive={alive}
           />
+          <ActionLauncherPanel trainingAlive={alive} />
           <JobsPanel jobs={snap?.jobs ?? []} />
           <LogsPanel />
         </CollapsibleSection>
@@ -170,6 +173,7 @@ export default function App() {
           <TokenizerPanel />
           <TokenizerHealthPanel />
           <TokenizePanel />
+          <VocabExplorerPanel />
         </CollapsibleSection>
 
         {/* System & tools. */}

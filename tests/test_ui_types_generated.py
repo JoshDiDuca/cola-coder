@@ -313,6 +313,12 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "problems": [], "count": 0, "difficulties": ["easy", "medium", "hard"],
         "languages": ["python"],
     },
+    "VocabToken": {"id": 42, "piece": "Ġconst", "is_special": False},
+    "VocabSearchResult": {
+        "query": "const", "vocab_size": 32768, "total_matches": 3, "truncated": False,
+        "tokens": [{"id": 42, "piece": "Ġconst", "is_special": False}],
+        "special_tokens": [{"id": 0, "piece": "<|endoftext|>", "is_special": True}],
+    },
     "DataStats": {
         "data_path": "data/processed/train_data.npy", "file_size_mb": 12.3,
         "shape": [100, 64], "num_chunks": 100, "seq_len": 64, "total_tokens": 6400,

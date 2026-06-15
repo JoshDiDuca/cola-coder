@@ -710,6 +710,21 @@ class ReasoningProblemSet(_UiModel):
     languages: list[str]
 
 
+class VocabToken(_UiModel):
+    id: int
+    piece: str
+    is_special: bool
+
+
+class VocabSearchResult(_UiModel):
+    query: str
+    vocab_size: int
+    total_matches: int
+    truncated: bool
+    tokens: list[VocabToken]
+    special_tokens: list[VocabToken]
+
+
 class ErrorResponse(_UiModel):
     """Maps to the TS ``ApiError`` interface."""
 

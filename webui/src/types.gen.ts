@@ -677,6 +677,21 @@ export interface ReasoningProblemSet {
   languages: string[];
 }
 
+export interface VocabToken {
+  id: number;
+  piece: string;
+  is_special: boolean;
+}
+
+export interface VocabSearchResult {
+  query: string;
+  vocab_size: number;
+  total_matches: number;
+  truncated: boolean;
+  tokens: VocabToken[];
+  special_tokens: VocabToken[];
+}
+
 export interface ApiError {
   error: string;
 }
@@ -727,3 +742,4 @@ export type BenchmarkResultsOrError = BenchmarkResults | ApiError;
 export type SafetyEvalResultsOrError = SafetyEvalResults | ApiError;
 export type FiltersCatalogOrError = FiltersCatalog | ApiError;
 export type ReasoningProblemSetOrError = ReasoningProblemSet | ApiError;
+export type VocabSearchResultOrError = VocabSearchResult | ApiError;

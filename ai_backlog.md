@@ -233,6 +233,22 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   views correctly ship as empty-state scanners that light up once those scripts persist JSON — filed as
   DATA/OBS items below. +5 models (gen_ts_types regen, 80 ifaces, 35 OrError), +5 test examples, 4 new
   files. pytest 83 + ruff + tsc + vite green (242 KB). Keystone integrated by main.
+- **UI-048..049** [ui, medium] `done` (2026-06-15) — Batch (parallel agents, disjoint files). UI-048 Action
+  Launcher (`ActionLauncherPanel.tsx`; lets the user pick an allow-listed action, EDIT its args, and launch as
+  a background job via the existing `runAction(action, args)` — the UI-017 per-action arg-form gap; trainer
+  actions disabled while training is alive, gpu actions amber-badged) → Run & Jobs. NO backend change needed
+  (`/api/run` already accepts an args override). UI-049 Tokenizer Vocab Explorer (`GET /api/vocab-search`,
+  `VocabSearchResult`/`VocabToken`; substring search over the real `tokenizers` `get_vocab()` + special tokens)
+  → Tokenizer. +2 models (gen_ts regen, 86 ifaces, 38 OrError), +2 test examples, 3 new files. pytest 89 +
+  ruff + tsc + vite green (252 KB). Keystone integrated by main. (UI-017 partially addressed — arg editing now
+  exists; remaining: structured per-arg forms + data-collection wizards.)
+- **TYPE-003** [typing, medium] `open` — `/api/run` and `/api/train/start` in `ui/app.py` are weakly typed:
+  `def run(payload: dict)` / `def train_start(payload: dict)` with no `response_model`, returning bare
+  `JSONResponse`. Violates the schema-first bar (typing.md). FIX: add `RunRequest{action: str; args: list[str]
+  | None}` and `TrainStartRequest{config: str; resume: str | None}` Pydantic models; annotate the endpoints
+  (`req: sch.RunRequest`) with `response_model=sch.Job | sch.ErrorResponse`; regen types so the frontend
+  `runAction`/`startTraining` calls are typed end-to-end. Low risk — the existing client bodies ({action,args}
+  / {config,resume}) already match. (Discovered building the Action Launcher panel this cycle.)
 - **OBS-001** [tooling/observability, low] `open` — benchmark.py, nano_benchmark.py and safety_eval.py print
   metrics to console but DON'T persist JSON, so the new UI-044/045 viewers have nothing to read until a run
   is saved. Add an opt-in `--json/--output` persist path (inference_benchmark.py already has one) writing to
