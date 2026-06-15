@@ -220,6 +220,29 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "passed": 5, "failed": 0, "ok": True,
     },
     "WeightTier": {"label": "excellent", "count": 10, "pct": 25.0},
+    "CheckpointHealth": {
+        "path": "checkpoints/small/step_00008500", "model": "small", "step": 8500,
+        "loss": 2.31, "size_mb": 512.0, "num_tensors": 50,
+        "files": ["model.safetensors", "metadata.json"],
+        "config_stem": "small_react_best", "ok": True,
+    },
+    "MemoryEntry": {
+        "id": "errors:TypeError on render", "type": "errors",
+        "created_at": "2026-06-15 03:21",
+        "content_preview": "TypeError: cannot read property foo of undefined",
+    },
+    "MemoryStats": {
+        "total_entries": 4, "pinned": 0,
+        "types": ["project", "patterns", "errors"], "size_bytes": 750,
+        "oldest_at": "2026-06-15 03:21", "newest_at": "2026-06-15 03:21",
+        "recent_sample": [],
+    },
+    "IndexStats": {
+        "exists": True, "doc_count": 1240, "chunk_count": 1240,
+        "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+        "embedding_dim": 384, "size_bytes": 5242880,
+        "path": "data/vector_index", "last_updated": "2026-06-15T12:00:00+00:00",
+    },
     "DataStats": {
         "data_path": "data/processed/train_data.npy", "file_size_mb": 12.3,
         "shape": [100, 64], "num_chunks": 100, "seq_len": 64, "total_tokens": 6400,

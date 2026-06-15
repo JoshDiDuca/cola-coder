@@ -31,6 +31,9 @@ import SystemInfoPanel from './components/SystemInfoPanel';
 import ConfigDiffPanel from './components/ConfigDiffPanel';
 import TokenizerHealthPanel from './components/TokenizerHealthPanel';
 import DataStatsPanel from './components/DataStatsPanel';
+import CheckpointHealthPanel from './components/CheckpointHealthPanel';
+import ProjectMemoryPanel from './components/ProjectMemoryPanel';
+import VectorIndexPanel from './components/VectorIndexPanel';
 import CollapsibleSection from './components/CollapsibleSection';
 
 interface Snapshot {
@@ -120,6 +123,7 @@ export default function App() {
           <CheckpointsPanel checkpoints={snap?.checkpoints ?? []} />
           <CheckpointDetailPanel checkpoints={snap?.checkpoints ?? []} />
           <CheckpointComparePanel checkpoints={snap?.checkpoints ?? []} />
+          <CheckpointHealthPanel checkpoints={snap?.checkpoints ?? []} />
           <ModelCardPanel checkpoints={snap?.checkpoints ?? []} />
           <RouterPanel />
           <ExportPanel />
@@ -131,6 +135,7 @@ export default function App() {
           <DataStatsPanel />
           <DataSourcesPanel />
           <SftDataPanel />
+          <VectorIndexPanel />
         </CollapsibleSection>
 
         {/* Configs & pipeline. */}
@@ -158,6 +163,7 @@ export default function App() {
         <CollapsibleSection title="System & Tools" storageKey="sec.tools">
           <FeaturesPanel />
           <ReasoningPanel />
+          <ProjectMemoryPanel />
           <ScriptsCatalogPanel />
           <StoragePanel />
         </CollapsibleSection>

@@ -502,6 +502,46 @@ export interface DataStats {
   weight_std?: number | null;
 }
 
+export interface CheckpointHealth {
+  path: string;
+  model: string;
+  step: number;
+  loss: number | null;
+  size_mb: number;
+  num_tensors: number | null;
+  files: string[];
+  config_stem: string | null;
+  ok: boolean;
+}
+
+export interface MemoryEntry {
+  id: string;
+  type: string;
+  created_at: string;
+  content_preview: string;
+}
+
+export interface MemoryStats {
+  total_entries: number;
+  pinned: number;
+  types: string[];
+  size_bytes: number;
+  oldest_at: string | null;
+  newest_at: string | null;
+  recent_sample: MemoryEntry[];
+}
+
+export interface IndexStats {
+  exists: boolean;
+  doc_count: number;
+  chunk_count: number | null;
+  embedding_model: string | null;
+  embedding_dim: number | null;
+  size_bytes: number;
+  path: string | null;
+  last_updated: string | null;
+}
+
 export interface ApiError {
   error: string;
 }
@@ -541,3 +581,6 @@ export type PipelineRunDetailOrError = PipelineRunDetail | ApiError;
 export type PipelineDeleteResultOrError = PipelineDeleteResult | ApiError;
 export type TokenizerHealthReportOrError = TokenizerHealthReport | ApiError;
 export type DataStatsOrError = DataStats | ApiError;
+export type CheckpointHealthOrError = CheckpointHealth | ApiError;
+export type MemoryStatsOrError = MemoryStats | ApiError;
+export type IndexStatsOrError = IndexStats | ApiError;

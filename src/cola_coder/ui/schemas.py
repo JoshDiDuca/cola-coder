@@ -535,6 +535,46 @@ class DataStats(_UiModel):
     weight_std: float | None = None
 
 
+class CheckpointHealth(_UiModel):
+    path: str
+    model: str
+    step: int
+    loss: float | None
+    size_mb: float
+    num_tensors: int | None
+    files: list[str]
+    config_stem: str | None
+    ok: bool
+
+
+class MemoryEntry(_UiModel):
+    id: str
+    type: str
+    created_at: str
+    content_preview: str
+
+
+class MemoryStats(_UiModel):
+    total_entries: int
+    pinned: int
+    types: list[str]
+    size_bytes: int
+    oldest_at: str | None
+    newest_at: str | None
+    recent_sample: list[MemoryEntry]
+
+
+class IndexStats(_UiModel):
+    exists: bool
+    doc_count: int
+    chunk_count: int | None
+    embedding_model: str | None
+    embedding_dim: int | None
+    size_bytes: int
+    path: str | None
+    last_updated: str | None
+
+
 class ErrorResponse(_UiModel):
     """Maps to the TS ``ApiError`` interface."""
 

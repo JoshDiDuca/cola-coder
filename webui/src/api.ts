@@ -36,6 +36,9 @@ import type {
   SystemInfo,
   TokenizerHealthReport,
   DataStats,
+  CheckpointHealth,
+  MemoryStats,
+  IndexStats,
   ApiError,
   JsonValue,
 } from './types';
@@ -295,6 +298,20 @@ export function getSystemInfo(): Promise<SystemInfo | ApiError> {
 export function getTokenizerHealth(path?: string): Promise<TokenizerHealthReport | ApiError> {
   const qs = path !== undefined ? `?path=${encodeURIComponent(path)}` : '';
   return j<TokenizerHealthReport | ApiError>(`/api/tokenizer-health${qs}`);
+}
+
+export function getCheckpointHealth(model: string, step: string): Promise<CheckpointHealth | ApiError> {
+  return j<CheckpointHealth | ApiError>(
+    `/api/checkpoint-health?model=${encodeURIComponent(model)}&step=${encodeURIComponent(step)}`,
+  );
+}
+
+export function getMemoryStats(): Promise<MemoryStats | ApiError> {
+  return j<MemoryStats | ApiError>('/api/memory-stats');
+}
+
+export function getIndexStats(): Promise<IndexStats | ApiError> {
+  return j<IndexStats | ApiError>('/api/retrieval/index-stats');
 }
 
 export function getDataStats(

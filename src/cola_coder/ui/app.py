@@ -35,6 +35,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import checkpoint_detail as cd
+from . import checkpoint_health_view as chv
 from . import checkpoints_compare as cc
 from . import config_diff as cdf
 from . import configs as cfg
@@ -48,11 +49,13 @@ from . import features as ft
 from . import features_write as fw
 from . import health as hl
 from . import logs as lg
+from . import memory_stats_view as msv
 from . import metrics_history as mh
 from . import model_card as mc
 from . import pipeline as pl
 from . import pipeline_ops as po
 from . import reasoning as rs
+from . import retrieval_stats_view as rsv
 from . import router as rt
 from . import scripts_catalog as sc
 from . import sft_data as sd
@@ -454,6 +457,21 @@ def create_app(
              response_model=sch.TokenizerHealthReport | sch.ErrorResponse)
     def tokenizer_health_get(path: str | None = None) -> dict:
         return thv.tokenizer_health(path)
+
+    @app.get("/api/checkpoint-health",
+             response_model=sch.CheckpointHealth | sch.ErrorResponse)
+    def checkpoint_health_get(model: str, step: str) -> dict:
+        return chv.checkpoint_health(model, step)
+
+    @app.get("/api/memory-stats",
+             response_model=sch.MemoryStats | sch.ErrorResponse)
+    def memory_stats_get() -> dict:
+        return msv.memory_stats(str(root))
+
+    @app.get("/api/retrieval/index-stats",
+             response_model=sch.IndexStats | sch.ErrorResponse)
+    def retrieval_index_stats_get() -> dict:
+        return rsv.index_stats()
 
     @app.get("/api/data-stats", response_model=sch.DataStats | sch.ErrorResponse)
     def data_stats_get(

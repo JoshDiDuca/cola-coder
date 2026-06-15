@@ -179,6 +179,25 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   Pure frontend (no backend/endpoint, zero training risk); section body reuses the exact `.app-grid`
   template (`repeat(auto-fit, minmax(330px,1fr))`, gap 16px) so cards tile identically. tsc + vite green
   (220 KB). Overview + Run & Jobs default-open; the rest collapsed.
+- **UI-037..039** [ui, medium] `done` (2026-06-15) — Batch (parallel agents, disjoint files): 3 read-only
+  inspect views. UI-037 Checkpoint Health Inspector (`GET /api/checkpoint-health`, `CheckpointHealth`:
+  size_mb, num_tensors from safetensors header, files, loss/config_stem from metadata.json; mirrors
+  checkpoint_info.py) → Checkpoints & Models. UI-038 Project Memory Inspector (`GET /api/memory-stats`,
+  `MemoryStats`/`MemoryEntry`; built against the REAL markdown store `memory/manager.py` under
+  `.cola/memory/`) → System & Tools. UI-039 Vector Index Stats (`GET /api/retrieval/index-stats`,
+  `IndexStats`; reads `retrieval/vector_store.py` JSON sidecar without loading embeddings) → Data.
+  +4 Pydantic models (gen_ts_types regen, 67 ifaces), +4 test examples, 6 new files. pytest 70 + tsc +
+  vite green (227 KB). Keystone files integrated by main; agents built only their 2 files each.
+- **BUG-130** [bug, medium] `open` — `features/menus/tools_menu.py` project-memory action calls a
+  NON-EXISTENT API (`MemoryManager.initialize()`, `list_recent()`, `MemoryUpdater`, a `project.db`).
+  The real store (`memory/manager.py`) is markdown-file-based (`.cola/memory/*.md`, `_iter_sections`,
+  `.stats()`, `.export()`). The CLI menu item is broken; the new UI-038 view uses the real API. Fix the
+  CLI to match. (Discovered while building UI-038.)
+- **BUG-131** [bug, medium] `open` — `master_menu/_vector_store_stats` constructs `VectorStore(str(path))`
+  (passes a path where `embed_dim: int` is expected) and reads `stats()` keys that don't exist
+  (`document_count`/`size_mb`/`last_updated`); real `stats()` returns `total_items`/`embed_dim`/
+  `memory_mb`/`unique_sources`. CLI vector-store stats is broken; UI-039 reads the JSON sidecar directly.
+  Fix the CLI. (Discovered while building UI-039.)
 - **UI-034** [ui, high] `open` — Execute pipeline stages from the UI. FINDING (this cycle): the CLI's
   per-stage handlers in `pipeline_menu.py` are INTERACTIVE and multi-command (they call cli.confirm/
   cli.choose, prompt to train a tokenizer, pick datasets, choose scoring) — NOT a pure argv builder. So
