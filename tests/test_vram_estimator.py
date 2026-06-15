@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from cola_coder.features.vram_estimator import estimate_vram
 from cola_coder.model.config import ModelConfig, TrainingConfig
 
@@ -68,3 +70,33 @@ class TestVramEstimatorGpuProbe:
         assert no_gpu.total_training_gb == broken.total_training_gb
         assert no_gpu.model_weights_gb == broken.model_weights_gb
         assert no_gpu.activations_gb == broken.activations_gb
+
+
+class TestKvCacheQuantization:
+    """kv_cache_bits projects int8/int4 KV-cache memory (long-context VRAM planning)."""
+
+    def _est(self, bits: int):
+        with patch("torch.cuda.is_available", return_value=False):
+            return estimate_vram(model_config=_model(), training_config=_training(), kv_cache_bits=bits)
+
+    def test_default_16_is_unchanged(self):
+        with patch("torch.cuda.is_available", return_value=False):
+            default = estimate_vram(model_config=_model(), training_config=_training())
+        explicit16 = self._est(16)
+        assert default.kv_cache_gb == explicit16.kv_cache_gb
+
+    def test_int8_halves_kv_cache(self):
+        assert self._est(8).kv_cache_gb == pytest.approx(self._est(16).kv_cache_gb / 2)
+
+    def test_int4_quarters_kv_cache(self):
+        assert self._est(4).kv_cache_gb == pytest.approx(self._est(16).kv_cache_gb / 4)
+
+    def test_kv_quant_only_scales_kv_not_weights(self):
+        # Quantizing the KV cache must not change the model-weights term.
+        assert self._est(8).model_weights_gb == self._est(16).model_weights_gb
+        # And lower-bit KV → lower total inference memory.
+        assert self._est(8).total_inference_gb < self._est(16).total_inference_gb
+
+    def test_invalid_bits_raise(self):
+        with pytest.raises(ValueError):
+            self._est(12)

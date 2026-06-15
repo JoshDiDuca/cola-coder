@@ -2451,3 +2451,32 @@ the existing VectorStore.search for the rerank. Filed as DATA-074.
 **Sources:**
 - [Okapi BM25 (Robertson & Zaragoza, "The Probabilistic Relevance Framework")](https://www.staff.city.ac.uk/~sbrp622/papers/foundations_bm25_review.pdf)
 - [BGE-M3: hybrid dense+sparse+multivector retrieval (arXiv:2402.03216)](https://arxiv.org/abs/2402.03216)
+
+---
+
+## 2026-06-15 — Inference memory: KV-cache quantization for long-context on 16GB
+
+**Area:** inference / memory. **Technique.** At long context the KV cache, not the weights,
+dominates inference VRAM — it grows linearly with sequence length while weights are fixed.
+2024-25 work (KVQuant arXiv:2401.18079; KIVI arXiv:2402.02750) quantizes the cached K/V to
+int8 or even int4 with negligible quality loss (per-channel K, per-token V), roughly halving
+(int8) or quartering (int4) KV memory — the cheapest lever to fit more context on a fixed
+budget. This directly matters here: the 4080_max config runs seq_len=4096 on a 16GB 4080.
+
+**Shipped.** The VRAM estimator hardcoded fp16 (2 bytes) for the KV term, so it couldn't model
+quantized KV. Added a `kv_cache_bits` parameter (default 16 → byte-identical, no caller change;
+8/4 for int8/int4) that scales ONLY the KV-cache term, not weights. Tests: default==explicit-16,
+int8 halves / int4 quarters the KV cache, weights unchanged, total inference drops, invalid bits
+rejected. Pure/MAIN-SAFE — an estimator change, no model/training touched.
+
+**Original idea — IDEA-013: context-length autoscaling from the KV budget.** The Full-Auto
+pipeline already estimator-validates the largest config that fits VRAM. Extend that: when a
+config's fp16 KV cache would exceed the inference budget at the target seq_len, the planner can
+recommend int8-KV (now modeled) instead of shrinking the model or context — surfacing "this fits
+at 4096 with int8 KV, or 2048 with fp16 KV" as an explicit tradeoff. Reuses the estimator + the
+hardware profiler. Filed as MODEL-047 (also: wire real int8 KV-cache into the generator's
+pre-allocated cache, the implementation behind the estimate).
+
+**Sources:**
+- [KVQuant: towards 10M context length LLM inference (arXiv:2401.18079)](https://arxiv.org/abs/2401.18079)
+- [KIVI: tuning-free asymmetric 2-bit KV-cache quantization (arXiv:2402.02750)](https://arxiv.org/abs/2402.02750)

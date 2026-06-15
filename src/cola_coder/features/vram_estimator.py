@@ -40,6 +40,7 @@ def estimate_vram(
     model_config=None,
     training_config=None,
     config_path: str | None = None,
+    kv_cache_bits: int = 16,
 ) -> VRAMEstimate:
     """Estimate VRAM usage for training and inference.
 
@@ -47,10 +48,18 @@ def estimate_vram(
         model_config: ModelConfig instance (from cola_coder.model.config)
         training_config: TrainingConfig instance
         config_path: Path to YAML config file (alternative to passing configs)
+        kv_cache_bits: Bits per KV-cache element for the INFERENCE estimate.
+            Default 16 (fp16/bf16) is unchanged behavior. 8 (int8) or 4 (int4)
+            model KV-cache quantization (KVQuant/KIVI, 2024-25) — the cheapest way
+            to fit longer context on a fixed VRAM budget (the 16GB 4080 at
+            seq_len=4096), since the KV cache grows linearly with context while
+            weights stay fixed. Only scales the KV-cache term, not weights.
 
     Returns:
         VRAMEstimate with detailed breakdown.
     """
+    if kv_cache_bits not in (4, 8, 16):
+        raise ValueError(f"kv_cache_bits must be 4, 8, or 16, got {kv_cache_bits}")
     if config_path:
         from cola_coder.model.config import Config
         cfg = Config.from_yaml(config_path)
@@ -117,10 +126,13 @@ def estimate_vram(
 
     activations_gb = activation_bytes / 1e9
 
-    # KV cache for inference (per token, grows with sequence)
+    # KV cache for inference (per token, grows with sequence). The factor 2 is
+    # K + V. ``kv_cache_bits`` lets the estimate model int8/int4 KV quantization
+    # (default 16 = fp16/bf16, i.e. unchanged): bytes_per_kv = bits / 8.
+    bytes_per_kv = kv_cache_bits / 8
     kv_cache_bytes = (
         2 * n_layers * model_config.n_kv_heads * model_config.head_dim
-        * seq_len * bytes_per_param
+        * seq_len * bytes_per_kv
     )
     kv_cache_gb = kv_cache_bytes / 1e9
 

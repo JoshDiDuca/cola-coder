@@ -84,6 +84,16 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 - **UI-079** [ui, medium] `done` (2026-06-15) — `CommandPalette` (⌘K/Ctrl-K): fuzzy quick-switcher over
   all 11 nav sections; self-contained global key listener, navigates via the same hash as Sidebar.
 
+### Inference memory — KV-cache quant estimate (2026-06-15)
+- **MODEL-047a** [inference/tooling, medium] `done` (2026-06-15) — VRAM estimator gained a `kv_cache_bits`
+  param (default 16 → unchanged; 8/4 = int8/int4) scaling ONLY the KV-cache term, so it can model KV
+  quantization (KVQuant/KIVI 2024-25) — the cheapest way to fit seq_len=4096 on the 16GB 4080. 5 tests
+  (default==16, int8 halves, int4 quarters, weights unchanged, invalid bits raise). Pure/MAIN-SAFE.
+- **MODEL-047 / IDEA-013** [inference, medium] `open` — (a) Full-Auto planner: when fp16 KV exceeds the
+  inference budget at target seq_len, recommend int8-KV instead of shrinking model/context (surface the
+  tradeoff). (b) Wire real int8 KV-cache into the generator's pre-allocated cache (the implementation
+  behind the estimate). Reuses the estimator + hardware profiler.
+
 ### Retrieval — BM25 ranking (2026-06-15)
 - **DATA-073b** [data/retrieval, medium] `done` (2026-06-15) — Upgraded the UI code-search ranker from
   raw token-overlap to Okapi BM25 (k1=1.5, b=0.75; IDF rare-term weighting + length normalization +
