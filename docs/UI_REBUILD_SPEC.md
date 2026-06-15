@@ -46,16 +46,19 @@ Replace each page's card-grid with a single master→detail screen.
 - Dashboard (overview) — ✅ hero + GPU gauges + metrics chart + health + sysinfo (stays a dashboard,
   not master-detail) — but must become the LIVE TRAINING MONITOR (see R5).
 
-### R3 — Typed argument forms for ALL actions (1:1 with argparse)  ◻ NOT STARTED
-- Backend: an `ActionParam` spec per allow-listed action (the 1:1 CLI↔UI source of truth): for each
-  argparse argument → `{name, flag, label, type: config|checkpoint|string|int|float|bool|choice,
-  default, choices?, required, help}`. Add `params: list[ActionParam]` to `ActionDef` (schemas.py).
-- Backend: populate params for EVERY action by reading each script's argparse (full arg set, not just
-  the defaults currently shown). Keep it 1:1; ideally a test asserts parity.
-- Frontend: an `ActionForm` component that renders the right control per param (config select from
-  /api/configs, checkpoint picker from snapshot, number/text/bool/choice), and builds the args list.
-  No raw space-separated args box anywhere.
-- Acceptance: every action launchable from the UI with all options as controls; no free-text flag string.
+### R3 — Typed argument forms for ALL actions (1:1 with argparse)  ✅ DONE (UI-070)
+- ✅ Backend: `ActionParam` model + `ActionDef.params` in schemas.py; `action_params.py` holds the 1:1
+  argparse spec for all 29 actions (full arg set, not just defaults), validated into `ActionParam` at
+  import (fail-fast). `/api/actions` merges `ACTION_PARAMS` per key. ActionParam in gen_ts_types +
+  types.gen.ts; drift test extended (111 pass).
+- ✅ Frontend: `ActionForm.tsx` renders the right control per param (config select from /api/configs,
+  checkpoint picker from snapshot, int/float number, bool checkbox, choice select; exhaustive
+  never-check). `ActionsPanel` renders it when `params.length > 0`; raw text box only as a fallback for
+  un-spec'd actions. Pure `buildArgs()` with store_true semantics.
+- ✅ Acceptance met: every action launchable with all options as controls; trainer-guard preserved;
+  tsc + vite build green.
+- Follow-up: a parity test asserting every `ACTIONS` key has a non-empty `ACTION_PARAMS` entry (and that
+  each param's `flag` actually appears in the script's argparse) would lock 1:1 permanently — backlog.
 
 ### R4 — One-click FULL TRAINING PIPELINE launcher  ◻ NOT STARTED
 - **"A full pipeline for training, one click with all of the options available for me to choose. EVERYTHING."**
@@ -161,3 +164,8 @@ Replace each page's card-grid with a single master→detail screen.
 - 2026-06-15: Spec created from the user's requirements. App shell (R1) done; 3 master-detail screens
   built (Checkpoints/Data/Eval) pending integration; Dashboard hero + gauges + chart done. Tokenizer
   resolver bug (R6) diagnosed. Everything else above is open and tracked here.
+- 2026-06-15: R3 done (UI-070). Typed argument forms shipped — `ActionParam`/`ActionDef.params` schema,
+  `action_params.py` 1:1 spec for all 29 actions (validated at import), `/api/actions` merge,
+  `ActionForm.tsx` typed controls + `ActionsPanel` rewire. Verified: ruff clean, 111 drift tests,
+  /api/actions ActionDef-validated, tsc + vite build green. Next: R4 one-click pipeline launcher (the
+  `full_pipeline`/`auto_pipeline`/`train` specs are already in action_params.py, ready to wire).
