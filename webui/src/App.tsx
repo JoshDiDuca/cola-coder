@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react';
 import type { TrainingStatus, SystemStatus, Checkpoint, Job } from './types';
+import { SECTION_BY_ID, type SectionId } from './sections';
+import { useHashRoute } from './hooks/useHashRoute';
+import Sidebar from './components/Sidebar';
+import { formatFloat } from './format';
+
 import TrainingPanel from './components/TrainingPanel';
 import SystemPanel from './components/SystemPanel';
 import CheckpointsPanel from './components/CheckpointsPanel';
@@ -57,7 +62,6 @@ import CollectDataPanel from './components/CollectDataPanel';
 import CombineDatasetsPanel from './components/CombineDatasetsPanel';
 import PrepareDataPanel from './components/PrepareDataPanel';
 import ExportModelPanel from './components/ExportModelPanel';
-import CollapsibleSection from './components/CollapsibleSection';
 
 interface Snapshot {
   training: TrainingStatus;
@@ -87,7 +91,6 @@ function useEventStream(): EventStream {
       }
     };
 
-    // EventSource auto-reconnects on drop; surface the gap for the header dot.
     es.onerror = () => setReconnecting(true);
     es.onopen = () => setReconnecting(false);
 
@@ -108,56 +111,55 @@ function useClock(): string {
   return now;
 }
 
-export default function App() {
-  const { snap, reconnecting } = useEventStream();
-  const clock = useClock();
-  const alive = !reconnecting && (snap?.training.alive ?? false);
-
-  return (
-    <>
-      <header className="app-header">
-        <span className={`dot ${alive ? 'live' : 'dead'}`} />
-        <h1>Cola-Coder</h1>
-        <span className="clock">{clock}</span>
-      </header>
-
-      <main className="app-grid">
-        {/* Overview — the always-visible live dashboard. */}
-        <CollapsibleSection title="Overview" storageKey="sec.overview" defaultOpen>
+/** The panels that make up each routed page. Exactly one page renders at a time. */
+function Page({
+  section,
+  snap,
+  alive,
+}: {
+  section: SectionId;
+  snap: Snapshot | null;
+  alive: boolean;
+}) {
+  const checkpoints = snap?.checkpoints ?? [];
+  switch (section) {
+    case 'overview':
+      return (
+        <div className="page-grid">
           <TrainingPanel training={snap?.training ?? null} />
           <SystemPanel system={snap?.system ?? null} />
           <MetricsChartPanel />
           <HealthPanel />
           <SystemInfoPanel />
-        </CollapsibleSection>
-
-        {/* Jobs & actions — run things, watch live logs. */}
-        <CollapsibleSection title="Run & Jobs" storageKey="sec.jobs" defaultOpen>
-          <ActionsPanel
-            onRan={() => { /* jobs arrive via the event stream */ }}
-            trainingAlive={alive}
-          />
+        </div>
+      );
+    case 'run':
+      return (
+        <div className="page-grid">
+          <ActionsPanel onRan={() => { /* jobs arrive via the event stream */ }} trainingAlive={alive} />
           <ActionLauncherPanel trainingAlive={alive} />
           <JobsPanel jobs={snap?.jobs ?? []} />
           <LogsPanel />
-        </CollapsibleSection>
-
-        {/* Checkpoints & models. */}
-        <CollapsibleSection title="Checkpoints & Models" storageKey="sec.checkpoints">
-          <CheckpointsPanel checkpoints={snap?.checkpoints ?? []} />
-          <CheckpointDetailPanel checkpoints={snap?.checkpoints ?? []} />
-          <CheckpointComparePanel checkpoints={snap?.checkpoints ?? []} />
-          <CheckpointHealthPanel checkpoints={snap?.checkpoints ?? []} />
-          <CheckpointAveragePanel checkpoints={snap?.checkpoints ?? []} />
+        </div>
+      );
+    case 'checkpoints':
+      return (
+        <div className="page-grid">
+          <CheckpointsPanel checkpoints={checkpoints} />
+          <CheckpointDetailPanel checkpoints={checkpoints} />
+          <CheckpointComparePanel checkpoints={checkpoints} />
+          <CheckpointHealthPanel checkpoints={checkpoints} />
+          <CheckpointAveragePanel checkpoints={checkpoints} />
           <TrainingManifestPanel />
-          <ModelCardPanel checkpoints={snap?.checkpoints ?? []} />
+          <ModelCardPanel checkpoints={checkpoints} />
           <RouterPanel />
-          <ExportModelPanel checkpoints={snap?.checkpoints ?? []} />
+          <ExportModelPanel checkpoints={checkpoints} />
           <ExportPanel />
-        </CollapsibleSection>
-
-        {/* Data. */}
-        <CollapsibleSection title="Data" storageKey="sec.data">
+        </div>
+      );
+    case 'data':
+      return (
+        <div className="page-grid">
           <CollectDataPanel />
           <PrepareDataPanel />
           <CombineDatasetsPanel />
@@ -170,37 +172,41 @@ export default function App() {
           <FiltersCatalogPanel />
           <ScoringConfigPanel />
           <RepoScoresPanel />
-        </CollapsibleSection>
-
-        {/* Configs & pipeline. */}
-        <CollapsibleSection title="Configs & Pipeline" storageKey="sec.pipeline">
+        </div>
+      );
+    case 'pipeline':
+      return (
+        <div className="page-grid">
           <ConfigsPanel />
           <VramEstimatePanel />
           <LrFinderPanel />
           <ConfigDiffPanel />
           <PipelinePanel />
           <PipelineManagerPanel />
-        </CollapsibleSection>
-
-        {/* Evaluation. */}
-        <CollapsibleSection title="Evaluation" storageKey="sec.eval">
+        </div>
+      );
+    case 'eval':
+      return (
+        <div className="page-grid">
           <EvalsPanel />
           <EvalHistoryPanel />
           <BenchmarkResultsPanel />
           <SafetyEvalPanel />
           <RegressionHistoryPanel />
-        </CollapsibleSection>
-
-        {/* Tokenizer. */}
-        <CollapsibleSection title="Tokenizer" storageKey="sec.tokenizer">
+        </div>
+      );
+    case 'tokenizer':
+      return (
+        <div className="page-grid">
           <TokenizerPanel />
           <TokenizerHealthPanel />
           <TokenizePanel />
           <VocabExplorerPanel />
-        </CollapsibleSection>
-
-        {/* System & tools. */}
-        <CollapsibleSection title="System & Tools" storageKey="sec.tools">
+        </div>
+      );
+    case 'system':
+      return (
+        <div className="page-grid">
           <EnvCheckPanel />
           <ProjectHealthPanel />
           <FeaturesPanel />
@@ -212,8 +218,68 @@ export default function App() {
           <DocsBrowserPanel />
           <ScriptsCatalogPanel />
           <StoragePanel />
-        </CollapsibleSection>
-      </main>
-    </>
+        </div>
+      );
+    default: {
+      const _exhaustive: never = section;
+      return _exhaustive;
+    }
+  }
+}
+
+function TopStatus({ training, connected }: { training: TrainingStatus | null; connected: boolean }) {
+  if (!connected) {
+    return (
+      <span className="status">
+        <span className="dot dead" /> disconnected
+      </span>
+    );
+  }
+  if (!training?.alive) {
+    return (
+      <span className="status">
+        <span className="dot" /> training idle
+      </span>
+    );
+  }
+  return (
+    <span className="status">
+      <span className="dot live" />
+      step {training.step?.toLocaleString() ?? '—'}
+      {training.loss !== null ? <> · loss {formatFloat(training.loss, 3)}</> : null}
+      {training.ppl !== null ? <> · ppl {formatFloat(training.ppl, 1)}</> : null}
+      {training.tok_per_s !== null ? <> · {formatFloat(training.tok_per_s, 0)} tok/s</> : null}
+    </span>
+  );
+}
+
+export default function App() {
+  const { snap, reconnecting } = useEventStream();
+  const clock = useClock();
+  const [active, navigate] = useHashRoute();
+  const connected = !reconnecting && snap !== null;
+  const alive = connected && (snap?.training.alive ?? false);
+  const nav = SECTION_BY_ID[active];
+
+  return (
+    <div className="app">
+      <Sidebar active={active} onNavigate={navigate} training={snap?.training ?? null} connected={connected} />
+
+      <div className="app-main">
+        <header className="topbar">
+          <div className="topbar-title">
+            <h1>{nav.label}</h1>
+            <span className="topbar-sub">{nav.subtitle}</span>
+          </div>
+          <div className="spacer" />
+          <TopStatus training={snap?.training ?? null} connected={connected} />
+          <span className="clock">{clock}</span>
+        </header>
+
+        <main className="page">
+          <Page section={active} snap={snap} alive={alive} />
+        </main>
+      </div>
+    </div>
   );
 }
