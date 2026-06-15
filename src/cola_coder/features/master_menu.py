@@ -746,41 +746,34 @@ class MasterMenu:
 
     def _vector_store_stats(self) -> None:
         """Show vector store statistics."""
-        _print_section_header("Vector Store Stats", "Index size, documents, embedding model")
+        _print_section_header("Vector Store Stats", "Index items, embedding dim, sources")
 
-        index_dir = self.project_root / "data" / "vector_index"
+        # VectorStore persists to a base path (no extension): save() writes
+        # {base}.json (ids/texts/metadata/embed_dim) and {base}.npz (embeddings).
+        index_base = self.project_root / "data" / "vector_index"
+        json_path = index_base.with_suffix(".json")
 
-        if not index_dir.exists():
-            cli.warn("No vector index found.")
+        if not json_path.exists():
+            cli.warn("No vector index built yet.")
             cli.dim("Run 'Index Repository' to build one.")
             self._pause()
             return
 
         try:
             from cola_coder.retrieval.vector_store import VectorStore
-            store = VectorStore(str(index_dir))
+
+            store = VectorStore()
+            store.load(str(index_base))
             stats = store.stats()
             cli.kv_table({
-                "Documents":        str(stats.get("document_count", "?")),
-                "Embedding dim":    str(stats.get("embedding_dim", "?")),
-                "Embedding model":  stats.get("embedding_model", "?"),
-                "Index size":       stats.get("size_mb", "?"),
-                "Last updated":     stats.get("last_updated", "?"),
+                "Total items":     str(stats["total_items"]),
+                "Embedding dim":   str(stats["embed_dim"]),
+                "Memory":          f"{stats['memory_mb']:.3f} MB",
+                "Unique sources":  str(stats["unique_sources"]),
+                "Index base":      str(index_base),
             }, title="Vector Store Statistics")
-        except ImportError:
-            # Fallback: just show directory info
-            size_mb = sum(
-                f.stat().st_size for f in index_dir.rglob("*") if f.is_file()
-            ) / 1e6
-            files = list(index_dir.iterdir())
-            cli.kv_table({
-                "Index directory": str(index_dir),
-                "Files":           str(len(files)),
-                "Total size":      f"{size_mb:.2f} MB",
-            }, title="Vector Store (filesystem view)")
-            cli.dim("Install cola_coder.retrieval for detailed stats.")
-        except Exception as e:
-            cli.error(f"Failed to read stats: {e}")
+        except (OSError, KeyError, ValueError) as e:
+            cli.error(f"Failed to read vector store: {e}")
 
         self._pause()
 

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from cola_coder.cli import cli
+from cola_coder.memory.manager import MemoryManager, _iter_sections
 from cola_coder.features.master_menu import (
     _FEATURE_CATEGORIES,
     _count_enabled,
@@ -559,25 +560,32 @@ class ToolsMenu:
 
     # ── New tool methods ───────────────────────────────────────────────────
 
+    def _memory_manager(self) -> MemoryManager:
+        """Build a MemoryManager rooted at the current project.
+
+        The real store lives in ``<project_root>/.cola/memory/`` as themed
+        markdown files (project.md, patterns.md, errors.md, ...). The manager
+        takes the project root — it derives the .cola/memory path itself.
+        """
+        return MemoryManager(self._master.project_root)
+
     def _project_memory_menu(self) -> None:
-        """Project memory store — init, view, edit, compact, stats."""
+        """Project memory store — init, view, compact, stats."""
         while True:
             _print_section_header(
                 "Project Memory",
-                "Long-term memory store for codebase context",
+                "Long-term memory store for codebase context (.cola/memory/)",
             )
 
             options = [
                 {"label": "Initialize Memory Store",
-                 "detail": "Create or reset the project memory database"},
+                 "detail": "Create .cola/memory/ markdown files for this project"},
                 {"label": "View Memory",
-                 "detail": "Browse stored memories by type and recency"},
-                {"label": "Edit Memory Entry",
-                 "detail": "Update or delete a specific memory entry"},
+                 "detail": "Browse recent entries across all memory categories"},
                 {"label": "Compact Memory",
-                 "detail": "Summarize and deduplicate old memories to save space"},
+                 "detail": "Deduplicate entries across memory files"},
                 {"label": "Memory Stats",
-                 "detail": "Show entry count, size, oldest/newest entries"},
+                 "detail": "Per-category entry counts, total entries, store size"},
             ]
 
             choice = cli.choose("Memory operation:", options, allow_cancel=True)
@@ -589,199 +597,122 @@ class ToolsMenu:
             elif choice == 1:
                 self._memory_view()
             elif choice == 2:
-                self._memory_edit()
-            elif choice == 3:
                 self._memory_compact()
-            elif choice == 4:
+            elif choice == 3:
                 self._memory_stats()
 
     def _memory_init(self) -> None:
-        """Initialize or reset the project memory store."""
-        _print_section_header("Initialize Memory Store", "Create project memory database")
+        """Initialize the project memory store."""
+        _print_section_header("Initialize Memory Store", "Create .cola/memory/ markdown files")
 
-        memory_path = self._master.project_root / "data" / "memory" / "project.db"
-        if memory_path.exists():
-            if not cli.confirm(
-                f"Memory store already exists at {memory_path}. Reset it?", default=False
-            ):
+        manager = self._memory_manager()
+        if manager.is_initialized:
+            cli.info("Memory store", str(manager.memory_path))
+            cli.dim("Memory store already initialized. Re-initializing adds any missing files.")
+            if not cli.confirm("Re-initialize the memory store?", default=False):
+                self._master._pause()
                 return
 
         try:
-            from cola_coder.memory.manager import MemoryManager
-            manager = MemoryManager(str(memory_path.parent))
-            manager.initialize()
-            cli.success(f"Memory store initialized at {memory_path}")
-        except ImportError:
-            cli.warn("cola_coder.memory not available — creating directory structure.")
-            memory_path.parent.mkdir(parents=True, exist_ok=True)
-            cli.info("Memory dir", str(memory_path.parent))
-            cli.dim("Install memory dependencies or implement cola_coder.memory module.")
-        except Exception as e:
+            path = manager.init_project()
+            cli.success(f"Memory store initialized at {path}")
+        except OSError as e:
             cli.error(f"Failed to initialize memory: {e}")
 
         self._master._pause()
 
     def _memory_view(self) -> None:
-        """Browse stored memory entries."""
-        _print_section_header("View Memory", "Browse stored project memories")
+        """Browse recent memory entries across all categories."""
+        _print_section_header("View Memory", "Recent entries across memory categories")
 
-        try:
-            from cola_coder.memory.manager import MemoryManager
-            memory_path = self._master.project_root / "data" / "memory"
-            manager = MemoryManager(str(memory_path))
-            entries = manager.list_recent(limit=20)
-
-            if not entries:
-                cli.dim("No memory entries found. Run 'Initialize Memory Store' first.")
-                self._master._pause()
-                return
-
-            cli.info("Entries", str(len(entries)))
-            for i, entry in enumerate(entries[:10], 1):
-                cli.rule(f"Entry {i}")
-                cli.info("Type",    entry.get("type", "unknown"))
-                cli.info("Created", entry.get("created_at", "?"))
-                content = str(entry.get("content", ""))
-                cli.print(f"  {content[:200]}{'...' if len(content) > 200 else ''}")
-                cli.print("")
-        except ImportError:
-            cli.warn("cola_coder.memory not available.")
-            cli.dim("Implement src/cola_coder/memory/manager.py to enable this feature.")
-        except Exception as e:
-            cli.error(f"Failed to read memory: {e}")
-
-        self._master._pause()
-
-    def _memory_edit(self) -> None:
-        """Edit or delete a memory entry."""
-        _print_section_header("Edit Memory Entry", "Update or delete a stored memory")
-
-        try:
-            entry_id_str = input("Memory entry ID to edit (or 'list' to show IDs): ").strip()
-        except (EOFError, KeyboardInterrupt):
-            cli.warn("Cancelled.")
-            return
-
-        if entry_id_str.lower() == "list":
-            self._memory_view()
-            return
-
-        if not entry_id_str:
-            cli.warn("No entry ID provided.")
+        manager = self._memory_manager()
+        if not manager.is_initialized:
+            cli.warn("No memory store found.")
+            cli.dim("Run 'Initialize Memory Store' first.")
             self._master._pause()
             return
 
-        edit_options = [
-            {"label": "Delete entry",   "detail": "Permanently remove this memory"},
-            {"label": "Edit content",   "detail": "Update the stored text"},
-            {"label": "Change type",    "detail": "Re-categorise the memory"},
-        ]
-        edit_choice = cli.choose("Edit action:", edit_options, allow_cancel=True)
-        if edit_choice is None:
-            return
+        shown = 0
+        for key, content in manager.export().items():
+            sections = list(_iter_sections(content))
+            if not sections:
+                continue
+            cli.rule(key)
+            for title, body in sections[-5:]:
+                cli.info("Entry", title)
+                if body:
+                    cli.print(f"  {body[:200]}{'...' if len(body) > 200 else ''}")
+                cli.print("")
+                shown += 1
 
-        try:
-            from cola_coder.memory.updater import MemoryUpdater
-            memory_path = self._master.project_root / "data" / "memory"
-            updater = MemoryUpdater(str(memory_path))
-
-            if edit_choice == 0:
-                if cli.confirm(f"Delete entry '{entry_id_str}'?", default=False):
-                    updater.delete(entry_id_str)
-                    cli.success("Entry deleted.")
-            elif edit_choice == 1:
-                try:
-                    new_content = input("New content: ").strip()
-                except (EOFError, KeyboardInterrupt):
-                    cli.warn("Cancelled.")
-                    return
-                updater.update_content(entry_id_str, new_content)
-                cli.success("Content updated.")
-            elif edit_choice == 2:
-                try:
-                    new_type = input("New type (fact/code/decision/note): ").strip()
-                except (EOFError, KeyboardInterrupt):
-                    cli.warn("Cancelled.")
-                    return
-                updater.update_type(entry_id_str, new_type)
-                cli.success("Type updated.")
-        except ImportError:
-            cli.warn("cola_coder.memory not available.")
-        except Exception as e:
-            cli.error(f"Failed to edit memory: {e}")
+        if shown == 0:
+            cli.dim("Memory store is initialized but has no entries yet.")
 
         self._master._pause()
 
     def _memory_compact(self) -> None:
-        """Compact and deduplicate memory entries."""
-        _print_section_header("Compact Memory", "Summarise and deduplicate old memories")
+        """Compact memory files (remove duplicate entries)."""
+        _print_section_header("Compact Memory", "Deduplicate entries across memory files")
 
-        cli.print(
-            "  Compaction:\n"
-            "    1. Groups similar memories by embedding similarity\n"
-            "    2. Summarises clusters into single entries\n"
-            "    3. Archives raw entries older than threshold\n"
-        )
-
-        threshold_options = [
-            {"label": "7 days",  "detail": "Compact entries older than one week"},
-            {"label": "30 days", "detail": "Compact entries older than one month"},
-            {"label": "All",     "detail": "Compact all non-pinned entries"},
-        ]
-        threshold_choice = cli.choose("Compaction threshold:", threshold_options, allow_cancel=True)
-        if threshold_choice is None:
+        manager = self._memory_manager()
+        if not manager.is_initialized:
+            cli.warn("No memory store found.")
+            cli.dim("Run 'Initialize Memory Store' first.")
+            self._master._pause()
             return
 
-        thresholds = [7, 30, None]
-        threshold_days = thresholds[threshold_choice]
-
-        if not cli.confirm("Run memory compaction?"):
+        cli.dim("Compaction removes duplicate entries (ignoring timestamps) per category.")
+        if not cli.confirm("Run memory compaction?", default=False):
             return
 
         try:
-            from cola_coder.memory.manager import MemoryManager
-            memory_path = self._master.project_root / "data" / "memory"
-            manager = MemoryManager(str(memory_path))
-            result = manager.compact(older_than_days=threshold_days)
-            cli.success(f"Compacted: {result.get('merged', 0)} entries merged, "
-                        f"{result.get('archived', 0)} archived.")
-        except ImportError:
-            cli.warn("cola_coder.memory not available.")
-        except Exception as e:
+            removed = manager.compact()
+        except OSError as e:
             cli.error(f"Compaction failed: {e}")
+            self._master._pause()
+            return
+
+        total_removed = sum(removed.values())
+        if total_removed == 0:
+            cli.info("Result", "No duplicate entries found.")
+        else:
+            cli.success(f"Compacted: {total_removed} duplicate entries removed.")
+            cli.kv_table(
+                {key: str(count) for key, count in removed.items() if count},
+                title="Removed per category",
+            )
 
         self._master._pause()
 
     def _memory_stats(self) -> None:
         """Show memory store statistics."""
-        _print_section_header("Memory Stats", "Project memory database statistics")
+        _print_section_header("Memory Stats", "Per-category counts and store size")
 
-        try:
-            from cola_coder.memory.manager import MemoryManager
-            memory_path = self._master.project_root / "data" / "memory"
-            manager = MemoryManager(str(memory_path))
-            stats = manager.stats()
-            cli.kv_table({
-                "Total entries":   str(stats.get("total", 0)),
-                "Pinned":          str(stats.get("pinned", 0)),
-                "Oldest entry":    stats.get("oldest", "N/A"),
-                "Newest entry":    stats.get("newest", "N/A"),
-                "Database size":   stats.get("size_mb", "N/A"),
-                "Unique types":    ", ".join(stats.get("types", [])) or "none",
-            }, title="Memory Statistics")
-        except ImportError:
-            cli.warn("cola_coder.memory not available.")
-            memory_path = self._master.project_root / "data" / "memory"
-            if memory_path.exists():
-                size_mb = sum(
-                    f.stat().st_size for f in memory_path.rglob("*") if f.is_file()
-                ) / 1e6
-                cli.info("Memory dir", str(memory_path))
-                cli.info("Dir size", f"{size_mb:.2f} MB")
-            else:
-                cli.dim("Memory store not initialised.")
-        except Exception as e:
-            cli.error(f"Failed to read stats: {e}")
+        manager = self._memory_manager()
+        if not manager.is_initialized:
+            cli.warn("No memory store found.")
+            cli.dim("Run 'Initialize Memory Store' first.")
+            self._master._pause()
+            return
+
+        stats = manager.stats()
+        total_chunks = sum(s["chunks"] for s in stats.values())
+        total_chars = sum(s["chars"] for s in stats.values())
+
+        rows: dict[str, str] = {}
+        for key, file_stats in stats.items():
+            rows[key] = (
+                f"{file_stats['chunks']} entries, "
+                f"{file_stats['chars']:,} chars "
+                f"(modified {file_stats['last_modified']})"
+            )
+        cli.kv_table(rows, title="Memory by category")
+
+        cli.kv_table({
+            "Total entries": str(total_chunks),
+            "Total size":    f"{total_chars / 1e6:.3f} MB",
+            "Store path":    str(manager.memory_path),
+        }, title="Memory Statistics")
 
         self._master._pause()
 
