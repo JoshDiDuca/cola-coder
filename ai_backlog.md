@@ -328,6 +328,13 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   DATA filter/down-weighter so the model learns from secure code (attacks the "train on secure corpora" root cause);
   it's already a registered data scorer (configs/scoring.yaml, enabled:false) — wire it into the prepare/score path
   as an opt-in CWE-vulnerability filter + measure the generated-CWE rate (SEC-027 probe) before/after to close the loop.
+- **UI-065** [ui, high] `done` (2026-06-15) — Panel redesign batch 2 (3 parallel agents, disjoint files): (a)
+  SystemPanel → GPU gauges (util/mem/power level-colored meters) + HealthPanel → scannable check-list w/ score
+  badge (Dashboard); (b) JobsPanel → jobs list w/ status chips + relative time + preserved SSE log-follow/stop +
+  LogsPanel → two-pane log picker/viewer (Run & Jobs); (c) CheckpointsPanel → grouped-by-model list + Compare →
+  readable side-by-side A/B + delta strip (preserves the verified getCheckpointCompare). All reuse design tokens;
+  +~40 namespaced CSS classes merged centrally. tsc + vite green (CSS 16.6 KB). NEXT (UI-066+): remaining crude
+  panels (Datasets/DataStats/Configs/Pipeline tables, Tokenizer, eval tables) → consistent component styling.
 - **UI-063** [ui, high] `done` (2026-06-15) — App SHELL redesign: replaced the single book-length scroll of 62
   stacked panels with a real application — fixed Sidebar (grouped nav Monitor/Build/Inspect + line-icons + live
   training pill), hash router (8 bookmarkable PAGES, one shown at a time), topbar with section title/subtitle +

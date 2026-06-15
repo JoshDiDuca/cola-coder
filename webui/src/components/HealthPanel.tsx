@@ -3,8 +3,10 @@ import type { HealthSummary, HealthCheck } from '../types';
 import { isApiError } from '../types';
 import { getHealth } from '../api';
 
-// Score → status tier reusing the existing tag colour classes.
-function scoreTag(score: number): 'done' | 'running' | 'failed' {
+type ScoreTier = 'done' | 'running' | 'failed';
+
+/** Score → status tier reusing the existing tag colour classes. */
+function scoreTag(score: number): ScoreTier {
   if (score >= 80) return 'done';
   if (score >= 50) return 'running';
   return 'failed';
@@ -12,11 +14,10 @@ function scoreTag(score: number): 'done' | 'running' | 'failed' {
 
 function CheckRow({ check }: { check: HealthCheck }) {
   return (
-    <div className="row">
-      <span className="mono">
-        <span className={`dot ${check.ok ? 'live' : 'dead'}`} /> {check.name}
-      </span>
-      <span className="v muted">{check.detail}</span>
+    <div className={`check-row ${check.ok ? 'check-ok' : 'check-bad'}`}>
+      <span className={`dot ${check.ok ? 'live' : 'dead'}`} aria-hidden="true" />
+      <span className="check-name mono">{check.name}</span>
+      <span className="check-detail muted">{check.detail}</span>
     </div>
   );
 }
@@ -45,8 +46,11 @@ export default function HealthPanel() {
     void load();
   }, [load]);
 
+  const passed = view?.checks.filter((c) => c.ok).length ?? 0;
+  const total = view?.checks.length ?? 0;
+
   return (
-    <div className="card">
+    <div className="card health-card">
       <div className="row">
         <div className="card-title">Health</div>
         <button className="btn" onClick={() => void load()}>
@@ -58,15 +62,26 @@ export default function HealthPanel() {
 
       {view && (
         <>
-          <div className="row">
-            <span className={`stat-big tag ${scoreTag(view.score)}`}>{view.score}</span>
-            <span className="stat-sub">{view.summary}</span>
+          <div className="health-head">
+            <span className={`health-score stat-big mono tag ${scoreTag(view.score)}`}>
+              {view.score}
+            </span>
+            <div className="health-summary">
+              <div className="health-summary-text">{view.summary}</div>
+              <div className="health-count muted mono">
+                {passed} / {total} checks passing
+              </div>
+            </div>
           </div>
 
           {view.checks.length === 0 ? (
             <div className="muted">no checks</div>
           ) : (
-            view.checks.map((check) => <CheckRow key={check.name} check={check} />)
+            <div className="check-list">
+              {view.checks.map((check) => (
+                <CheckRow key={check.name} check={check} />
+              ))}
+            </div>
           )}
         </>
       )}

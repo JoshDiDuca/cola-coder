@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Job, JobLogChunk } from '../types';
 import { jobLogStreamUrl, stopJob } from '../api';
+import { formatRelativeTime } from '../format';
 
 const MAX_LOG_LINES = 5000;
 
@@ -17,7 +18,79 @@ function clampLines(text: string, max: number): string {
   return lines.slice(lines.length - max).join('\n');
 }
 
-export default function JobsPanel({ jobs }: JobsPanelProps) {
+// Human label for the stream indicator. Exhaustive over StreamState.
+function streamLabel(state: StreamState): string {
+  switch (state) {
+    case 'streaming':
+      return 'live';
+    case 'ended':
+      return 'stream ended';
+    case 'error':
+      return 'reconnecting…';
+    default: {
+      const _exhaustive: never = state;
+      return _exhaustive;
+    }
+  }
+}
+
+interface JobRowProps {
+  job: Job;
+  selected: boolean;
+  onSelect: (id: string) => void;
+  onStop: (id: string) => void;
+}
+
+function JobRow({ job, selected, onSelect, onStop }: JobRowProps): JSX.Element {
+  const cmd = job.cmd.join(' ');
+  const isRunning = job.status === 'running';
+
+  return (
+    <div className={`job-row${selected ? ' job-row-active' : ''}`}>
+      <div className="job-row-main">
+        <span className={`tag ${job.status}`}>{job.status}</span>
+        <span className="job-name">{job.name}</span>
+        <span className="job-meta muted mono">
+          <span title={new Date(job.started * 1000).toLocaleString()}>
+            {formatRelativeTime(job.started)}
+          </span>
+          <span className="job-sep">·</span>
+          <span>pid {job.pid}</span>
+          {job.returncode !== null && (
+            <>
+              <span className="job-sep">·</span>
+              <span className={job.returncode === 0 ? '' : 'err'}>
+                exit {job.returncode}
+              </span>
+            </>
+          )}
+        </span>
+      </div>
+
+      <div className="job-cmd muted mono" title={cmd}>
+        {cmd}
+      </div>
+
+      <div className="job-row-actions">
+        <button
+          type="button"
+          className="btn"
+          onClick={() => onSelect(job.id)}
+          aria-pressed={selected}
+        >
+          {selected ? '▾ following' : '▸ follow'}
+        </button>
+        {isRunning && (
+          <button type="button" className="btn btn-danger" onClick={() => onStop(job.id)}>
+            stop
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function JobsPanel({ jobs }: JobsPanelProps): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [log, setLog] = useState<string>('');
@@ -27,6 +100,17 @@ export default function JobsPanel({ jobs }: JobsPanelProps) {
   // onerror does not flip us into a "reconnecting" state.
   const doneRef = useRef<boolean>(false);
 
+  // Newest first — jobs are ordered oldest→newest by start time upstream.
+  const orderedJobs = useMemo(
+    () => [...jobs].sort((a, b) => b.started - a.started),
+    [jobs],
+  );
+
+  const selectedJob = useMemo(
+    () => orderedJobs.find((j) => j.id === selectedId) ?? null,
+    [orderedJobs, selectedId],
+  );
+
   const onStop = useCallback(async (id: string) => {
     try {
       // The event stream reflects the new status within ~1s — no manual refresh.
@@ -34,6 +118,10 @@ export default function JobsPanel({ jobs }: JobsPanelProps) {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
+  }, []);
+
+  const onSelect = useCallback((id: string) => {
+    setSelectedId((prev) => (prev === id ? null : id));
   }, []);
 
   // Own the EventSource lifecycle: create when a job is selected, close on
@@ -88,50 +176,34 @@ export default function JobsPanel({ jobs }: JobsPanelProps) {
 
       {error && <div className="err">{error}</div>}
 
-      {jobs.length === 0 ? (
+      {orderedJobs.length === 0 ? (
         <div className="muted">no jobs yet</div>
       ) : (
-        <table className="tbl">
-          <thead>
-            <tr>
-              <th>name</th>
-              <th>status</th>
-              <th>pid</th>
-              <th className="right">actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {jobs.map((job) => (
-              <tr key={job.id}>
-                <td>{job.name}</td>
-                <td>
-                  <span className={`tag ${job.status}`}>{job.status}</span>
-                </td>
-                <td className="mono">{job.pid}</td>
-                <td className="right">
-                  <button className="btn" onClick={() => setSelectedId(job.id)}>
-                    follow
-                  </button>
-                  {job.status === 'running' && (
-                    <button className="btn btn-danger" onClick={() => void onStop(job.id)}>
-                      stop
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="job-list">
+          {orderedJobs.map((job) => (
+            <JobRow
+              key={job.id}
+              job={job}
+              selected={job.id === selectedId}
+              onSelect={onSelect}
+              onStop={(id) => void onStop(id)}
+            />
+          ))}
+        </div>
       )}
 
-      {selectedId !== null && (
-        <>
-          {streamState === 'ended' && <div className="muted">stream ended</div>}
-          {streamState === 'error' && <div className="muted">reconnecting…</div>}
+      {selectedJob !== null && (
+        <div className="job-log">
+          <div className="job-log-head">
+            <span className="card-title job-log-title">{selectedJob.name}</span>
+            <span className={`tag ${streamState === 'error' ? 'failed' : streamState === 'ended' ? 'done' : 'running'}`}>
+              {streamLabel(streamState)}
+            </span>
+          </div>
           <div className="pre scroll" ref={logRef}>
             {log || <span className="muted">no log output</span>}
           </div>
-        </>
+        </div>
       )}
     </div>
   );

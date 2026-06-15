@@ -863,3 +863,560 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ============================================================
+   GPU / SYSTEM + HEALTH (SystemPanel / HealthPanel)
+   ============================================================ */
+.gpu-card .gpu-name {
+  font-size: 13px;
+  color: var(--text);
+  margin: 4px 0 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  word-break: break-word;
+}
+
+.gpu-empty {
+  padding: 18px 0;
+  text-align: center;
+  font-size: 13px;
+}
+
+.gpu-meters {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.meter {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.meter-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.meter-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.meter-value {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.meter-bar {
+  height: 8px;
+}
+
+.meter-fill {
+  background: var(--good);
+}
+
+.meter-fill-good {
+  background: var(--good);
+}
+
+.meter-fill-warn {
+  background: var(--warn);
+}
+
+.meter-fill-bad {
+  background: var(--bad);
+}
+
+.health-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 10px 0 16px;
+}
+
+.health-score {
+  font-size: 22px;
+  padding: 6px 14px;
+  line-height: 1;
+}
+
+.health-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.health-summary-text {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.health-count {
+  font-size: 11px;
+}
+
+.check-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  transition: background 0.15s ease;
+}
+
+.check-row:hover {
+  background: var(--panel2);
+}
+
+.check-name {
+  font-size: 12px;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.check-detail {
+  font-size: 12px;
+  margin-left: auto;
+  text-align: right;
+  word-break: break-word;
+}
+
+/* ============================================================
+   JOBS LIST + LOG VIEWER (JobsPanel / LogsPanel)
+   ============================================================ */
+.job-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.job-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "main actions"
+    "cmd  actions";
+  gap: 4px 12px;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.job-row:hover {
+  border-color: var(--accent);
+}
+
+.job-row-active {
+  border-color: var(--accent);
+  background: var(--panel2);
+}
+
+.job-row-main {
+  grid-area: main;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.job-name {
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.job-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.job-sep {
+  opacity: 0.5;
+}
+
+.job-cmd {
+  grid-area: cmd;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.job-row-actions {
+  grid-area: actions;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.job-log {
+  margin-top: 14px;
+}
+
+.job-log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.job-log-title {
+  margin: 0;
+}
+
+.log-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) 1fr;
+  gap: 14px;
+  margin-top: 4px;
+}
+
+.log-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.log-pick-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: 8px 10px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.log-pick-item:hover {
+  border-color: var(--accent);
+}
+
+.log-pick-active {
+  border-color: var(--accent);
+  background: var(--panel2);
+}
+
+.log-pick-name {
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.log-pick-meta {
+  font-size: 11px;
+}
+
+.log-view {
+  min-width: 0;
+}
+
+.log-view-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.log-view-title {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.log-view-lines {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.log-view-empty {
+  padding: 24px 0;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .log-layout {
+    grid-template-columns: 1fr;
+  }
+  .log-pick {
+    max-height: 160px;
+  }
+}
+
+/* ============================================================
+   CHECKPOINTS LIST + COMPARE (CheckpointsPanel / CheckpointComparePanel)
+   ============================================================ */
+.ckpt-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ckpt-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ckpt-group-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.ckpt-group-count {
+  font-size: 11px;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.ckpt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ckpt-row {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 12px;
+}
+
+.ckpt-row:hover {
+  border-color: #3a4250;
+}
+
+.ckpt-row-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ckpt-step {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.ckpt-step-num {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ckpt-step-label {
+  font-size: 11px;
+}
+
+.ckpt-meta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 12px;
+}
+
+.ckpt-saved {
+  font-size: 12px;
+}
+
+.ckpt-path {
+  margin-top: 5px;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmp-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.cmp-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 200px;
+}
+
+.cmp-select .select {
+  flex: 1;
+  min-width: 0;
+}
+
+.cmp-select-tag {
+  flex-shrink: 0;
+}
+
+.cmp-result {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cmp-grid {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.8fr) 1fr 1fr;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.cmp-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 12px;
+  background: var(--panel2);
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+
+.cmp-head-title {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.cmp-head-path {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmp-row {
+  display: contents;
+}
+
+.cmp-row > .cmp-metric,
+.cmp-row > .cmp-cell {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+}
+
+.cmp-grid .cmp-row:last-child > * {
+  border-bottom: none;
+}
+
+.cmp-metric {
+  font-size: 12px;
+}
+
+.cmp-cell {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.cmp-deltas {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cmp-delta {
+  flex: 1;
+  min-width: 110px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cmp-delta-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.cmp-delta-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.cmp-delta-value.tone-up {
+  color: var(--good);
+}
+
+.cmp-delta-value.tone-down {
+  color: var(--bad);
+}
+
+.cmp-delta-value.tone-flat {
+  color: var(--muted);
+}
+
+.cmp-tagrows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cmp-tagrow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cmp-tagrow > .cmp-metric {
+  min-width: 130px;
+  padding-top: 3px;
+}
+
+.cmp-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: 1;
+}
