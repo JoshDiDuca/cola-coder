@@ -3719,3 +3719,32 @@ body {
   text-align: center;
   font-size: 13px;
 }
+
+/* ---------- Streaming chat/FIM additions (UI-081) ---------- */
+.chat-msg-streaming {
+  opacity: 0.98;
+}
+.chat-msg-stream {
+  margin-top: 0.25rem;
+}
+.fim-stop {
+  margin-left: 0.5rem;
+}
+.fim-streaming-tag {
+  font-style: italic;
+  opacity: 0.7;
+}
+.fim-caret {
+  display: inline-block;
+  width: 0.5ch;
+  height: 1em;
+  vertical-align: text-bottom;
+  background: currentColor;
+  opacity: 0.7;
+  animation: fim-caret-blink 1s steps(1) infinite;
+}
+@keyframes fim-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}

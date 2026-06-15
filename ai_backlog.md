@@ -18,6 +18,15 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   Pipeline/Manager). One coherent panel per section, no grid. Built by 3 parallel agents (disjoint new
   files) wrapping the existing panels unchanged; App.tsx now imports 3 panels instead of 19. tsc + build green.
 
+### UI — streaming chat + FIM (2026-06-15)
+- **UI-081** [ui, high] `done` (2026-06-15) — Extended token-by-token streaming to Chat + FIM (R10):
+  `POST /api/chat/stream` + `/api/fim/stream` (shared `_stream_response` helper extracted from
+  generate/stream; same gated load/free + 409). Generalized `useStreamingGeneration` to a
+  transport-agnostic `StreamOpener` (so generate/chat/fim share one hook); api.ts `openChatStream`/
+  `openFimStream`. ChatScreen streams the reply into the transcript bubble with race-safe
+  commit-once-on-done; FimScreen streams the infill + live stitched preview. tsc + build green (93
+  modules), 189 UI tests, all 4 stream gates → 409 while training live.
+
 ### UI — streaming generation (2026-06-15)
 - **UI-080** [ui, high] `done` (2026-06-15) — Token-by-token STREAMING for the Generate playground (R10):
   `POST /api/generate/stream` (StreamingResponse of SSE `GenStreamChunk {delta,done,error}` frames via

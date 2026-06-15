@@ -157,6 +157,16 @@ export function openGenerateStream(req: InferenceRequest, signal: AbortSignal): 
   return fetch('/api/generate/stream', { ...postJson(req), signal });
 }
 
+// Streaming variants of chat + FIM (same SSE GenStreamChunk protocol + 409 gating
+// as openGenerateStream). The caller reads response.body; `signal` aborts.
+export function openChatStream(req: ChatRequest, signal: AbortSignal): Promise<Response> {
+  return fetch('/api/chat/stream', { ...postJson(req), signal });
+}
+
+export function openFimStream(req: FimRequest, signal: AbortSignal): Promise<Response> {
+  return fetch('/api/fim/stream', { ...postJson(req), signal });
+}
+
 // Fill-in-the-middle completion. Gated like /api/generate; 400 if the
 // tokenizer lacks <|fim_*|> tokens.
 export function fimGenerate(req: FimRequest): Promise<InferenceResult | ApiError> {

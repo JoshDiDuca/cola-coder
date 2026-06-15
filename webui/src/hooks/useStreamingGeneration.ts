@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { InferenceRequest, GenStreamChunk } from '../types';
-import { openGenerateStream } from '../api';
+import type { GenStreamChunk } from '../types';
 
 /**
- * Streams a code generation token-by-token from `/api/generate/stream` (SSE) and
- * exposes the accumulating text + status + a stop() to abort. Powers a live
- * "watch it type" inference UX.
+ * Transport-agnostic SSE streaming hook: given a `StreamOpener` (a thunk that opens
+ * a `text/event-stream` Response for an abort signal), accumulates the streamed text
+ * + status and exposes a stop() to abort. Powers the "watch it type" UX for
+ * generate / chat / FIM — each passes its own opener (openGenerateStream /
+ * openChatStream / openFimStream from api.ts).
  *
  * Wire protocol: the response body is a stream of SSE frames, each `data: {json}\n\n`
  * where the JSON is a `GenStreamChunk` ({ delta, done, error }). Deltas are appended
@@ -13,6 +14,9 @@ import { openGenerateStream } from '../api';
  * an `error` surfaces it. While a training run is live the endpoint refuses with a
  * non-OK status (409) and a plain JSON `{error}` body instead of an SSE stream.
  */
+
+/** Opens an SSE Response for the given abort signal (e.g. `(s) => openChatStream(req, s)`). */
+export type StreamOpener = (signal: AbortSignal) => Promise<Response>;
 
 const SSE_FRAME_SEPARATOR = '\n\n';
 const SSE_DATA_PREFIX = 'data: ';
@@ -34,8 +38,8 @@ interface StreamErrorBody {
 
 export interface UseStreamingGeneration {
   state: StreamState;
-  /** Resets text/error/done and begins streaming the given request. */
-  start: (req: InferenceRequest) => void;
+  /** Resets text/error/done and begins streaming from the given opener. */
+  start: (opener: StreamOpener) => void;
   /** Aborts the in-flight stream (no error surfaced — user-initiated). */
   stop: () => void;
   /** Clears text/error/done back to idle. */
@@ -88,7 +92,7 @@ export function useStreamingGeneration(): UseStreamingGeneration {
     setState(IDLE_STATE);
   }, []);
 
-  const start = useCallback((req: InferenceRequest): void => {
+  const start = useCallback((opener: StreamOpener): void => {
     // Abort any prior in-flight stream before starting a fresh one.
     const previous = controllerRef.current;
     if (previous !== null) {
@@ -101,7 +105,7 @@ export function useStreamingGeneration(): UseStreamingGeneration {
     const run = async (): Promise<void> => {
       let res: Response;
       try {
-        res = await openGenerateStream(req, controller.signal);
+        res = await opener(controller.signal);
       } catch (err: unknown) {
         if (isAbortError(err)) {
           return;

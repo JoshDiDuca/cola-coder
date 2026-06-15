@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ConfigFile, InferenceRequest } from '../../types';
-import { getConfigs } from '../../api';
+import { getConfigs, openGenerateStream } from '../../api';
 import { useStreamingGeneration } from '../../hooks/useStreamingGeneration';
 import StreamingConsole from '../StreamingConsole';
 
@@ -122,7 +122,7 @@ export default function InferenceScreen({
       top_p: sampling.topP,
       top_k: sampling.topK,
     };
-    start(req); // streams token-by-token; the hook owns busy/error/done state
+    start((signal) => openGenerateStream(req, signal)); // streams token-by-token
   }, [
     trainingAlive,
     promptMissing,

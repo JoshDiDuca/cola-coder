@@ -479,18 +479,15 @@ def create_app(
             top_p=req.top_p, top_k=req.top_k,
         )
 
-    @app.post("/api/generate/stream", response_model=None)
-    def generate_stream_endpoint(req: sch.InferenceRequest) -> StreamingResponse | JSONResponse:
-        """Stream a generation token-by-token as SSE ``GenStreamChunk`` frames.
+    def _stream_response(
+        prompt: str, checkpoint: str, config: str,
+        *, max_tokens: int, temperature: float, top_p: float, top_k: int,
+    ) -> StreamingResponse:
+        """Shared SSE streamer for generate/chat/fim. Load → stream deltas → free.
 
-        Same gated, load-per-request, free-after model lifecycle as /api/generate, but
-        yields incremental text via CodeGenerator.generate_stream so the UI shows tokens
-        as they arrive. Refused (409 JSON) while training is live.
+        Yields ``GenStreamChunk`` frames; load/generate errors are surfaced as a final
+        frame with ``error`` set. Callers MUST check ``_training_busy()`` first.
         """
-        busy = _training_busy()
-        if busy is not None:
-            return busy
-
         def _frame(delta: str, done: bool, error: str | None = None) -> str:
             return f"data: {sch.GenStreamChunk(delta=delta, done=done, error=error).model_dump_json()}\n\n"
 
@@ -499,12 +496,12 @@ def create_app(
             try:
                 from cola_coder.inference.loading import load_generator
 
-                ckpt = req.checkpoint if Path(req.checkpoint).is_absolute() else str(root / req.checkpoint)
-                conf = req.config if Path(req.config).is_absolute() else str(root / req.config)
+                ckpt = checkpoint if Path(checkpoint).is_absolute() else str(root / checkpoint)
+                conf = config if Path(config).is_absolute() else str(root / config)
                 generator, _config, _tok = load_generator(ckpt, conf)
                 for delta in generator.generate_stream(
-                    req.prompt, max_new_tokens=req.max_tokens, temperature=req.temperature,
-                    top_p=req.top_p, top_k=req.top_k,
+                    prompt, max_new_tokens=max_tokens, temperature=temperature,
+                    top_p=top_p, top_k=top_k,
                 ):
                     yield _frame(delta, False)
                     await asyncio.sleep(0)  # cooperatively yield so the client flushes
@@ -530,6 +527,63 @@ def create_app(
             gen(),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @app.post("/api/generate/stream", response_model=None)
+    def generate_stream_endpoint(req: sch.InferenceRequest) -> StreamingResponse | JSONResponse:
+        """Stream a one-shot generation token-by-token (gated, see _stream_response)."""
+        busy = _training_busy()
+        if busy is not None:
+            return busy
+        return _stream_response(
+            req.prompt, req.checkpoint, req.config,
+            max_tokens=req.max_tokens, temperature=req.temperature,
+            top_p=req.top_p, top_k=req.top_k,
+        )
+
+    @app.post("/api/chat/stream", response_model=None)
+    def chat_stream_endpoint(req: sch.ChatRequest) -> StreamingResponse | JSONResponse:
+        """Stream a chat reply token-by-token. Gated; same ChatML/plain prompt build as /api/chat."""
+        busy = _training_busy()
+        if busy is not None:
+            return busy
+        prompt = _build_chat_prompt(
+            [(m.role, m.content) for m in req.messages], req.use_chat_template
+        )
+        return _stream_response(
+            prompt, req.checkpoint, req.config,
+            max_tokens=req.max_tokens, temperature=req.temperature,
+            top_p=req.top_p, top_k=req.top_k,
+        )
+
+    @app.post("/api/fim/stream", response_model=None)
+    def fim_stream_endpoint(req: sch.FimRequest) -> StreamingResponse | JSONResponse:
+        """Stream a FIM infill token-by-token. Gated; 400 if the tokenizer lacks <|fim_*|>."""
+        busy = _training_busy()
+        if busy is not None:
+            return busy
+        try:
+            from cola_coder.inference.loading import resolve_tokenizer_path
+            from cola_coder.tokenizer.tokenizer_utils import CodeTokenizer
+
+            ckpt = req.checkpoint if Path(req.checkpoint).is_absolute() else str(root / req.checkpoint)
+            conf = req.config if Path(req.config).is_absolute() else str(root / req.config)
+            tok = CodeTokenizer(str(resolve_tokenizer_path(Path(ckpt), conf)))
+            if not tok.has_fim_tokens():
+                return JSONResponse(
+                    {"error": "tokenizer has no <|fim_*|> tokens — this checkpoint's "
+                              "tokenizer was not trained with FIM support"},
+                    status_code=400,
+                )
+            prompt = tok.fim_prompt(req.prefix, req.suffix)
+        except FileNotFoundError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        except Exception as exc:  # noqa: BLE001
+            return JSONResponse({"error": f"FIM prompt build failed: {exc}"}, status_code=500)
+        return _stream_response(
+            prompt, req.checkpoint, req.config,
+            max_tokens=req.max_tokens, temperature=req.temperature,
+            top_p=req.top_p, top_k=req.top_k,
         )
 
     @app.get("/api/configs", response_model=list[sch.ConfigFile])

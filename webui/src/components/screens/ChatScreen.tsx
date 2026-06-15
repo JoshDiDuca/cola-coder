@@ -1,19 +1,23 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ChatRequest, ChatMessage, InferenceResult, ConfigFile } from '../../types';
-import { isApiError } from '../../types';
-import { getConfigs, chatGenerate } from '../../api';
-import { formatInteger, formatDuration, formatFloat } from '../../format';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ChatRequest, ChatMessage, ConfigFile } from '../../types';
+import { getConfigs, openChatStream } from '../../api';
+import { useStreamingGeneration } from '../../hooks/useStreamingGeneration';
+import StreamingConsole from '../StreamingConsole';
 
 // ── Chat playground (R10) ─────────────────────────────────────────────────────
 // A multi-turn conversation with a trained checkpoint. Sibling to the Inference
 // playground — same controls, same training-alive guard, same error handling.
 //
+// The assistant reply STREAMS in token-by-token (useStreamingGeneration →
+// /api/chat/stream) so you watch the model type into an in-progress bubble; on a
+// clean finish the accumulated text is committed once as a final assistant turn.
+//
 // CRITICAL SAFETY: chat generation contends for the GPU with the live training
 // run, so the backend refuses with HTTP 409 while training is alive. We never
 // even attempt to send when `trainingAlive` is true, surface a prominent amber
-// banner, and still defensively handle a thrown "409" (or a resolved ApiError)
-// in case the snapshot is briefly stale. Each generation reloads the model
-// server-side (a few seconds) — that's expected; the busy indicator covers it.
+// banner, and still surface a 409 {error} body from the stream opener in case the
+// snapshot is briefly stale. Each generation reloads the model server-side (a few
+// seconds) — that's expected; the streaming bubble covers it.
 
 interface ChatScreenProps {
   // Checkpoint paths from the live snapshot (App passes snap.checkpoints.map(c => c.path)).
@@ -47,12 +51,6 @@ const DEFAULT_SAMPLING: SamplingState = {
   topK: DEFAULT_TOP_K,
 };
 
-// A per-reply stat shown beneath the assistant turn that produced it.
-interface ReplyStat {
-  tokensGenerated: number;
-  elapsedS: number;
-}
-
 /** Parse a numeric <input> value, falling back to a default when blank/NaN. */
 function parseNumber(raw: string, fallback: number): number {
   const n = Number(raw);
@@ -71,40 +69,30 @@ function lastSegment(path: string): string {
 
 // ── Transcript ──────────────────────────────────────────────────────────────
 
-function StatLine({ stat }: { stat: ReplyStat }): JSX.Element {
-  return (
-    <div className="chat-stats">
-      <span className="chat-stat">
-        <span className="chat-stat-label">tokens</span>
-        <span className="chat-stat-value mono">{formatInteger(stat.tokensGenerated)}</span>
-      </span>
-      <span className="chat-stat">
-        <span className="chat-stat-label">elapsed</span>
-        <span className="chat-stat-value mono">{formatDuration(stat.elapsedS)}</span>
-      </span>
-      <span className="chat-stat">
-        <span className="chat-stat-label">tok/s</span>
-        <span className="chat-stat-value mono">
-          {stat.elapsedS > 0 ? formatFloat(stat.tokensGenerated / stat.elapsedS, 1) : '—'}
-        </span>
-      </span>
-    </div>
-  );
+// The streaming snapshot of the in-progress assistant reply, rendered as a live
+// bubble at the tail of the transcript while tokens arrive (or while an error is
+// being surfaced for the most recent send). Mirrors the hook's StreamState.
+interface LiveReply {
+  text: string;
+  streaming: boolean;
+  error: string | null;
+  done: boolean;
+  onStop: () => void;
 }
 
 function Transcript({
   messages,
-  stats,
-  busy,
+  live,
 }: {
   messages: ChatMessage[];
-  // Per-message stats keyed by message index (only assistant turns have one).
-  stats: Record<number, ReplyStat>;
-  busy: boolean;
+  // Non-null while a reply is streaming/erroring — rendered as a live tail bubble.
+  live: LiveReply | null;
 }): JSX.Element {
   // The system turn is shown as a subtle preamble, not a chat bubble.
   const visible = messages.filter((m) => m.role !== 'system');
-  if (visible.length === 0 && !busy) {
+  // Show the live bubble whenever a stream is active or has produced text/error.
+  const showLive = live !== null && (live.streaming || live.text !== '' || live.error !== null);
+  if (visible.length === 0 && !showLive) {
     return (
       <div className="chat-empty muted">
         No messages yet — pick a checkpoint and config, then say something below.
@@ -115,16 +103,28 @@ function Transcript({
     <div className="chat-transcript scroll">
       {messages.map((msg, index) => {
         if (msg.role === 'system') return null;
-        const stat = stats[index];
         return (
           <div key={index} className={`chat-msg ${msg.role}`}>
             <div className="chat-msg-role">{msg.role === 'user' ? 'You' : 'Assistant'}</div>
             <div className="chat-msg-body mono">{msg.content}</div>
-            {msg.role === 'assistant' && stat !== undefined && <StatLine stat={stat} />}
           </div>
         );
       })}
-      {busy && <div className="chat-msg assistant chat-thinking muted">Thinking…</div>}
+      {showLive && live !== null && (
+        <div className="chat-msg assistant chat-msg-streaming">
+          <div className="chat-msg-role">Assistant</div>
+          <div className="chat-msg-stream">
+            <StreamingConsole
+              text={live.text}
+              streaming={live.streaming}
+              error={live.error}
+              done={live.done}
+              onStop={live.onStop}
+              emptyHint="Waiting for the first token…"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -133,7 +133,6 @@ function Transcript({
 
 export default function ChatScreen({ checkpoints, trainingAlive }: ChatScreenProps): JSX.Element {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [stats, setStats] = useState<Record<number, ReplyStat>>({});
   const [draft, setDraft] = useState<string>('');
   const [systemPrompt, setSystemPrompt] = useState<string>('');
   const [showSystem, setShowSystem] = useState<boolean>(false);
@@ -147,8 +146,17 @@ export default function ChatScreen({ checkpoints, trainingAlive }: ChatScreenPro
   const [configs, setConfigs] = useState<ConfigFile[]>([]);
   const [configsError, setConfigsError] = useState<string | null>(null);
 
-  const [busy, setBusy] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
+  // The assistant reply streams in token-by-token via this hook; `stream.text`
+  // is the running reply, `stream.done` flips true on a clean finish, and
+  // `stream.error` carries a 409/transport error (no bogus turn is committed then).
+  const { state: stream, start, stop, reset } = useStreamingGeneration();
+  const busy = stream.streaming;
+
+  // Commit-once guard: each `start()` opens a new stream and resets the hook's
+  // `done` to false, so we record the identity of the stream we last committed.
+  // A fresh send bumps `streamIdRef`; the effect only commits once per id.
+  const streamIdRef = useRef<number>(0);
+  const committedStreamRef = useRef<number>(-1);
 
   // Load configs once. Non-fatal: a failure leaves the select empty with a hint.
   useEffect(() => {
@@ -195,7 +203,7 @@ export default function ChatScreen({ checkpoints, trainingAlive }: ChatScreenPro
     [systemPrompt],
   );
 
-  const onSend = useCallback(async (): Promise<void> => {
+  const onSend = useCallback((): void => {
     // Hard guard: never call the API while training is live.
     if (trainingAlive) return;
     if (draftMissing || checkpointMissing || configMissing) return;
@@ -208,41 +216,22 @@ export default function ChatScreen({ checkpoints, trainingAlive }: ChatScreenPro
 
     setMessages(nextVisible);
     setDraft('');
-    setBusy(true);
-    setError(null);
-    try {
-      const req: ChatRequest = {
-        messages: buildHistory(priorTurns, userTurn),
-        checkpoint: checkpoint,
-        config: config,
-        use_chat_template: useChatTemplate,
-        max_tokens: sampling.maxTokens,
-        temperature: sampling.temperature,
-        top_p: sampling.topP,
-        top_k: sampling.topK,
-      };
-      const resp = await chatGenerate(req);
-      if (isApiError(resp)) {
-        setError(isTrainingGuardError(resp.error) ? TRAINING_GUARD_MESSAGE : resp.error);
-        return;
-      }
-      const result: InferenceResult = resp;
-      const assistantTurn: ChatMessage = { role: 'assistant', content: result.completion };
-      const assistantIndex = nextVisible.length;
-      setMessages([...nextVisible, assistantTurn]);
-      setStats((prev) => ({
-        ...prev,
-        [assistantIndex]: {
-          tokensGenerated: result.tokens_generated,
-          elapsedS: result.elapsed_s,
-        },
-      }));
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      setError(isTrainingGuardError(message) ? TRAINING_GUARD_MESSAGE : message);
-    } finally {
-      setBusy(false);
-    }
+
+    // Mark a new stream identity so the commit-once effect treats this reply as
+    // fresh (the hook's `start` resets text/done/error for us).
+    streamIdRef.current += 1;
+
+    const req: ChatRequest = {
+      messages: buildHistory(priorTurns, userTurn),
+      checkpoint: checkpoint,
+      config: config,
+      use_chat_template: useChatTemplate,
+      max_tokens: sampling.maxTokens,
+      temperature: sampling.temperature,
+      top_p: sampling.topP,
+      top_k: sampling.topK,
+    };
+    start((signal) => openChatStream(req, signal)); // streams token-by-token
   }, [
     trainingAlive,
     draftMissing,
@@ -255,13 +244,33 @@ export default function ChatScreen({ checkpoints, trainingAlive }: ChatScreenPro
     config,
     useChatTemplate,
     sampling,
+    start,
   ]);
 
+  // Commit-once on a clean finish: when the stream is done (and not still
+  // streaming) with non-empty text, append it as a final assistant turn and
+  // reset the hook so the next send starts clean. Guarded by stream identity so
+  // a re-render after commit (or a `done` that lingers in state) can't double-add.
+  useEffect(() => {
+    if (!stream.done || stream.streaming) return;
+    if (committedStreamRef.current === streamIdRef.current) return; // already committed
+    if (stream.text === '') {
+      // Clean finish with no tokens — nothing to commit, but mark handled.
+      committedStreamRef.current = streamIdRef.current;
+      reset();
+      return;
+    }
+    committedStreamRef.current = streamIdRef.current;
+    const assistantTurn: ChatMessage = { role: 'assistant', content: stream.text };
+    setMessages((prev) => [...prev, assistantTurn]);
+    reset();
+  }, [stream.done, stream.streaming, stream.text, reset]);
+
   const onClear = useCallback((): void => {
+    reset(); // abort any in-flight stream + clear streamed text/error
+    streamIdRef.current += 1; // invalidate any pending commit for the aborted stream
     setMessages([]);
-    setStats({});
-    setError(null);
-  }, []);
+  }, [reset]);
 
   const validationHint = useMemo<string | null>(() => {
     if (trainingAlive) return null;
@@ -274,6 +283,25 @@ export default function ChatScreen({ checkpoints, trainingAlive }: ChatScreenPro
   }, [trainingAlive, draftMissing, checkpointMissing, configMissing]);
 
   const hasConversation = messages.some((m) => m.role !== 'system');
+
+  // Map a 409 (training live) stream error to the friendly guard message; other
+  // errors pass through verbatim. No assistant turn is committed when error≠null.
+  const liveError: string | null =
+    stream.error === null
+      ? null
+      : isTrainingGuardError(stream.error)
+        ? TRAINING_GUARD_MESSAGE
+        : stream.error;
+
+  // The in-progress assistant reply rendered as a live tail bubble in the
+  // transcript (streaming text + caret, Stop button, or surfaced error).
+  const liveReply: LiveReply = {
+    text: stream.text,
+    streaming: stream.streaming,
+    error: liveError,
+    done: stream.done,
+    onStop: stop,
+  };
 
   return (
     <div className="card card-wide chat-screen">
@@ -450,10 +478,8 @@ export default function ChatScreen({ checkpoints, trainingAlive }: ChatScreenPro
         </div>
       )}
 
-      {/* ── Transcript ── */}
-      <Transcript messages={messages} stats={stats} busy={busy} />
-
-      {error !== null && <div className="err chat-error">{error}</div>}
+      {/* ── Transcript (streamed assistant reply renders as a live tail bubble) ── */}
+      <Transcript messages={messages} live={liveReply} />
 
       {/* ── Composer ── */}
       <div className="chat-composer">
@@ -466,18 +492,24 @@ export default function ChatScreen({ checkpoints, trainingAlive }: ChatScreenPro
           }
           spellCheck={false}
           rows={3}
-          disabled={trainingAlive}
+          disabled={trainingAlive || busy}
         />
         <div className="chat-composer-actions">
-          <button
-            type="button"
-            className="btn btn-primary chat-send"
-            onClick={() => void onSend()}
-            disabled={!canSend}
-            title={trainingAlive ? TRAINING_GUARD_MESSAGE : undefined}
-          >
-            {busy ? 'Thinking…' : 'Send'}
-          </button>
+          {busy ? (
+            <button type="button" className="btn chat-stop" onClick={stop}>
+              Stop
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-primary chat-send"
+              onClick={onSend}
+              disabled={!canSend}
+              title={trainingAlive ? TRAINING_GUARD_MESSAGE : undefined}
+            >
+              Send
+            </button>
+          )}
           {validationHint !== null && <span className="chat-hint muted">{validationHint}</span>}
         </div>
       </div>

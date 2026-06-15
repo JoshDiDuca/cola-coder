@@ -145,10 +145,12 @@ Replace each page's card-grid with a single master→detail screen.
 - All three: a "Playground" nav group. Model loaded per request and freed (no persistent VRAM). GPU-aware —
   REFUSED (409) while training is live via the elevation-proof guard (OPS-002, shared `_training_busy()`);
   frontend disables the action + shows a banner when `trainingAlive`.
-- ✅ STREAMING (UI-080): `POST /api/generate/stream` (SSE `GenStreamChunk` frames via
-  `generator.generate_stream`, gated) + `useStreamingGeneration` hook (fetch ReadableStream, abortable) +
-  `StreamingConsole` (live text, blinking caret, Stop). Generate screen now streams token-by-token.
-- ◻ REMAINING: best-of-N + --repo context; streaming for chat/FIM (reuse the same hook).
+- ✅ STREAMING (UI-080/081): `POST /api/generate/stream` + `/api/chat/stream` + `/api/fim/stream` (SSE
+  `GenStreamChunk` frames via `generator.generate_stream`, shared `_stream_response`, all gated) +
+  transport-agnostic `useStreamingGeneration` hook (takes a `StreamOpener`) + `StreamingConsole`. ALL
+  THREE playground modes stream token-by-token: Generate, Chat (reply streams into the transcript bubble,
+  commit-once-on-done), FIM (infill + stitched preview update live).
+- ◻ REMAINING: best-of-N + --repo context (one-shot is fine for verified best-of-N).
 
 ### R11 — Settings / features / storage editing  ✅ CONFIG EDIT DONE (UI-078)
 - features.yaml toggles (FeaturesPanel ✅), storage.yaml view (StoragePanel ✅).

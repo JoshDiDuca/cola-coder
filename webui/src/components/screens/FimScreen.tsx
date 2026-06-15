@@ -1,20 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ConfigFile, FimRequest, InferenceResult } from '../../types';
-import { isApiError } from '../../types';
-import { getConfigs, fimGenerate } from '../../api';
-import { formatInteger, formatDuration, formatFloat } from '../../format';
+import type { ConfigFile, FimRequest } from '../../types';
+import { getConfigs, openFimStream } from '../../api';
+import { useStreamingGeneration } from '../../hooks/useStreamingGeneration';
 
 // ── Fill-In-the-Middle playground (R10) ─────────────────────────────────────
 // The core code-completion primitive: a PREFIX (code before the hole) and a
-// SUFFIX (code after the hole); the model fills the middle. We show the raw
-// infill AND a stitched preview (prefix + [infill] + suffix) so the result is
-// visible in context.
+// SUFFIX (code after the hole); the model fills the middle. The infill STREAMS
+// in token-by-token (useStreamingGeneration → /api/fim/stream) so you watch the
+// model type, and the stitched preview (prefix + [infill] + suffix) updates live
+// as the infill arrives — the result is visible in context as it fills.
 //
 // CRITICAL SAFETY: FIM generation contends for the GPU with the live training
 // run, so the backend refuses with HTTP 409 while training is alive. We never
 // even attempt to generate when `trainingAlive` is true, surface a prominent
-// amber banner, and still defensively handle a thrown "409" (or a resolved
-// ApiError) in case the snapshot is briefly stale.
+// amber banner, and the stream hook also surfaces a 409 body if the snapshot is
+// briefly stale.
 //
 // A second expected case: a checkpoint whose tokenizer was trained WITHOUT the
 // `<|fim_*|>` tokens returns a 400. That is common and benign — we surface it
@@ -87,27 +87,32 @@ function lastSegment(path: string): string {
 }
 
 // ── Output pane ─────────────────────────────────────────────────────────────
+//
+// Streams the infill live. `infill` is the running text from the streaming hook
+// (`state.text`), growing token-by-token. While `streaming` we show a blinking
+// caret after the infill (in both the raw block and the stitched preview). An
+// `error` is shown below any partial infill, never instead of it. The idle state
+// (nothing started, no text) shows the original hint.
 
 function OutputPane({
-  result,
+  infill,
   prefix,
   suffix,
-  busy,
+  streaming,
+  done,
   error,
 }: {
-  result: InferenceResult | null;
+  infill: string;
   prefix: string;
   suffix: string;
-  busy: boolean;
+  streaming: boolean;
+  done: boolean;
   error: string | null;
 }): JSX.Element {
-  if (busy) {
-    return <div className="fim-empty muted">Filling…</div>;
-  }
-  if (error !== null) {
-    return <div className="err fim-error">{error}</div>;
-  }
-  if (result === null) {
+  const hasInfill = infill.length > 0;
+  const idle = !streaming && !done && error === null && !hasInfill;
+
+  if (idle) {
     return (
       <div className="fim-empty muted">
         No infill yet — write a prefix (and optionally a suffix), pick a checkpoint and
@@ -115,36 +120,29 @@ function OutputPane({
       </div>
     );
   }
+
+  const caret = streaming ? <span className="fim-caret" aria-hidden="true" /> : null;
+
   return (
     <div className="fim-output">
-      <div className="fim-stats">
-        <span className="fim-stat">
-          <span className="fim-stat-label">tokens</span>
-          <span className="fim-stat-value mono">{formatInteger(result.tokens_generated)}</span>
-        </span>
-        <span className="fim-stat">
-          <span className="fim-stat-label">elapsed</span>
-          <span className="fim-stat-value mono">{formatDuration(result.elapsed_s)}</span>
-        </span>
-        <span className="fim-stat">
-          <span className="fim-stat-label">tok/s</span>
-          <span className="fim-stat-value mono">
-            {result.elapsed_s > 0
-              ? formatFloat(result.tokens_generated / result.elapsed_s, 1)
-              : '—'}
-          </span>
-        </span>
+      <div className="fim-section-label muted">
+        infill
+        {streaming && <span className="fim-streaming-tag"> · streaming…</span>}
       </div>
-
-      <div className="fim-section-label muted">infill</div>
-      <pre className="fim-infill-block mono scroll">{result.completion}</pre>
+      <pre className="fim-infill-block mono scroll">
+        {infill}
+        {caret}
+      </pre>
 
       <div className="fim-section-label muted">stitched preview</div>
       <pre className="fim-stitched mono scroll">
         <span className="fim-context">{prefix}</span>
-        <span className="fim-infill">{result.completion}</span>
+        <span className="fim-infill">{infill}</span>
+        {caret}
         <span className="fim-context">{suffix}</span>
       </pre>
+
+      {error !== null && <div className="err fim-error">{error}</div>}
     </div>
   );
 }
@@ -161,13 +159,15 @@ export default function FimScreen({ checkpoints, trainingAlive }: FimScreenProps
   const [configs, setConfigs] = useState<ConfigFile[]>([]);
   const [configsError, setConfigsError] = useState<string | null>(null);
 
-  // Capture the prefix/suffix that produced the current result so the stitched
-  // preview stays consistent even if the user keeps editing the textareas.
+  // Capture the prefix/suffix that started the current stream so the stitched
+  // preview stays consistent even if the user keeps editing the textareas while
+  // the infill streams in.
   const [resultPrefix, setResultPrefix] = useState<string>('');
   const [resultSuffix, setResultSuffix] = useState<string>('');
-  const [result, setResult] = useState<InferenceResult | null>(null);
-  const [busy, setBusy] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
+
+  // Token-by-token streaming of the infill (shared SSE hook → /api/fim/stream).
+  const { state: stream, start, stop } = useStreamingGeneration();
+  const busy = stream.streaming;
 
   // Load configs once. Non-fatal: a failure leaves the select empty with a hint.
   useEffect(() => {
@@ -205,39 +205,27 @@ export default function FimScreen({ checkpoints, trainingAlive }: FimScreenProps
   const canComplete =
     !trainingAlive && !busy && !prefixMissing && !checkpointMissing && !configMissing;
 
-  const onComplete = useCallback(async (): Promise<void> => {
+  const onComplete = useCallback((): void => {
     // Hard guard: never call the API while training is live.
     if (trainingAlive) return;
     if (prefixMissing || checkpointMissing || configMissing) return;
 
-    setBusy(true);
-    setError(null);
-    setResult(null);
-    try {
-      const req: FimRequest = {
-        prefix: prefix,
-        suffix: suffix,
-        checkpoint: checkpoint,
-        config: config,
-        max_tokens: sampling.maxTokens,
-        temperature: sampling.temperature,
-        top_p: sampling.topP,
-        top_k: sampling.topK,
-      };
-      const resp = await fimGenerate(req);
-      if (isApiError(resp)) {
-        setError(friendlyError(resp.error));
-        return;
-      }
-      setResultPrefix(prefix);
-      setResultSuffix(suffix);
-      setResult(resp);
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      setError(friendlyError(message));
-    } finally {
-      setBusy(false);
-    }
+    // Freeze the context that frames this stream's infill so the stitched
+    // preview stays consistent even if the textareas are edited mid-stream.
+    setResultPrefix(prefix);
+    setResultSuffix(suffix);
+
+    const req: FimRequest = {
+      prefix: prefix,
+      suffix: suffix,
+      checkpoint: checkpoint,
+      config: config,
+      max_tokens: sampling.maxTokens,
+      temperature: sampling.temperature,
+      top_p: sampling.topP,
+      top_k: sampling.topK,
+    };
+    start((signal) => openFimStream(req, signal)); // streams the infill token-by-token
   }, [
     trainingAlive,
     prefixMissing,
@@ -248,7 +236,15 @@ export default function FimScreen({ checkpoints, trainingAlive }: FimScreenProps
     checkpoint,
     config,
     sampling,
+    start,
   ]);
+
+  // The hook surfaces raw error bodies (the 400 "no FIM tokens" note, the 409
+  // training-guard refusal, transport failures) — map to the friendliest text.
+  const friendlyStreamError = useMemo<string | null>(
+    () => (stream.error === null ? null : friendlyError(stream.error)),
+    [stream.error],
+  );
 
   const validationHint = useMemo<string | null>(() => {
     if (trainingAlive) return null;
@@ -419,12 +415,17 @@ export default function FimScreen({ checkpoints, trainingAlive }: FimScreenProps
             <button
               type="button"
               className="btn btn-primary fim-complete"
-              onClick={() => void onComplete()}
+              onClick={onComplete}
               disabled={!canComplete}
               title={trainingAlive ? TRAINING_GUARD_MESSAGE : undefined}
             >
-              {busy ? 'Filling…' : 'Complete'}
+              {busy ? '…streaming' : 'Complete'}
             </button>
+            {busy && (
+              <button type="button" className="btn fim-stop" onClick={stop}>
+                Stop
+              </button>
+            )}
             {validationHint !== null && <span className="fim-hint muted">{validationHint}</span>}
           </div>
         </div>
@@ -432,11 +433,12 @@ export default function FimScreen({ checkpoints, trainingAlive }: FimScreenProps
         {/* ── Output ── */}
         <div className="fim-output-pane">
           <OutputPane
-            result={result}
+            infill={stream.text}
             prefix={resultPrefix}
             suffix={resultSuffix}
-            busy={busy}
-            error={error}
+            streaming={stream.streaming}
+            done={stream.done}
+            error={friendlyStreamError}
           />
         </div>
       </div>
