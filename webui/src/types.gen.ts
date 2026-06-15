@@ -730,6 +730,25 @@ export interface RegressionHistory {
   count: number;
 }
 
+export interface DocFile {
+  name: string;
+  path: string;
+  rel: string;
+  title: string;
+  size_bytes: number;
+}
+
+export interface DocsList {
+  docs: DocFile[];
+  count: number;
+}
+
+export interface DocContent {
+  path: string;
+  content: string;
+  truncated: boolean;
+}
+
 export interface BacklogItem {
   id: string;
   category: string;
@@ -881,6 +900,8 @@ export type ReasoningProblemSetOrError = ReasoningProblemSet | ApiError;
 export type VocabSearchResultOrError = VocabSearchResult | ApiError;
 export type ScoringConfigOrError = ScoringConfig | ApiError;
 export type RegressionHistoryOrError = RegressionHistory | ApiError;
+export type DocsListOrError = DocsList | ApiError;
+export type DocContentOrError = DocContent | ApiError;
 export type BacklogViewOrError = BacklogView | ApiError;
 export type ResearchLogOrError = ResearchLog | ApiError;
 export type TrainingManifestsOrError = TrainingManifests | ApiError;

@@ -254,6 +254,13 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   → Tokenizer. +2 models (gen_ts regen, 86 ifaces, 38 OrError), +2 test examples, 3 new files. pytest 89 +
   ruff + tsc + vite green (252 KB). Keystone integrated by main. (UI-017 partially addressed — arg editing now
   exists; remaining: structured per-arg forms + data-collection wizards.)
+- **UI-058..059** [ui, medium] `done` (2026-06-15) — Batch (parallel agents, disjoint files). UI-058 Docs Browser
+  (`GET /api/docs` + `GET /api/doc?path=`, `DocsList`/`DocFile`/`DocContent`; lists the 26 docs/ guides +
+  deep-dives, lightweight no-dep markdown render; PATH-GUARDED read confined to docs/ — traversal/out-of-tree
+  rejected) → System & Tools. UI-059 Data Collection launcher (`CollectDataPanel`; config select + read-only
+  source-weights display, launches collect_data.py as a background job via the existing runAction; no backend
+  change — collect_data already allow-listed) → Data. +3 models (gen_ts regen, 107 ifaces), +3 test examples,
+  3 new files. pytest 110 + ruff + tsc + vite green (277 KB). Keystone integrated by main.
 - **UI-056..057** [ui, medium] `done` (2026-06-15) — Batch (parallel agents, disjoint files): 2 read-only views
   that surface the autonomous loop's OWN state. UI-056 Backlog Viewer (`GET /api/backlog`, `BacklogView`/
   `BacklogItem`; parses ai_backlog.md into a filterable table — 288 items, 66 open/222 done — status+category

@@ -52,6 +52,8 @@ import TrainingManifestPanel from './components/TrainingManifestPanel';
 import CheckpointAveragePanel from './components/CheckpointAveragePanel';
 import BacklogPanel from './components/BacklogPanel';
 import ResearchLogPanel from './components/ResearchLogPanel';
+import DocsBrowserPanel from './components/DocsBrowserPanel';
+import CollectDataPanel from './components/CollectDataPanel';
 import CollapsibleSection from './components/CollapsibleSection';
 
 interface Snapshot {
@@ -152,6 +154,7 @@ export default function App() {
 
         {/* Data. */}
         <CollapsibleSection title="Data" storageKey="sec.data">
+          <CollectDataPanel />
           <DatasetsPanel />
           <DataStatsPanel />
           <DataSourcesPanel />
@@ -200,6 +203,7 @@ export default function App() {
           <ReasoningProblemsPanel />
           <BacklogPanel />
           <ResearchLogPanel />
+          <DocsBrowserPanel />
           <ScriptsCatalogPanel />
           <StoragePanel />
         </CollapsibleSection>

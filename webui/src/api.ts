@@ -50,6 +50,8 @@ import type {
   VocabSearchResult,
   ScoringConfig,
   RegressionHistory,
+  DocsList,
+  DocContent,
   BacklogView,
   ResearchLog,
   TrainingManifests,
@@ -406,6 +408,14 @@ export function getBacklog(): Promise<BacklogView | ApiError> {
 
 export function getResearchLog(): Promise<ResearchLog | ApiError> {
   return j<ResearchLog | ApiError>('/api/research-log');
+}
+
+export function getDocs(): Promise<DocsList | ApiError> {
+  return j<DocsList | ApiError>('/api/docs');
+}
+
+export function getDocContent(path: string): Promise<DocContent | ApiError> {
+  return j<DocContent | ApiError>(`/api/doc?path=${encodeURIComponent(path)}`);
 }
 
 export function getDataStats(

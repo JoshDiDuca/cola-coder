@@ -337,6 +337,12 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         }],
     },
     "RegressionHistory": {"runs": [], "count": 0},
+    "DocFile": {
+        "name": "03_training.md", "path": "docs/03_training.md",
+        "rel": "03_training.md", "title": "The Training Pipeline", "size_bytes": 100,
+    },
+    "DocsList": {"docs": [], "count": 0},
+    "DocContent": {"path": "docs/03_training.md", "content": "# x", "truncated": False},
     "BacklogItem": {
         "id": "UI-046..047", "category": "ui", "severity": "medium",
         "status": "done", "date": "2026-06-15",

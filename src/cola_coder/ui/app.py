@@ -47,6 +47,7 @@ from . import configs as cfg
 from . import data_sources_view as dsv
 from . import data_stats_view as dst
 from . import datasets as ds
+from . import docs_view as dv
 from . import env_check_view as ecv
 from . import eval_history as eh
 from . import evals as ev
@@ -563,6 +564,14 @@ def create_app(
     @app.get("/api/research-log", response_model=sch.ResearchLog | sch.ErrorResponse)
     def research_log_get() -> dict:
         return rlv.research_log(str(root))
+
+    @app.get("/api/docs", response_model=sch.DocsList | sch.ErrorResponse)
+    def docs_list_get() -> dict:
+        return dv.docs_list(str(root))
+
+    @app.get("/api/doc", response_model=sch.DocContent | sch.ErrorResponse)
+    def doc_get(path: str) -> dict:
+        return dv.doc_content(path, str(root))
 
     @app.get("/api/data-stats", response_model=sch.DataStats | sch.ErrorResponse)
     def data_stats_get(

@@ -763,6 +763,25 @@ class RegressionHistory(_UiModel):
     count: int
 
 
+class DocFile(_UiModel):
+    name: str
+    path: str
+    rel: str
+    title: str
+    size_bytes: int
+
+
+class DocsList(_UiModel):
+    docs: list[DocFile]
+    count: int
+
+
+class DocContent(_UiModel):
+    path: str
+    content: str
+    truncated: bool
+
+
 class BacklogItem(_UiModel):
     id: str
     category: str
