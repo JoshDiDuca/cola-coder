@@ -203,6 +203,16 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   subprocess sweep that project_health.py runs, proxies labelled in detail) → System & Tools. +4 models
   (gen_ts_types regen, 75 ifaces, 33 OrError), +4 test examples, 4 new files. pytest 78 + ruff + tsc + vite
   green (237 KB). Keystone integrated by main.
+- **OPS-002** [tooling/infra, high] `done` (2026-06-15) — CORRECTED a dangerous false-positive in the
+  training hang-detector. The small_react_best run logs only every ~100 steps and is dataloader-bound, so
+  ~22-30 min elapse between log lines and GPU power legitimately fluctuates ~70-160W (avg <130W). The old
+  criteria (log-mtime stale >10min + power <130W) repeatedly diagnosed HEALTHY slow training as HUNG (the
+  run was advancing the whole time: 8500->8600->8700->8800, loss ~1.31/ppl 3.7). Only the taskkill
+  access-denied wall (OPS-001) prevented an erroneous kill of a healthy run. FIX: the ONLY hang signal is
+  the STEP NUMBER not advancing for >45 min (AND no new checkpoint AND ideally a .err Traceback). Rewrote
+  the watchdog Monitor to parse max step and alert only on >45min step-stall; rewrote the cron babysitting
+  criteria to match; power/log-mtime are explicitly NOT hang signals for this run. LESSON: prefer waiting +
+  re-verify over killing; a wrong kill of a healthy run is far worse than a late recovery.
 - **OPS-001** [tooling/infra, high] `open` — Autonomous training babysitting is BLOCKED when the trainer
   runs at higher OS integrity than the agent shell: `taskkill /F /T` returns Access-Denied for the whole
   tree (verified 2026-06-15 on the live hung run, PIDs 38260/13336/workers). The babysitter correctly
