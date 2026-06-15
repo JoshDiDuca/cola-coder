@@ -266,6 +266,15 @@ export default function App() {
       <Sidebar active={active} onNavigate={navigate} training={snap?.training ?? null} connected={connected} />
 
       <div className="app-main">
+        {reconnecting ? (
+          <div className="conn-banner">
+            <span className="dot dead" />
+            <span>
+              Can&rsquo;t reach the backend server. Is it running? Start it with{' '}
+              <code>.\ps\cola-ui.ps1</code> and refresh this page.
+            </span>
+          </div>
+        ) : null}
         <header className="topbar">
           <div className="topbar-title">
             <h1>{nav.label}</h1>

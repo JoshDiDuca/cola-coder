@@ -328,7 +328,19 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   DATA filter/down-weighter so the model learns from secure code (attacks the "train on secure corpora" root cause);
   it's already a registered data scorer (configs/scoring.yaml, enabled:false) — wire it into the prepare/score path
   as an opt-in CWE-vulnerability filter + measure the generated-CWE rate (SEC-027 probe) before/after to close the loop.
-- **MODEL-048** [post-training, high] `done` (2026-06-15) — DAPO soft overlong reward shaping for reasoning/GRPO
+- **UI-063** [ui, high] `done` (2026-06-15) — App SHELL redesign: replaced the single book-length scroll of 62
+  stacked panels with a real application — fixed Sidebar (grouped nav Monitor/Build/Inspect + line-icons + live
+  training pill), hash router (8 bookmarkable PAGES, one shown at a time), topbar with section title/subtitle +
+  live status, exhaustive SectionId switch. nav model in src/sections.ts; index.css restructured to an app-shell.
+- **UI-064** [ui, high] `done` (2026-06-15) — Panel redesign batch 1 + a connection banner. (a) ActionsPanel:
+  raw `script|args|run` TABLE → grouped ACTION GALLERY (category cards Data/Eval/Training/Export/Tools, human
+  titles, de-emphasized script subtext, trainer/GPU badges, primary Run + collapsible editable args, per-card
+  result chip, trainer-while-alive guard). (b) TrainingPanel → wide live HERO (big step + progress bar, loss/ppl/
+  tok-s/s-it stat tiles, last-log strip, graceful idle). (c) Global CONNECTION BANNER when SSE drops — turns the
+  cryptic per-panel "Failed to fetch" into ONE clear "backend unreachable, run ps/cola-ui.ps1" message. NOTE: the
+  user's "Failed to fetch on everything" was a STALE/STOPPED server (verified: a fresh ui_server returns 200 on
+  /, /api/status, /api/actions, /api/jobs AND /api/checkpoints/compare) — restart + hard-refresh fixes it. tsc +
+  vite green. FOLLOW-UP UI-065+: redesign the remaining panels (Jobs/Logs, System gauges, eval/data tables, etc.).
   (OPT-IN, default OFF). New `reasoning/rewards/overlong.py`: `soft_overlong_penalty(length, max_length,
   soft_buffer)` (0 below buffer → linear ramp → -1 at/over max) + `apply_overlong_shaping(reward, ...)`. Wired
   into `grpo.py` as `apply_overlong_shaping_rewards` (mirrors the existing `apply_security_penalty` modifier,
