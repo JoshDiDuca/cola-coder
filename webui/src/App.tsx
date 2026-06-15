@@ -10,6 +10,7 @@ import DataScreen from './components/screens/DataScreen';
 import EvalScreen from './components/screens/EvalScreen';
 import RunScreen from './components/screens/RunScreen';
 import SystemScreen from './components/screens/SystemScreen';
+import PipelineScreen from './components/screens/PipelineScreen';
 
 import LiveTrainingPanel from './components/LiveTrainingPanel';
 import TrainingPanel from './components/TrainingPanel';
@@ -151,14 +152,20 @@ function Page({
       );
     case 'pipeline':
       return (
-        <div className="page-grid">
-          <ConfigsPanel />
-          <VramEstimatePanel />
-          <LrFinderPanel />
-          <ConfigDiffPanel />
-          <PipelinePanel />
-          <PipelineManagerPanel />
-        </div>
+        <>
+          <PipelineScreen trainingAlive={alive} />
+          <div className="md-more">
+            <div className="md-more-label">More tools</div>
+            <div className="page-grid">
+              <ConfigsPanel />
+              <VramEstimatePanel />
+              <LrFinderPanel />
+              <ConfigDiffPanel />
+              <PipelinePanel />
+              <PipelineManagerPanel />
+            </div>
+          </div>
+        </>
       );
     case 'eval':
       return <EvalScreen />;

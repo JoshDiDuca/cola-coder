@@ -136,6 +136,10 @@ ACTIONS: dict[str, dict] = {
     "generate_instructions": {"script": "generate_instructions.py", "label": "Generate instruction pairs",
                               "args": ["--config", "configs/small.yaml"]},
     # Trainer-class actions — REFUSED by /api/run while a training process is alive (never a 2nd trainer).
+    "train": {"script": "train.py", "label": "Pretrain (from scratch / resume)", "trainer": True,
+              "args": ["--config", "configs/small.yaml"]},
+    "auto_pipeline": {"script": "auto_pipeline.py", "label": "Auto pipeline (detect hardware -> best config)",
+                      "trainer": True, "args": ["--yes"]},
     "train_sft": {"script": "train_sft.py", "label": "Instruction tune (SFT)", "trainer": True,
                   "args": ["--data", "data/sft/instructions.jsonl", "--config", "configs/small.yaml",
                            "--checkpoint", "checkpoints/small/latest", "--epochs", "2", "--lr", "2e-5"]},
