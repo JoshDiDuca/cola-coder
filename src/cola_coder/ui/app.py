@@ -83,6 +83,7 @@ from . import tokenizer_info as tk
 from . import training_manifest_view as tmv
 from . import vocab_explorer_view as vxv
 from . import vram_estimate_view as vev
+from .action_params import ACTION_PARAMS
 from .jobs import JobManager
 
 _MISSING_DIST_HTML = (
@@ -301,7 +302,12 @@ def create_app(
 
     @app.get("/api/actions", response_model=list[sch.ActionDef])
     def actions() -> list[dict]:
-        return [{"key": k, **v} for k, v in ACTIONS.items()]
+        # Merge each action's typed argument spec (1:1 with the script's argparse,
+        # source of truth in action_params.py) so the UI renders real form fields.
+        return [
+            {"key": k, **v, "params": ACTION_PARAMS.get(k, [])}
+            for k, v in ACTIONS.items()
+        ]
 
     @app.post("/api/run", response_model=sch.Job | sch.ErrorResponse)
     def run(req: sch.RunRequest) -> dict | JSONResponse:

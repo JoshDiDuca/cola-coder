@@ -95,6 +95,24 @@ class Job(_UiModel):
     returncode: int | None
 
 
+class ActionParam(_UiModel):
+    """One CLI argument of an action, described for a typed UI form control.
+
+    Maps 1:1 to a script's argparse argument so the UI can render the right control
+    (config/checkpoint dropdown, number, flag checkbox, choice select) instead of a
+    raw flag string. The frontend builds the args list from these + the form values.
+    """
+
+    name: str
+    flag: str  # e.g. "--config"; "" for a positional argument
+    label: str
+    type: Literal["string", "int", "float", "bool", "choice", "config", "checkpoint", "path"]
+    default: str | None = None
+    choices: list[str] = []
+    required: bool = False
+    help: str | None = None
+
+
 class ActionDef(_UiModel):
     key: str
     script: str
@@ -102,6 +120,7 @@ class ActionDef(_UiModel):
     args: list[str]
     trainer: bool = False
     gpu: bool = False
+    params: list[ActionParam] = []
 
 
 class JobLogChunk(_UiModel):

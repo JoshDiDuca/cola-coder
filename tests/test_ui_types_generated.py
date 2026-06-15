@@ -78,6 +78,10 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "cmd": ["python", "train.py"], "log": "train.log", "started": 1.0,
         "returncode": None,
     },
+    "ActionParam": {
+        "name": "config", "flag": "--config", "label": "Config", "type": "config",
+        "default": "configs/small.yaml", "choices": [], "required": True, "help": None,
+    },
     "ActionDef": {"key": "k", "script": "train.py", "label": "Train", "args": [], "gpu": False},
     "JobLogChunk": {"text": "step 1\n", "done": False},
     "SftFile": {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { ActionDef, Job } from '../types';
-import { getActions, runAction } from '../api';
+import type { ActionDef, Checkpoint, Job } from '../types';
+import { getActions, getStatus, runAction } from '../api';
+import ActionForm from './ActionForm';
 
 interface ActionsPanelProps {
   onRan: () => void;
@@ -72,11 +73,13 @@ type RunState =
 interface ActionCardProps {
   action: ActionDef;
   trainingAlive: boolean;
+  checkpoints: string[];
   argsValue: string;
   state: RunState;
   expanded: boolean;
   onToggleOptions: (key: string) => void;
   onArgsChange: (key: string, value: string) => void;
+  onFormArgs: (key: string, args: string[]) => void;
   onRun: (action: ActionDef) => void;
 }
 
@@ -105,9 +108,11 @@ function ResultChip({ state }: { state: RunState }): JSX.Element | null {
 }
 
 function ActionCard(props: ActionCardProps): JSX.Element {
-  const { action, trainingAlive, argsValue, state, expanded } = props;
+  const { action, trainingAlive, checkpoints, argsValue, state, expanded } = props;
   const blockedByTrainer = action.trainer === true && trainingAlive;
   const isRunning = state.kind === 'running';
+  const params = action.params ?? [];
+  const hasParams = params.length > 0;
 
   return (
     <div className="action-card">
@@ -152,17 +157,27 @@ function ActionCard(props: ActionCardProps): JSX.Element {
 
       {expanded && (
         <div className="action-options">
-          <label className="action-options-label muted mono" htmlFor={`args-${action.key}`}>
-            arguments
-          </label>
-          <input
-            id={`args-${action.key}`}
-            className="input action-args"
-            value={argsValue}
-            onChange={(e) => props.onArgsChange(action.key, e.target.value)}
-            placeholder="args (space-separated)"
-            spellCheck={false}
-          />
+          {hasParams ? (
+            <ActionForm
+              params={params}
+              checkpoints={checkpoints}
+              onArgs={(args) => props.onFormArgs(action.key, args)}
+            />
+          ) : (
+            <>
+              <label className="action-options-label muted mono" htmlFor={`args-${action.key}`}>
+                arguments
+              </label>
+              <input
+                id={`args-${action.key}`}
+                className="input action-args"
+                value={argsValue}
+                onChange={(e) => props.onArgsChange(action.key, e.target.value)}
+                placeholder="args (space-separated)"
+                spellCheck={false}
+              />
+            </>
+          )}
         </div>
       )}
     </div>
@@ -172,6 +187,9 @@ function ActionCard(props: ActionCardProps): JSX.Element {
 export default function ActionsPanel({ onRan, trainingAlive }: ActionsPanelProps): JSX.Element {
   const [actions, setActions] = useState<ActionDef[]>([]);
   const [args, setArgs] = useState<Record<string, string>>({});
+  // Per-action arg vectors built by ActionForm (only for actions with params).
+  const [formArgs, setFormArgs] = useState<Record<string, string[]>>({});
+  const [checkpoints, setCheckpoints] = useState<string[]>([]);
   const [states, setStates] = useState<Record<string, RunState>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -195,8 +213,30 @@ export default function ActionsPanel({ onRan, trainingAlive }: ActionsPanelProps
     };
   }, []);
 
+  // Fetch checkpoint paths so checkpoint-typed params render a picker.
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const status = await getStatus();
+        if (!active) return;
+        setCheckpoints(status.checkpoints.map((c: Checkpoint) => c.path));
+      } catch {
+        // Non-fatal: checkpoint params fall back to a text input.
+        if (active) setCheckpoints([]);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const onArgsChange = useCallback((key: string, value: string) => {
     setArgs((prev) => ({ ...prev, [key]: value }));
+  }, []);
+
+  const onFormArgs = useCallback((key: string, builtArgs: string[]) => {
+    setFormArgs((prev) => ({ ...prev, [key]: builtArgs }));
   }, []);
 
   const onToggleOptions = useCallback((key: string) => {
@@ -218,8 +258,16 @@ export default function ActionsPanel({ onRan, trainingAlive }: ActionsPanelProps
       }
       setState(key, { kind: 'running' });
       try {
-        const raw = (args[key] ?? '').trim();
-        const job = await runAction(key, raw ? raw.split(/\s+/) : []);
+        // Param-driven actions use the typed form's built arg vector; legacy
+        // actions (no params) fall back to the raw space-separated text input.
+        const hasParams = (action.params ?? []).length > 0;
+        const runArgs = hasParams
+          ? (formArgs[key] ?? [])
+          : (() => {
+              const raw = (args[key] ?? '').trim();
+              return raw ? raw.split(/\s+/) : [];
+            })();
+        const job = await runAction(key, runArgs);
         setState(key, { kind: 'launched', job });
         onRan();
       } catch (e) {
@@ -230,7 +278,7 @@ export default function ActionsPanel({ onRan, trainingAlive }: ActionsPanelProps
         });
       }
     },
-    [args, onRan, trainingAlive, setState],
+    [args, formArgs, onRan, trainingAlive, setState],
   );
 
   // Bucket actions into ordered categories, preserving backend order within each.
@@ -262,11 +310,13 @@ export default function ActionsPanel({ onRan, trainingAlive }: ActionsPanelProps
                     key={a.key}
                     action={a}
                     trainingAlive={trainingAlive}
+                    checkpoints={checkpoints}
                     argsValue={args[a.key] ?? ''}
                     state={states[a.key] ?? { kind: 'idle' }}
                     expanded={expanded[a.key] === true}
                     onToggleOptions={onToggleOptions}
                     onArgsChange={onArgsChange}
+                    onFormArgs={onFormArgs}
                     onRun={(act) => void onRun(act)}
                   />
                 ))}

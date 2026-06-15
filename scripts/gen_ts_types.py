@@ -57,6 +57,7 @@ _MODEL_ORDER: list[str] = [
     "StatusResponse",
     "Dataset",
     "Job",
+    "ActionParam",
     "ActionDef",
     "JobLogChunk",
     "SftFile",

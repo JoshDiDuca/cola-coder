@@ -1,0 +1,337 @@
+"""1:1 argparse → :class:`ActionParam` specs for every UI-launchable action.
+
+This is the single source of truth that mirrors each script's ``argparse``
+definition into a typed form spec the web UI renders (config dropdown, checkpoint
+picker, number/float inputs, flag checkboxes, choice selects) instead of a raw
+``--flag value`` text box. Keep it 1:1 with the scripts: when a script gains or
+changes an argument, update the matching entry here.
+
+The raw dicts below are validated into ``ActionParam`` instances at import time so
+a malformed spec fails fast (rather than surfacing as a runtime 500 from the
+``/api/actions`` endpoint). ``app.py`` merges ``ACTION_PARAMS`` into each
+``ActionDef`` it returns.
+
+Keys match ``app.ACTIONS`` keys exactly. A few forward-looking entries
+(``train``, ``auto_pipeline``) are included for the one-click pipeline launcher
+(R4) even though they are not yet in ``ACTIONS``; unused keys are harmless.
+"""
+
+from __future__ import annotations
+
+from cola_coder.ui.schemas import ActionParam
+
+# Raw 1:1 argparse specs, keyed by action. Each value is a list of dicts that
+# validate into ``ActionParam``. ``flag=""`` denotes a positional argument.
+_RAW_PARAMS: dict[str, list[dict]] = {
+    # ── Data ───────────────────────────────────────────────────────────────
+    "prepare_data": [
+        {"name": "config", "flag": "--config", "label": "Config", "type": "config", "default": None, "required": False, "help": "Path to YAML config file (used to read data/language settings)."},
+        {"name": "tokenizer", "flag": "--tokenizer", "label": "Tokenizer", "type": "path", "default": None, "required": False, "help": "Path to tokenizer.json (auto-resolved from data sources config if omitted)."},
+        {"name": "max_tokens", "flag": "--max-tokens", "label": "Max tokens", "type": "int", "default": None, "required": False, "help": "Maximum number of tokens to process (default: no limit)."},
+        {"name": "output_dir", "flag": "--output-dir", "label": "Output dir", "type": "path", "default": None, "required": False, "help": "Output directory for processed data (default: per-dataset dir from DatasetResolver)."},
+        {"name": "output_name", "flag": "--output-name", "label": "Output name", "type": "string", "default": None, "required": False, "help": "Output filename (without .npy). If not set, interactive chooser is shown."},
+        {"name": "workers", "flag": "--workers", "label": "Workers", "type": "int", "default": None, "required": False, "help": "Number of parallel workers for quality filtering. Default: all CPU cores (up to 16). Use 1 for sequential."},
+        {"name": "batch_size", "flag": "--batch-size", "label": "Batch size", "type": "int", "default": "256", "required": False, "help": "Number of files to tokenize at once (default: 256). Higher = faster but more memory."},
+        {"name": "stream", "flag": "--stream", "label": "Stream", "type": "bool", "default": "false", "required": False, "help": "Use slow HTTP streaming instead of bulk download."},
+        {"name": "languages", "flag": "--languages", "label": "Languages", "type": "string", "default": None, "required": False, "help": "Override languages (e.g. typescript javascript). Space-separated. Also makes the filter language-aware."},
+        {"name": "score", "flag": "--score", "label": "Score quality", "type": "bool", "default": "false", "required": False, "help": "Compute quality scores per chunk and save .weights.npy sidecar (quality-weighted training)."},
+        {"name": "dedup", "flag": "--dedup", "label": "Dedup", "type": "choice", "default": "exact", "choices": ["none", "exact", "minhash", "semantic"], "required": False, "help": "Deduplication of tokenized chunks, applied after tokenization and before scoring."},
+        {"name": "dedup_threshold", "flag": "--dedup-threshold", "label": "Dedup threshold", "type": "float", "default": "0.8", "required": False, "help": "Jaccard similarity threshold for --dedup minhash (default: 0.8)."},
+        {"name": "semantic_threshold", "flag": "--semantic-threshold", "label": "Semantic threshold", "type": "float", "default": "0.9", "required": False, "help": "Cosine similarity threshold for --dedup semantic (default: 0.9)."},
+        {"name": "semantic_clusters", "flag": "--semantic-clusters", "label": "Semantic clusters", "type": "int", "default": "1000", "required": False, "help": "Number of SemDeDup clusters for --dedup semantic (default: 1000)."},
+        {"name": "no_dedup", "flag": "--no-dedup", "label": "No dedup", "type": "bool", "default": "false", "required": False, "help": "Shortcut for --dedup none (keep all chunks, including exact duplicates)."},
+        {"name": "no_filter", "flag": "--no-filter", "label": "No filter", "type": "bool", "default": "false", "required": False, "help": "Disable quality filtering (use raw data as-is). Mutually exclusive with --filter-strict."},
+        {"name": "filter_strict", "flag": "--filter-strict", "label": "Strict filter", "type": "bool", "default": "false", "required": False, "help": "Use strict quality filtering (rejection rate 60-75%). Mutually exclusive with --no-filter."},
+    ],
+    "collect_data": [
+        {"name": "config", "flag": "--config", "label": "Config", "type": "config", "default": None, "required": True, "help": "Model config YAML path."},
+        {"name": "data_sources", "flag": "--data-sources", "label": "Data sources YAML", "type": "path", "default": "configs/data_sources.yaml", "required": False, "help": "Data sources config (default: configs/data_sources.yaml)."},
+        {"name": "sources", "flag": "--sources", "label": "Sources", "type": "string", "default": None, "required": False, "help": "Comma-separated sources to collect: code,text,math (default: all enabled)."},
+        {"name": "max_samples", "flag": "--max-samples", "label": "Max samples", "type": "int", "default": None, "required": False, "help": "Max samples per source (for testing)."},
+        {"name": "output_dir", "flag": "--output-dir", "label": "Output dir", "type": "path", "default": None, "required": False, "help": "Output directory for .npy files (default: auto-resolved from DatasetResolver)."},
+        {"name": "tokenizer", "flag": "--tokenizer", "label": "Tokenizer", "type": "path", "default": None, "required": False, "help": "Tokenizer path override."},
+        {"name": "no_combine", "flag": "--no-combine", "label": "No combine", "type": "bool", "default": "false", "required": False, "help": "Skip combining step."},
+        {"name": "filter", "flag": "--filter", "label": "Filter", "type": "choice", "default": None, "choices": ["conservative", "strict", "off"], "required": False, "help": "Quality filter for the CODE source before tokenization. Default: read data_sources.yaml code.filter, else 'conservative'."},
+        {"name": "dedup", "flag": "--dedup", "label": "Dedup", "type": "choice", "default": "exact", "choices": ["none", "exact", "minhash"], "required": False, "help": "Per-source chunk dedup after tokenization."},
+        {"name": "score", "flag": "--score", "label": "Score quality", "type": "bool", "default": "false", "required": False, "help": "Score the CODE source's chunks into an aligned .weights.npy and carry weights through the mix."},
+    ],
+    "score_data": [
+        {"name": "data", "flag": "--data", "label": "Data (.npy)", "type": "path", "default": None, "required": False, "help": "Path to .npy data file."},
+        {"name": "jsonl", "flag": "--jsonl", "label": "JSONL", "type": "path", "default": None, "required": False, "help": "Path to JSONL file (GitHub scraped)."},
+        {"name": "tokenizer", "flag": "--tokenizer", "label": "Tokenizer", "type": "path", "default": None, "required": False, "help": "Path to tokenizer.json (required for .npy)."},
+        {"name": "scorers", "flag": "--scorers", "label": "Scorers", "type": "string", "default": None, "required": False, "help": "Comma-separated scorer names (default: all enabled)."},
+        {"name": "config", "flag": "--config", "label": "Scoring config", "type": "config", "default": "configs/scoring.yaml", "required": False, "help": "Scoring config path."},
+        {"name": "curriculum", "flag": "--curriculum", "label": "Curriculum", "type": "string", "default": None, "required": False, "help": "Curriculum strategy: easy_to_hard, hard_to_easy, staged, random, folding."},
+        {"name": "curriculum_folds", "flag": "--curriculum-folds", "label": "Curriculum folds", "type": "int", "default": None, "required": False, "help": "Folds (L) for --curriculum folding (default 4)."},
+        {"name": "max_samples", "flag": "--max-samples", "label": "Max samples", "type": "int", "default": None, "required": False, "help": "Max samples to score (for testing)."},
+        {"name": "sample_size", "flag": "--sample-size", "label": "Sample size", "type": "int", "default": "10000", "required": False, "help": "Sample size for subprocess scorers on large datasets."},
+    ],
+    "combine_datasets": [
+        {"name": "config", "flag": "--config", "label": "Config", "type": "config", "default": None, "required": False, "help": "Model config YAML. When given, resolves --data-dir via DatasetResolver."},
+        {"name": "data_dir", "flag": "--data-dir", "label": "Data dir", "type": "path", "default": None, "required": False, "help": "Directory containing .npy dataset files (default: per-dataset dir from DatasetResolver)."},
+        {"name": "tokenizer", "flag": "--tokenizer", "label": "Tokenizer", "type": "path", "default": None, "required": False, "help": "Path to tokenizer.json (optional, for MinHash text decoding)."},
+        {"name": "output", "flag": "--output", "label": "Output", "type": "path", "default": None, "required": False, "help": "Output path for combined dataset (default: auto-generated)."},
+        {"name": "datasets", "flag": "--datasets", "label": "Datasets (PATH[:WEIGHT])", "type": "string", "default": None, "required": False, "help": "Non-interactive weighted mix. Space-separated paths, each optionally :weight (e.g. data/code.npy:0.8 data/docs.npy:0.2). REQUIRED for a background job (bypasses the interactive TUI)."},
+    ],
+    "data_stats": [
+        {"name": "data", "flag": "--data", "label": "Data (.npy)", "type": "path", "default": None, "required": False, "help": "Path to train_data.npy (auto-discovered if omitted)."},
+        {"name": "weights", "flag": "--weights", "label": "Weights (.npy)", "type": "path", "default": None, "required": False, "help": "Path to weights.npy sidecar (auto-discovered if omitted)."},
+        {"name": "no_unique", "flag": "--no-unique", "label": "Skip unique estimate", "type": "bool", "default": "false", "required": False, "help": "Skip (slow) unique-token estimation."},
+    ],
+    "generate_instructions": [
+        {"name": "non_interactive", "flag": "--non-interactive", "label": "Non-interactive", "type": "bool", "default": "true", "required": False, "help": "Run without interactive menus (use CLI flags instead). REQUIRED for background jobs."},
+        {"name": "source", "flag": "--source", "label": "Source", "type": "choice", "default": None, "choices": ["local", "huggingface", "demo"], "required": False, "help": "Raw code source (defaults to 'demo' in non-interactive mode if unset)."},
+        {"name": "paths", "flag": "--paths", "label": "Local paths", "type": "string", "default": None, "required": False, "help": "Local directory paths (for --source local). Space-separated."},
+        {"name": "dataset", "flag": "--dataset", "label": "HF dataset", "type": "string", "default": None, "required": False, "help": "HF dataset name (for --source huggingface)."},
+        {"name": "mode", "flag": "--mode", "label": "Mode", "type": "choice", "default": "template", "choices": ["template", "llm", "self"], "required": False, "help": "Generation mode (default: template)."},
+        {"name": "count", "flag": "--count", "label": "Count", "type": "int", "default": "1000", "required": False, "help": "Number of examples to generate (default: 1000)."},
+        {"name": "languages", "flag": "--languages", "label": "Languages", "type": "string", "default": "typescript", "required": False, "help": "Programming language(s). Space-separated. Example: typescript python. Default: typescript."},
+        {"name": "min_quality", "flag": "--min-quality", "label": "Min quality", "type": "float", "default": "0.5", "required": False, "help": "Minimum quality score (default: 0.5)."},
+        {"name": "output", "flag": "--output", "label": "Output", "type": "path", "default": None, "required": False, "help": "Output JSONL path (default: <data_dir>/processed/instructions.jsonl)."},
+    ],
+
+    # ── Evaluation ───────────────────────────────────────────────────────────
+    "evaluate": [
+        {"name": "checkpoint", "flag": "--checkpoint", "label": "Checkpoint", "type": "checkpoint", "default": None, "required": False, "help": "Path to checkpoint directory (auto-detected if omitted)."},
+        {"name": "config", "flag": "--config", "label": "Config", "type": "config", "default": None, "required": False, "help": "Path to YAML config file (auto-detected from checkpoint metadata if omitted)."},
+        {"name": "tokenizer", "flag": "--tokenizer", "label": "Tokenizer", "type": "path", "default": None, "required": False, "help": "Path to tokenizer.json (auto-resolved if omitted)."},
+        {"name": "num_samples", "flag": "--num-samples", "label": "Samples/problem", "type": "int", "default": "1", "required": False, "help": "Number of solutions to generate per problem (default: 1)."},
+        {"name": "temperature", "flag": "--temperature", "label": "Temperature", "type": "float", "default": "0.2", "required": False, "help": "Sampling temperature for evaluation (default: 0.2)."},
+        {"name": "no_bootstrap", "flag": "--no-bootstrap", "label": "No bootstrap CI", "type": "bool", "default": "false", "required": False, "help": "Disable bootstrap confidence intervals on pass@k (shown by default)."},
+        {"name": "ci", "flag": "--ci", "label": "CI level", "type": "float", "default": "0.95", "required": False, "help": "Confidence level for the bootstrap pass@k interval (default: 0.95)."},
+    ],
+    "smoke_test": [
+        {"name": "checkpoint", "flag": "--checkpoint", "label": "Checkpoint", "type": "checkpoint", "default": None, "required": False, "help": "Path to checkpoint directory (auto-detected if omitted)."},
+        {"name": "config", "flag": "--config", "label": "Config", "type": "config", "default": None, "required": False, "help": "Path to YAML config (auto-detected from checkpoint if omitted)."},
+        {"name": "tokenizer", "flag": "--tokenizer", "label": "Tokenizer", "type": "path", "default": None, "required": False, "help": "Path to tokenizer.json (default: storage tokenizer_path / tokenizer.json)."},
+        {"name": "json", "flag": "--json", "label": "JSON output", "type": "bool", "default": "false", "required": False, "help": "Print machine-readable JSON instead of pretty output."},
+        {"name": "quick", "flag": "--quick", "label": "Quick (3 tests)", "type": "bool", "default": "false", "required": False, "help": "Run only the 3 fastest tests (generates_tokens, repetition, code_keywords)."},
+        {"name": "device", "flag": "--device", "label": "Device", "type": "string", "default": None, "required": False, "help": "Device override: 'cuda' or 'cpu' (auto-detected by default)."},
+    ],
+    "quality_report": [
+        {"name": "checkpoint", "flag": "--checkpoint", "label": "Checkpoint", "type": "checkpoint", "default": None, "required": False, "help": "Path to checkpoint directory (auto-detected if omitted)."},
+        {"name": "config", "flag": "--config", "label": "Config", "type": "config", "default": None, "required": False, "help": "Path to YAML config file. Auto-detected if omitted."},
+        {"name": "output", "flag": "--output", "label": "Output dir", "type": "path", "default": "reports/", "required": False, "help": "Output directory for the report files (default: reports/)."},
+        {"name": "eval", "flag": "--eval", "label": "Run HumanEval", "type": "bool", "default": "false", "required": False, "help": "Run HumanEval subset and include pass@1 in the report."},
+        {"name": "num_samples", "flag": "--num-samples", "label": "Sample count", "type": "int", "default": "5", "required": False, "help": "Number of standard-prompt samples to generate (default: 5)."},
+        {"name": "device", "flag": "--device", "label": "Device", "type": "string", "default": None, "required": False, "help": "Device override: 'cuda' or 'cpu' (auto-detected by default)."},
+        {"name": "no_save", "flag": "--no-save", "label": "No save", "type": "bool", "default": "false", "required": False, "help": "Print the report but don't save files."},
+    ],
+    "safety_eval": [
+        {"name": "checkpoint", "flag": "--checkpoint", "label": "Checkpoint", "type": "checkpoint", "default": None, "required": True, "help": "Checkpoint directory."},
+        {"name": "config", "flag": "--config", "label": "Config", "type": "config", "default": None, "required": True, "help": "Model config YAML."},
+        {"name": "tokenizer", "flag": "--tokenizer", "label": "Tokenizer", "type": "path", "default": None, "required": False, "help": "Tokenizer path override."},
+        {"name": "suite", "flag": "--suite", "label": "Suite", "type": "choice", "default": "basic", "choices": ["all", "basic", "cwe", "extended", "injection", "license", "pii"], "required": False, "help": "Prompt suite (default: basic)."},
+        {"name": "max_tokens", "flag": "--max-tokens", "label": "Max tokens", "type": "int", "default": "160", "required": False, "help": "Max new tokens per completion (default: 160)."},
+        {"name": "temperature", "flag": "--temperature", "label": "Temperature", "type": "float", "default": "0.6", "required": False, "help": "Sampling temperature (default: 0.6)."},
+    ],
+    "completion_benchmark": [
+        {"name": "checkpoint", "flag": "--checkpoint", "label": "Checkpoint", "type": "checkpoint", "default": None, "required": True, "help": "Checkpoint directory."},
+        {"name": "config", "flag": "--config", "label": "Config", "type": "config", "default": None, "required": True, "help": "Model config YAML."},
+        {"name": "tokenizer", "flag": "--tokenizer", "label": "Tokenizer", "type": "path", "default": None, "required": False, "help": "Tokenizer path override."},
+        {"name": "difficulty", "flag": "--difficulty", "label": "Difficulty", "type": "choice", "default": None, "choices": ["easy", "medium", "hard"], "required": False, "help": "Only run problems of this difficulty (default: all)."},
+        {"name": "max_tokens", "flag": "--max-tokens", "label": "Max tokens", "type": "int", "default": "128", "required": False, "help": "Max new tokens per completion (default: 128)."},
+        {"name": "temperature", "flag": "--temperature", "label": "Temperature", "type": "float", "default": "0.2", "required": False, "help": "Sampling temperature (default: 0.2)."},
+    ],
+    "benchmark": [
+        {"name": "checkpoint", "flag": "--checkpoint", "label": "Checkpoint", "type": "checkpoint", "default": None, "required": False, "help": "Path to a checkpoint directory. Default: auto-detect latest."},
+        {"name": "config", "flag": "--config", "label": "Config", "type": "config", "default": None, "required": False, "help": "Path to a YAML config file. Default: auto-detect from checkpoint."},
+        {"name": "tokenizer", "flag": "--tokenizer", "label": "Tokenizer", "type": "path", "default": None, "required": False, "help": "Path to tokenizer.json. Default: tokenizer.json in project root."},
+        {"name": "max_tokens", "flag": "--max-tokens", "label": "Max tokens", "type": "int", "default": "128", "required": False, "help": "Maximum new tokens to generate per prompt (default: 128)."},
+        {"name": "temperature", "flag": "--temperature", "label": "Temperature", "type": "float", "default": "0.3", "required": False, "help": "Sampling temperature (default: 0.3)."},
+    ],
+    "regression_test": [
+        {"name": "checkpoint", "flag": "--checkpoint", "label": "Checkpoint", "type": "checkpoint", "default": None, "required": False, "help": "Path to checkpoint directory (auto-detected if omitted)."},
+        {"name": "config", "flag": "--config", "label": "Config", "type": "config", "default": None, "required": False, "help": "Path to YAML config file."},
+        {"name": "tokenizer", "flag": "--tokenizer", "label": "Tokenizer", "type": "path", "default": None, "required": False, "help": "Path to tokenizer.json (auto-resolved if omitted)."},
+        {"name": "save", "flag": "--save", "label": "Save JSON", "type": "path", "default": None, "required": False, "help": "Save regression results to this JSON file for future comparison."},
+        {"name": "compare", "flag": "--compare", "label": "Compare A B", "type": "string", "default": None, "required": False, "help": "Compare two saved regression result JSON files instead of running a model (2 paths, space-separated)."},
+        {"name": "max_new_tokens", "flag": "--max-new-tokens", "label": "Max new tokens", "type": "int", "default": "128", "required": False, "help": "Max tokens to generate per baseline (default: 128)."},
+        {"name": "temperature", "flag": "--temperature", "label": "Temperature", "type": "float", "default": "0.2", "required": False, "help": "Sampling temperature (default: 0.2)."},
+    ],
+    "ts_benchmark": [
+        {"name": "checkpoint", "flag": "--checkpoint", "label": "Checkpoint", "type": "checkpoint", "default": None, "required": False, "help": "Path to checkpoint directory (auto-detected if omitted)."},
+        {"name": "config", "flag": "--config", "label": "Config", "type": "config", "default": None, "required": False, "help": "Path to YAML config file (auto-detected from checkpoint if omitted)."},
+        {"name": "tokenizer", "flag": "--tokenizer", "label": "Tokenizer", "type": "path", "default": None, "required": False, "help": "Path to tokenizer.json (auto-resolved if omitted)."},
+        {"name": "category", "flag": "--category", "label": "Category", "type": "string", "default": None, "required": False, "help": "Comma-separated categories (e.g. 'types,react'). Valid: basics, types, react, nextjs, prisma, zod, testing."},
+        {"name": "num_samples", "flag": "--num-samples", "label": "Samples/problem", "type": "int", "default": "1", "required": False, "help": "Number of samples to generate per problem (default: 1)."},
+        {"name": "temperature", "flag": "--temperature", "label": "Temperature", "type": "float", "default": "0.2", "required": False, "help": "Sampling temperature (default: 0.2)."},
+        {"name": "json", "flag": "--json", "label": "JSON output", "type": "bool", "default": "false", "required": False, "help": "Print results as JSON instead of human-readable table."},
+    ],
+    "depth_profile": [
+        {"name": "checkpoint", "flag": "--checkpoint", "label": "Checkpoint", "type": "checkpoint", "default": None, "required": True, "help": "Checkpoint directory."},
+        {"name": "config", "flag": "--config", "label": "Config", "type": "config", "default": None, "required": True, "help": "Model config YAML."},
+        {"name": "tokenizer", "flag": "--tokenizer", "label": "Tokenizer", "type": "path", "default": None, "required": False, "help": "Tokenizer path override."},
+        {"name": "problems", "flag": "--problems", "label": "Problem set", "type": "choice", "default": "builtin", "choices": ["builtin", "extended", "all"], "required": False, "help": "Problem set whose prompts are profiled (default: builtin)."},
+        {"name": "mode", "flag": "--mode", "label": "Mode", "type": "choice", "default": "argmax", "choices": ["argmax", "entropy"], "required": False, "help": "Convergence criterion: argmax-match or entropy<=tau (default: argmax)."},
+        {"name": "tau", "flag": "--tau", "label": "Tau", "type": "float", "default": "0.5", "required": False, "help": "Entropy threshold in nats (entropy mode only; default: 0.5)."},
+        {"name": "max_prompts", "flag": "--max-prompts", "label": "Max prompts", "type": "int", "default": "8", "required": False, "help": "How many prompts to profile (default: 8)."},
+        {"name": "max_tokens", "flag": "--max-tokens", "label": "Max tokens", "type": "int", "default": "256", "required": False, "help": "Truncate each prompt to this many tokens (default: 256)."},
+        {"name": "by_difficulty", "flag": "--by-difficulty", "label": "By difficulty", "type": "bool", "default": "false", "required": False, "help": "Stratify exit depth by each problem's difficulty tier."},
+        {"name": "json", "flag": "--json", "label": "JSON output", "type": "bool", "default": "false", "required": False, "help": "Emit a JSON report."},
+    ],
+    "robustness_eval": [
+        {"name": "checkpoint", "flag": "--checkpoint", "label": "Checkpoint", "type": "checkpoint", "default": None, "required": True, "help": "Checkpoint directory."},
+        {"name": "config", "flag": "--config", "label": "Config", "type": "config", "default": None, "required": True, "help": "Model config YAML."},
+        {"name": "tokenizer", "flag": "--tokenizer", "label": "Tokenizer", "type": "path", "default": None, "required": False, "help": "Tokenizer path override."},
+        {"name": "problems", "flag": "--problems", "label": "Problem set", "type": "choice", "default": "builtin", "choices": ["builtin", "extended", "all"], "required": False, "help": "Problem set (default: builtin)."},
+        {"name": "kinds", "flag": "--kinds", "label": "Perturbation kinds", "type": "string", "default": None, "required": False, "help": "Comma-separated perturbation kinds (default: all, resolved at runtime)."},
+        {"name": "max_tokens", "flag": "--max-tokens", "label": "Max tokens", "type": "int", "default": "256", "required": False, "help": "Max new tokens per generation (default: 256)."},
+        {"name": "temperature", "flag": "--temperature", "label": "Temperature", "type": "float", "default": "0.2", "required": False, "help": "Sampling temperature (default: 0.2)."},
+        {"name": "ci", "flag": "--ci", "label": "Bootstrap CI", "type": "bool", "default": "false", "required": False, "help": "Attach a bootstrap confidence interval to robust_pass@1."},
+        {"name": "by_difficulty", "flag": "--by-difficulty", "label": "By difficulty", "type": "bool", "default": "false", "required": False, "help": "Stratify robust_pass@1 by each problem's difficulty tier."},
+    ],
+    "generate_rft": [
+        {"name": "checkpoint", "flag": "--checkpoint", "label": "Checkpoint", "type": "checkpoint", "default": None, "required": True, "help": "Checkpoint dir or 'latest'."},
+        {"name": "config", "flag": "--config", "label": "Config", "type": "config", "default": "configs/small.yaml", "required": False, "help": "Model config YAML (default: configs/small.yaml)."},
+        {"name": "tokenizer", "flag": "--tokenizer", "label": "Tokenizer", "type": "path", "default": None, "required": False, "help": "Tokenizer path (auto-resolved if omitted)."},
+        {"name": "jsonl", "flag": "--jsonl", "label": "Prompts JSONL", "type": "path", "default": None, "required": False, "help": "Prompts JSONL (default: built-in problems)."},
+        {"name": "output", "flag": "--output", "label": "Output", "type": "path", "default": "data/sft/rft.jsonl", "required": False, "help": "Output JSONL path (default: data/sft/rft.jsonl)."},
+        {"name": "num_candidates", "flag": "--num-candidates", "label": "Candidates/prompt", "type": "int", "default": "4", "required": False, "help": "Best-of-N candidates per prompt (default: 4)."},
+        {"name": "language", "flag": "--language", "label": "Language", "type": "choice", "default": "auto", "choices": ["auto", "python", "typescript"], "required": False, "help": "Language for verification (default: auto)."},
+        {"name": "temperature", "flag": "--temperature", "label": "Temperature", "type": "float", "default": "0.8", "required": False, "help": "Sampling temperature (default: 0.8)."},
+        {"name": "max_new_tokens", "flag": "--max-new-tokens", "label": "Max new tokens", "type": "int", "default": "256", "required": False, "help": "Max new tokens per candidate (default: 256)."},
+        {"name": "max_prompts", "flag": "--max-prompts", "label": "Max prompts", "type": "int", "default": None, "required": False, "help": "Limit number of prompts (default: all)."},
+        {"name": "keep_all", "flag": "--keep-all", "label": "Keep all", "type": "bool", "default": "false", "required": False, "help": "Keep the best candidate even if it failed verification (default: drop)."},
+    ],
+
+    # ── Tools / utilities ────────────────────────────────────────────────────
+    "tokenizer_health": [
+        {"name": "tokenizer", "flag": "--tokenizer", "label": "Tokenizer", "type": "path", "default": "tokenizer.json", "required": False, "help": "Path to tokenizer.json (default: tokenizer.json)."},
+        {"name": "expected_vocab", "flag": "--expected-vocab", "label": "Expected vocab", "type": "int", "default": None, "required": False, "help": "Expected vocabulary size (optional, for strict check)."},
+    ],
+    "project_health": [
+        {"name": "skip", "flag": "--skip", "label": "Skip checks", "type": "choice", "default": None, "choices": ["help", "features", "tests", "ruff", "checkpoint"], "required": False, "help": "Checks to skip (multi-select; default: none)."},
+        {"name": "json", "flag": "--json", "label": "JSON output", "type": "bool", "default": "false", "required": False, "help": "Print JSON report."},
+        {"name": "output", "flag": "--output", "label": "Output file", "type": "path", "default": None, "required": False, "help": "Save JSON to file."},
+    ],
+    "vram_estimate": [
+        {"name": "config", "flag": "--config", "label": "Config", "type": "config", "default": None, "required": True, "help": "Path to YAML config file."},
+    ],
+    "env_check": [
+        {"name": "no_internet", "flag": "--no-internet", "label": "Skip internet check", "type": "bool", "default": "false", "required": False, "help": "Skip internet connectivity check."},
+    ],
+
+    # ── Training / export ──────────────────────────────────────────────────
+    "train": [
+        {"name": "config", "flag": "--config", "label": "Config", "type": "config", "default": None, "required": True, "help": "Path to YAML config file (required)."},
+        {"name": "data", "flag": "--data", "label": "Data (.npy)", "type": "path", "default": None, "required": False, "help": "Path to preprocessed training data .npy file. If not set, scans ./data/processed/ and lets you choose."},
+        {"name": "resume", "flag": "--resume", "label": "Resume from", "type": "checkpoint", "default": None, "required": False, "help": "Path to checkpoint directory, or 'latest' to auto-detect."},
+        {"name": "auto_resume", "flag": "--auto-resume", "label": "Auto-resume", "type": "bool", "default": "false", "required": False, "help": "Auto-detect and resume from the latest checkpoint."},
+        {"name": "wandb", "flag": "--wandb", "label": "wandb logging", "type": "bool", "default": "false", "required": False, "help": "Enable Weights & Biases logging."},
+        {"name": "auto_eval", "flag": "--auto-eval", "label": "Auto-eval during training", "type": "bool", "default": "false", "required": False, "help": "Run a small HumanEval pass@k check every --eval-every steps during training (regression detection; best model saved to <ckpt>/best). Best-effort — failures warn and never crash training."},
+        {"name": "eval_every", "flag": "--eval-every", "label": "Eval every (steps)", "type": "int", "default": "5000", "required": False, "help": "Steps between auto-eval runs (only used with --auto-eval)."},
+        {"name": "eval_subset", "flag": "--eval-subset", "label": "Eval subset size", "type": "int", "default": "20", "required": False, "help": "HumanEval problems sampled per auto-eval run (only with --auto-eval)."},
+    ],
+    "train_sft": [
+        {"name": "data", "flag": "--data", "label": "SFT data (JSONL)", "type": "path", "default": None, "required": True, "help": "Path to the SFT JSONL training file."},
+        {"name": "config", "flag": "--config", "label": "Config", "type": "config", "default": None, "required": True, "help": "Path to model config YAML (e.g. configs/small.yaml)."},
+        {"name": "checkpoint", "flag": "--checkpoint", "label": "Base checkpoint", "type": "checkpoint", "default": None, "required": True, "help": "Path to pre-trained checkpoint directory to fine-tune."},
+        {"name": "output", "flag": "--output", "label": "Output dir", "type": "path", "default": None, "required": False, "help": "Output checkpoint directory. Defaults to checkpoints/<size>_sft/ derived from config."},
+        {"name": "epochs", "flag": "--epochs", "label": "Epochs", "type": "int", "default": "3", "required": False, "help": "Number of fine-tuning epochs (default: 3)."},
+        {"name": "lr", "flag": "--lr", "label": "Learning rate", "type": "float", "default": "2e-5", "required": False, "help": "Learning rate (default: 2e-5)."},
+        {"name": "batch_size", "flag": "--batch-size", "label": "Batch size", "type": "int", "default": "4", "required": False, "help": "Micro batch size (default: 4)."},
+        {"name": "gradient_accumulation", "flag": "--gradient-accumulation", "label": "Gradient accumulation", "type": "int", "default": "4", "required": False, "help": "Gradient accumulation steps (default: 4)."},
+        {"name": "warmup_ratio", "flag": "--warmup-ratio", "label": "Warmup ratio", "type": "float", "default": "0.1", "required": False, "help": "Fraction of steps used for LR warmup (default: 0.1)."},
+        {"name": "weight_decay", "flag": "--weight-decay", "label": "Weight decay", "type": "float", "default": "0.01", "required": False, "help": "Weight decay (default: 0.01 — standard SFT value, lower than pretraining to limit drift from the base model)."},
+        {"name": "max_seq_len", "flag": "--max-seq-len", "label": "Max seq len", "type": "int", "default": None, "required": False, "help": "Max sequence length (default: from config)."},
+        {"name": "wandb", "flag": "--wandb", "label": "wandb logging", "type": "bool", "default": "false", "required": False, "help": "Log metrics to Weights & Biases."},
+    ],
+    "train_reasoning": [
+        {"name": "config", "flag": "--config", "label": "Config", "type": "config", "default": "configs/reasoning.yaml", "required": False, "help": "Path to reasoning YAML config file (default: configs/reasoning.yaml)."},
+        {"name": "base_checkpoint", "flag": "--base-checkpoint", "label": "Base checkpoint", "type": "checkpoint", "default": None, "required": False, "help": "Path to base model checkpoint directory (default: reasoning.base_checkpoint from config)."},
+        {"name": "tokenizer", "flag": "--tokenizer", "label": "Tokenizer", "type": "path", "default": None, "required": False, "help": "Path to tokenizer.json (auto-resolved from data sources config if omitted)."},
+        {"name": "epochs", "flag": "--epochs", "label": "GRPO epochs", "type": "int", "default": "3", "required": False, "help": "Number of GRPO training epochs (default: 3)."},
+        {"name": "group_size", "flag": "--group-size", "label": "Group size", "type": "int", "default": None, "required": False, "help": "Number of solutions to generate per problem per step (default: reasoning.group_size from config, or 8)."},
+        {"name": "advantage_norm", "flag": "--advantage-norm", "label": "Advantage norm", "type": "choice", "default": None, "choices": ["std", "mean"], "required": False, "help": "Advantage normalization: 'std' (original GRPO) or 'mean' (Dr. GRPO). Default: reasoning.advantage_norm from config, or 'std'."},
+        {"name": "clip_epsilon_high", "flag": "--clip-epsilon-high", "label": "Clip epsilon (high)", "type": "float", "default": None, "required": False, "help": "DAPO clip-higher: separate UPPER PPO clip bound (e.g. 0.28 with lower bound 0.2). Default: reasoning.clip_epsilon_high from config, or symmetric."},
+        {"name": "entropy_control", "flag": "--entropy-control", "label": "Entropy control", "type": "bool", "default": "false", "required": False, "help": "Enable the closed-loop entropy clip controller (IDEA-013). With --e2h, uses per-difficulty entropy floors. Off by default."},
+        {"name": "entropy_target", "flag": "--entropy-target", "label": "Entropy target (nats)", "type": "float", "default": "0.7", "required": False, "help": "Target policy-entropy floor (nats) for --entropy-control (default 0.7)."},
+        {"name": "e2h", "flag": "--e2h", "label": "Easy->Hard curriculum", "type": "bool", "default": "false", "required": False, "help": "Enable the verifier-effort Easy->Hard curriculum scheduler (MODEL-042). Off by default."},
+        {"name": "reward", "flag": "--reward", "label": "Reward function", "type": "choice", "default": None, "choices": ["python_exec", "python_partial", "typescript", "combined"], "required": False, "help": "Reward function to use during GRPO training (default: value from configs/reasoning.yaml, or 'python_exec')."},
+        {"name": "sft_warmup", "flag": "--sft-warmup", "label": "SFT warmup", "type": "bool", "default": None, "required": False, "help": "Run SFT warmup on CoT examples before GRPO (recommended). Overrides sft_warmup.enabled in config. Mutually exclusive with Skip SFT warmup."},
+        {"name": "no_sft_warmup", "flag": "--no-sft-warmup", "label": "Skip SFT warmup", "type": "bool", "default": "false", "required": False, "help": "Skip SFT warmup and go straight to GRPO training. Mutually exclusive with SFT warmup."},
+        {"name": "sft_epochs", "flag": "--sft-epochs", "label": "SFT warmup epochs", "type": "int", "default": None, "required": False, "help": "Number of SFT warmup epochs (default: from configs/reasoning.yaml or 5). Keep between 3-10."},
+        {"name": "sft_synthetic", "flag": "--sft-synthetic", "label": "Synthetic CoT examples", "type": "bool", "default": "false", "required": False, "help": "Generate synthetic CoT examples via self-play augmentation and include them in SFT warmup."},
+        {"name": "problems", "flag": "--problems", "label": "Problem set", "type": "choice", "default": None, "choices": ["builtin", "extended", "all", "curriculum", "jsonl"], "required": False, "help": "Problem set to use for training. Default: problem_set.source from config, or 'builtin'."},
+        {"name": "problems_jsonl", "flag": "--problems-jsonl", "label": "Problems JSONL", "type": "path", "default": None, "required": False, "help": "Path to a JSONL file of custom problems (required when --problems jsonl; default: problem_set.jsonl_path from config)."},
+        {"name": "max_problems", "flag": "--max-problems", "label": "Max problems", "type": "int", "default": None, "required": False, "help": "Cap the problem set to N problems selected randomly (0 = use all; default: problem_set.max_problems from config, or 0)."},
+        {"name": "problem_difficulty", "flag": "--problem-difficulty", "label": "Problem difficulty", "type": "choice", "default": None, "choices": ["all", "easy", "medium", "hard"], "required": False, "help": "Filter problems by difficulty before training (default: problem_set.difficulty from config, or 'all')."},
+        {"name": "language", "flag": "--language", "label": "Language", "type": "choice", "default": "python", "choices": ["python", "typescript"], "required": False, "help": "Language of the coding problems and CoT examples. Auto-selects --reward typescript when 'typescript' and reward not explicitly set."},
+    ],
+    "train_router": [
+        {"name": "data", "flag": "--data", "label": "Router data (JSONL)", "type": "path", "default": None, "required": False, "help": "Path to router training JSONL."},
+        {"name": "generate_data", "flag": "--generate-data", "label": "Generate data first", "type": "bool", "default": "false", "required": False, "help": "Generate training data first."},
+        {"name": "source", "flag": "--source", "label": "Source (.npy)", "type": "path", "default": None, "required": False, "help": "Source .npy file for data generation."},
+        {"name": "source_dir", "flag": "--source-dir", "label": "Source directory", "type": "path", "default": None, "required": False, "help": "Source directory for data generation."},
+        {"name": "arch", "flag": "--arch", "label": "Architecture", "type": "choice", "default": "mlp", "choices": ["mlp", "transformer"], "required": False, "help": "Router architecture (default: mlp)."},
+        {"name": "epochs", "flag": "--epochs", "label": "Epochs", "type": "int", "default": "20", "required": False, "help": "Training epochs."},
+        {"name": "lr", "flag": "--lr", "label": "Learning rate", "type": "float", "default": "1e-3", "required": False, "help": "Learning rate."},
+        {"name": "batch_size", "flag": "--batch-size", "label": "Batch size", "type": "int", "default": "64", "required": False, "help": "Batch size."},
+        {"name": "device", "flag": "--device", "label": "Device", "type": "string", "default": "cuda", "required": False, "help": "Device (default: cuda if available, else cpu)."},
+        {"name": "save_dir", "flag": "--save-dir", "label": "Save dir", "type": "path", "default": "checkpoints/router", "required": False, "help": "Output directory for the router checkpoint."},
+        {"name": "tokenizer", "flag": "--tokenizer", "label": "Tokenizer", "type": "path", "default": None, "required": False, "help": "Path to tokenizer.json (auto-resolved from data sources config if omitted)."},
+    ],
+    "upcycle_to_moe": [
+        {"name": "checkpoint", "flag": "--checkpoint", "label": "Dense checkpoint", "type": "checkpoint", "default": None, "required": True, "help": "Dense checkpoint path or 'latest' file."},
+        {"name": "config", "flag": "--config", "label": "Config", "type": "config", "default": None, "required": True, "help": "Model config YAML (e.g. configs/4080_max.yaml)."},
+        {"name": "num_experts", "flag": "--num-experts", "label": "Routed experts", "type": "int", "default": "8", "required": False, "help": "Number of routed experts per layer."},
+        {"name": "num_shared", "flag": "--num-shared", "label": "Shared experts", "type": "int", "default": "1", "required": False, "help": "Always-active shared experts (DeepSeek-MoE style)."},
+        {"name": "top_k", "flag": "--top-k", "label": "Top-k", "type": "int", "default": "2", "required": False, "help": "Routed experts activated per token."},
+        {"name": "noise_std", "flag": "--noise-std", "label": "Noise std", "type": "float", "default": "0.01", "required": False, "help": "Std of noise added to expert copies (fraction of weight std)."},
+        {"name": "output", "flag": "--output", "label": "Output dir", "type": "path", "default": "checkpoints/moe", "required": False, "help": "Output directory for MoE checkpoint."},
+    ],
+    "find_lr": [
+        {"name": "config", "flag": "--config", "label": "Config", "type": "config", "default": None, "required": True, "help": "Path to YAML config file."},
+        {"name": "tokenizer", "flag": "--tokenizer", "label": "Tokenizer", "type": "path", "default": None, "required": False, "help": "Path to tokenizer.json (used to validate vocab size)."},
+        {"name": "data", "flag": "--data", "label": "Data (.npy)", "type": "path", "default": None, "required": False, "help": "Path to preprocessed .npy data file."},
+        {"name": "resume", "flag": "--resume", "label": "Resume from", "type": "checkpoint", "default": None, "required": False, "help": "Path to checkpoint dir to start from."},
+        {"name": "start_lr", "flag": "--start-lr", "label": "Start LR", "type": "float", "default": "1e-7", "required": False, "help": "Minimum LR to test (default: 1e-7)."},
+        {"name": "end_lr", "flag": "--end-lr", "label": "End LR", "type": "float", "default": "10.0", "required": False, "help": "Maximum LR to test (default: 10.0)."},
+        {"name": "num_steps", "flag": "--num-steps", "label": "Num steps", "type": "int", "default": "200", "required": False, "help": "Number of LR steps to run (default: 200)."},
+        {"name": "smooth", "flag": "--smooth", "label": "Smoothing factor", "type": "float", "default": "0.05", "required": False, "help": "Exponential smoothing factor for loss curve (default: 0.05)."},
+        {"name": "batch_size", "flag": "--batch-size", "label": "Batch size", "type": "int", "default": None, "required": False, "help": "Override batch size from config (useful to reduce memory use)."},
+        {"name": "save_plot", "flag": "--save-plot", "label": "Save plot to", "type": "path", "default": "lr_finder_plot.png", "required": False, "help": "Path to save the plot image (default: lr_finder_plot.png)."},
+        {"name": "no_plot", "flag": "--no-plot", "label": "Skip plot", "type": "bool", "default": "false", "required": False, "help": "Skip plot generation entirely."},
+        {"name": "diverge_threshold", "flag": "--diverge-threshold", "label": "Diverge threshold", "type": "float", "default": "4.0", "required": False, "help": "Stop early if loss exceeds this multiple of min loss (default: 4.0)."},
+    ],
+    "average_checkpoints": [
+        {"name": "checkpoint_dir", "flag": "--checkpoint-dir", "label": "Checkpoint dir", "type": "path", "default": None, "required": False, "help": "Directory containing step_* checkpoint subdirectories. Use with --last to pick the N most recent. (Mutually exclusive with --checkpoints; the group is required.)"},
+        {"name": "checkpoints", "flag": "--checkpoints", "label": "Checkpoints (list)", "type": "string", "default": None, "required": False, "help": "Explicit list of checkpoint directories to average (oldest first), space-separated. Mutually exclusive with --checkpoint-dir; the group is required."},
+        {"name": "last", "flag": "--last", "label": "Last K", "type": "int", "default": "3", "required": False, "help": "(Only with --checkpoint-dir) Number of most-recent checkpoints to average. Default: 3."},
+        {"name": "method", "flag": "--method", "label": "Method", "type": "choice", "default": "uniform", "choices": ["uniform", "ema"], "required": False, "help": "Averaging method. 'uniform' = simple mean, 'ema' = exponential moving average. Default: uniform."},
+        {"name": "decay", "flag": "--decay", "label": "EMA decay", "type": "float", "default": "0.999", "required": False, "help": "EMA decay factor — only used when --method ema. Higher values weight older checkpoints more. Default: 0.999."},
+        {"name": "output", "flag": "--output", "label": "Output dir", "type": "path", "default": None, "required": False, "help": "Output directory for the averaged checkpoint. Defaults to <checkpoint-dir>/averaged_last_<k> or <parent>/averaged_<method>."},
+    ],
+    "export_model": [
+        {"name": "checkpoint", "flag": "--checkpoint", "label": "Checkpoint", "type": "checkpoint", "default": None, "required": True, "help": "Path to checkpoint directory or 'latest' file."},
+        {"name": "config", "flag": "--config", "label": "Config", "type": "config", "default": None, "required": True, "help": "Path to YAML config file (e.g. configs/tiny.yaml)."},
+        {"name": "output_dir", "flag": "--output-dir", "label": "Output dir", "type": "path", "default": None, "required": False, "help": "Output directory for exported files. Defaults to <checkpoint_parent>/exports/."},
+        {"name": "action", "flag": "--action", "label": "Action", "type": "choice", "default": "gguf-f16", "choices": ["gguf-f16", "gguf-q8", "gguf-q4", "ollama", "quantize", "benchmark"], "required": True, "help": "Export action (the UI always sets this so the script never drops to its interactive menu)."},
+    ],
+
+    # ── Pipeline launchers (R4) ──────────────────────────────────────────────
+    "full_pipeline": [
+        {"name": "config", "flag": "--config", "label": "Config", "type": "config", "default": None, "required": True, "help": "Model config YAML path."},
+        {"name": "stages", "flag": "--stages", "label": "Stages (CSV)", "type": "string", "default": None, "required": False, "help": "Comma-separated stage numbers (e.g., 1,2,3). 1 collect-data, 2 prepare-data, 3 pretrain, 4 extend-context, 5 generate-instructions, 6 instruction-tune, 7 upcycle-moe, 8 train-router, 9 train-reasoning, 10 evaluate."},
+        {"name": "start_from", "flag": "--start-from", "label": "Start from stage", "type": "int", "default": None, "required": False, "help": "Start from stage N (1-10)."},
+        {"name": "stop_at", "flag": "--stop-at", "label": "Stop at stage", "type": "int", "default": None, "required": False, "help": "Stop after stage N (1-10)."},
+        {"name": "dry_run", "flag": "--dry-run", "label": "Dry run", "type": "bool", "default": "false", "required": False, "help": "Show what would run."},
+        {"name": "auto_resume", "flag": "--auto-resume", "label": "Auto-resume", "type": "bool", "default": "false", "required": False, "help": "Auto-resume training."},
+        {"name": "tokenizer", "flag": "--tokenizer", "label": "Tokenizer", "type": "path", "default": None, "required": False, "help": "Tokenizer path override."},
+        {"name": "skip_optional", "flag": "--skip-optional", "label": "Skip optional stages", "type": "bool", "default": "false", "required": False, "help": "Skip optional stages (4 extend-context, 7 upcycle-moe)."},
+    ],
+    "auto_pipeline": [
+        {"name": "profile_only", "flag": "--profile-only", "label": "Profile only", "type": "bool", "default": "false", "required": False, "help": "Print detected hardware and the recommendation, then exit."},
+        {"name": "smoke", "flag": "--smoke", "label": "Smoke mode", "type": "bool", "default": "false", "required": False, "help": "Smoke mode: tiny steps (~minutes) to validate pipeline wiring, not train a model."},
+        {"name": "dry_run", "flag": "--dry-run", "label": "Dry run", "type": "bool", "default": "false", "required": False, "help": "Show what would run without executing any stage."},
+        {"name": "yes", "flag": "--yes", "label": "Skip confirmation", "type": "bool", "default": "false", "required": False, "help": "Skip the confirmation prompt (for scripted/overnight runs)."},
+        {"name": "base_config", "flag": "--base-config", "label": "Base config override", "type": "config", "default": None, "required": False, "help": "Override the recommended base config (e.g. configs/small.yaml)."},
+        {"name": "stages", "flag": "--stages", "label": "Stages (CSV)", "type": "string", "default": None, "required": False, "help": "Comma-separated stage numbers to run (default: all, optional stages auto-skip)."},
+    ],
+}
+
+# Validated once at import — a malformed spec raises here, not at request time.
+ACTION_PARAMS: dict[str, list[ActionParam]] = {
+    key: [ActionParam(**raw) for raw in specs] for key, specs in _RAW_PARAMS.items()
+}

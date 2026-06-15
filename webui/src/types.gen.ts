@@ -64,6 +64,17 @@ export interface Job {
   returncode: number | null;
 }
 
+export interface ActionParam {
+  name: string;
+  flag: string;
+  label: string;
+  type: 'string' | 'int' | 'float' | 'bool' | 'choice' | 'config' | 'checkpoint' | 'path';
+  default?: string | null;
+  choices?: string[];
+  required?: boolean;
+  help?: string | null;
+}
+
 export interface ActionDef {
   key: string;
   script: string;
@@ -71,6 +82,7 @@ export interface ActionDef {
   args: string[];
   trainer?: boolean;
   gpu?: boolean;
+  params?: ActionParam[];
 }
 
 export interface JobLogChunk {
