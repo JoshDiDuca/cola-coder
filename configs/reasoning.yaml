@@ -74,6 +74,17 @@ reasoning:
   parallel_rewards: true
   # Number of worker processes for parallel reward computation.
   reward_workers: 4
+  # DAPO soft overlong reward shaping (arXiv:2503.14476, "Soft Overlong
+  # Punishment"). OPT-IN and OFF by default — when enabled, each solution's
+  # reward is reduced as its COMPLETION length approaches max_new_tokens: zero
+  # penalty until soft_buffer tokens from the budget, then a linear ramp down to
+  # -scale at/over the budget. Replaces the noisy truncated signal of an overlong
+  # generation with a smooth penalty. With enabled:false the GRPO reward path is
+  # byte-for-byte identical to today.
+  overlong_shaping:
+    enabled: false
+    soft_buffer: 64    # ramp width in tokens just below max_new_tokens (0 = off)
+    scale: 1.0         # reward points a fully-overlong solution loses
 
 data:
   dataset: "local"  # Will use locally generated CoT data

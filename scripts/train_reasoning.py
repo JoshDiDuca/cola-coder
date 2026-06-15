@@ -494,6 +494,25 @@ def main():
     parallel_generation = bool(_cfg("parallel_generation", False))
     parallel_rewards = bool(_cfg("parallel_rewards", False))
     reward_workers = int(_cfg("reward_workers", 4))
+
+    # DAPO soft overlong reward shaping (arXiv:2503.14476) — OPT-IN, OFF by
+    # default. The Config dataclass does not surface the reasoning.* sub-sections,
+    # so read this nested block straight from the YAML. When disabled (default)
+    # nothing is passed through that changes the reward, so GRPO behavior is
+    # identical to today.
+    overlong_shaping = False
+    overlong_soft_buffer = 0
+    overlong_scale = 1.0
+    try:
+        import yaml
+
+        raw_cfg = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        overlong_cfg = (raw_cfg.get("reasoning") or {}).get("overlong_shaping") or {}
+        overlong_shaping = bool(overlong_cfg.get("enabled", False))
+        overlong_soft_buffer = int(overlong_cfg.get("soft_buffer", 0))
+        overlong_scale = float(overlong_cfg.get("scale", 1.0))
+    except (OSError, yaml.YAMLError, ValueError, TypeError) as e:
+        cli.warn(f"Could not read reasoning.overlong_shaping from config: {e}")
     grpo_lr = (
         float(getattr(config.training, "learning_rate", 1e-5))
         if hasattr(config, "training")
@@ -519,6 +538,13 @@ def main():
     )
     cli.info("Parallel generation", parallel_generation)
     cli.info("Parallel rewards", f"{parallel_rewards} (workers: {reward_workers})")
+    if overlong_shaping and overlong_soft_buffer > 0 and overlong_scale > 0:
+        cli.info(
+            "Overlong shaping",
+            f"DAPO (buffer={overlong_soft_buffer}, scale={overlong_scale})",
+        )
+    else:
+        cli.info("Overlong shaping", "off")
     cli.info("Device", device)
     cli.info("Curriculum", use_curriculum)
 
@@ -578,6 +604,9 @@ def main():
             parallel_rewards=parallel_rewards,
             reward_workers=reward_workers,
             entropy_clip_controller=entropy_controller,
+            overlong_shaping=overlong_shaping,
+            overlong_soft_buffer=overlong_soft_buffer,
+            overlong_scale=overlong_scale,
         )
 
         grpo_trainer.train(

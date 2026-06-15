@@ -19,6 +19,7 @@ from .tsc_runner import TscRunner, TscError
 from .type_check import TypeCheckReward
 from .batch_type_check import BatchTypeChecker
 from .combined import CombinedReward
+from .overlong import soft_overlong_penalty, apply_overlong_shaping
 
 __all__ = [
     "TscRunner",
@@ -26,4 +27,6 @@ __all__ = [
     "TypeCheckReward",
     "BatchTypeChecker",
     "CombinedReward",
+    "soft_overlong_penalty",
+    "apply_overlong_shaping",
 ]

@@ -42,6 +42,7 @@ from ..tokenizer.tokenizer_utils import CodeTokenizer
 from ..inference.generator import CodeGenerator
 from .reward import compute_batch_rewards_parallel
 from .reward_registry import RewardFunction, RewardRegistry
+from .rewards.overlong import apply_overlong_shaping
 
 if TYPE_CHECKING:
     from ..evaluation.problem_loader import ProblemSet
@@ -99,6 +100,44 @@ def apply_security_penalty(
         else:
             adjusted.append(r)
     return adjusted, penalized
+
+
+def apply_overlong_shaping_rewards(
+    rewards: list[float],
+    completion_lengths: list[int],
+    max_length: int,
+    soft_buffer: int,
+    scale: float,
+) -> tuple[list[float], int]:
+    """DAPO soft overlong reward shaping over a GRPO group.
+
+    For each solution, subtract ``scale * |soft_overlong_penalty(length,
+    max_length, soft_buffer)|`` from its reward, where ``length`` is that
+    solution's COMPLETION token count (the prompt is shared context, not part of
+    the response budget). A solution that runs to (or past) ``max_length`` is
+    smoothly penalised instead of contributing the noisy, abruptly-truncated
+    signal a hard length cut-off produces (DAPO, arXiv:2503.14476).
+
+    No-op (returns the rewards unchanged with 0 shaped) when ``scale <= 0`` or
+    ``soft_buffer <= 0`` — in which case no in-budget length is ever penalised,
+    preserving the default GRPO behavior exactly.
+
+    Returns (shaped_rewards, num_shaped) where ``num_shaped`` counts solutions
+    whose reward actually changed (length entered the buffer zone).
+    """
+    if scale <= 0 or soft_buffer <= 0:
+        return list(rewards), 0
+
+    shaped: list[float] = []
+    num_shaped = 0
+    for r, length in zip(rewards, completion_lengths):
+        new_r = apply_overlong_shaping(
+            r, length, max_length=max_length, soft_buffer=soft_buffer, scale=scale
+        )
+        if new_r != r:
+            num_shaped += 1
+        shaped.append(new_r)
+    return shaped, num_shaped
 
 
 def compute_group_advantages(
@@ -262,6 +301,9 @@ class GRPOTrainer:
         dynamic_sampling: bool = False,
         max_resample_attempts: int = 4,
         entropy_clip_controller: "EntropyClipController | None" = None,
+        overlong_shaping: bool = False,
+        overlong_soft_buffer: int = 0,
+        overlong_scale: float = 1.0,
     ):
         """
         Args:
@@ -307,6 +349,20 @@ class GRPOTrainer:
                 Falls back to serial on any error.
             reward_workers: Number of worker processes for parallel reward
                 computation.  Ignored when parallel_rewards=False.
+            overlong_shaping: Enable DAPO soft overlong reward shaping
+                (arXiv:2503.14476). When True, each solution's reward is reduced
+                as its COMPLETION length approaches ``max_new_tokens``, ramping
+                linearly over the last ``overlong_soft_buffer`` tokens and
+                saturating at ``-overlong_scale`` at/over the budget. This
+                replaces the noisy, abruptly-truncated signal of an overlong
+                generation with a smooth penalty. OPT-IN; False (default) leaves
+                the reward path byte-for-byte unchanged.
+            overlong_soft_buffer: Width (in tokens) of the linear-ramp zone just
+                below ``max_new_tokens``. 0 (default) disables shaping even if
+                ``overlong_shaping`` is True (nothing in-budget is penalised).
+                Typical: ~20% of max_new_tokens.
+            overlong_scale: Reward points a fully-overlong solution loses
+                (default 1.0). Ignored when shaping is disabled.
         """
         self.model = model
         self.tokenizer = tokenizer
@@ -364,6 +420,15 @@ class GRPOTrainer:
         # from the live policy entropy (MODEL-037) to counter entropy collapse,
         # gated by the verifier pass-rate. None (default) = static clips unchanged.
         self.entropy_clip_controller = entropy_clip_controller
+        # DAPO soft overlong reward shaping (arXiv:2503.14476). OPT-IN: shaping is
+        # applied to each solution's reward (after the functional reward, before
+        # advantages) only when enabled AND the soft buffer is positive AND the
+        # scale is positive — otherwise it is a strict no-op and the default GRPO
+        # reward path is unchanged. Length measured = completion tokens vs
+        # max_new_tokens (the generation budget).
+        self.overlong_shaping = bool(overlong_shaping)
+        self.overlong_soft_buffer = max(0, int(overlong_soft_buffer))
+        self.overlong_scale = max(0.0, float(overlong_scale))
         if entropy_clip_controller is not None and self.clip_epsilon_high is None:
             # The controller modulates the HIGH clip; give it a concrete base to
             # raise from (otherwise train_step falls back to clip_epsilon).
@@ -484,6 +549,25 @@ class GRPOTrainer:
             rewards, generations, self.security_penalty
         )
 
+        # DAPO soft overlong reward shaping (arXiv:2503.14476). Smoothly penalize
+        # solutions whose COMPLETION length approaches/exceeds the generation
+        # budget, replacing the noisy truncated signal with a linear ramp. OPT-IN:
+        # strict no-op unless overlong_shaping is enabled with a positive buffer
+        # and scale (so the DEFAULT reward path is byte-for-byte unchanged).
+        num_overlong_shaped = 0
+        if self.overlong_shaping and self.overlong_soft_buffer > 0 and self.overlong_scale > 0:
+            completion_lengths = [
+                max(0, len(self.tokenizer.encode(gen, add_bos=True)) - prompt_len)
+                for gen in generations
+            ]
+            rewards, num_overlong_shaped = apply_overlong_shaping_rewards(
+                rewards,
+                completion_lengths,
+                max_length=self.max_new_tokens,
+                soft_buffer=self.overlong_soft_buffer,
+                scale=self.overlong_scale,
+            )
+
         # Step 3: Compute advantages (relative to group mean)
         rewards_tensor = torch.tensor(rewards, device=self.device)
         mean_reward = rewards_tensor.mean()
@@ -585,6 +669,7 @@ class GRPOTrainer:
             "group_size": self.group_size,
             "pass_rate": num_correct / self.group_size,
             "num_security_penalized": num_penalized,
+            "num_overlong_shaped": num_overlong_shaped,
             "policy_entropy": entropy_sum / entropy_count if entropy_count else 0.0,
         }
 

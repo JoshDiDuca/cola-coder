@@ -7,6 +7,39 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-15 — Post-training: DAPO overlong reward shaping + length-bias fixes for GRPO (rotate: post-training)
+
+**Sources (2025–2026):** *DAPO: An Open-Source LLM RL System at Scale* — https://arxiv.org/pdf/2503.14476
+(four techniques: Clip-Higher, Dynamic Sampling, Token-level Policy-Gradient Loss, and **Soft Overlong
+Reward Shaping** — a length-aware penalty that ramps reward down as a response approaches/exceeds the length
+budget, cutting the reward NOISE from truncated overlong generations; 50 AIME pts, 50% fewer steps).
+*Dr.GRPO* — mitigates the length bias that per-response advantage normalization introduces. *Geometric-Mean
+Policy Optimization* — https://arxiv.org/pdf/2507.20673 (GMPO: geometric mean over tokens is robust to
+outlier per-token ratios). *Post-Training in 2026: GRPO, DAPO, RLVR & Beyond* —
+https://llm-stats.com/blog/research/post-training-techniques-2026. *The Art of Scaling RL Compute for LLMs* —
+https://arxiv.org/pdf/2510.13786.
+
+**Summary:** cola-coder's reasoning GRPO already adopts the DAPO/Dr.GRPO core (clip-higher 0.2/0.28,
+advantage_norm "mean", parallel gen). The remaining cheap, high-value DAPO piece it LACKS is **soft overlong
+reward shaping**: a deterministic length-aware penalty applied to the reward before advantages, so a solution
+that runs to (or past) the max-length budget is smoothly penalised rather than contributing a noisy, abruptly
+truncated signal. It is a pure function of (length, max_len, soft_buffer) — testable, no model in the loop,
+and composes with any existing reward (python_exec/typescript/combined). Length-normalization choice
+(per-response vs group) is the related lever Dr.GRPO addresses.
+
+**Original idea (cross-technique, cola-coder-specific): reliability-gap-weighted GRPO advantages — fuse last
+cycle's pass^k (EVAL-037) into post-training.** GRPO weights every sampled problem's advantage equally. But the
+**capability-reliability gap** `pass@k − pass^k` (EVAL-037) identifies exactly the problems the model CAN solve
+but not RELIABLY — the highest-headroom targets for consistency training. Proposal: scale each problem's GRPO
+advantage by a function of its measured gap (high gap → up-weight), so RL compute concentrates where it most
+improves single-shot reliability (the IDE-completion use case), not on already-reliable or hopeless problems.
+The gap is computed for free from the rollouts GRPO already generates (n samples, c correct per problem). This
+turns the eval metric into a training signal — a closed eval→post-training loop. Tractable MAIN-SAFE first step
+(this cycle): the DAPO soft overlong reward-shaping utility + tests (a pure function); the gap-weighting is the
+filed follow-up. NEVER touch the live pretraining run — this is the separate reasoning/GRPO path only.
+
+---
+
 ## 2026-06-15 — Reliability eval: pass^k / consistency as the counterpart to pass@k (rotate: eval)
 
 **Sources (2024–2026):** *Statistics for AI/ML, Part 4: pass@k and the Unbiased Estimator* —

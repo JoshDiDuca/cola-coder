@@ -254,6 +254,23 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   → Tokenizer. +2 models (gen_ts regen, 86 ifaces, 38 OrError), +2 test examples, 3 new files. pytest 89 +
   ruff + tsc + vite green (252 KB). Keystone integrated by main. (UI-017 partially addressed — arg editing now
   exists; remaining: structured per-arg forms + data-collection wizards.)
+- **MODEL-048** [post-training, high] `done` (2026-06-15) — DAPO soft overlong reward shaping for reasoning/GRPO
+  (OPT-IN, default OFF). New `reasoning/rewards/overlong.py`: `soft_overlong_penalty(length, max_length,
+  soft_buffer)` (0 below buffer → linear ramp → -1 at/over max) + `apply_overlong_shaping(reward, ...)`. Wired
+  into `grpo.py` as `apply_overlong_shaping_rewards` (mirrors the existing `apply_security_penalty` modifier,
+  applied AFTER security penalty, BEFORE advantages; measures completion tokens vs max_new_tokens; `num_overlong_shaped`
+  metric) + 3 opt-in GRPOTrainer params; `configs/reasoning.yaml` `reasoning.overlong_shaping{enabled:false,
+  soft_buffer:64, scale:1.0}` read in train_reasoning.py (raw-YAML, since Config.from_yaml doesn't surface the
+  reasoning subsection — matches existing pattern + the config-wiring test). Skipped a length_normalize helper
+  (GRPO already has Dr.GRPO length_norm — DRY). +tests/test_overlong_shaping.py (29 tests). Verified 198 passed
+  (1 skipped) across the reasoning/grpo/reward suite — no regression. NOT the live pretraining path. See
+  research-log 2026-06-15.
+- **MODEL-049** [post-training, medium] `open` — Reliability-gap-weighted GRPO advantages (original idea,
+  research-log 2026-06-15): scale each problem's GRPO advantage by a function of its capability-reliability gap
+  `pass@k − pass^k` (EVAL-037) — computed for free from the n-samples/c-correct GRPO already rolls out — so RL
+  compute concentrates on capable-but-unreliable problems (max single-shot-reliability headroom). Closes the
+  eval→post-training loop. First step: log the per-problem gap during GRPO rollouts (no advantage change) to
+  confirm the signal, then add an opt-in advantage scaler.
 - **UI-054..055** [ui, medium] `done` (2026-06-15) — Batch (parallel agents, disjoint files). UI-054 Training
   Manifest viewer (`GET /api/training-manifests`, `TrainingManifests`/`TrainingManifest`; per-checkpoint
   provenance — flattens the nested `training_manifest.yaml` model/training sections + scans newest step_* for
