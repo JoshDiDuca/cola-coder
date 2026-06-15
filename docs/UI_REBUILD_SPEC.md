@@ -69,14 +69,26 @@ Replace each page's card-grid with a single master→detail screen.
   (✅), and the latest eval/test/smoke results for the current checkpoint.
 - Acceptance: open the app → immediately see what's training, its live log, progress, and latest tests.
 
-### R6 — Tokenizer page is BROKEN — fix it  ◻ BUG, diagnosed
+### R6 — Tokenizer page is BROKEN — fix it  ✅ DONE
+- Fixed: `_resolve_tokenizer_file`/`_candidate_paths` now probe `checkpoints/<run>/tokenizer.json` FIRST.
+  Verified: /api/tokenizer vocab 32768, /api/tokenize count 8, /api/tokenizer-health ok — no more "not found".
+- (Original symptom below kept for history.)
 - Symptom: Tokenizer/TokenizerHealth/Tokenize/Vocab endpoints all return
   `{"error":"tokenizer.json not found: <default locations>"}` — the UI's `_resolve_tokenizer_file`
   default-location probing does not find the tokenizer the live run actually uses.
 - Fix: resolve the tokenizer from the real location (storage.yaml tokenizer path / the run's data dir /
   the training manifest). Tie into R7.
 
-### R7 — Preserve the current run's tokenizer next to its output + use it forever (backend)  ◻ NOT STARTED
+### R7 — Preserve the current run's tokenizer next to its output + use it forever (backend)  ◧ PARTIAL
+- ✅ DONE (safe, no train disruption): copied the live run's exact tokenizer
+  (E:\cola-coder-data\data\typescript-text-math\tokenizer.json, per manifest train_file) →
+  checkpoints/small_react_best/tokenizer.json + a tokenizer.source.txt provenance note. The UI now
+  resolves it (R6).
+- ◻ REMAINING: (a) the trainer copies tokenizer.json into the output dir on checkpoint save for every
+  run going forward; (b) resume-training / generate / serve / eval resolve tokenizer next-to-checkpoint
+  FIRST (mirror the UI resolver) so a checkpoint is self-describing; (c) record tokenizer path + hash in
+  the manifest. These touch checkpoint.py/train.py — do carefully WITH test_checkpoint.py, never disrupt
+  the live run.
 - Requirement: the tokenizer currently used for the live train must be stored NEXT TO the output so it
   is never lost, and that same tokenizer must be used in the future for continuing training, running
   models, eval, and serving. Hard constraint: must NOT disrupt the current train.

@@ -19,12 +19,29 @@ import yaml
 def _candidate_paths() -> list[Path]:
     """Default tokenizer.json locations to probe, in priority order.
 
+    0. ``checkpoints/<run>/tokenizer.json`` — a tokenizer saved NEXT TO a checkpoint
+       output (newest run first). Highest priority so a run is self-describing about
+       its tokenizer and resume/inference/eval use the exact one it was trained with.
     1. ``storage.tokenizer_path`` from ``configs/storage.yaml`` (if readable).
     2. ``data/<dataset>/tokenizer.json`` — the canonical per-dataset location.
     3. Common project-relative locations (``tokenizer.json``, ``tokenizer/``,
-       ``tokenizers/`` dirs, and ``data/*.json`` next to the data root).
+       ``tokenizers/`` dirs).
     """
     candidates: list[Path] = []
+
+    # 0. tokenizer.json saved next to a checkpoint output (newest run first).
+    ckpt_root = Path("checkpoints")
+    if ckpt_root.is_dir():
+        try:
+            ckpt_toks = [
+                d / "tokenizer.json"
+                for d in ckpt_root.iterdir()
+                if d.is_dir() and (d / "tokenizer.json").is_file()
+            ]
+            ckpt_toks.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            candidates.extend(ckpt_toks)
+        except OSError:
+            pass
 
     # 1. configs/storage.yaml -> storage.tokenizer_path
     storage_yaml = Path("configs/storage.yaml")
