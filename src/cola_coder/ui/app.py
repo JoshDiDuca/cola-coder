@@ -479,6 +479,59 @@ def create_app(
             top_p=req.top_p, top_k=req.top_k,
         )
 
+    @app.post("/api/generate/stream", response_model=None)
+    def generate_stream_endpoint(req: sch.InferenceRequest) -> StreamingResponse | JSONResponse:
+        """Stream a generation token-by-token as SSE ``GenStreamChunk`` frames.
+
+        Same gated, load-per-request, free-after model lifecycle as /api/generate, but
+        yields incremental text via CodeGenerator.generate_stream so the UI shows tokens
+        as they arrive. Refused (409 JSON) while training is live.
+        """
+        busy = _training_busy()
+        if busy is not None:
+            return busy
+
+        def _frame(delta: str, done: bool, error: str | None = None) -> str:
+            return f"data: {sch.GenStreamChunk(delta=delta, done=done, error=error).model_dump_json()}\n\n"
+
+        async def gen() -> AsyncIterator[str]:
+            generator = None
+            try:
+                from cola_coder.inference.loading import load_generator
+
+                ckpt = req.checkpoint if Path(req.checkpoint).is_absolute() else str(root / req.checkpoint)
+                conf = req.config if Path(req.config).is_absolute() else str(root / req.config)
+                generator, _config, _tok = load_generator(ckpt, conf)
+                for delta in generator.generate_stream(
+                    req.prompt, max_new_tokens=req.max_tokens, temperature=req.temperature,
+                    top_p=req.top_p, top_k=req.top_k,
+                ):
+                    yield _frame(delta, False)
+                    await asyncio.sleep(0)  # cooperatively yield so the client flushes
+                yield _frame("", True)
+            except FileNotFoundError as exc:
+                yield _frame("", True, error=str(exc))
+            except asyncio.CancelledError:
+                return  # client disconnected — stop quietly
+            except Exception as exc:  # noqa: BLE001 - surface load/generate failure to the UI
+                yield _frame("", True, error=f"generation failed: {exc}")
+            finally:
+                if generator is not None:
+                    del generator
+                    try:
+                        import torch
+
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except ImportError:
+                        pass
+
+        return StreamingResponse(
+            gen(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
     @app.get("/api/configs", response_model=list[sch.ConfigFile])
     def configs_list() -> list[dict]:
         return cfg.list_configs(str(root / "configs"))

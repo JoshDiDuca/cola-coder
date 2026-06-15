@@ -933,6 +933,19 @@ class InferenceResult(_UiModel):
     elapsed_s: float
 
 
+class GenStreamChunk(_UiModel):
+    """One Server-Sent-Events frame from ``POST /api/generate/stream``.
+
+    ``delta`` is the incremental text produced since the previous frame. The final
+    frame has ``done=true`` (and ``delta=""``); ``error`` is set instead of streaming
+    when load/generation fails (e.g. the training-alive guard, a bad checkpoint).
+    """
+
+    delta: str
+    done: bool
+    error: str | None = None
+
+
 class ChatMessage(_UiModel):
     """One turn in a chat conversation."""
 

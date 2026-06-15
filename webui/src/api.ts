@@ -148,6 +148,15 @@ export function chatGenerate(req: ChatRequest): Promise<InferenceResult | ApiErr
   return j<InferenceResult | ApiError>('/api/chat', postJson(req));
 }
 
+// Open the token-streaming generation endpoint. Returns the raw Response so the
+// caller can read response.body as a stream of SSE `GenStreamChunk` frames
+// (the shared j() helper buffers the whole body, so it can't be used here).
+// `signal` lets the caller abort an in-flight stream. A 409 (training live) or
+// other non-OK status arrives as `res.ok === false` with a JSON {error} body.
+export function openGenerateStream(req: InferenceRequest, signal: AbortSignal): Promise<Response> {
+  return fetch('/api/generate/stream', { ...postJson(req), signal });
+}
+
 // Fill-in-the-middle completion. Gated like /api/generate; 400 if the
 // tokenizer lacks <|fim_*|> tokens.
 export function fimGenerate(req: FimRequest): Promise<InferenceResult | ApiError> {

@@ -3660,3 +3660,62 @@ body {
 .cmdk-row.active .cmdk-row-group {
   color: rgba(255, 255, 255, 0.85);
 }
+
+/* ---------- Streaming console (StreamingConsole.tsx, R10 streaming) ---------- */
+.stream-console {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.stream-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+}
+.stream-stop {
+  margin-left: auto;
+}
+.stream-out {
+  background: #0a0d12;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
+.stream-caret {
+  display: inline-block;
+  margin-left: 1px;
+  color: var(--accent);
+  animation: stream-blink 1s steps(2, start) infinite;
+}
+@keyframes stream-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  50.01%,
+  100% {
+    opacity: 0;
+  }
+}
+.stream-error {
+  background: rgba(248, 81, 73, 0.12);
+  border: 1px solid var(--bad);
+  border-radius: 8px;
+  padding: 11px 12px;
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.stream-empty {
+  padding: 24px 0;
+  text-align: center;
+  font-size: 13px;
+}

@@ -877,6 +877,12 @@ export interface InferenceResult {
   elapsed_s: number;
 }
 
+export interface GenStreamChunk {
+  delta: string;
+  done: boolean;
+  error?: string | null;
+}
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;

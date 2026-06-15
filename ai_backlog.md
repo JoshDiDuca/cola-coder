@@ -18,6 +18,14 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   Pipeline/Manager). One coherent panel per section, no grid. Built by 3 parallel agents (disjoint new
   files) wrapping the existing panels unchanged; App.tsx now imports 3 panels instead of 19. tsc + build green.
 
+### UI — streaming generation (2026-06-15)
+- **UI-080** [ui, high] `done` (2026-06-15) — Token-by-token STREAMING for the Generate playground (R10):
+  `POST /api/generate/stream` (StreamingResponse of SSE `GenStreamChunk {delta,done,error}` frames via
+  `CodeGenerator.generate_stream`; same gated load-per-request/free lifecycle as /api/generate, 409 while
+  training live) + `useStreamingGeneration` hook (fetch ReadableStream reader, partial-frame buffering,
+  AbortController stop) + `StreamingConsole` (live text + blinking caret + Stop + error state). InferenceScreen
+  rewired from one-shot to streaming. tsc + build green (93 modules). Stream gate verified 409 during training.
+
 ### Eval — generalized consistency metric (2026-06-15)
 - **EVAL-039** [eval, medium] `done` (2026-06-15) — Added `g_pass_at_k(n, c, k, tau)` to
   evaluation/metrics.py: unbiased G-Pass@k_τ (arXiv:2412.13147), the hypergeometric right-tail at

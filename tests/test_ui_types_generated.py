@@ -328,6 +328,7 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "completion": "    return a + b", "prompt": "def add(a, b):",
         "checkpoint": "checkpoints/small/latest", "tokens_generated": 6, "elapsed_s": 1.2,
     },
+    "GenStreamChunk": {"delta": "    return a + b", "done": False, "error": None},
     "ChatMessage": {"role": "user", "content": "Write a bubble sort in Python."},
     "ChatRequest": {
         "messages": [{"role": "user", "content": "hi"}],

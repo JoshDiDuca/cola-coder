@@ -160,6 +160,7 @@ _MODEL_ORDER: list[str] = [
     "TrainStartRequest",
     "InferenceRequest",
     "InferenceResult",
+    "GenStreamChunk",
     "ChatMessage",
     "ChatRequest",
     "FimRequest",

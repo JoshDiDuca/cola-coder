@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ConfigFile, InferenceRequest, InferenceResult } from '../../types';
-import { isApiError } from '../../types';
-import { getConfigs, generateText } from '../../api';
-import { formatInteger, formatDuration, formatFloat } from '../../format';
+import type { ConfigFile, InferenceRequest } from '../../types';
+import { getConfigs } from '../../api';
+import { useStreamingGeneration } from '../../hooks/useStreamingGeneration';
+import StreamingConsole from '../StreamingConsole';
 
 // ── Inference playground (R10) ───────────────────────────────────────────────
 // Left: prompt + checkpoint/config + sampling controls + a Generate button.
-// Right: the model completion with a tokens/elapsed stat line.
+// Right: the completion STREAMS in token-by-token (useStreamingGeneration →
+// /api/generate/stream) so you watch the model type, with a Stop button.
 //
 // CRITICAL SAFETY: generation contends for the GPU with the live training run,
 // so the backend refuses with HTTP 409 while training is alive. We never even
-// attempt to generate when `trainingAlive` is true, surface a prominent amber
-// banner, and still defensively handle a thrown "409" (or a resolved ApiError)
-// in case the snapshot is briefly stale.
+// attempt to generate when `trainingAlive` is true and surface a prominent amber
+// banner; the stream hook also surfaces a 409 body if the snapshot is briefly stale.
 
 interface InferenceScreenProps {
   // Checkpoint paths from the live snapshot (App passes snap.checkpoints.map(c => c.path)).
@@ -52,63 +52,9 @@ function parseNumber(raw: string, fallback: number): number {
   return raw.trim() === '' || Number.isNaN(n) ? fallback : n;
 }
 
-/** A thrown error whose message contains "409" is the training-guard refusal. */
-function isTrainingGuardError(message: string): boolean {
-  return message.includes('409');
-}
-
 function lastSegment(path: string): string {
   const parts = path.split(/[\\/]/).filter((p) => p !== '');
   return parts.length === 0 ? path : parts.slice(-2).join('/');
-}
-
-// ── Output pane ───────────────────────────────────────────────────────────────
-
-function OutputPane({
-  result,
-  busy,
-  error,
-}: {
-  result: InferenceResult | null;
-  busy: boolean;
-  error: string | null;
-}): JSX.Element {
-  if (busy) {
-    return <div className="infer-empty muted">Generating…</div>;
-  }
-  if (error !== null) {
-    return <div className="err infer-error">{error}</div>;
-  }
-  if (result === null) {
-    return (
-      <div className="infer-empty muted">
-        No output yet — write a prompt, pick a checkpoint and config, then Generate.
-      </div>
-    );
-  }
-  return (
-    <div className="infer-output">
-      <div className="infer-stats">
-        <span className="infer-stat">
-          <span className="infer-stat-label">tokens</span>
-          <span className="infer-stat-value mono">{formatInteger(result.tokens_generated)}</span>
-        </span>
-        <span className="infer-stat">
-          <span className="infer-stat-label">elapsed</span>
-          <span className="infer-stat-value mono">{formatDuration(result.elapsed_s)}</span>
-        </span>
-        <span className="infer-stat">
-          <span className="infer-stat-label">tok/s</span>
-          <span className="infer-stat-value mono">
-            {result.elapsed_s > 0
-              ? formatFloat(result.tokens_generated / result.elapsed_s, 1)
-              : '—'}
-          </span>
-        </span>
-      </div>
-      <pre className="infer-completion mono scroll">{result.completion}</pre>
-    </div>
-  );
 }
 
 // ── Screen ────────────────────────────────────────────────────────────────────
@@ -125,9 +71,8 @@ export default function InferenceScreen({
   const [configs, setConfigs] = useState<ConfigFile[]>([]);
   const [configsError, setConfigsError] = useState<string | null>(null);
 
-  const [result, setResult] = useState<InferenceResult | null>(null);
-  const [busy, setBusy] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
+  const { state: stream, start, stop } = useStreamingGeneration();
+  const busy = stream.streaming;
 
   // Load configs once. Non-fatal: a failure leaves the select empty with a hint.
   useEffect(() => {
@@ -164,36 +109,20 @@ export default function InferenceScreen({
   const canGenerate =
     !trainingAlive && !busy && !promptMissing && !checkpointMissing && !configMissing;
 
-  const onGenerate = useCallback(async (): Promise<void> => {
+  const onGenerate = useCallback((): void => {
     // Hard guard: never call the API while training is live.
     if (trainingAlive) return;
     if (promptMissing || checkpointMissing || configMissing) return;
-
-    setBusy(true);
-    setError(null);
-    setResult(null);
-    try {
-      const req: InferenceRequest = {
-        prompt: prompt,
-        checkpoint: checkpoint,
-        config: config,
-        max_tokens: sampling.maxTokens,
-        temperature: sampling.temperature,
-        top_p: sampling.topP,
-        top_k: sampling.topK,
-      };
-      const resp = await generateText(req);
-      if (isApiError(resp)) {
-        setError(isTrainingGuardError(resp.error) ? TRAINING_GUARD_MESSAGE : resp.error);
-        return;
-      }
-      setResult(resp);
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      setError(isTrainingGuardError(message) ? TRAINING_GUARD_MESSAGE : message);
-    } finally {
-      setBusy(false);
-    }
+    const req: InferenceRequest = {
+      prompt: prompt,
+      checkpoint: checkpoint,
+      config: config,
+      max_tokens: sampling.maxTokens,
+      temperature: sampling.temperature,
+      top_p: sampling.topP,
+      top_k: sampling.topK,
+    };
+    start(req); // streams token-by-token; the hook owns busy/error/done state
   }, [
     trainingAlive,
     promptMissing,
@@ -203,6 +132,7 @@ export default function InferenceScreen({
     checkpoint,
     config,
     sampling,
+    start,
   ]);
 
   const validationHint = useMemo<string | null>(() => {
@@ -360,11 +290,11 @@ export default function InferenceScreen({
             <button
               type="button"
               className="btn btn-primary infer-generate"
-              onClick={() => void onGenerate()}
+              onClick={onGenerate}
               disabled={!canGenerate}
               title={trainingAlive ? TRAINING_GUARD_MESSAGE : undefined}
             >
-              {busy ? '…generating' : 'Generate'}
+              {busy ? '…streaming' : 'Generate'}
             </button>
             {validationHint !== null && (
               <span className="infer-hint muted">{validationHint}</span>
@@ -372,9 +302,16 @@ export default function InferenceScreen({
           </div>
         </div>
 
-        {/* ── Output ── */}
+        {/* ── Output (streams token-by-token) ── */}
         <div className="infer-output-pane">
-          <OutputPane result={result} busy={busy} error={error} />
+          <StreamingConsole
+            text={stream.text}
+            streaming={stream.streaming}
+            error={stream.error}
+            done={stream.done}
+            onStop={stop}
+            emptyHint="No output yet — write a prompt, pick a checkpoint and config, then Generate."
+          />
         </div>
       </div>
     </div>
