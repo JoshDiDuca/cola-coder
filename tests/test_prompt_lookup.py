@@ -11,12 +11,70 @@ import pytest
 
 from cola_coder.inference.prompt_lookup import (
     AcceptanceReport,
+    AdaptiveDraftLength,
     PromptLookupConfig,
     PromptLookupDrafter,
     StepAcceptance,
     _common_prefix_len,
     analyze_acceptance,
 )
+
+
+class TestAdaptiveDraftLength:
+    """The γ controller (IDEA-006): pure, deterministic, exact-verification-safe."""
+
+    def test_starts_at_initial_then_min(self) -> None:
+        assert AdaptiveDraftLength(min_pred_tokens=2, max_pred_tokens=8).draft_length == 2
+        ctl = AdaptiveDraftLength(min_pred_tokens=1, max_pred_tokens=8, initial_pred_tokens=4)
+        assert ctl.draft_length == 4
+        assert ctl.acceptance_ema is None
+
+    def test_initial_is_clamped(self) -> None:
+        assert AdaptiveDraftLength(max_pred_tokens=5, initial_pred_tokens=99).draft_length == 5
+
+    def test_full_acceptance_grows_gamma_to_cap(self) -> None:
+        ctl = AdaptiveDraftLength(min_pred_tokens=1, max_pred_tokens=4, initial_pred_tokens=1)
+        for _ in range(10):
+            ctl.update(accepted=5, drafted=5)  # ratio 1.0 → EMA climbs past grow_threshold
+        assert ctl.draft_length == 4  # clamped at max
+        assert ctl.acceptance_ema is not None and ctl.acceptance_ema > 0.9
+
+    def test_zero_acceptance_shrinks_gamma_to_floor(self) -> None:
+        ctl = AdaptiveDraftLength(min_pred_tokens=2, max_pred_tokens=10, initial_pred_tokens=9)
+        for _ in range(20):
+            ctl.update(accepted=0, drafted=5)  # ratio 0.0 → EMA below shrink_threshold
+        assert ctl.draft_length == 2  # clamped at min
+
+    def test_no_match_step_is_neutral(self) -> None:
+        ctl = AdaptiveDraftLength(initial_pred_tokens=3)
+        before = ctl.draft_length
+        assert ctl.update(accepted=0, drafted=0) == before  # no signal
+        assert ctl.acceptance_ema is None  # EMA untouched
+
+    def test_update_returns_current_length(self) -> None:
+        ctl = AdaptiveDraftLength(min_pred_tokens=1, max_pred_tokens=4, initial_pred_tokens=1)
+        assert ctl.update(accepted=3, drafted=3) == ctl.draft_length
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"min_pred_tokens": 0},
+            {"min_pred_tokens": 5, "max_pred_tokens": 3},
+            {"ema_alpha": 0.0},
+            {"ema_alpha": 1.5},
+            {"shrink_threshold": 0.8, "grow_threshold": 0.5},  # shrink > grow
+        ],
+    )
+    def test_invalid_config_raises(self, kwargs: dict[str, float]) -> None:
+        with pytest.raises(ValueError):
+            AdaptiveDraftLength(**kwargs)
+
+    def test_invalid_update_counts_raise(self) -> None:
+        ctl = AdaptiveDraftLength()
+        with pytest.raises(ValueError):
+            ctl.update(accepted=6, drafted=5)  # accepted > drafted
+        with pytest.raises(ValueError):
+            ctl.update(accepted=-1, drafted=5)
 
 
 # ── PromptLookupConfig validation ─────────────────────────────────────────────

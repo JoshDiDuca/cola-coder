@@ -298,3 +298,98 @@ def _common_prefix_len(a: list[int], b: list[int]) -> int:
             break
         count += 1
     return count
+
+
+# ── Adaptive draft length (IDEA-006 / MODEL-044) ──────────────────────────────
+
+
+@dataclass
+class AdaptiveDraftLength:
+    """Closed-loop controller for the PLD draft length γ (IDEA-006, MODEL-044).
+
+    A fixed draft length wastes verification compute where the model rarely accepts
+    drafts and under-drafts where it almost always does. On code, realized acceptance
+    is bimodal (boilerplate runs vs. genuine decision points), so adapting γ from a
+    running acceptance signal beats any single fixed value.
+
+    Pure and model-free: :meth:`update` is fed only ``(accepted, drafted)`` counts from
+    each verification step (exactly what :func:`analyze_acceptance` already computes), so
+    it can be unit-tested in isolation and dropped into a future generate-loop integration
+    without touching model code. Maintains an EMA of the per-step acceptance RATIO and
+    nudges γ up after high-acceptance steps, down after low-acceptance ones, clamped to
+    ``[min_pred_tokens, max_pred_tokens]``.
+
+    Attributes:
+        min_pred_tokens: Lower clamp for γ (>= 1).
+        max_pred_tokens: Upper clamp for γ (>= min_pred_tokens).
+        ema_alpha: Smoothing for the acceptance-ratio EMA, in (0, 1]; higher = more
+            reactive to the most recent step.
+        grow_threshold: EMA acceptance ratio at/above which γ grows by one.
+        shrink_threshold: EMA acceptance ratio at/below which γ shrinks by one.
+        initial_pred_tokens: Starting γ (defaults to ``min_pred_tokens`` when unset).
+    """
+
+    min_pred_tokens: int = 1
+    max_pred_tokens: int = 10
+    ema_alpha: float = 0.3
+    grow_threshold: float = 0.7
+    shrink_threshold: float = 0.3
+    initial_pred_tokens: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.min_pred_tokens < 1:
+            raise ValueError(f"min_pred_tokens must be >= 1, got {self.min_pred_tokens}")
+        if self.max_pred_tokens < self.min_pred_tokens:
+            raise ValueError(
+                f"max_pred_tokens ({self.max_pred_tokens}) must be >= "
+                f"min_pred_tokens ({self.min_pred_tokens})"
+            )
+        if not 0.0 < self.ema_alpha <= 1.0:
+            raise ValueError(f"ema_alpha must be in (0, 1], got {self.ema_alpha}")
+        if not 0.0 <= self.shrink_threshold <= self.grow_threshold <= 1.0:
+            raise ValueError(
+                "thresholds must satisfy 0 <= shrink_threshold <= grow_threshold <= 1, "
+                f"got shrink={self.shrink_threshold}, grow={self.grow_threshold}"
+            )
+        start = self.min_pred_tokens if self.initial_pred_tokens is None else self.initial_pred_tokens
+        self._draft_length = max(self.min_pred_tokens, min(self.max_pred_tokens, start))
+        self._ema: float | None = None
+
+    @property
+    def draft_length(self) -> int:
+        """The number of tokens to draft on the NEXT step (current γ)."""
+        return self._draft_length
+
+    @property
+    def acceptance_ema(self) -> float | None:
+        """The current acceptance-ratio EMA, or ``None`` before the first update."""
+        return self._ema
+
+    def update(self, accepted: int, drafted: int) -> int:
+        """Record one verification step's outcome and return the new draft length.
+
+        Args:
+            accepted: Number of drafted tokens accepted under greedy verification (0..drafted).
+            drafted: Number of tokens that were drafted this step. ``0`` means the drafter
+                proposed nothing (no n-gram match); such a step carries no acceptance signal
+                and leaves γ and the EMA unchanged.
+
+        Returns:
+            The updated draft length to use on the next step.
+        """
+        if drafted < 0 or accepted < 0 or accepted > drafted:
+            raise ValueError(
+                f"require 0 <= accepted <= drafted, got accepted={accepted}, drafted={drafted}"
+            )
+        if drafted == 0:
+            return self._draft_length  # no signal: a no-match step doesn't move γ
+
+        ratio = accepted / drafted
+        self._ema = ratio if self._ema is None else (
+            self.ema_alpha * ratio + (1.0 - self.ema_alpha) * self._ema
+        )
+        if self._ema >= self.grow_threshold:
+            self._draft_length = min(self.max_pred_tokens, self._draft_length + 1)
+        elif self._ema <= self.shrink_threshold:
+            self._draft_length = max(self.min_pred_tokens, self._draft_length - 1)
+        return self._draft_length

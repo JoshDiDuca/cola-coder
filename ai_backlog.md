@@ -11,6 +11,16 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+### Inference — speculative decoding (2026-06-15)
+- **MODEL-044** [inference, high] `open` — Wire `PromptLookupDrafter` into `CodeGenerator.generate()`
+  for REAL prompt-lookup speculative decoding (exact greedy verification → byte-identical output,
+  ~1.5-3x wall-clock on repetitive code). The drafter + offline `analyze_acceptance` already exist
+  (`inference/prompt_lookup.py`); only the live hot-path integration is missing. Use the new
+  `AdaptiveDraftLength` controller (IDEA-006, shipped this cycle, tested) to size γ per-step from a
+  running acceptance EMA. Verify the lossless invariant against a greedy baseline (same tokens out).
+  MAIN-SAFE (inference only; never touches train.py). Optional follow-up: PROMTEC-style multi-lookup
+  tree verification (ACL Findings 2025). See docs/research-log.md 2026-06-15 entry.
+
 ### UI rebuild — typed forms, pipeline, inference, screens (2026-06-15)
 - **UI-070** [ui, high] `done` (2026-06-15) — Typed argument forms (R3): `ActionParam`/`ActionDef.params`
   + `action_params.py` 1:1 argparse spec for all actions; `ActionForm.tsx`; `/api/actions` merge.

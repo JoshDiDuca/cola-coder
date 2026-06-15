@@ -2204,3 +2204,43 @@ not committed approaches. → IDEA-001..005.
   the per-sample magnitude? If the latter, weight at the data-SAMPLING level instead.
   A small AdamW-vs-Muon × weighted-vs-unweighted ablation answers it; matters because
   the project relies on .weights.npy AND wants to adopt Muon (MODEL-025).
+
+---
+
+## 2026-06-15 — Inference: prompt-lookup / n-gram speculative decoding (realizing the speedup)
+
+**Area:** inference / decoding. **State of the project:** `inference/prompt_lookup.py`
+ships a clean, tested `PromptLookupDrafter` (draft-by-matching-the-context's-own-n-grams)
++ an offline `analyze_acceptance` driver, exposed via `scripts/pld_analysis.py` and the eval
+menu. BUT the drafter is **not wired into `CodeGenerator.generate()`** — only the offline
+acceptance *analysis* exists, so the real 2-4x wall-clock speedup is unrealized.
+
+**2026 literature.** Prompt-lookup / n-gram speculative decoding is training-free: build the
+draft by string-matching recent context, then verify the drafted tokens in ONE model forward
+pass — accepting the longest greedily-correct prefix, so output is bit-identical to normal
+decoding (exact verification). Reported 2-4x on input-grounded tasks, ~1.5-3x general; code is
+an especially good fit (highly repetitive: imports, boilerplate, closing brackets, repeated
+identifiers). 2025-26 work pushes it further: **PROMTEC** (prompt multi-lookup — propose
+several candidate continuations and tree-verify them, HumanEval gains); suffix-automaton /
+suffix-tree draft caches for O(1) longest-match retrieval (EMNLP 2025); GRIFFIN/OWL on draft-
+token alignment and long-context window-length dependence.
+
+**Original idea — IDEA-006: acceptance-calibrated adaptive draft length (γ controller).**
+Standard PLD uses a FIXED draft length γ (`num_pred_tokens`). On code, realized acceptance is
+*bimodal* — near-1.0 in boilerplate runs, near-0 at genuine decision points — so a fixed γ
+both wastes verification compute in low-acceptance regions and under-drafts in high-acceptance
+ones. The project is uniquely positioned: it ALREADY has `analyze_acceptance` measuring realized
+acceptance. Close the loop LIVE — maintain a running acceptance EMA and grow γ after full
+acceptances, shrink it after early rejection (a closed-loop controller, mirroring the reasoning
+module's entropy controller, IDEA-013). Cross-technique: PLD (MODEL-022) × the existing offline
+acceptance analyzer × an online controller. Pure, model-free, exact-verification-preserving, so
+it's a safe building block toward the generator integration. **Implemented this cycle** as a
+pure `AdaptiveDraftLength` controller in `prompt_lookup.py` (unit-tested); wiring it + the
+drafter into the generate loop is filed as MODEL-044.
+
+**Sources:**
+- [prompt-lookup-decoding (apoorvumang)](https://github.com/apoorvumang/prompt-lookup-decoding)
+- [PROMTEC: Fast LLM Inference Decoding using Prompt Multi-Lookup (ACL Findings 2025)](https://aclanthology.org/2025.findings-acl.355.pdf)
+- [Faster In-Context Learning via N-Gram Trie (EMNLP 2025)](https://aclanthology.org/2025.emnlp-main.911.pdf)
+- [Scaling Up, Speeding Up: A Benchmark of Speculative Decoding (arXiv 2509.04474)](https://arxiv.org/pdf/2509.04474)
+- [GRIFFIN: Effective Token Alignment for Faster Speculative Decoding (arXiv 2502.11018)](https://arxiv.org/pdf/2502.11018)
