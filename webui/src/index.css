@@ -1420,3 +1420,370 @@ body {
   flex-wrap: wrap;
   flex: 1;
 }
+
+/* ============================================================
+   TEXTAREA + TOKENIZER / TOKENIZE
+   ============================================================ */
+.textarea {
+  background: var(--panel2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  resize: vertical;
+  transition: border-color 0.15s ease;
+}
+
+.textarea:focus {
+  border-color: var(--accent);
+}
+
+.tok-area {
+  width: 100%;
+  min-height: 92px;
+  line-height: 1.5;
+}
+
+.tok-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 0 4px;
+}
+
+.tok-stat .k {
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-size: 11px;
+}
+
+.tok-path {
+  font-size: 12px;
+  word-break: break-all;
+  padding-bottom: 8px;
+}
+
+.tok-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 6px 0 10px;
+}
+
+.tok-tile {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.tok-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 4px 0 2px;
+}
+
+.tok-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  color: var(--text);
+  white-space: pre;
+}
+
+.tok-chip-a {
+  background: var(--panel2);
+}
+
+.tok-chip-b {
+  background: rgba(79, 156, 249, 0.1);
+  border-color: rgba(79, 156, 249, 0.35);
+}
+
+.tok-chip-piece {
+  font-weight: 600;
+}
+
+.tok-chip-id {
+  color: var(--muted);
+  font-size: 9px;
+  vertical-align: sub;
+}
+
+/* ============================================================
+   DATA PAGE — Datasets grid + detail, stats tiles/empty
+   ============================================================ */
+.ds-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.ds-card {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  transition: border-color 0.15s ease;
+}
+
+.ds-card:hover {
+  border-color: #3a4250;
+}
+
+.ds-card-active {
+  border-color: var(--accent);
+}
+
+.ds-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ds-name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ds-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.ds-meta-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ds-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: auto;
+}
+
+.ds-noweights {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.ds-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.ds-detail-title .mono {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+}
+
+.ds-scores {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ds-stats-tiles {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+@media (max-width: 720px) {
+  .ds-stats-tiles {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.ds-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 28px 18px;
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.ds-empty-title {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ============================================================
+   CONFIGS + CONFIG DIFF (.cfg-* / .diff-*)
+   ============================================================ */
+.cfg-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.cfg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 360px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.cfg-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.cfg-item:hover {
+  border-color: var(--accent);
+}
+
+.cfg-item.active {
+  border-color: var(--accent);
+  background: rgba(79, 156, 249, 0.1);
+}
+
+.cfg-item-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cfg-item-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.cfg-viewer {
+  min-width: 0;
+}
+
+.cfg-pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cfg-pick .select {
+  flex: 1;
+  min-width: 180px;
+}
+
+.cfg-pick-vs {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.diff-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.diff-row {
+  display: grid;
+  grid-template-columns: 16px minmax(120px, 240px) 1fr;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 6px;
+  background: var(--panel2);
+  font-size: 12px;
+}
+
+.diff-mark {
+  font-weight: 700;
+  text-align: center;
+}
+
+.diff-key {
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.diff-val {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.diff-arrow {
+  flex-shrink: 0;
+}
+
+.diff-add {
+  border-left-color: var(--good);
+}
+.diff-add .diff-mark {
+  color: var(--good);
+}
+
+.diff-del {
+  border-left-color: var(--bad);
+}
+.diff-del .diff-mark {
+  color: var(--bad);
+}
+
+.diff-chg {
+  border-left-color: var(--warn);
+}
+.diff-chg .diff-mark {
+  color: var(--warn);
+}
+
+.diff-chg .diff-a {
+  color: var(--bad);
+}
+.diff-chg .diff-b {
+  color: var(--good);
+}

@@ -2,15 +2,13 @@ import { useCallback, useEffect, useState } from 'react';
 import type { TokenizerInfo } from '../types';
 import { isApiError } from '../types';
 import { getTokenizer } from '../api';
+import { formatInteger } from '../format';
 
 function Flag({ label, on }: { label: string; on: boolean }) {
   return (
-    <div className="row">
+    <div className="tok-tile">
       <span className="k">{label}</span>
-      <span>
-        <span className={`dot ${on ? 'live' : 'dead'}`} />{' '}
-        <span className={`tag ${on ? 'done' : 'failed'}`}>{on ? 'on' : 'off'}</span>
-      </span>
+      <span className={`tag ${on ? 'done' : 'failed'}`}>{on ? 'on' : 'off'}</span>
     </div>
   );
 }
@@ -53,29 +51,31 @@ export default function TokenizerPanel() {
 
       {info && (
         <>
-          <div className="muted mono">{info.path}</div>
-
-          <div className="row">
-            <span className="k">vocab_size</span>
-            <span className="v">{info.vocab_size.toLocaleString()}</span>
-          </div>
-          <div className="row">
-            <span className="k">n_merges</span>
-            <span className="v">{info.n_merges.toLocaleString()}</span>
-          </div>
-          <div className="row">
-            <span className="k">model_type</span>
-            <span className="v">{info.model_type}</span>
+          <div className="tok-stat">
+            <span className="stat-big">{formatInteger(info.vocab_size)}</span>
+            <span className="k">vocab size</span>
           </div>
 
-          <Flag label="digit_splitting" on={info.digit_splitting} />
-          <Flag label="has_fim_tokens" on={info.has_fim_tokens} />
+          <div className="muted mono tok-path">{info.path}</div>
+
+          <div className="tok-tiles">
+            <div className="tok-tile">
+              <span className="k">n_merges</span>
+              <span className="v">{formatInteger(info.n_merges)}</span>
+            </div>
+            <div className="tok-tile">
+              <span className="k">model_type</span>
+              <span className="v mono">{info.model_type}</span>
+            </div>
+            <Flag label="digit_splitting" on={info.digit_splitting} />
+            <Flag label="has_fim_tokens" on={info.has_fim_tokens} />
+          </div>
 
           <div className="card-title">special tokens</div>
           {info.special_tokens.length === 0 ? (
             <div className="muted">none</div>
           ) : (
-            <div className="row" style={{ flexWrap: 'wrap', gap: 6, borderBottom: 'none' }}>
+            <div className="tok-chips">
               {info.special_tokens.map((tok) => (
                 <span key={tok} className="tag mono">
                   {tok}

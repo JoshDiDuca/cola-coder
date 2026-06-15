@@ -328,6 +328,13 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   DATA filter/down-weighter so the model learns from secure code (attacks the "train on secure corpora" root cause);
   it's already a registered data scorer (configs/scoring.yaml, enabled:false) — wire it into the prepare/score path
   as an opt-in CWE-vulnerability filter + measure the generated-CWE rate (SEC-027 probe) before/after to close the loop.
+- **UI-066** [ui, high] `done` (2026-06-15) — Panel redesign batch 3 (3 parallel agents, disjoint files):
+  Datasets → card grid + DataStats → stat tiles/histogram (Data); Configs → list+viewer (parsed table or raw)
+  + ConfigDiff → colored add/del/chg rows (Configs & Pipeline); Tokenizer → vocab stat + special-token chips +
+  Tokenize → token-chip visualizer (Tokenizer). All preserve prop signatures + api calls; reuse design tokens;
+  +~50 namespaced CSS classes (incl. a shared .textarea) merged centrally. tsc + vite green (CSS 21 KB). NEXT
+  (UI-067+): Pipeline/PipelineManager, Evals/EvalHistory, Features/Reasoning/Storage/ScriptsCatalog, Router/
+  ModelCard/Export, SftData/DataSources/MetricsChart → consistent styling, then a SECONDARY model item (overdue).
 - **UI-065** [ui, high] `done` (2026-06-15) — Panel redesign batch 2 (3 parallel agents, disjoint files): (a)
   SystemPanel → GPU gauges (util/mem/power level-colored meters) + HealthPanel → scannable check-list w/ score
   badge (Dashboard); (b) JobsPanel → jobs list w/ status chips + relative time + preserved SSE log-follow/stop +

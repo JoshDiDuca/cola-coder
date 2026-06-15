@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import type { TokenizeResult } from '../types';
 import { isApiError } from '../types';
 import { postTokenize } from '../api';
+import { formatInteger } from '../format';
 
 // Render whitespace visibly: leading space → '␣', tab → '⇥', newline → '⏎'.
 function displayToken(tok: string): string {
@@ -62,7 +63,7 @@ export default function TokenizePanel() {
       </div>
 
       <textarea
-        className="input"
+        className="textarea tok-area mono"
         rows={4}
         placeholder="Enter text to tokenize…"
         value={text}
@@ -88,19 +89,25 @@ export default function TokenizePanel() {
 
       {result && (
         <>
-          <div className="row">
+          <div className="tok-stat">
+            <span className="stat-big">{formatInteger(result.count)}</span>
             <span className="k">tokens</span>
-            <span className="stat-big">{result.count}</span>
           </div>
-          {result.truncated && (
-            <div className="muted">output truncated to first {result.count} tokens</div>
-          )}
-          <div className="muted mono">{result.path}</div>
 
-          <div className="scroll" style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {result.truncated && (
+            <div className="muted">output truncated to first {formatInteger(result.count)} tokens</div>
+          )}
+          <div className="muted mono tok-path">{result.path}</div>
+
+          <div className="tok-chips scroll">
             {result.tokens.map((tok, i) => (
-              <span key={i} className="tag mono" title={`id ${result.ids[i]}`}>
-                {displayToken(tok)}
+              <span
+                key={i}
+                className={`tok-chip mono ${i % 2 === 0 ? 'tok-chip-a' : 'tok-chip-b'}`}
+                title={`id ${result.ids[i]}`}
+              >
+                <span className="tok-chip-piece">{displayToken(tok)}</span>
+                <sub className="tok-chip-id">{result.ids[i]}</sub>
               </span>
             ))}
           </div>

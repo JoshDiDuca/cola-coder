@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Dataset, Preview, ScoreSummary, JsonValue } from '../types';
 import { getDatasets, getPreview, getScores } from '../api';
-import { formatBytes, formatFloat, formatInteger, formatJsonValue } from '../format';
+import {
+  formatBytes,
+  formatFloat,
+  formatInteger,
+  formatJsonValue,
+  formatRelativeTime,
+} from '../format';
 
 const PREVIEW_N = 12;
 const PREVIEW_MAX_CHARS = 4000;
@@ -71,6 +77,11 @@ export default function DatasetsPanel() {
     return Math.max(...scores.histogram);
   }, [scores]);
 
+  const selected = useMemo(
+    () => datasets.find((d) => d.path === selectedPath) ?? null,
+    [datasets, selectedPath],
+  );
+
   return (
     <div className="card card-wide">
       <div className="card-title">Datasets</div>
@@ -78,49 +89,70 @@ export default function DatasetsPanel() {
       {error && <div className="err">{error}</div>}
 
       {datasets.length === 0 && !error ? (
-        <div className="muted">no datasets in data/</div>
+        <div className="ds-empty muted">
+          <div className="ds-empty-title">No datasets found</div>
+          <div>Nothing under <span className="mono">data/</span> yet — collect or prepare data to populate this view.</div>
+        </div>
       ) : (
-        <table className="tbl">
-          <thead>
-            <tr>
-              <th>name</th>
-              <th>kind</th>
-              <th className="right">samples</th>
-              <th className="right">size</th>
-              <th className="right">view</th>
-            </tr>
-          </thead>
-          <tbody>
-            {datasets.map((ds) => (
-              <tr key={ds.path}>
-                <td>{ds.name}</td>
-                <td className="mono">
-                  {ds.kind}
-                  {ds.has_weights ? ' ⊕' : ''}
-                </td>
-                <td className="right mono">{formatInteger(ds.num_samples)}</td>
-                <td className="right mono">{formatBytes(ds.size_bytes)}</td>
-                <td className="right">
+        <div className="ds-grid">
+          {datasets.map((ds) => {
+            const active = ds.path === selectedPath;
+            return (
+              <div
+                key={ds.path}
+                className={`ds-card${active ? ' ds-card-active' : ''}`}
+              >
+                <div className="ds-card-head">
+                  <span className="ds-name mono" title={ds.path}>
+                    {ds.name}
+                  </span>
+                  <span className="tag">{ds.kind}</span>
+                </div>
+
+                <div className="ds-meta">
+                  <span className="ds-meta-item">
+                    <span className="k">samples</span>
+                    <span className="mono">{formatInteger(ds.num_samples)}</span>
+                  </span>
+                  <span className="ds-meta-item">
+                    <span className="k">size</span>
+                    <span className="mono">{formatBytes(ds.size_bytes)}</span>
+                  </span>
+                  <span className="ds-meta-item">
+                    <span className="k">modified</span>
+                    <span className="mono">{formatRelativeTime(ds.mtime)}</span>
+                  </span>
+                </div>
+
+                <div className="ds-card-foot">
+                  {ds.has_weights ? (
+                    <span className="tag done">weighted</span>
+                  ) : (
+                    <span className="ds-noweights muted">no weights</span>
+                  )}
                   <button className="btn" onClick={() => void onView(ds)}>
-                    view
+                    {active ? 'refresh' : 'preview'}
                   </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
 
-      {selectedPath !== null && (
-        <>
-          <div className="pre scroll">
-            {previewLoading ? 'loading…' : previewText}
+      {selected !== null && (
+        <div className="ds-detail">
+          <div className="card-title ds-detail-title">
+            Preview · <span className="mono">{selected.name}</span>
           </div>
+
+          <pre className="pre scroll">{previewLoading ? 'loading…' : previewText}</pre>
 
           {scoreError && <div className="err">{scoreError}</div>}
 
           {scores && (
-            <>
+            <div className="ds-scores">
+              <div className="card-title">Quality weights</div>
               <div className="hist">
                 {scores.histogram.map((count, i) => (
                   <div
@@ -131,13 +163,27 @@ export default function DatasetsPanel() {
                   />
                 ))}
               </div>
-              <div className="muted mono">
-                n {formatInteger(scores.n)} · mean {formatFloat(scores.mean, 3)} · [
-                {formatFloat(scores.min, 3)}, {formatFloat(scores.max, 3)}]
+              <div className="stat-tiles">
+                <div className="stat-tile">
+                  <div className="stat-tile-label">n</div>
+                  <div className="stat-tile-value mono">{formatInteger(scores.n)}</div>
+                </div>
+                <div className="stat-tile">
+                  <div className="stat-tile-label">mean</div>
+                  <div className="stat-tile-value mono">{formatFloat(scores.mean, 3)}</div>
+                </div>
+                <div className="stat-tile">
+                  <div className="stat-tile-label">min</div>
+                  <div className="stat-tile-value mono">{formatFloat(scores.min, 3)}</div>
+                </div>
+                <div className="stat-tile">
+                  <div className="stat-tile-label">max</div>
+                  <div className="stat-tile-value mono">{formatFloat(scores.max, 3)}</div>
+                </div>
               </div>
-            </>
+            </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );
