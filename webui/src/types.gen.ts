@@ -83,6 +83,7 @@ export interface ActionDef {
   trainer?: boolean;
   gpu?: boolean;
   params?: ActionParam[];
+  category?: 'Data' | 'Training' | 'Pipeline' | 'Evaluation' | 'Inspection' | 'Export' | 'Tools';
 }
 
 export interface JobLogChunk {

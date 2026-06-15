@@ -82,7 +82,8 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "name": "config", "flag": "--config", "label": "Config", "type": "config",
         "default": "configs/small.yaml", "choices": [], "required": True, "help": None,
     },
-    "ActionDef": {"key": "k", "script": "train.py", "label": "Train", "args": [], "gpu": False},
+    "ActionDef": {"key": "k", "script": "train.py", "label": "Train", "args": [], "gpu": False,
+                  "category": "Training"},
     "JobLogChunk": {"text": "step 1\n", "done": False},
     "SftFile": {
         "name": "sft.jsonl", "path": "data/sft.jsonl", "kind": "jsonl",

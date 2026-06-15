@@ -45,6 +45,18 @@ def test_every_action_with_params_is_in_actions() -> None:
     )
 
 
+def test_every_action_has_an_explicit_category() -> None:
+    """Every ACTIONS key must be explicitly categorized (not fall back to 'Tools'),
+    so the Run screen groups it deterministically rather than by name heuristic."""
+    from cola_coder.ui.app import _ACTION_CATEGORY
+
+    uncategorized = sorted(k for k in ACTIONS if k not in _ACTION_CATEGORY)
+    assert not uncategorized, (
+        f"actions missing an explicit _ACTION_CATEGORY entry (would default to 'Tools'): "
+        f"{uncategorized}"
+    )
+
+
 def test_trainer_and_gpu_actions_have_param_specs() -> None:
     """Actions a user launches with arguments should expose a typed form.
 

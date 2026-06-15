@@ -121,6 +121,11 @@ class ActionDef(_UiModel):
     trainer: bool = False
     gpu: bool = False
     params: list[ActionParam] = []
+    # Backend-assigned group for the Run screen (schema-first, replaces the
+    # frontend's brittle name-regex heuristic). The UI groups actions by this.
+    category: Literal[
+        "Data", "Training", "Pipeline", "Evaluation", "Inspection", "Export", "Tools"
+    ] = "Tools"
 
 
 class JobLogChunk(_UiModel):

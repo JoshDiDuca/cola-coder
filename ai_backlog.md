@@ -18,6 +18,14 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   Pipeline/Manager). One coherent panel per section, no grid. Built by 3 parallel agents (disjoint new
   files) wrapping the existing panels unchanged; App.tsx now imports 3 panels instead of 19. tsc + build green.
 
+### UI — schema-first action categories (2026-06-15)
+- **UI-088** [ui, medium] `done` (2026-06-15) — Replaced the Run screen's brittle name-regex action
+  classifier with a backend-assigned `ActionDef.category` (Literal: Data/Training/Pipeline/Evaluation/
+  Inspection/Export/Tools) + `_ACTION_CATEGORY` map in app.py merged into /api/actions. Fixes the 16
+  newly-wired actions that the heuristic dumped in "Tools" (checkpoint_info/pld_analysis/compare_checkpoints
+  → Inspection, etc.). ActionsPanel now groups by `a.category` (7 groups, deterministic). New parity test:
+  every action has an explicit category (no Tools fallback). 222 tests, tsc + build green.
+
 ### UI — wire 16 scripts as typed-form actions (2026-06-15)
 - **UI-087** [ui, high] `done` (2026-06-15) — Wired 16 non-interactive scripts as typed-form background
   actions (ACTIONS 31→47), all 1:1 with argparse via action_params.py (parity test UI-072 guards every

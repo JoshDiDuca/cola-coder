@@ -190,6 +190,35 @@ ACTIONS: dict[str, dict] = {
 }
 
 
+# Backend-assigned Run-screen category per action (schema-first; the UI groups by
+# this instead of guessing from the action name). Keys not listed default to "Tools".
+_ACTION_CATEGORY: dict[str, str] = {
+    # Data / foundation
+    "prepare_data": "Data", "collect_data": "Data", "score_data": "Data", "data_stats": "Data",
+    "generate_rft": "Data", "generate_instructions": "Data", "combine_datasets": "Data",
+    "train_tokenizer": "Data", "prepare_fim": "Data", "prepare_docs_data": "Data",
+    "prepare_repo_context_data": "Data", "generate_sft_data": "Data", "generate_router_data": "Data",
+    "score_repos": "Data", "check_contamination": "Data",
+    # Training
+    "train": "Training", "train_sft": "Training", "train_reasoning": "Training",
+    "train_router": "Training", "upcycle_to_moe": "Training", "find_lr": "Training",
+    # Pipeline
+    "auto_pipeline": "Pipeline", "full_pipeline": "Pipeline",
+    # Evaluation
+    "evaluate": "Evaluation", "smoke_test": "Evaluation", "quality_report": "Evaluation",
+    "safety_eval": "Evaluation", "completion_benchmark": "Evaluation", "benchmark": "Evaluation",
+    "regression_test": "Evaluation", "ts_benchmark": "Evaluation", "depth_profile": "Evaluation",
+    "robustness_eval": "Evaluation", "run_eval_suite": "Evaluation", "compare_models": "Evaluation",
+    "nano_benchmark": "Evaluation", "evaluate_router": "Evaluation",
+    # Inspection / diagnostics
+    "tokenizer_health": "Inspection", "project_health": "Inspection", "vram_estimate": "Inspection",
+    "env_check": "Inspection", "checkpoint_info": "Inspection", "compare_checkpoints": "Inspection",
+    "pld_analysis": "Inspection",
+    # Export / release
+    "export_model": "Export", "average_checkpoints": "Export", "model_card": "Export",
+}
+
+
 def _build_chat_prompt(messages: list[tuple[str, str]], use_chat_template: bool) -> str:
     """Build a generation prompt from chat turns.
 
@@ -356,7 +385,8 @@ def create_app(
         # Merge each action's typed argument spec (1:1 with the script's argparse,
         # source of truth in action_params.py) so the UI renders real form fields.
         return [
-            {"key": k, **v, "params": ACTION_PARAMS.get(k, [])}
+            {"key": k, **v, "params": ACTION_PARAMS.get(k, []),
+             "category": _ACTION_CATEGORY.get(k, "Tools")}
             for k, v in ACTIONS.items()
         ]
 

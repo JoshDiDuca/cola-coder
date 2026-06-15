@@ -8,15 +8,17 @@ interface ActionsPanelProps {
   trainingAlive: boolean;
 }
 
-// Client-side classification of an action into one of five calm, human
-// categories. The backend ships a flat list of ActionDef; the UI groups them
-// for a navigable gallery. Keep this exhaustive over `Category`.
-type Category = 'Data' | 'Evaluation' | 'Training' | 'Export' | 'Tools';
+// The backend assigns each ActionDef a `category` (schema-first, deterministic).
+// The UI just groups by it — no name-guessing heuristic. Keep this union in sync
+// with the ActionDef.category Literal in src/cola_coder/ui/schemas.py.
+type Category = 'Data' | 'Training' | 'Pipeline' | 'Evaluation' | 'Inspection' | 'Export' | 'Tools';
 
 const CATEGORY_ORDER: readonly Category[] = [
   'Training',
+  'Pipeline',
   'Data',
   'Evaluation',
+  'Inspection',
   'Export',
   'Tools',
 ];
@@ -24,43 +26,21 @@ const CATEGORY_ORDER: readonly Category[] = [
 // Short, plain-language blurb shown under each category heading.
 const CATEGORY_BLURB: Record<Category, string> = {
   Training: 'Train, fine-tune, and scale models.',
+  Pipeline: 'One-click multi-stage training pipelines.',
   Data: 'Collect, prepare, score, and combine datasets.',
   Evaluation: 'Benchmark quality, safety, and regressions.',
+  Inspection: 'Inspect checkpoints, environment, and diagnostics.',
   Export: 'Package and average checkpoints for release.',
-  Tools: 'Utilities, inspection, and housekeeping.',
+  Tools: 'Utilities and housekeeping.',
 };
 
-function classify(haystack: string): Category | null {
-  // Data
-  if (
-    /\b(prepare_data|collect_data|score_data|combine_datasets|scrape|prepare_fim|prepare_docs|prepare_repo|generate_(instructions|sft|router)_data|generate_sft|generate_instructions|score_repos)\b/.test(
-      haystack,
-    )
-  ) {
-    return 'Data';
-  }
-  // Evaluation
-  if (
-    /\b(evaluate|benchmark|safety|regression|quality|completion|ts_benchmark|nano_benchmark|inference_benchmark|smoke_test|compare_models|run_eval)\b/.test(
-      haystack,
-    )
-  ) {
-    return 'Evaluation';
-  }
-  // Training
-  if (/\b(train|upcycle|find_lr|full_pipeline|run_pipeline|auto_pipeline|background_train)\b/.test(haystack)) {
-    return 'Training';
-  }
-  // Export
-  if (/\b(export_model|export|average_checkpoints|model_card)\b/.test(haystack)) {
-    return 'Export';
-  }
-  return null;
-}
+const KNOWN_CATEGORIES: ReadonlySet<string> = new Set<Category>(CATEGORY_ORDER);
 
 function categoryOf(a: ActionDef): Category {
-  const haystack = `${a.key} ${a.script} ${a.label}`.toLowerCase();
-  return classify(haystack) ?? 'Tools';
+  // Backend-provided category is the source of truth; fall back to 'Tools' only
+  // if it's absent or an unknown value (keeps the union exhaustive + safe).
+  const cat = a.category;
+  return cat !== undefined && KNOWN_CATEGORIES.has(cat) ? (cat as Category) : 'Tools';
 }
 
 // Per-card transient run state. `kind` discriminates the union exhaustively.
