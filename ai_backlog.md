@@ -172,6 +172,20 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   convergence threshold + exec-validated safe-layer floor, A/B'd on HumanEval pass@1 + CI (EVAL-028).
 
 ### UI (2026-06-14)
+- **UI-036** [ui, medium] `done` (2026-06-14) — Navigation/IA: grouped the 30+ flat panels into 8
+  COLLAPSIBLE sections (Overview, Run & Jobs, Checkpoints & Models, Data, Configs & Pipeline, Evaluation,
+  Tokenizer, System & Tools). New reusable `CollapsibleSection.tsx` (a11y `<button>` header + chevron) +
+  typed generic `useLocalStorage<T>` hook persisting each section's open/closed state across reloads.
+  Pure frontend (no backend/endpoint, zero training risk); section body reuses the exact `.app-grid`
+  template (`repeat(auto-fit, minmax(330px,1fr))`, gap 16px) so cards tile identically. tsc + vite green
+  (220 KB). Overview + Run & Jobs default-open; the rest collapsed.
+- **UI-034** [ui, high] `open` — Execute pipeline stages from the UI. FINDING (this cycle): the CLI's
+  per-stage handlers in `pipeline_menu.py` are INTERACTIVE and multi-command (they call cli.confirm/
+  cli.choose, prompt to train a tokenizer, pick datasets, choose scoring) — NOT a pure argv builder. So
+  this needs a NON-INTERACTIVE stage-plan builder (`build_stage_plan(run, stage) -> list[StageCommand]`,
+  defaults instead of prompts, reusing run_manager.resolve_input + _model_scale) extracted into
+  `pipeline/`, consumed by BOTH the CLI and the UI, with stage execution launched via JobManager behind
+  the existing trainer/GPU guard (stages 3/6/7/9/10 are GPU). Own focused effort — do not half-extract.
 - **UI-035** [ui, high] `done` (2026-06-14) — Inspect-tools parity: tokenizer-health + data-stats views
   (parallel agents: backend keystone w/ DRY extraction + 2 disjoint frontend panels). Extracted the CLI
   tools' logic into SHARED libs so CLI and UI run identical code: `cola_coder.tokenizer.health`

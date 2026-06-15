@@ -31,6 +31,7 @@ import SystemInfoPanel from './components/SystemInfoPanel';
 import ConfigDiffPanel from './components/ConfigDiffPanel';
 import TokenizerHealthPanel from './components/TokenizerHealthPanel';
 import DataStatsPanel from './components/DataStatsPanel';
+import CollapsibleSection from './components/CollapsibleSection';
 
 interface Snapshot {
   training: TrainingStatus;
@@ -95,40 +96,71 @@ export default function App() {
       </header>
 
       <main className="app-grid">
-        <TrainingPanel training={snap?.training ?? null} />
-        <SystemPanel system={snap?.system ?? null} />
-        <SystemInfoPanel />
-        <HealthPanel />
-        <CheckpointsPanel checkpoints={snap?.checkpoints ?? []} />
-        <MetricsChartPanel />
-        <EvalHistoryPanel />
-        <ActionsPanel
-          onRan={() => { /* jobs arrive via the event stream */ }}
-          trainingAlive={alive}
-        />
-        <JobsPanel jobs={snap?.jobs ?? []} />
-        <DatasetsPanel />
-        <DataStatsPanel />
-        <DataSourcesPanel />
-        <SftDataPanel />
-        <ConfigsPanel />
-        <ConfigDiffPanel />
-        <PipelinePanel />
-        <PipelineManagerPanel />
-        <EvalsPanel />
-        <LogsPanel />
-        <FeaturesPanel />
-        <ReasoningPanel />
-        <TokenizerPanel />
-        <TokenizerHealthPanel />
-        <TokenizePanel />
-        <CheckpointDetailPanel checkpoints={snap?.checkpoints ?? []} />
-        <CheckpointComparePanel checkpoints={snap?.checkpoints ?? []} />
-        <ModelCardPanel checkpoints={snap?.checkpoints ?? []} />
-        <RouterPanel />
-        <ExportPanel />
-        <ScriptsCatalogPanel />
-        <StoragePanel />
+        {/* Overview — the always-visible live dashboard. */}
+        <CollapsibleSection title="Overview" storageKey="sec.overview" defaultOpen>
+          <TrainingPanel training={snap?.training ?? null} />
+          <SystemPanel system={snap?.system ?? null} />
+          <MetricsChartPanel />
+          <HealthPanel />
+          <SystemInfoPanel />
+        </CollapsibleSection>
+
+        {/* Jobs & actions — run things, watch live logs. */}
+        <CollapsibleSection title="Run & Jobs" storageKey="sec.jobs" defaultOpen>
+          <ActionsPanel
+            onRan={() => { /* jobs arrive via the event stream */ }}
+            trainingAlive={alive}
+          />
+          <JobsPanel jobs={snap?.jobs ?? []} />
+          <LogsPanel />
+        </CollapsibleSection>
+
+        {/* Checkpoints & models. */}
+        <CollapsibleSection title="Checkpoints & Models" storageKey="sec.checkpoints">
+          <CheckpointsPanel checkpoints={snap?.checkpoints ?? []} />
+          <CheckpointDetailPanel checkpoints={snap?.checkpoints ?? []} />
+          <CheckpointComparePanel checkpoints={snap?.checkpoints ?? []} />
+          <ModelCardPanel checkpoints={snap?.checkpoints ?? []} />
+          <RouterPanel />
+          <ExportPanel />
+        </CollapsibleSection>
+
+        {/* Data. */}
+        <CollapsibleSection title="Data" storageKey="sec.data">
+          <DatasetsPanel />
+          <DataStatsPanel />
+          <DataSourcesPanel />
+          <SftDataPanel />
+        </CollapsibleSection>
+
+        {/* Configs & pipeline. */}
+        <CollapsibleSection title="Configs & Pipeline" storageKey="sec.pipeline">
+          <ConfigsPanel />
+          <ConfigDiffPanel />
+          <PipelinePanel />
+          <PipelineManagerPanel />
+        </CollapsibleSection>
+
+        {/* Evaluation. */}
+        <CollapsibleSection title="Evaluation" storageKey="sec.eval">
+          <EvalsPanel />
+          <EvalHistoryPanel />
+        </CollapsibleSection>
+
+        {/* Tokenizer. */}
+        <CollapsibleSection title="Tokenizer" storageKey="sec.tokenizer">
+          <TokenizerPanel />
+          <TokenizerHealthPanel />
+          <TokenizePanel />
+        </CollapsibleSection>
+
+        {/* System & tools. */}
+        <CollapsibleSection title="System & Tools" storageKey="sec.tools">
+          <FeaturesPanel />
+          <ReasoningPanel />
+          <ScriptsCatalogPanel />
+          <StoragePanel />
+        </CollapsibleSection>
       </main>
     </>
   );
