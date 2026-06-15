@@ -328,6 +328,16 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   DATA filter/down-weighter so the model learns from secure code (attacks the "train on secure corpora" root cause);
   it's already a registered data scorer (configs/scoring.yaml, enabled:false) — wire it into the prepare/score path
   as an opt-in CWE-vulnerability filter + measure the generated-CWE rate (SEC-027 probe) before/after to close the loop.
+- **UI-067** [ui, high] `done` (2026-06-15) — Panel redesign batch 4 (3 parallel agents, disjoint files):
+  MetricsChartPanel → polished dependency-free SVG loss/tok-s chart (legend toggle, gridlines, callout) +
+  SystemInfoPanel → env tiles + per-GPU rows + disk meter (FINISHES the Dashboard); EvalsPanel → artifact
+  list+metric-tile detail + EvalHistoryPanel → trend sparkline + delta table (Evaluation); PipelinePanel → run
+  cards w/ progress + PipelineManagerPanel → 10-stage TIMELINE/stepper (numbered rail nodes colored by status,
+  per-stage override/reset preserved) (Configs & Pipeline). All preserve prop signatures + every api call; reuse
+  tokens; CSS merged centrally (28.5 KB). tsc + vite green. The Dashboard, Run & Jobs, Checkpoints, Data,
+  Configs & Pipeline, Evaluation, Tokenizer pages are now redesigned. NEXT (UI-068+): the System & Tools page
+  panels (Features/Reasoning/Storage/ScriptsCatalog/Router/ModelCard/Export/SftData/DataSources + the newer
+  inspect panels' visual consistency), then resume the OVERDUE SECONDARY model item.
 - **UI-066** [ui, high] `done` (2026-06-15) — Panel redesign batch 3 (3 parallel agents, disjoint files):
   Datasets → card grid + DataStats → stat tiles/histogram (Data); Configs → list+viewer (parsed table or raw)
   + ConfigDiff → colored add/del/chg rows (Configs & Pipeline); Tokenizer → vocab stat + special-token chips +

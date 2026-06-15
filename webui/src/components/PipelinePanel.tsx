@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { PipelineRun, JsonValue } from '../types';
 import { getPipelineRuns, getPipelineRun } from '../api';
-import { formatInteger, formatJsonValue } from '../format';
+import { formatInteger, formatJsonValue, formatRelativeTime } from '../format';
 
 const RUN_MAX_CHARS = 6000;
 
@@ -20,6 +20,14 @@ function tagClass(status: string | null): string {
     default:
       return 'tag';
   }
+}
+
+// Fraction of stages completed in 0..1, or null when stage counts are unknown.
+function completionFraction(run: PipelineRun): number | null {
+  if (run.completed == null || run.num_stages == null || run.num_stages <= 0) {
+    return null;
+  }
+  return Math.min(1, Math.max(0, run.completed / run.num_stages));
 }
 
 // The run-detail endpoint returns genuinely open JSON; render it through the one
@@ -76,38 +84,58 @@ export default function PipelinePanel() {
       {error && <div className="err">{error}</div>}
 
       {runs.length === 0 && !error ? (
-        <div className="muted">no pipeline runs</div>
+        <div className="ds-empty">
+          <div className="ds-empty-title">No pipeline runs</div>
+          <div className="muted">
+            Create a named run in the Pipeline run manager to track the 10-stage build.
+          </div>
+        </div>
       ) : (
-        <table className="tbl">
-          <thead>
-            <tr>
-              <th>name</th>
-              <th>status</th>
-              <th className="right">stages</th>
-              <th className="right">view</th>
-            </tr>
-          </thead>
-          <tbody>
-            {runs.map((run) => (
-              <tr key={run.path}>
-                <td className="mono">{run.name}</td>
-                <td>
+        <div className="pipe-list">
+          {runs.map((run) => {
+            const fraction = completionFraction(run);
+            const isSelected = selectedPath === run.path;
+            return (
+              <div
+                key={run.path}
+                className={isSelected ? 'pipe-run pipe-run-active' : 'pipe-run'}
+              >
+                <div className="pipe-run-main">
+                  <div className="pipe-run-id">
+                    <span className="pipe-run-name mono">{run.name}</span>
+                    <span className="pipe-run-time muted">
+                      updated {formatRelativeTime(run.mtime)}
+                    </span>
+                  </div>
                   <span className={tagClass(run.status)}>{run.status ?? '—'}</span>
-                </td>
-                <td className="right mono">
-                  {run.completed == null || run.num_stages == null
-                    ? '—'
-                    : `${formatInteger(run.completed)} / ${formatInteger(run.num_stages)}`}
-                </td>
-                <td className="right">
+                </div>
+
+                <div className="pipe-run-progress">
+                  <div className="bar">
+                    <div
+                      className="fill"
+                      style={{ width: `${(fraction ?? 0) * 100}%` }}
+                    />
+                  </div>
+                  <span className="pipe-run-count mono">
+                    {run.completed == null || run.num_stages == null
+                      ? '—'
+                      : `${formatInteger(run.completed)} / ${formatInteger(run.num_stages)}`}
+                  </span>
+                </div>
+
+                <div className="pipe-run-foot">
+                  {run.error != null && run.error !== '' && (
+                    <span className="err pipe-run-err">{run.error}</span>
+                  )}
                   <button className="btn" onClick={() => void onView(run)}>
-                    view
+                    {isSelected ? 'viewing' : 'view'}
                   </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
 
       {selectedPath !== null && (

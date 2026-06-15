@@ -15,7 +15,7 @@ import {
   getConfigs,
 } from '../api';
 import { isApiError } from '../types';
-import { formatDuration } from '../format';
+import { formatDuration, formatInteger } from '../format';
 
 // The two optional stages the create form can skip (stage 4 extend-context,
 // stage 7 upcycle-moe). Kept as a typed constant so the checkboxes and the
@@ -43,6 +43,23 @@ function stageBadgeClass(status: string): string {
       return 'tag';
     default:
       return 'tag';
+  }
+}
+
+// Modifier class for the timeline node dot, so the stepper reads at a glance.
+function stageNodeClass(status: string): string {
+  switch (status) {
+    case 'running':
+      return 'stage-num stage-num-running';
+    case 'completed':
+      return 'stage-num stage-num-done';
+    case 'failed':
+      return 'stage-num stage-num-failed';
+    case 'skipped':
+      return 'stage-num stage-num-skipped';
+    case 'pending':
+    default:
+      return 'stage-num';
   }
 }
 
@@ -224,6 +241,11 @@ export default function PipelineManagerPanel() {
     [refreshRuns],
   );
 
+  const overallFraction =
+    detail !== null && detail.num_stages > 0
+      ? Math.min(1, Math.max(0, detail.completed / detail.num_stages))
+      : 0;
+
   return (
     <div className="card card-wide">
       <div className="card-title">Pipeline run manager</div>
@@ -231,71 +253,63 @@ export default function PipelineManagerPanel() {
       {error && <div className="err">{error}</div>}
 
       {/* Create-run form */}
-      <div className="card-title" style={{ marginTop: 4 }}>
-        Create a run
-      </div>
-      {createError && <div className="err">{createError}</div>}
-      <table className="tbl">
-        <tbody>
-          <tr>
-            <td>name</td>
-            <td>
-              <input
-                className="input"
-                style={{ width: '100%' }}
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder={NAME_PLACEHOLDER}
-                spellCheck={false}
-              />
-            </td>
-          </tr>
-          <tr>
-            <td>config</td>
-            <td>
-              {configs.length === 0 ? (
-                <span className="muted">no configs found</span>
-              ) : (
-                <select
-                  className="input"
-                  style={{ width: '100%' }}
-                  value={newConfigPath}
-                  onChange={(e) => setNewConfigPath(e.target.value)}
-                >
-                  {configs.map((cfg) => (
-                    <option key={cfg.path} value={cfg.path}>
-                      {cfg.rel}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </td>
-          </tr>
-          <tr>
-            <td>skip optional</td>
-            <td>
-              {OPTIONAL_STAGES.map((stage) => (
-                <label key={stage.num} style={{ marginRight: 16 }}>
-                  <input
-                    type="checkbox"
-                    checked={skipStages.includes(stage.num)}
-                    onChange={(e) => onToggleSkip(stage.num, e.target.checked)}
-                  />{' '}
-                  {stage.label}
-                </label>
-              ))}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <div style={{ marginTop: 8 }}>
-        <button
-          className="btn btn-primary"
-          onClick={() => void onCreate()}
-          disabled={creating || configs.length === 0}
-        >
-          {creating ? '…creating' : '＋ Create run'}
-        </button>
+      <div className="pipe-create">
+        <div className="card-title">Create a run</div>
+        {createError && <div className="err">{createError}</div>}
+        <div className="pipe-create-grid">
+          <label className="pipe-field">
+            <span className="pipe-field-label">name</span>
+            <input
+              className="input"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder={NAME_PLACEHOLDER}
+              spellCheck={false}
+            />
+          </label>
+          <label className="pipe-field">
+            <span className="pipe-field-label">config</span>
+            {configs.length === 0 ? (
+              <span className="muted">no configs found</span>
+            ) : (
+              <select
+                className="select"
+                value={newConfigPath}
+                onChange={(e) => setNewConfigPath(e.target.value)}
+              >
+                {configs.map((cfg) => (
+                  <option key={cfg.path} value={cfg.path}>
+                    {cfg.rel}
+                  </option>
+                ))}
+              </select>
+            )}
+          </label>
+        </div>
+        <div className="pipe-skip">
+          <span className="pipe-field-label">skip optional</span>
+          <div className="pipe-skip-opts">
+            {OPTIONAL_STAGES.map((stage) => (
+              <label key={stage.num} className="pipe-skip-opt">
+                <input
+                  type="checkbox"
+                  checked={skipStages.includes(stage.num)}
+                  onChange={(e) => onToggleSkip(stage.num, e.target.checked)}
+                />{' '}
+                {stage.label}
+              </label>
+            ))}
+          </div>
+        </div>
+        <div>
+          <button
+            className="btn btn-primary"
+            onClick={() => void onCreate()}
+            disabled={creating || configs.length === 0}
+          >
+            {creating ? '…creating' : '＋ Create run'}
+          </button>
+        </div>
       </div>
 
       {/* Run list */}
@@ -305,53 +319,48 @@ export default function PipelineManagerPanel() {
       {runs.length === 0 && !error ? (
         <div className="muted">no pipeline runs</div>
       ) : (
-        <table className="tbl">
-          <thead>
-            <tr>
-              <th>name</th>
-              <th>status</th>
-              <th className="right">stages</th>
-              <th className="right">select</th>
-            </tr>
-          </thead>
-          <tbody>
-            {runs.map((run) => (
-              <tr key={run.path}>
-                <td className="mono">{run.name}</td>
-                <td>
+        <div className="pipe-list">
+          {runs.map((run) => {
+            const isSelected = selectedName === run.name;
+            return (
+              <button
+                key={run.path}
+                className={isSelected ? 'pipe-run pipe-run-active' : 'pipe-run'}
+                onClick={() => void loadDetail(run.name)}
+              >
+                <div className="pipe-run-main">
+                  <span className="pipe-run-name mono">{run.name}</span>
                   <span className={stageBadgeClass(run.status ?? '')}>
                     {run.status ?? '—'}
                   </span>
-                </td>
-                <td className="right mono">
-                  {run.completed == null || run.num_stages == null
-                    ? '—'
-                    : `${run.completed} / ${run.num_stages}`}
-                </td>
-                <td className="right">
-                  <button
-                    className={selectedName === run.name ? 'btn btn-primary' : 'btn'}
-                    onClick={() => void loadDetail(run.name)}
-                  >
-                    {selectedName === run.name ? 'selected' : 'select'}
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </div>
+                <div className="pipe-run-foot">
+                  <span className="pipe-run-count mono">
+                    {run.completed == null || run.num_stages == null
+                      ? '—'
+                      : `${formatInteger(run.completed)} / ${formatInteger(run.num_stages)} stages`}
+                  </span>
+                  <span className="muted">{isSelected ? 'selected' : 'select'}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
       )}
 
-      {/* Selected run detail */}
+      {/* Selected run detail — stage timeline */}
       {selectedName !== null && (
-        <>
-          <div
-            className="card-title"
-            style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between' }}
-          >
-            <span>Run: {selectedName}</span>
-            <button className="btn" onClick={() => void onDelete(selectedName)}>
-              🗑 Delete run
+        <div className="pipe-detail">
+          <div className="pipe-detail-head">
+            <div className="pipe-detail-titles">
+              <div className="card-title">Run</div>
+              <span className="pipe-detail-name mono">{selectedName}</span>
+              {detail !== null && (
+                <span className="muted mono">{detail.config_path}</span>
+              )}
+            </div>
+            <button className="btn btn-danger" onClick={() => void onDelete(selectedName)}>
+              Delete run
             </button>
           </div>
 
@@ -363,79 +372,71 @@ export default function PipelineManagerPanel() {
             !detailError && <div className="muted">no detail</div>
           ) : (
             <>
-              <div className="muted mono">{detail.config_path}</div>
-              <table className="tbl">
-                <thead>
-                  <tr>
-                    <th className="right">#</th>
-                    <th>stage</th>
-                    <th>status</th>
-                    <th className="right">duration</th>
-                    <th>override</th>
-                    <th className="right">actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {detail.stages.map((stage: PipelineStageState) => (
-                    <tr key={stage.num}>
-                      <td className="right mono">{stage.num}</td>
-                      <td>
-                        <div>
-                          {stage.name}
-                          {stage.optional && (
-                            <span className="tag" style={{ marginLeft: 8 }}>
-                              optional
-                            </span>
-                          )}
-                        </div>
-                        <div className="muted">{stage.description}</div>
-                        {stage.artifact !== '' && (
-                          <div className="muted mono">→ {stage.artifact}</div>
-                        )}
-                        {stage.error !== '' && <div className="err">{stage.error}</div>}
-                      </td>
-                      <td>
-                        <span className={stageBadgeClass(stage.status)}>
-                          {stage.status}
+              <div className="pipe-overall">
+                <div className="pipe-overall-head">
+                  <span className={stageBadgeClass(detail.status)}>{detail.status}</span>
+                  <span className="pipe-run-count mono">
+                    {formatInteger(detail.completed)} / {formatInteger(detail.num_stages)} stages
+                  </span>
+                </div>
+                <div className="bar">
+                  <div className="fill" style={{ width: `${overallFraction * 100}%` }} />
+                </div>
+              </div>
+
+              <div className="stage-timeline">
+                {detail.stages.map((stage: PipelineStageState) => (
+                  <div
+                    key={stage.num}
+                    className={
+                      stage.status === 'failed' ? 'stage-row stage-row-failed' : 'stage-row'
+                    }
+                  >
+                    <div className="stage-rail">
+                      <div className={stageNodeClass(stage.status)}>{stage.num}</div>
+                    </div>
+
+                    <div className="stage-body">
+                      <div className="stage-head">
+                        <span className="stage-name">{stage.name}</span>
+                        {stage.optional && <span className="tag">optional</span>}
+                        <span className={stageBadgeClass(stage.status)}>{stage.status}</span>
+                        <span className="stage-dur mono muted">
+                          {stage.duration_secs > 0 ? formatDuration(stage.duration_secs) : ''}
                         </span>
-                      </td>
-                      <td className="right mono">
-                        {stage.duration_secs > 0
-                          ? formatDuration(stage.duration_secs)
-                          : '—'}
-                      </td>
-                      <td>
-                        {stage.override !== '' && (
-                          <div className="muted mono" style={{ marginBottom: 4 }}>
-                            {stage.override}
-                          </div>
-                        )}
-                        <div style={{ display: 'flex', gap: 4 }}>
-                          <input
-                            className="input"
-                            style={{ width: '100%' }}
-                            value={overrideDrafts[stage.num] ?? ''}
-                            onChange={(e) =>
-                              setOverrideDrafts((prev) => ({
-                                ...prev,
-                                [stage.num]: e.target.value,
-                              }))
-                            }
-                            placeholder="override path"
-                            spellCheck={false}
-                          />
-                          <button
-                            className="btn"
-                            onClick={() =>
-                              void onSetOverride(selectedName, stage.num)
-                            }
-                            disabled={busyStage !== null}
-                          >
-                            Set
-                          </button>
-                        </div>
-                      </td>
-                      <td className="right">
+                      </div>
+
+                      {stage.description !== '' && (
+                        <div className="muted stage-desc">{stage.description}</div>
+                      )}
+                      {stage.artifact !== '' && (
+                        <div className="muted mono stage-artifact">→ {stage.artifact}</div>
+                      )}
+                      {stage.override !== '' && (
+                        <div className="muted mono stage-artifact">override: {stage.override}</div>
+                      )}
+                      {stage.error !== '' && <div className="err">{stage.error}</div>}
+
+                      <div className="stage-actions">
+                        <input
+                          className="input stage-override-input"
+                          value={overrideDrafts[stage.num] ?? ''}
+                          onChange={(e) =>
+                            setOverrideDrafts((prev) => ({
+                              ...prev,
+                              [stage.num]: e.target.value,
+                            }))
+                          }
+                          placeholder="override path"
+                          spellCheck={false}
+                        />
+                        <button
+                          className="btn"
+                          onClick={() => void onSetOverride(selectedName, stage.num)}
+                          disabled={busyStage !== null}
+                        >
+                          Set
+                        </button>
                         <button
                           className="btn"
                           onClick={() => void onReset(selectedName, stage.num)}
@@ -443,14 +444,14 @@ export default function PipelineManagerPanel() {
                         >
                           {busyStage === stage.num ? '…' : 'Reset to here'}
                         </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </>
           )}
-        </>
+        </div>
       )}
     </div>
   );
