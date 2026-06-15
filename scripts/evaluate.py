@@ -297,6 +297,15 @@ def main():
     cli.rule("Results")
     cli.print(f"\n{report}")
 
+    # Capability vs reliability: pass^k (consistency) + the gap are shown inline by
+    # format_results for every k > 1. Flag the framing so a flaky-but-capable model
+    # (large gap) is read correctly — that's the regime where --best-of N pays off.
+    if any(k > 1 for k in k_values):
+        cli.info(
+            "Reliability",
+            "pass^k (all-k-pass) + gap reported under each pass@k>1 above",
+        )
+
     if total_harness_errors:
         cli.warn(
             f"{total_harness_errors} sample(s) failed with HARNESS errors "

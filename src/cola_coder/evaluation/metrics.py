@@ -95,6 +95,138 @@ def pass_at_k(n: int, c: int, k: int) -> float:
     return 1.0 - result
 
 
+def pass_hat_k(n: int, c: int, k: int) -> float:
+    """Compute the unbiased pass^k ("all-k-pass") consistency estimator.
+
+    pass^k is the reliability mirror of pass@k: instead of "at least one of k
+    samples is correct" it estimates "ALL k sampled solutions are correct". With
+    ``c`` of ``n`` samples correct, drawing k WITHOUT replacement, the chance every
+    draw is correct is::
+
+        pass^k = C(c, k) / C(n, k) = prod_{i=0}^{k-1} (c - i) / (n - i)
+
+    This is the unbiased counterpart of ``pass_at_k`` (Chen et al. 2021 / the
+    "all-k-pass" estimator) and uses the SAME numerically-stable incremental
+    product — no large factorials or ``math.comb`` on big ``n``.
+
+    Edge cases fall out of the product: ``c < k`` -> 0.0 (cannot draw k correct
+    from fewer than k), ``c == n`` -> 1.0 (every sample is correct), and ``k == 1``
+    -> ``c / n`` (== pass@1).
+
+    Args:
+        n: Total number of samples generated.
+        c: Number of correct samples.
+        k: The k in pass^k.
+
+    Returns:
+        Estimated probability that all k sampled solutions are correct (0.0-1.0).
+
+    Raises:
+        ValueError: If ``n <= 0``, ``k`` is not in ``[1, n]``, or ``c`` is not in
+            ``[0, n]`` — the estimator is undefined for those inputs.
+    """
+    if n <= 0:
+        raise ValueError(f"n must be positive, got {n}")
+    if not 1 <= k <= n:
+        raise ValueError(f"k must be in [1, n]={1, n}, got {k}")
+    if not 0 <= c <= n:
+        raise ValueError(f"c must be in [0, n]={0, n}, got {c}")
+
+    if c < k:
+        return 0.0
+
+    # pass^k = prod((c - i) / (n - i) for i in range(k)) — same stable product
+    # form as pass_at_k, never building C(c, k) / C(n, k) directly.
+    result = 1.0
+    for i in range(k):
+        result *= (c - i) / (n - i)
+
+    return result
+
+
+def compute_pass_hat_k(
+    results: list[ProblemResult],
+    k_values: list[int] = [1, 5, 10],
+) -> dict[str, float | None]:
+    """Compute pass^k (consistency) for multiple k values across all problems.
+
+    The reliability counterpart of ``compute_pass_at_k``: the per-problem unbiased
+    ``pass_hat_k`` averaged over problems, with the SAME n>=k exclusion and
+    not-estimable semantics. Only problems with at least k samples contribute
+    (``pass_hat_k`` is undefined for n < k and would raise there). Consequences are
+    surfaced, not hidden:
+
+    - If NO problem has n >= k, the metric is ``None`` ("not estimable with this
+      many samples"), NOT ``0.0``.
+    - If SOME problems are excluded (mixed sample counts), a warning is logged
+      because the average is then over an easier subset.
+
+    Args:
+        results: List of per-problem results.
+        k_values: Which k values to compute (e.g., [1, 5, 10]).
+
+    Returns:
+        Dictionary mapping "pass^k" to the score (0.0-1.0), or None when the
+        metric cannot be estimated (no problem had >= k samples).
+    """
+    metrics: dict[str, float | None] = {}
+
+    for k in k_values:
+        scores = [
+            pass_hat_k(r.num_samples, r.num_correct, k)
+            for r in results
+            if r.num_samples >= k
+        ]
+        excluded = len(results) - len(scores)
+
+        if not scores:
+            metrics[f"pass^{k}"] = None
+            logger.warning(
+                "pass^%d not estimable: no problem has >= %d samples "
+                "(generate at least %d samples per problem to report it).",
+                k, k, k,
+            )
+        else:
+            metrics[f"pass^{k}"] = sum(scores) / len(scores)
+            if excluded:
+                logger.warning(
+                    "pass^%d averages %d/%d problems — %d excluded for having "
+                    "< %d samples; the score is biased toward the easier subset.",
+                    k, len(scores), len(results), excluded, k,
+                )
+
+    return metrics
+
+
+def capability_reliability_gap(
+    pass_at_k_value: float,
+    pass_hat_k_value: float,
+) -> float:
+    """Capability-reliability gap: pass@k − pass^k.
+
+    pass@k is a CAPABILITY (best-case) metric — "can the model EVER solve this in k
+    tries?" — while pass^k is a RELIABILITY (worst-case) metric — "does it solve
+    this on EVERY one of k tries?". Their difference is the gap:
+
+        gap = pass@k − pass^k
+
+    A large gap means "the model CAN solve it but not RELIABLY": exactly the regime
+    where best-of-N + a verifier (the ``--best-of N`` path) pays off, and where
+    single-shot use (IDE inline completion, an un-verified agent step) feels flaky.
+    The gap is non-negative by construction whenever both come from the same
+    ``(n, c, k)`` (all-k-pass <= at-least-one-pass), so it is returned raw — no
+    clamping — to surface a miswired harness rather than mask it.
+
+    Args:
+        pass_at_k_value: The pass@k estimate (capability).
+        pass_hat_k_value: The pass^k estimate (reliability).
+
+    Returns:
+        ``pass_at_k_value - pass_hat_k_value``.
+    """
+    return pass_at_k_value - pass_hat_k_value
+
+
 def compute_pass_at_k(
     results: list[ProblemResult],
     k_values: list[int] = [1, 5, 10],
@@ -361,6 +493,10 @@ def format_results(
         "",
     ]
 
+    # pass^k (consistency) — the reliability mirror of pass@k. Only meaningful for
+    # k > 1 (at k=1, pass^1 == pass@1 and the gap is trivially 0).
+    hat_metrics = compute_pass_hat_k(results, k_values)
+
     # Overall metrics
     for key, value in metrics.items():
         if value is None:
@@ -370,6 +506,16 @@ def format_results(
             lines.append(f"  {key}: {value:.1%}  [{ci:.0%} CI {lo:.1%}–{hi:.1%}]")
         else:
             lines.append(f"  {key}: {value:.1%}")
+
+        # Report pass^k + capability–reliability gap directly under each pass@k>1.
+        k = int(key.split("@")[1])
+        hat_value = hat_metrics.get(f"pass^{k}")
+        if k > 1 and value is not None and hat_value is not None:
+            gap = capability_reliability_gap(value, hat_value)
+            lines.append(
+                f"  pass^{k}: {hat_value:.1%}  "
+                f"(consistency; gap {gap:.1%} vs pass@{k})"
+            )
 
     # Secure-pass@k — only shown when at least one problem was security-assessed.
     if any(r.num_secure_correct is not None for r in results):

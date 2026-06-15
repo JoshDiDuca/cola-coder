@@ -254,6 +254,24 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   → Tokenizer. +2 models (gen_ts regen, 86 ifaces, 38 OrError), +2 test examples, 3 new files. pytest 89 +
   ruff + tsc + vite green (252 KB). Keystone integrated by main. (UI-017 partially addressed — arg editing now
   exists; remaining: structured per-arg forms + data-collection wizards.)
+- **UI-052..053** [ui, medium] `done` (2026-06-15) — Batch (parallel agents, disjoint files): 2 read-only
+  viewers. UI-052 LR Finder Results (`GET /api/lr-finder-results`, `LrFinderResults`/`LrFinderRun`/`LrPoint`;
+  loss-vs-LR curve via dependency-free SVG + suggested-LR badge; find_lr.py only saves a PNG today so it
+  empty-states until a JSON is dropped) → Configs & Pipeline. UI-053 Repo Scoring (`GET /api/repo-scores`,
+  `RepoScoresResult`/`RepoScore`; ranked repos from score_repos.py --json, empty-state until saved) → Data.
+  +5 models (gen_ts regen, 98 ifaces), +5 test examples, 4 new files. pytest 101 + ruff + tsc + vite green
+  (262 KB). Keystone integrated by main.
+- **EVAL-037** [eval, high] `done` (2026-06-15) — pass^k (consistency/reliability) metric — the unbiased mirror
+  of pass@k. `evaluation/metrics.py`: `pass_hat_k(n,c,k) = prod (c-i)/(n-i) = C(c,k)/C(n,k)` (0 if c<k, 1 if
+  c==n, c/n if k==1), `compute_pass_hat_k` aggregate mirroring compute_pass_at_k, and
+  `capability_reliability_gap = pass@k − pass^k`. `format_results` now prints pass^k + the gap under each
+  pass@k line (k>1); evaluate.py surfaces it by default. +tests/test_pass_hat_k.py (19 tests: brute-force vs
+  comb, monotonicity pass^k ≤ pass@k, ValueErrors, aggregation). See research-log 2026-06-15. 68 tests pass.
+- **EVAL-038** [eval, medium] `open` — Capability–reliability gap as a temperature/routing diagnostic (original
+  idea, research-log 2026-06-15): sweep temperature and report the pass@k/pass^k gap to pick (a) the
+  reliability-max temperature for the single-shot IDE/base path vs (b) the capability-max temperature for the
+  `--best-of N` verifier path; also use a low pass^k as a cheap pre-screen for where PLD/speculative decoding
+  (INFER-035/036) helps least. First step: a small temperature-sweep harness reporting the gap per setting.
 - **UI-050..051** [ui, medium] `done` (2026-06-15) — Batch (parallel agents, disjoint files): 2 read-only
   views. UI-050 Scoring Config (`GET /api/scoring-config`, `ScoringConfig`/`ScorerConfigEntry`; merges
   configs/scoring.yaml enabled/weight with `registry.list_available_scorers` availability + scorer-class

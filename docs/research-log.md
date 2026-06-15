@@ -7,6 +7,40 @@ concrete backlog items referencing it. Newest first.
 
 ---
 
+## 2026-06-15 — Reliability eval: pass^k / consistency as the counterpart to pass@k (rotate: eval)
+
+**Sources (2024–2026):** *Statistics for AI/ML, Part 4: pass@k and the Unbiased Estimator* —
+https://leehanchung.github.io/blogs/2025/09/08/pass-at-k/ (the Chen et al. 2021 numerically-stable
+unbiased pass@k estimator `1 - prod((n-c-i)/(n-i))`, and the symmetric "all-k-pass" estimator).
+*Pass@k Metrics for LLM Evaluation* — https://www.emergentmind.com/topics/pass-k-metrics-2508a3b6
+(pass@k = P(≥1 of k correct); the consistency/reliability family measures the opposite tail).
+*Revisiting the Reliability of Language Models* — https://arxiv.org/pdf/2512.14754 ("Reliable@k":
+how consistently a model satisfies a criterion across related prompts). *RobustPass@k* — prompt-perturbation
+robustness. Theme: 2026 eval rigor has shifted from "can it ever solve this?" (pass@k, a CAPABILITY/best-case
+metric) to "does it solve this RELIABLY?" (consistency/reliability, a worst-case metric).
+
+**Summary:** pass@k rewards lucky one-in-k successes — exactly what best-of-N + a verifier exploits. But for
+*single-shot* use (an IDE inline-completion, an un-verified agent step) what matters is **consistency**: of k
+independent samples, how often do they ALL pass. The unbiased "all-k-pass" estimator is the clean mirror of
+pass@k: with `c` of `n` samples correct, `pass^k = C(c,k)/C(n,k) = prod_{i=0}^{k-1} (c-i)/(n-i)` (0 when c<k,
+1 when c=n) — same numerically-stable product form the project's `pass_at_k` already uses. cola-coder already
+has pass@k with bootstrap CIs (EVAL-028) and best-of-N verification (the capability-exploiting consumer), but
+NO reliability metric.
+
+**Original idea (cross-technique, cola-coder-specific): the capability–reliability GAP as a routing + temperature
+diagnostic.** Report `gap = pass@k − pass^k` per problem and aggregate. A large gap = "the model CAN solve it but
+not RELIABLY" — the precise regime where (a) best-of-N + the sandbox verifier pays off most (worth the extra
+compute), and (b) single-shot IDE completion will feel flaky. Two concrete uses for this project: (1) **temperature
+selection** — sweep temperature and pick the point that maximises pass^k (reliability) for the IDE/base-model path,
+while a separate higher-temperature setting maximises pass@k for the best-of-N path; the gap quantifies the
+trade-off the existing `--best-of N` flag is implicitly making. (2) **tie to the PLD/speculative work** — a
+low-pass^k (inconsistent) model is exactly where draft-free speculative decoding helps LEAST (the running buffer
+is a poor predictor when the model itself is unstable), so the gap is a cheap pre-screen for where INFER-035/036
+will and won't speed things up. Tractable MAIN-SAFE first step (this cycle): the `pass^k` estimator + aggregation
++ the gap, reported alongside pass@k in `evaluation/metrics.py`, with tests.
+
+---
+
 ## 2026-06-15 — Educational-value data filtering: LLM-annotated classifiers (FineWeb-Edu / Stack-Edu) + a cheap static prior (rotate: data quality)
 
 **Sources (2024–2026):** *FineWeb-Edu / The FineWeb Datasets* — https://arxiv.org/html/2406.17557v1 (LLM-as-annotator:
