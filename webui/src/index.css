@@ -2671,3 +2671,138 @@ body {
 .es-delta--down {
   color: var(--bad);
 }
+
+/* ============================================================
+   LIVE TRAINING PANEL (dashboard hero — live log + progress)
+   ============================================================ */
+.live-train-dim {
+  opacity: 0.82;
+}
+
+.live-train-head {
+  align-items: center;
+}
+
+.live-train-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.live-train-run {
+  font-size: 0.78rem;
+}
+
+.live-train-progress {
+  margin: 10px 0 14px;
+}
+
+.live-train-steps {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.live-train-steps-total {
+  font-size: 0.9rem;
+}
+
+.live-train-pct {
+  margin-left: auto;
+  font-size: 0.9rem;
+}
+
+.live-train-bar {
+  height: 10px;
+}
+
+.live-train-log {
+  margin-top: 14px;
+}
+
+.live-train-log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 0.78rem;
+}
+
+.live-train-log-note {
+  font-size: 0.72rem;
+}
+
+.live-train-log-body {
+  max-height: 320px;
+  min-height: 160px;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+/* ============================================================
+   SYSTEM & TOOLS + RUN & JOBS screens
+   ============================================================ */
+.sys-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sys-detail > .card {
+  margin: 0;
+}
+
+.run-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.run-launch,
+.run-jobs {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.run-section-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.job-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.job-detail-titles {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.job-detail-sub {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.job-detail-cmd {
+  word-break: break-all;
+  font-size: 12px;
+}
+
+.job-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}

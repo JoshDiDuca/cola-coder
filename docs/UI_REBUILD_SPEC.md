@@ -26,8 +26,11 @@ Last updated: 2026-06-15.
 Sidebar (grouped nav) + routed pages (hash router) + topbar w/ live status. One page at a time.
 
 ### R2 — Master–detail screens for every section  ◧ 3 INTEGRATED, rest pending
-INTEGRATED + live (UI-068): Checkpoints, Data, Eval now render master-detail screens (MasterDetail.tsx
-primitive). Dropped tools kept in a temporary "More tools" area below each (1:1 preserved) until folded in.
+INTEGRATED + live: Checkpoints, Data, Eval (UI-068) + Run & Jobs + System & Tools (UI-069) now render
+master-detail screens (MasterDetail.tsx primitive). Run = ActionsPanel launcher + jobs→live-log detail;
+System = tool list → reused panel detail. Dropped tools kept in a temporary "More tools" area on
+Checkpoints/Data (1:1 preserved) until folded in. REMAINING screens: Configs & Pipeline, Tokenizer
+(Dashboard stays a dashboard — now with the live monitor).
 Replace each page's card-grid with a single master→detail screen.
 - Checkpoints — ✅ screen built (CheckpointsScreen): list → Health/Compare/Export. **Gap:** Model Card,
   Training Manifest, Router, Average (model-soup), Export-artifacts not yet in the screen (kept in a
@@ -63,7 +66,11 @@ Replace each page's card-grid with a single master→detail screen.
 - Acceptance: every option `full_pipeline.py`/`train.py` accept is a control; one click launches; the
   live run is never disrupted.
 
-### R5 — Live training monitor (dashboard)  ◻ PARTIAL — must finish
+### R5 — Live training monitor (dashboard)  ✅ DONE
+- LiveTrainingPanel on the Dashboard (top): run name + live pulsing status, big step/total + progress
+  bar, loss/ppl/tok-s/s-it tiles, AND a LIVE auto-refreshing (5s) tail of train_small_react_best.log in
+  a scroll box. "See what's currently training, its logs, progress" — front and center. (Latest
+  eval/tests for the current checkpoint still to add — minor follow-up.)
 - **"I want to see what's currently training and its logs, progress, tests, everything."** (asked repeatedly)
 - Dashboard must prominently show: current run (config, step/total, loss/ppl/tok-s, ETA, progress bar
   — ✅ hero), the **LIVE TRAINING LOG tail** (train_small_react_best.log — backend already lists it in

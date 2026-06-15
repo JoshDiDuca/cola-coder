@@ -8,50 +8,38 @@ import { formatFloat } from './format';
 import CheckpointsScreen from './components/screens/CheckpointsScreen';
 import DataScreen from './components/screens/DataScreen';
 import EvalScreen from './components/screens/EvalScreen';
+import RunScreen from './components/screens/RunScreen';
+import SystemScreen from './components/screens/SystemScreen';
 
+import LiveTrainingPanel from './components/LiveTrainingPanel';
 import TrainingPanel from './components/TrainingPanel';
 import SystemPanel from './components/SystemPanel';
-import ActionsPanel from './components/ActionsPanel';
-import JobsPanel from './components/JobsPanel';
+import MetricsChartPanel from './components/MetricsChartPanel';
+import HealthPanel from './components/HealthPanel';
+import SystemInfoPanel from './components/SystemInfoPanel';
 import ConfigsPanel from './components/ConfigsPanel';
+import ConfigDiffPanel from './components/ConfigDiffPanel';
+import VramEstimatePanel from './components/VramEstimatePanel';
+import LrFinderPanel from './components/LrFinderPanel';
 import PipelinePanel from './components/PipelinePanel';
 import PipelineManagerPanel from './components/PipelineManagerPanel';
-import LogsPanel from './components/LogsPanel';
-import FeaturesPanel from './components/FeaturesPanel';
-import ReasoningPanel from './components/ReasoningPanel';
 import TokenizerPanel from './components/TokenizerPanel';
-import ModelCardPanel from './components/ModelCardPanel';
-import StoragePanel from './components/StoragePanel';
-import MetricsChartPanel from './components/MetricsChartPanel';
-import RouterPanel from './components/RouterPanel';
-import ExportPanel from './components/ExportPanel';
-import DataSourcesPanel from './components/DataSourcesPanel';
-import HealthPanel from './components/HealthPanel';
-import TokenizePanel from './components/TokenizePanel';
-import SftDataPanel from './components/SftDataPanel';
-import ScriptsCatalogPanel from './components/ScriptsCatalogPanel';
-import SystemInfoPanel from './components/SystemInfoPanel';
-import ConfigDiffPanel from './components/ConfigDiffPanel';
 import TokenizerHealthPanel from './components/TokenizerHealthPanel';
-import ProjectMemoryPanel from './components/ProjectMemoryPanel';
-import VectorIndexPanel from './components/VectorIndexPanel';
-import SecurityScanPanel from './components/SecurityScanPanel';
-import EnvCheckPanel from './components/EnvCheckPanel';
-import VramEstimatePanel from './components/VramEstimatePanel';
-import ProjectHealthPanel from './components/ProjectHealthPanel';
-import FiltersCatalogPanel from './components/FiltersCatalogPanel';
-import ReasoningProblemsPanel from './components/ReasoningProblemsPanel';
-import ActionLauncherPanel from './components/ActionLauncherPanel';
+import TokenizePanel from './components/TokenizePanel';
 import VocabExplorerPanel from './components/VocabExplorerPanel';
-import ScoringConfigPanel from './components/ScoringConfigPanel';
-import LrFinderPanel from './components/LrFinderPanel';
-import RepoScoresPanel from './components/RepoScoresPanel';
+import ModelCardPanel from './components/ModelCardPanel';
 import TrainingManifestPanel from './components/TrainingManifestPanel';
 import CheckpointAveragePanel from './components/CheckpointAveragePanel';
-import BacklogPanel from './components/BacklogPanel';
-import ResearchLogPanel from './components/ResearchLogPanel';
-import DocsBrowserPanel from './components/DocsBrowserPanel';
+import RouterPanel from './components/RouterPanel';
+import ExportPanel from './components/ExportPanel';
 import CombineDatasetsPanel from './components/CombineDatasetsPanel';
+import DataSourcesPanel from './components/DataSourcesPanel';
+import SftDataPanel from './components/SftDataPanel';
+import VectorIndexPanel from './components/VectorIndexPanel';
+import SecurityScanPanel from './components/SecurityScanPanel';
+import FiltersCatalogPanel from './components/FiltersCatalogPanel';
+import ScoringConfigPanel from './components/ScoringConfigPanel';
+import RepoScoresPanel from './components/RepoScoresPanel';
 
 interface Snapshot {
   training: TrainingStatus;
@@ -116,6 +104,7 @@ function Page({
     case 'overview':
       return (
         <div className="page-grid">
+          <LiveTrainingPanel training={snap?.training ?? null} />
           <TrainingPanel training={snap?.training ?? null} />
           <SystemPanel system={snap?.system ?? null} />
           <MetricsChartPanel />
@@ -124,14 +113,7 @@ function Page({
         </div>
       );
     case 'run':
-      return (
-        <div className="page-grid">
-          <ActionsPanel onRan={() => { /* jobs arrive via the event stream */ }} trainingAlive={alive} />
-          <ActionLauncherPanel trainingAlive={alive} />
-          <JobsPanel jobs={snap?.jobs ?? []} />
-          <LogsPanel />
-        </div>
-      );
+      return <RunScreen jobs={snap?.jobs ?? []} trainingAlive={alive} />;
     case 'checkpoints':
       return (
         <>
@@ -190,21 +172,7 @@ function Page({
         </div>
       );
     case 'system':
-      return (
-        <div className="page-grid">
-          <EnvCheckPanel />
-          <ProjectHealthPanel />
-          <FeaturesPanel />
-          <ReasoningPanel />
-          <ProjectMemoryPanel />
-          <ReasoningProblemsPanel />
-          <BacklogPanel />
-          <ResearchLogPanel />
-          <DocsBrowserPanel />
-          <ScriptsCatalogPanel />
-          <StoragePanel />
-        </div>
-      );
+      return <SystemScreen />;
     default: {
       const _exhaustive: never = section;
       return _exhaustive;
