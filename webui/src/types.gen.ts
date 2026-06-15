@@ -927,6 +927,34 @@ export interface GenStreamChunk {
   error?: string | null;
 }
 
+export interface BestOfNRequest {
+  prompt: string;
+  checkpoint: string;
+  config: string;
+  num_candidates?: number;
+  language?: 'auto' | 'python' | 'typescript';
+  max_tokens?: number;
+  temperature?: number;
+  top_p?: number;
+  top_k?: number;
+}
+
+export interface BestOfNCandidate {
+  completion: string;
+  verified: boolean;
+  score: number;
+}
+
+export interface BestOfNResponse {
+  best_completion: string;
+  language: string;
+  verifier: string;
+  solved: boolean;
+  candidates_used: number;
+  elapsed_s: number;
+  candidates: BestOfNCandidate[];
+}
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -1029,3 +1057,4 @@ export type InferenceResultOrError = InferenceResult | ApiError;
 export type ConfigWriteResultOrError = ConfigWriteResult | ApiError;
 export type SpecialistsViewOrError = SpecialistsView | ApiError;
 export type RetrievalSearchResultOrError = RetrievalSearchResult | ApiError;
+export type BestOfNResponseOrError = BestOfNResponse | ApiError;

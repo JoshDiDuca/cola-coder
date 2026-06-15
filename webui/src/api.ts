@@ -63,6 +63,8 @@ import type {
   InferenceResult,
   ChatRequest,
   FimRequest,
+  BestOfNRequest,
+  BestOfNResponse,
   ConfigWriteRequest,
   ConfigWriteResult,
   SpecialistsView,
@@ -174,6 +176,11 @@ export function openFimStream(req: FimRequest, signal: AbortSignal): Promise<Res
 // tokenizer lacks <|fim_*|> tokens.
 export function fimGenerate(req: FimRequest): Promise<InferenceResult | ApiError> {
   return j<InferenceResult | ApiError>('/api/fim', postJson(req));
+}
+
+// Sandbox-verified best-of-N generation. Gated like /api/generate (409 while training).
+export function bestOfN(req: BestOfNRequest): Promise<BestOfNResponse | ApiError> {
+  return j<BestOfNResponse | ApiError>('/api/best-of', postJson(req));
 }
 
 export function getActions(): Promise<ActionDef[]> {

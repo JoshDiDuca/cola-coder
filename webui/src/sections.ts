@@ -8,6 +8,7 @@ export type SectionId =
   | 'inference'
   | 'chat'
   | 'fim'
+  | 'bestof'
   | 'pipeline'
   | 'checkpoints'
   | 'data'
@@ -21,6 +22,7 @@ export type IconName =
   | 'terminal'
   | 'message'
   | 'code'
+  | 'target'
   | 'sliders'
   | 'box'
   | 'database'
@@ -55,6 +57,7 @@ export const NAV: NavGroup[] = [
       { id: 'inference', label: 'Generate', icon: 'terminal', subtitle: 'One-shot code generation from a checkpoint' },
       { id: 'chat', label: 'Chat', icon: 'message', subtitle: 'Multi-turn chat with a checkpoint' },
       { id: 'fim', label: 'FIM', icon: 'code', subtitle: 'Fill-in-the-middle code completion' },
+      { id: 'bestof', label: 'Best-of-N', icon: 'target', subtitle: 'Sandbox-verified best-of-N generation' },
     ],
   },
   {

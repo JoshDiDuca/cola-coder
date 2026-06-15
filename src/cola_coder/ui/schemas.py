@@ -938,6 +938,44 @@ class InferenceResult(_UiModel):
     elapsed_s: float
 
 
+class BestOfNRequest(_UiModel):
+    """Body for ``POST /api/best-of`` — sandbox-verified best-of-N generation.
+
+    Gated like ``/api/generate``. Generates N candidates, verifies each (tsc/exec/
+    parse, sandboxed), returns the best. Refused (409) while training is live.
+    """
+
+    prompt: str
+    checkpoint: str
+    config: str
+    num_candidates: int = 4
+    language: Literal["auto", "python", "typescript"] = "auto"
+    max_tokens: int = 256
+    temperature: float = 0.8
+    top_p: float = 0.9
+    top_k: int = 50
+
+
+class BestOfNCandidate(_UiModel):
+    """One candidate from a best-of-N run (completion only + its verdict)."""
+
+    completion: str
+    verified: bool
+    score: float
+
+
+class BestOfNResponse(_UiModel):
+    """Result of ``POST /api/best-of`` — the best candidate + all ranked candidates."""
+
+    best_completion: str
+    language: str
+    verifier: str
+    solved: bool
+    candidates_used: int
+    elapsed_s: float
+    candidates: list[BestOfNCandidate]
+
+
 class GenStreamChunk(_UiModel):
     """One Server-Sent-Events frame from ``POST /api/generate/stream``.
 

@@ -28,6 +28,13 @@ const ICONS: Record<IconName, ReactNode> = {
       <polyline points="8 6 2 12 8 18" />
     </>
   ),
+  target: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="5" />
+      <circle cx="12" cy="12" r="1" />
+    </>
+  ),
   sliders: (
     <>
       <line x1="4" y1="21" x2="4" y2="14" />

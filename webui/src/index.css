@@ -4003,3 +4003,94 @@ body {
   border: 1px solid var(--border);
   border-radius: 6px;
 }
+
+/* ── Best-of-N playground (BestOfNScreen.tsx, R10) ──────────────────────── */
+.bon-screen { display: flex; flex-direction: column; gap: 16px; }
+.bon-head { display: flex; align-items: baseline; gap: 12px; }
+.bon-banner {
+  padding: 10px 14px;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warn) 14%, var(--panel));
+  color: var(--text);
+  font-size: 0.9rem;
+}
+.bon-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) 1fr;
+  gap: 20px;
+  align-items: start;
+}
+.bon-controls { display: flex; flex-direction: column; gap: 14px; }
+.bon-field { display: flex; flex-direction: column; gap: 5px; }
+.bon-label { font-size: 0.8rem; color: var(--muted); }
+.bon-prompt { min-height: 160px; resize: vertical; font-family: var(--mono); }
+.bon-batch,
+.bon-sampling { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.bon-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.bon-generate { white-space: nowrap; }
+.bon-hint { font-size: 0.8rem; }
+.bon-hint.err { color: var(--bad); }
+.bon-output-pane {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel2);
+  padding: 14px;
+  min-height: 320px;
+}
+.bon-empty { font-size: 0.9rem; line-height: 1.5; }
+.bon-error {
+  padding: 12px 14px;
+  border: 1px solid var(--bad);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bad) 12%, var(--panel));
+  color: var(--text);
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+}
+.bon-result { display: flex; flex-direction: column; gap: 16px; }
+.bon-result-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 0.85rem; }
+.bon-section-label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.bon-best-body {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--panel);
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.bon-candidates { display: flex; flex-direction: column; gap: 10px; }
+.bon-cand {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 10px 12px;
+}
+.bon-cand-best { border-color: var(--accent); }
+.bon-cand-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 0.82rem; }
+.bon-cand-rank { color: var(--muted); }
+.bon-cand-score { color: var(--text); }
+.bon-cand-body {
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.85rem;
+}
+.bon-tag-good { background: color-mix(in srgb, var(--good) 22%, transparent); color: var(--good); }
+.bon-tag-bad { background: color-mix(in srgb, var(--bad) 22%, transparent); color: var(--bad); }
+.bon-tag-muted { background: color-mix(in srgb, var(--muted) 20%, transparent); color: var(--muted); }
+.bon-tag-best { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--accent); }
+@media (max-width: 900px) {
+  .bon-grid { grid-template-columns: 1fr; }
+}

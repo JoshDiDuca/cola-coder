@@ -582,6 +582,59 @@ def create_app(
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
+    @app.post("/api/best-of", response_model=sch.BestOfNResponse | sch.ErrorResponse)
+    def best_of_n(req: sch.BestOfNRequest) -> dict | JSONResponse:
+        """Sandbox-verified best-of-N generation. Gated like /api/generate.
+
+        Generates N candidates in one batched forward, verifies each (tsc/exec/parse,
+        all sandboxed), returns the best + every ranked candidate. Refused (409) while
+        training is live; model loaded per request and freed.
+        """
+        busy = _training_busy()
+        if busy is not None:
+            return busy
+        try:
+            import time
+
+            from cola_coder.inference.best_of_n import generate_best_of_n
+            from cola_coder.inference.loading import load_generator
+
+            ckpt = req.checkpoint if Path(req.checkpoint).is_absolute() else str(root / req.checkpoint)
+            conf = req.config if Path(req.config).is_absolute() else str(root / req.config)
+            generator, _config, _tok = load_generator(ckpt, conf)
+            start = time.perf_counter()
+            result = generate_best_of_n(
+                generator, req.prompt,
+                num_candidates=max(1, req.num_candidates), language=req.language,
+                max_new_tokens=req.max_tokens, temperature=req.temperature,
+                top_p=req.top_p, top_k=req.top_k,
+            )
+            elapsed = time.perf_counter() - start
+            del generator
+            try:
+                import torch
+
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except ImportError:
+                pass
+            return sch.BestOfNResponse(
+                best_completion=result.best.completion,
+                language=result.language,
+                verifier=result.verifier,
+                solved=result.solved,
+                candidates_used=result.candidates_used,
+                elapsed_s=elapsed,
+                candidates=[
+                    sch.BestOfNCandidate(completion=c.completion, verified=c.verified, score=c.score)
+                    for c in result.candidates
+                ],
+            ).model_dump()
+        except FileNotFoundError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        except Exception as exc:  # noqa: BLE001 - surface load/generate/verify failure to the UI
+            return JSONResponse({"error": f"best-of-N failed: {exc}"}, status_code=500)
+
     @app.post("/api/generate/stream", response_model=None)
     def generate_stream_endpoint(req: sch.InferenceRequest) -> StreamingResponse | JSONResponse:
         """Stream a one-shot generation token-by-token (gated, see _stream_response)."""

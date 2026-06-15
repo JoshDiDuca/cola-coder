@@ -15,6 +15,7 @@ import TokenizerScreen from './components/screens/TokenizerScreen';
 import InferenceScreen from './components/screens/InferenceScreen';
 import ChatScreen from './components/screens/ChatScreen';
 import FimScreen from './components/screens/FimScreen';
+import BestOfNScreen from './components/screens/BestOfNScreen';
 
 import LiveTrainingPanel from './components/LiveTrainingPanel';
 import TrainingPanel from './components/TrainingPanel';
@@ -113,6 +114,8 @@ function Page({
       return <ChatScreen checkpoints={checkpoints.map((c) => c.path)} trainingAlive={alive} />;
     case 'fim':
       return <FimScreen checkpoints={checkpoints.map((c) => c.path)} trainingAlive={alive} />;
+    case 'bestof':
+      return <BestOfNScreen checkpoints={checkpoints.map((c) => c.path)} trainingAlive={alive} />;
     case 'checkpoints':
       return (
         <>

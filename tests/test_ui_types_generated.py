@@ -348,6 +348,16 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "path": "configs/specialists.yaml", "exists": True, "count": 0, "specialists": [],
     },
     "GenStreamChunk": {"delta": "    return a + b", "done": False, "error": None},
+    "BestOfNRequest": {
+        "prompt": "def add(a, b):", "checkpoint": "checkpoints/small/latest",
+        "config": "configs/small.yaml", "num_candidates": 4, "language": "auto",
+        "max_tokens": 256, "temperature": 0.8, "top_p": 0.9, "top_k": 50,
+    },
+    "BestOfNCandidate": {"completion": "    return a + b", "verified": True, "score": 1.0},
+    "BestOfNResponse": {
+        "best_completion": "    return a + b", "language": "python", "verifier": "python_syntax",
+        "solved": True, "candidates_used": 4, "elapsed_s": 3.1, "candidates": [],
+    },
     "ChatMessage": {"role": "user", "content": "Write a bubble sort in Python."},
     "ChatRequest": {
         "messages": [{"role": "user", "content": "hi"}],

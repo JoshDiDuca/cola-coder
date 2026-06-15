@@ -150,7 +150,9 @@ Replace each page's card-grid with a single master→detail screen.
   transport-agnostic `useStreamingGeneration` hook (takes a `StreamOpener`) + `StreamingConsole`. ALL
   THREE playground modes stream token-by-token: Generate, Chat (reply streams into the transcript bubble,
   commit-once-on-done), FIM (infill + stitched preview update live).
-- ◻ REMAINING: best-of-N + --repo context (one-shot is fine for verified best-of-N).
+- ✅ BEST-OF-N (UI-089): `POST /api/best-of` (gated) + `BestOfNScreen` — N candidates, each sandbox-verified
+  (tsc/exec/parse), best + ranked candidates with verdicts. The headline verified-generation feature.
+- ◻ REMAINING: --repo context-aware generation.
 
 ### R11 — Settings / features / storage editing  ✅ CONFIG EDIT DONE (UI-078)
 - features.yaml toggles (FeaturesPanel ✅), storage.yaml view (StoragePanel ✅).

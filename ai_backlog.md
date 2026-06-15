@@ -18,6 +18,17 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   Pipeline/Manager). One coherent panel per section, no grid. Built by 3 parallel agents (disjoint new
   files) wrapping the existing panels unchanged; App.tsx now imports 3 panels instead of 19. tsc + build green.
 
+### UI — best-of-N playground + gate fix (2026-06-15)
+- **UI-089** [ui, high] `done` (2026-06-15) — Sandbox-verified BEST-OF-N generation (R10's headline
+  remaining feature): `POST /api/best-of` (gated; `generate_best_of_n` — N candidates in one batched
+  forward, each verified tsc/exec/parse sandboxed, best returned) + `BestOfNScreen` (Playground nav,
+  controls + best completion + ranked candidates with verdicts). Schemas BestOfNRequest/Candidate/Response.
+  98 modules, 233 tests, tsc + build green.
+- **BUG-136** [bug/safety, critical] `done` (2026-06-15) — OPS-002 gate freshness window was 600s but this
+  run normally goes 22-30 min between progress writes → `is_training_active` false-negatived during slow
+  patches → inference gates stopped refusing (GPU-contention risk). Widened to 2700s (45 min, the "hung"
+  threshold) + check freshest of .err/.log. Verified the gate fires (409) again.
+
 ### UI — schema-first action categories (2026-06-15)
 - **UI-088** [ui, medium] `done` (2026-06-15) — Replaced the Run screen's brittle name-regex action
   classifier with a backend-assigned `ActionDef.category` (Literal: Data/Training/Pipeline/Evaluation/

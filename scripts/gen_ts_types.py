@@ -167,6 +167,9 @@ _MODEL_ORDER: list[str] = [
     "SpecialistEntry",
     "SpecialistsView",
     "GenStreamChunk",
+    "BestOfNRequest",
+    "BestOfNCandidate",
+    "BestOfNResponse",
     "ChatMessage",
     "ChatRequest",
     "FimRequest",
@@ -229,6 +232,7 @@ _OR_ERROR: list[str] = [
     "ConfigWriteResult",
     "SpecialistsView",
     "RetrievalSearchResult",
+    "BestOfNResponse",
 ]
 
 
