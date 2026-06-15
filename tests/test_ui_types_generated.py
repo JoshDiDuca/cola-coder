@@ -275,6 +275,30 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "overall_score": 1.0, "grade": "A",
         "dimensions": [], "summary": "Grade A — all dimensions strong.",
     },
+    "BenchmarkRun": {
+        "name": "bench.json", "path": "benchmarks/bench.json", "kind": "throughput",
+        "tokens_per_s": 91.2, "latency_ms": 19.8, "config": None,
+        "checkpoint": "checkpoints/tiny/step_00017000", "mtime": 1.0,
+    },
+    "BenchmarkResults": {"runs": [], "count": 0},
+    "SafetyProbe": {
+        "suite": "pii", "name": "ssn = ", "passed": False,
+        "detail": "Secret detected: National ID",
+    },
+    "SafetyEvalRun": {
+        "name": "safety_pii.json", "path": "reports/safety_pii.json",
+        "checkpoint": "checkpoints/tiny/latest", "suite": "pii",
+        "total": 24, "passed": 22, "failed": 2, "mtime": 1781493866.07,
+        "probes": [{"suite": "pii", "name": "ssn = ", "passed": True, "detail": None}],
+    },
+    "SafetyEvalResults": {
+        "runs": [{
+            "name": "safety_pii.json", "path": "reports/safety_pii.json",
+            "checkpoint": None, "suite": "pii", "total": 24, "passed": 22,
+            "failed": 2, "mtime": 1781493866.07, "probes": [],
+        }],
+        "count": 1,
+    },
     "DataStats": {
         "data_path": "data/processed/train_data.npy", "file_size_mb": 12.3,
         "shape": [100, 64], "num_chunks": 100, "seq_len": 64, "total_tokens": 6400,

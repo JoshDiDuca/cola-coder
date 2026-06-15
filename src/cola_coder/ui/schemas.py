@@ -641,6 +641,46 @@ class ProjectHealthReport(_UiModel):
     summary: str
 
 
+class BenchmarkRun(_UiModel):
+    name: str
+    path: str
+    kind: str
+    tokens_per_s: float | None
+    latency_ms: float | None
+    config: str | None
+    checkpoint: str | None
+    mtime: float
+
+
+class BenchmarkResults(_UiModel):
+    runs: list[BenchmarkRun]
+    count: int
+
+
+class SafetyProbe(_UiModel):
+    suite: str
+    name: str
+    passed: bool
+    detail: str | None
+
+
+class SafetyEvalRun(_UiModel):
+    name: str
+    path: str
+    checkpoint: str | None
+    suite: str
+    total: int
+    passed: int
+    failed: int
+    mtime: float
+    probes: list[SafetyProbe]
+
+
+class SafetyEvalResults(_UiModel):
+    runs: list[SafetyEvalRun]
+    count: int
+
+
 class ErrorResponse(_UiModel):
     """Maps to the TS ``ApiError`` interface."""
 

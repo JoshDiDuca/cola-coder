@@ -38,6 +38,8 @@ import SecurityScanPanel from './components/SecurityScanPanel';
 import EnvCheckPanel from './components/EnvCheckPanel';
 import VramEstimatePanel from './components/VramEstimatePanel';
 import ProjectHealthPanel from './components/ProjectHealthPanel';
+import BenchmarkResultsPanel from './components/BenchmarkResultsPanel';
+import SafetyEvalPanel from './components/SafetyEvalPanel';
 import CollapsibleSection from './components/CollapsibleSection';
 
 interface Snapshot {
@@ -156,6 +158,8 @@ export default function App() {
         <CollapsibleSection title="Evaluation" storageKey="sec.eval">
           <EvalsPanel />
           <EvalHistoryPanel />
+          <BenchmarkResultsPanel />
+          <SafetyEvalPanel />
         </CollapsibleSection>
 
         {/* Tokenizer. */}

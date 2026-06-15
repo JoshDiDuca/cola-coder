@@ -43,6 +43,8 @@ import type {
   EnvCheckReport,
   VramEstimate,
   ProjectHealthReport,
+  BenchmarkResults,
+  SafetyEvalResults,
   ApiError,
   JsonValue,
 } from './types';
@@ -337,6 +339,14 @@ export function getVramEstimate(config: string): Promise<VramEstimate | ApiError
 
 export function getProjectHealth(): Promise<ProjectHealthReport | ApiError> {
   return j<ProjectHealthReport | ApiError>('/api/project-health');
+}
+
+export function getBenchmarkResults(): Promise<BenchmarkResults | ApiError> {
+  return j<BenchmarkResults | ApiError>('/api/benchmark-results');
+}
+
+export function getSafetyEvalResults(): Promise<SafetyEvalResults | ApiError> {
+  return j<SafetyEvalResults | ApiError>('/api/safety-eval-results');
 }
 
 export function getDataStats(

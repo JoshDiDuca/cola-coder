@@ -34,6 +34,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import benchmark_results_view as brv
 from . import checkpoint_detail as cd
 from . import checkpoint_health_view as chv
 from . import checkpoints_compare as cc
@@ -59,6 +60,7 @@ from . import project_health_view as phv
 from . import reasoning as rs
 from . import retrieval_stats_view as rsv
 from . import router as rt
+from . import safety_eval_view as sev
 from . import security_scan_view as ssv
 from . import scripts_catalog as sc
 from . import sft_data as sd
@@ -496,6 +498,16 @@ def create_app(
              response_model=sch.ProjectHealthReport | sch.ErrorResponse)
     def project_health_get() -> dict:
         return phv.project_health()
+
+    @app.get("/api/benchmark-results",
+             response_model=sch.BenchmarkResults | sch.ErrorResponse)
+    def benchmark_results_get() -> dict:
+        return brv.benchmark_results(str(root))
+
+    @app.get("/api/safety-eval-results",
+             response_model=sch.SafetyEvalResults | sch.ErrorResponse)
+    def safety_eval_results_get() -> dict:
+        return sev.safety_eval_results(str(root))
 
     @app.get("/api/data-stats", response_model=sch.DataStats | sch.ErrorResponse)
     def data_stats_get(

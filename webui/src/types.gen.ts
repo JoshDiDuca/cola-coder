@@ -608,6 +608,46 @@ export interface ProjectHealthReport {
   summary: string;
 }
 
+export interface BenchmarkRun {
+  name: string;
+  path: string;
+  kind: string;
+  tokens_per_s: number | null;
+  latency_ms: number | null;
+  config: string | null;
+  checkpoint: string | null;
+  mtime: number;
+}
+
+export interface BenchmarkResults {
+  runs: BenchmarkRun[];
+  count: number;
+}
+
+export interface SafetyProbe {
+  suite: string;
+  name: string;
+  passed: boolean;
+  detail: string | null;
+}
+
+export interface SafetyEvalRun {
+  name: string;
+  path: string;
+  checkpoint: string | null;
+  suite: string;
+  total: number;
+  passed: number;
+  failed: number;
+  mtime: number;
+  probes: SafetyProbe[];
+}
+
+export interface SafetyEvalResults {
+  runs: SafetyEvalRun[];
+  count: number;
+}
+
 export interface ApiError {
   error: string;
 }
@@ -654,3 +694,5 @@ export type MalwareScanResultOrError = MalwareScanResult | ApiError;
 export type EnvCheckReportOrError = EnvCheckReport | ApiError;
 export type VramEstimateOrError = VramEstimate | ApiError;
 export type ProjectHealthReportOrError = ProjectHealthReport | ApiError;
+export type BenchmarkResultsOrError = BenchmarkResults | ApiError;
+export type SafetyEvalResultsOrError = SafetyEvalResults | ApiError;

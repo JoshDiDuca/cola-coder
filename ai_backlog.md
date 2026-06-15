@@ -203,6 +203,20 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   subprocess sweep that project_health.py runs, proxies labelled in detail) → System & Tools. +4 models
   (gen_ts_types regen, 75 ifaces, 33 OrError), +4 test examples, 4 new files. pytest 78 + ruff + tsc + vite
   green (237 KB). Keystone integrated by main.
+- **UI-044..045** [ui, medium] `done` (2026-06-15) — Batch (parallel agents, disjoint files): 2 read-only
+  results viewers → Evaluation section. UI-044 Benchmark Results (`GET /api/benchmark-results`,
+  `BenchmarkResults`/`BenchmarkRun`; scans conventional drop dirs for `inference_benchmark.py --json`
+  reports, best throughput/latency per run). UI-045 Safety Eval Results (`GET /api/safety-eval-results`,
+  `SafetyEvalResults`/`SafetyEvalRun`/`SafetyProbe`; scans for persisted safety_eval JSON). FINDING:
+  benchmark.py/nano_benchmark.py and safety_eval.py currently PRINT only (no persisted artifacts), so both
+  views correctly ship as empty-state scanners that light up once those scripts persist JSON — filed as
+  DATA/OBS items below. +5 models (gen_ts_types regen, 80 ifaces, 35 OrError), +5 test examples, 4 new
+  files. pytest 83 + ruff + tsc + vite green (242 KB). Keystone integrated by main.
+- **OBS-001** [tooling/observability, low] `open` — benchmark.py, nano_benchmark.py and safety_eval.py print
+  metrics to console but DON'T persist JSON, so the new UI-044/045 viewers have nothing to read until a run
+  is saved. Add an opt-in `--json/--output` persist path (inference_benchmark.py already has one) writing to
+  a conventional dir (e.g. reports/) so results are viewable in the UI + trackable over time. (Discovered
+  building UI-044/045.)
 - **OPS-002** [tooling/infra, high] `done` (2026-06-15) — CORRECTED a dangerous false-positive in the
   training hang-detector. The small_react_best run logs only every ~100 steps and is dataloader-bound, so
   ~22-30 min elapse between log lines and GPU power legitimately fluctuates ~70-160W (avg <130W). The old
