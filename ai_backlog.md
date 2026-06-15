@@ -278,6 +278,13 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   Measurable: a small AdamW-vs-Muon × loss-weighted-vs-sampling-weighted ablation on tiny. NOTE: this cycle a
   duplicate standalone Muon impl was generated and DISCARDED (DRY) — the existing `optimizer.py` Muon is complete
   (MODEL-025/047) and kept; the contribution here is the analysis + this experiment.
+- **UI-061..062** [ui, medium] `done` (2026-06-15) — Batch (parallel agents, disjoint files): 2 action launchers.
+  UI-061 Prepare Data wizard (`PrepareDataPanel`; config select + score/filter-mode/dedup/workers options →
+  launches prepare_data.py via runAction with its real non-interactive flags; reuses existing `prepare_data`
+  ACTION, no backend change) → Data. UI-062 Export Model launcher (`ExportModelPanel`; checkpoint + format
+  {gguf-f16/q8/q4, ollama, quantize, benchmark} → launches export_model.py, non-interactive when --action is
+  passed; new `export_model` ACTIONS entry, CPU) → Checkpoints & Models. Both verified non-interactive (won't
+  hang a job, unlike scrape_github/BUG-132). No schema change. tsc + vite green (289 KB).
 - **UI-060** [ui, medium] `done` (2026-06-15) — Combine Datasets launcher (`CombineDatasetsPanel`): select 2+
   prepared `.npy` datasets, assign per-dataset weights, set output, and launch combine_datasets.py as a background
   job via runAction with `--datasets PATH:WEIGHT ... --output PATH` (the script's real non-interactive flags; no

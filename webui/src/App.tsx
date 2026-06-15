@@ -55,6 +55,8 @@ import ResearchLogPanel from './components/ResearchLogPanel';
 import DocsBrowserPanel from './components/DocsBrowserPanel';
 import CollectDataPanel from './components/CollectDataPanel';
 import CombineDatasetsPanel from './components/CombineDatasetsPanel';
+import PrepareDataPanel from './components/PrepareDataPanel';
+import ExportModelPanel from './components/ExportModelPanel';
 import CollapsibleSection from './components/CollapsibleSection';
 
 interface Snapshot {
@@ -150,12 +152,14 @@ export default function App() {
           <TrainingManifestPanel />
           <ModelCardPanel checkpoints={snap?.checkpoints ?? []} />
           <RouterPanel />
+          <ExportModelPanel checkpoints={snap?.checkpoints ?? []} />
           <ExportPanel />
         </CollapsibleSection>
 
         {/* Data. */}
         <CollapsibleSection title="Data" storageKey="sec.data">
           <CollectDataPanel />
+          <PrepareDataPanel />
           <CombineDatasetsPanel />
           <DatasetsPanel />
           <DataStatsPanel />

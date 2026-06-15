@@ -155,6 +155,10 @@ ACTIONS: dict[str, dict] = {
     # (default args empty: a bare launch would drop into the interactive TUI, which a job can't answer).
     "combine_datasets": {"script": "combine_datasets.py", "label": "Combine datasets (weighted mix)",
                          "args": []},
+    # CPU export (GGUF/Ollama/quantize) — non-interactive when --action is passed (the UI panel always sends it).
+    "export_model": {"script": "export_model.py", "label": "Export model (GGUF / Ollama / quantize)",
+                     "args": ["--checkpoint", "checkpoints/small/latest", "--config", "configs/small.yaml",
+                              "--action", "gguf-f16"]},
 }
 
 
