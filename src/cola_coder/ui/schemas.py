@@ -905,6 +905,23 @@ class ResearchLog(_UiModel):
     count: int
 
 
+class ResearchLogAppendRequest(_UiModel):
+    """Body for ``POST /api/research-log/append`` — add a dated entry (append-only)."""
+
+    title: str
+    body: str
+
+
+class BacklogAppendRequest(_UiModel):
+    """Body for ``POST /api/backlog/append`` — file a new backlog item (append-only)."""
+
+    item_id: str
+    category: str
+    description: str
+    severity: str = ""
+    status: Literal["open", "in-progress", "done", "dropped"] = "open"
+
+
 class TrainingManifest(_UiModel):
     model: str
     path: str

@@ -453,12 +453,20 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "description": "Batch (parallel agents): 2 read-only catalog views.",
     },
     "BacklogView": {"items": [], "count": 0, "open_count": 0, "done_count": 0},
+    "BacklogAppendRequest": {
+        "item_id": "UI-099", "category": "ui", "description": "Add dark/light theme toggle",
+        "severity": "low", "status": "open",
+    },
     "ResearchEntry": {
         "date": "2026-06-15", "title": "DAPO overlong reward shaping",
         "area": "post-training", "source_count": 4, "has_original_idea": True,
         "summary": "soft overlong reward shaping is a pure function of length.",
     },
     "ResearchLog": {"entries": [], "count": 0},
+    "ResearchLogAppendRequest": {
+        "title": "KV-cache int8 quantization revisited",
+        "body": "**Summary:** notes on per-channel int8 KV cache.\n\n**Sources:** https://example.com",
+    },
     "TrainingManifest": {
         "model": "small_react_best", "path": "checkpoints/small_react_best/training_manifest.yaml",
         "config": "cola-coder/train.py", "dim": 768, "n_layers": 12, "n_heads": 12,

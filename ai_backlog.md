@@ -46,9 +46,22 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   disjoint files; keystone contract (schemas/app/api/types) owned by main. 19 new backend tests + 149
   drift/type tests green, tsc + build green (100 modules), ruff clean. MAIN-SAFE: YAML registry only, never
   touches the live trainer or loads a model. (Closes the top read-only→write parity gap from this cycle's scan.)
-- **UI-095** [ui, medium] `in-progress` (2026-06-16) — Parity-scan follow-ups (read-only screens that should
-  write). Project-Memory subsystem → DONE as UI-096. Still open: Backlog item archive/update
-  (`PATCH /api/backlog/{id}`) and Research-log append (`POST /api/research-log/append`). Both MAIN-SAFE.
+- **UI-095** [ui, medium] `done` (2026-06-16) — Parity-scan follow-ups (read-only knowledge screens → write).
+  Project-Memory → UI-096. Knowledge write-paths → UI-099 (this cycle). Item status EDIT (in-place rewrite)
+  intentionally NOT done — append-only is safe vs. the loop's concurrent writes; in-place mutation deferred.
+
+### UI — knowledge write-paths: research-log + backlog append (2026-06-16)
+- **UI-099** [ui, medium] `done` (2026-06-16) — Turned the read-only ResearchLog + Backlog panels into
+  append-capable ones. Backend: `research_log_append(root, title, body, date=None)` in research_log_view.py
+  (builds a `## <date> — <title>` section, atomic temp+replace) and `backlog_append(root, item_id, category,
+  description, severity, status, date=None)` in backlog_view.py (files a `- **ID** [cat,sev] \`status\` (date)
+  — desc` bullet under a single `## Filed from the UI` section). Both APPEND-ONLY + atomic — never rewrite
+  existing entries, so they can't race destructively with the loop's own cycle-appends; ISO-date + non-empty
+  validation. `POST /api/research-log/append` + `/api/backlog/append` (→ refreshed view, 400 on bad input).
+  Schemas ResearchLogAppendRequest/BacklogAppendRequest (+ drift examples, regenerated types → 141 interfaces);
+  appendResearchLog/appendBacklog in api.ts; both panels gain a typed form (BacklogStatus union for status).
+  Built by 3 parallel agents (2 panels + backend tests) on disjoint files; keystone owned by main. 16 new
+  backend tests + 160 drift/type tests green, tsc + build green (101 modules), ruff clean. MAIN-SAFE.
 
 ### Routing — margin-based selective routing (2026-06-16)
 - **MODEL-053 / IDEA-017** [inference/routing, medium] `done` (2026-06-16) — Margin-aware specialist routing:

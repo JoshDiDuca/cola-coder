@@ -31,14 +31,20 @@ Returned shape (mirrors ``schemas.BacklogView`` / ``schemas.BacklogItem``)::
 
 from __future__ import annotations
 
+import datetime
 import logging
+import os
 import re
+import tempfile
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 # Backlog markdown file, relative to the project root.
 _BACKLOG_FILENAME = "ai_backlog.md"
+
+# Heading the UI appends manually-filed items under (created on first append).
+_MANUAL_SECTION = "## Filed from the UI"
 
 # Max length (chars) for a single-line description before truncation.
 _MAX_DESCRIPTION = 200
@@ -104,6 +110,77 @@ def backlog(root: str = ".") -> dict:
     except Exception as exc:  # noqa: BLE001 — contract: never raise.
         logger.exception("failed to parse backlog")
         return {"error": str(exc)}
+
+
+_KNOWN_STATUSES_LIST = ("open", "in-progress", "done", "dropped")
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def backlog_append(
+    root: str,
+    item_id: str,
+    category: str,
+    description: str,
+    severity: str = "",
+    status: str = "open",
+    date: str | None = None,
+) -> dict:
+    """Append a new item bullet to ``ai_backlog.md``, then return the backlog view.
+
+    Builds a ``- **ID** [cat, sev] `status` (date) — description`` bullet (the exact
+    shape :func:`_parse` reads) under a ``## Filed from the UI`` section, created on
+    first append. Append-only and atomic — never rewrites existing items, so it is
+    safe against the loop's own concurrent appends. Validates id/category/description
+    non-empty and ``status``/``date``. Returns the refreshed :func:`backlog` view, or
+    ``{"error": str}``. Never raises.
+    """
+    item_id = item_id.strip()
+    category = category.strip()
+    description = " ".join(description.split())
+    severity = severity.strip()
+    if not item_id:
+        return {"error": "id is required"}
+    if not category:
+        return {"error": "category is required"}
+    if not description:
+        return {"error": "description is required"}
+    if status not in _KNOWN_STATUSES_LIST:
+        return {"error": f"status must be one of {_KNOWN_STATUSES_LIST}, got {status!r}"}
+    if date is None:
+        date = datetime.date.today().isoformat()
+    elif not _ISO_DATE.match(date):
+        return {"error": f"date must be ISO YYYY-MM-DD, got {date!r}"}
+
+    meta = f"{category}, {severity}" if severity else category
+    bullet = f"- **{item_id}** [{meta}] `{status}` ({date}) — {description}"
+
+    try:
+        path = Path(root) / _BACKLOG_FILENAME
+        existing = path.read_text(encoding="utf-8") if path.is_file() else ""
+        if _MANUAL_SECTION in existing:
+            new_text = existing.rstrip("\n") + "\n" + bullet + "\n"
+        else:
+            sep = "\n\n" if existing.strip() else ""
+            new_text = existing.rstrip("\n") + sep + f"\n{_MANUAL_SECTION}\n\n{bullet}\n"
+        _atomic_write(path, new_text)
+    except OSError as exc:
+        return {"error": str(exc)}
+
+    return backlog(root)
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Atomically write ``text`` to ``path`` (temp file + ``os.replace``)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+        os.replace(tmp, path)
+    except OSError:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
 
 
 # ── Internals ───────────────────────────────────────────────────────────────

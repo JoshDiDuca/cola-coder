@@ -1035,9 +1035,32 @@ def create_app(
     def backlog_get() -> dict:
         return blv.backlog(str(root))
 
+    @app.post("/api/backlog/append", response_model=sch.BacklogView | sch.ErrorResponse)
+    def backlog_append_post(req: sch.BacklogAppendRequest) -> dict | JSONResponse:
+        """File a new backlog item (append-only). MAIN-SAFE; 400 on bad input."""
+        result = blv.backlog_append(
+            str(root),
+            item_id=req.item_id,
+            category=req.category,
+            description=req.description,
+            severity=req.severity,
+            status=req.status,
+        )
+        if "error" in result:
+            return JSONResponse(result, status_code=400)
+        return result
+
     @app.get("/api/research-log", response_model=sch.ResearchLog | sch.ErrorResponse)
     def research_log_get() -> dict:
         return rlv.research_log(str(root))
+
+    @app.post("/api/research-log/append", response_model=sch.ResearchLog | sch.ErrorResponse)
+    def research_log_append_post(req: sch.ResearchLogAppendRequest) -> dict | JSONResponse:
+        """Append a dated research-log entry (append-only). MAIN-SAFE; 400 on bad input."""
+        result = rlv.research_log_append(str(root), title=req.title, body=req.body)
+        if "error" in result:
+            return JSONResponse(result, status_code=400)
+        return result
 
     @app.get("/api/docs", response_model=sch.DocsList | sch.ErrorResponse)
     def docs_list_get() -> dict:

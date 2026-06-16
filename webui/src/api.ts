@@ -58,7 +58,9 @@ import type {
   DocsList,
   DocContent,
   BacklogView,
+  BacklogAppendRequest,
   ResearchLog,
+  ResearchLogAppendRequest,
   TrainingManifests,
   LrFinderResults,
   RepoScoresResult,
@@ -527,8 +529,18 @@ export function getBacklog(): Promise<BacklogView | ApiError> {
   return j<BacklogView | ApiError>('/api/backlog');
 }
 
+// File a new backlog item (append-only); returns the refreshed backlog. 400 on bad input.
+export function appendBacklog(req: BacklogAppendRequest): Promise<BacklogView | ApiError> {
+  return j<BacklogView | ApiError>('/api/backlog/append', postJson(req));
+}
+
 export function getResearchLog(): Promise<ResearchLog | ApiError> {
   return j<ResearchLog | ApiError>('/api/research-log');
+}
+
+// Append a dated research-log entry (append-only); returns the refreshed log. 400 on bad input.
+export function appendResearchLog(req: ResearchLogAppendRequest): Promise<ResearchLog | ApiError> {
+  return j<ResearchLog | ApiError>('/api/research-log/append', postJson(req));
 }
 
 export function getDocs(): Promise<DocsList | ApiError> {

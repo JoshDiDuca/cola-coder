@@ -825,6 +825,14 @@ export interface BacklogView {
   done_count: number;
 }
 
+export interface BacklogAppendRequest {
+  item_id: string;
+  category: string;
+  description: string;
+  severity?: string;
+  status?: 'open' | 'in-progress' | 'done' | 'dropped';
+}
+
 export interface ResearchEntry {
   date: string;
   title: string;
@@ -837,6 +845,11 @@ export interface ResearchEntry {
 export interface ResearchLog {
   entries: ResearchEntry[];
   count: number;
+}
+
+export interface ResearchLogAppendRequest {
+  title: string;
+  body: string;
 }
 
 export interface TrainingManifest {

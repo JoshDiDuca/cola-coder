@@ -33,8 +33,11 @@ missing log file is NOT an error (an empty entry list is returned).
 
 from __future__ import annotations
 
+import datetime
 import logging
+import os
 import re
+import tempfile
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -200,3 +203,58 @@ def research_log(root: str = ".") -> dict:
     except Exception as exc:  # noqa: BLE001 — contract: never raise, return error dict
         logger.warning("research_log parse failed: %s", exc)
         return {"error": str(exc)}
+
+
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def research_log_append(
+    root: str,
+    title: str,
+    body: str,
+    date: str | None = None,
+) -> dict:
+    """Append a new dated entry to ``docs/research-log.md``, then return the view.
+
+    Builds a ``## <date> — <title>`` section (matching the loop's own format,
+    preceded by a ``---`` rule) and atomically appends it. ``date`` defaults to
+    today (ISO ``YYYY-MM-DD``); an explicit date must be ISO. Validates non-empty
+    title/body. Append-only — never rewrites existing entries, so it cannot race
+    destructively with the loop's own appends. Returns the refreshed
+    :func:`research_log` view, or ``{"error": str}``. Never raises.
+    """
+    title = title.strip()
+    body = body.strip()
+    if not title:
+        return {"error": "title is required"}
+    if not body:
+        return {"error": "body is required"}
+    if date is None:
+        date = datetime.date.today().isoformat()
+    elif not _ISO_DATE.match(date):
+        return {"error": f"date must be ISO YYYY-MM-DD, got {date!r}"}
+
+    entry = f"\n---\n\n## {date} — {title}\n\n{body}\n"
+
+    try:
+        log_path = Path(root).joinpath(*_RESEARCH_LOG_REL)
+        existing = log_path.read_text(encoding="utf-8") if log_path.is_file() else ""
+        _atomic_write(log_path, existing + entry)
+    except OSError as exc:
+        return {"error": str(exc)}
+
+    return research_log(root)
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Atomically write ``text`` to ``path`` (temp file + ``os.replace``)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+        os.replace(tmp, path)
+    except OSError:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
