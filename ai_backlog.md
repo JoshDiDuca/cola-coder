@@ -50,6 +50,20 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   Project-Memory → UI-096. Knowledge write-paths → UI-099 (this cycle). Item status EDIT (in-place rewrite)
   intentionally NOT done — append-only is safe vs. the loop's concurrent writes; in-place mutation deferred.
 
+### Optimizers — ZClip adaptive grad-norm spike mitigation (2026-06-16)
+- **MODEL-054** [optimizers/stability, medium] `done` (2026-06-16) — `ZClipper` (`training/zclip.py`): EMA
+  mean/var of the grad norm + z-score spike test → clip only spikes to `mean + z_thresh*std`, update EMA with
+  the clipped value (no stat poisoning). Warmup seeding, config validation, `state_dict`/`load_state_dict` for
+  resume. Pure-Python (no torch). 13 tests, ruff clean. Grounded in ZClip (arXiv:2504.02507). DELIBERATELY NOT
+  wired into the trainer — live run keeps fixed `grad_clip`, so the running job + any resume are untouched;
+  a future cycle wires it behind a config flag IN A WORKTREE. research-log 2026-06-16.
+- **MODEL-055 / IDEA-019** [optimizers/observability, medium] `open` (2026-06-16) — The ZClip per-step z-score
+  is a free "hard/surprising batch" signal that's currently discarded. (1) Feed a rolling high-z count into the
+  GRPO skip-rate curriculum (MODEL-045) as a difficulty proxy; (2) log per-step z + clip events to the training
+  dashboard as an early-warning instability meter (z>2.5 clusters precede divergence). Additive over a value
+  ZClip already computes. research-log 2026-06-16. NB: wiring ZClip into the trainer is the MODEL-054 worktree
+  follow-up (prerequisite for surfacing live z).
+
 ### UI — quality-scorer playground (2026-06-16)
 - **UI-101** [ui, medium] `done` (2026-06-16) — "Scorer playground" tab in Data tools: paste a code snippet →
   per-scorer quality breakdown (the 5 PURE-PYTHON scorers: heuristic, educational_value, repetition,

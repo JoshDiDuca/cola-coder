@@ -2651,3 +2651,39 @@ existing signal, no model needed. Filed as DATA-075.
 - [Rae et al. 2021 — Scaling Language Models: Gopher (repetition filters, §A.1.1)](https://arxiv.org/abs/2112.11446)
 - [Penedo et al. 2024 — The FineWeb Datasets (filter ablations, reweight vs. drop)](https://arxiv.org/abs/2406.17557)
 - [Li et al. 2024 — DataComp-LM (data-centric quality-weighting)](https://arxiv.org/abs/2406.11794)
+
+---
+
+## 2026-06-16 — Optimizers/stability: ZClip adaptive grad-norm spike mitigation (MODEL-054)
+
+**Area:** optimizers / training stability (rotate: optimizers). Loss spikes from gradient-norm
+spikes are the classic LLM pre-training failure: a single bad update can diverge a run, forcing a
+costly checkpoint rollback + batch skip. The project currently uses a single fixed
+`grad_clip: 1.0` (the live `small_react_best` config). Fixed clipping is a blunt instrument — set
+it low and you throttle every healthy step (slowing convergence); set it high and a catastrophic
+spike still slips through. **ZClip** (Kumar & Owen, arXiv:2504.02507, Apr 2025) replaces the fixed
+threshold with an EMA of the grad-norm's mean+variance and a z-score spike test: clip only the
+norms whose z-score exceeds ~2.5, down to `mean + z_thresh*std`, and update the EMA with the
+*clipped* value so the spike doesn't poison the statistics. Reported to remove loss spikes that
+fixed clipping misses and to allow higher LRs / fewer steps.
+
+Implemented (MODEL-054): `ZClipper` in `training/zclip.py` — a self-contained, pure-Python numeric
+utility (no torch import) with warmup seeding, the z-score spike test, stat-poisoning protection,
+config validation, and `state_dict`/`load_state_dict` for resume. 13 unit tests. DELIBERATELY NOT
+wired into the trainer — the live run keeps its fixed `clip_grad_norm_(params, cfg.grad_clip)`, so
+this cycle cannot perturb the running job or a resume. A future cycle adopts it behind a config
+flag in a worktree (`max_norm = clipper.observe(grad_norm); clip_grad_norm_(params, max_norm)`).
+
+**Original idea — IDEA-019: the ZClip z-score is a free hard-batch signal.** ZClip already computes,
+every step, how anomalous the current gradient is (its z-score). That number is otherwise discarded
+after the clip decision — but it's exactly a "this batch was hard/surprising" signal. Two
+cross-technique uses: (1) feed a rolling count of high-z steps into the GRPO skip-rate curriculum
+(MODEL-045) as a difficulty proxy — spiky gradient regions are where curriculum pacing matters; (2)
+log per-step z to the training dashboard as an early-warning instability meter (a cluster of z>2.5
+clips precedes many divergences), turning a silent internal into an observable. Both are additive
+over a signal ZClip computes anyway. Filed as MODEL-055.
+
+**Sources:**
+- [Kumar & Owen 2025 — ZClip: Adaptive Spike Mitigation for LLM Pre-Training (arXiv:2504.02507)](https://arxiv.org/abs/2504.02507)
+- [ZClip reference implementation (bluorion-com/ZClip)](https://github.com/bluorion-com/ZClip)
+- [AdaGC — Adaptive Gradient Clipping for LLM pretraining stability (arXiv:2502.11034)](https://arxiv.org/html/2502.11034v2)
