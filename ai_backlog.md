@@ -11,6 +11,24 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
 
 ## Open
 
+### UI polish — shared LoadingSpinner + EmptyState primitives (2026-06-16)
+- **UI-090** [ui, medium] `done` (2026-06-16) — Killed the scattered ad-hoc `loading…` text literals and
+  inconsistent muted empty-states. New shared presentational components `webui/src/components/LoadingSpinner.tsx`
+  (CSS-only spinner + label, reduced-motion aware) and `EmptyState.tsx` (icon + title + hint + optional action).
+  Added shared CSS primitives to index.css: `.spinner`/`.spinner-row`, `.empty-state*`, a real `:focus-visible`
+  keyboard ring on btn/input/select/textarea/nav-item (a11y was missing), and an `.input.error`/`.field-error`
+  form-error pattern. Adopted across EvalsPanel, CheckpointsScreen, SpecialistsPanel, DataScreen, JobsPanel,
+  LogsPanel (built by 3 parallel agents on disjoint files; I owned index.css + the 2 components + EvalsPanel).
+  tsc + build green (100 modules, +2). MAIN-SAFE: presentational only, zero backend/schema/training changes.
+- **UI-091** [ui, medium] `open` (2026-06-16) — Follow-up: `MasterDetail.tsx` takes `emptyList`/`emptyDetail`
+  as plain `string` props, so list/detail empty-states across Checkpoints/Data/etc. can't use the new
+  `EmptyState`. Widen those props to `ReactNode` (string is assignable, so backward-compatible) OR have
+  MasterDetail wrap a string default in `<EmptyState>`, then pass real EmptyStates from callers. Low risk,
+  high visual payoff (every master-detail screen's empty list gets the polished treatment).
+- **UI-092** [ui, low] `open` (2026-06-16) — Adopt the `:focus-visible` ring + `.input.error`/`.field-error`
+  on the remaining form launchers (DataScreen Collect/Prepare forms, ConfigEditorPanel) so validation errors
+  show a red field border + helper text instead of a detached `.err` div. CSS is already in place (UI-090).
+
 ### UI polish — fold "More tools" card-grids (2026-06-15)
 - **UI-077** [ui, medium] `done` (2026-06-15) — Replaced the last three "More tools" card-GRIDS
   (Checkpoints/Data/Pipeline) with single tabbed containers: `CheckpointToolsPanel` (Model Card/Manifest/

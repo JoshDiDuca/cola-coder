@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Job, JobLogChunk } from '../types';
 import { jobLogStreamUrl, stopJob } from '../api';
 import { formatRelativeTime } from '../format';
+import EmptyState from './EmptyState';
 
 const MAX_LOG_LINES = 5000;
 
@@ -177,7 +178,10 @@ export default function JobsPanel({ jobs }: JobsPanelProps): JSX.Element {
       {error && <div className="err">{error}</div>}
 
       {orderedJobs.length === 0 ? (
-        <div className="muted">no jobs yet</div>
+        <EmptyState
+          title="No background jobs"
+          hint="Start a training run or pipeline to see jobs stream here."
+        />
       ) : (
         <div className="job-list">
           {orderedJobs.map((job) => (

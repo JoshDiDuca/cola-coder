@@ -3,6 +3,8 @@ import type { EvalResult, EvalDetail, JsonValue } from '../types';
 import { isApiError } from '../types';
 import { getEvals, getEval } from '../api';
 import { formatJsonValue, formatRelativeTime } from '../format';
+import LoadingSpinner from './LoadingSpinner';
+import EmptyState from './EmptyState';
 
 /** A flat, displayable metric extracted from a parsed eval object. */
 interface MetricTile {
@@ -118,7 +120,11 @@ export default function EvalsPanel() {
       {error && <div className="err">{error}</div>}
 
       {evals.length === 0 && !error ? (
-        <div className="muted">no eval artifacts found</div>
+        <EmptyState
+          title="No eval artifacts found"
+          hint="Run an evaluation (HumanEval, benchmarks, quality report) to see pass@k and metrics here."
+          icon="✓"
+        />
       ) : (
         <ul className="eval-list">
           {evals.map((ev) => {
@@ -152,7 +158,7 @@ export default function EvalsPanel() {
             <span className="tag">{selected.kind}</span>
           </div>
 
-          {detailLoading && <div className="muted">loading…</div>}
+          {detailLoading && <LoadingSpinner label="Loading eval…" />}
           {detailError && <div className="err">{detailError}</div>}
 
           {!detailLoading && !detailError && detail && (

@@ -24,6 +24,7 @@ import {
   formatJsonValue,
 } from '../../format';
 import MasterDetail, { type MasterItem } from '../MasterDetail';
+import LoadingSpinner from '../LoadingSpinner';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DataScreen — ONE coherent master-detail "Data" screen replacing the old grid
@@ -377,7 +378,7 @@ function DatasetDetail({ dataset }: DetailProps): JSX.Element {
         <div className="data-section">
           <div className="card-title">Token statistics</div>
           {statsError && <div className="err">{statsError}</div>}
-          {!stats && !statsError && <div className="muted">loading…</div>}
+          {!stats && !statsError && <LoadingSpinner label="Loading token statistics…" />}
           {stats && (
             <div className="stat-tiles">
               {buildStatsTiles(stats).map((tile) => (
@@ -397,7 +398,11 @@ function DatasetDetail({ dataset }: DetailProps): JSX.Element {
           <div className="card-title">
             Preview · <span className="mono">first {PREVIEW_N} rows</span>
           </div>
-          <pre className="pre scroll">{previewLoading ? 'loading…' : previewText}</pre>
+          {previewLoading ? (
+            <LoadingSpinner label="Loading preview…" />
+          ) : (
+            <pre className="pre scroll">{previewText}</pre>
+          )}
         </div>
       )}
 
@@ -406,7 +411,7 @@ function DatasetDetail({ dataset }: DetailProps): JSX.Element {
         <div className="data-section">
           <div className="card-title">Quality weights</div>
           {scoreError && <div className="err">{scoreError}</div>}
-          {scoreLoading && !scores && <div className="muted">loading…</div>}
+          {scoreLoading && !scores && <LoadingSpinner label="Loading scores…" />}
           {scores && (
             <>
               <div className="hist">

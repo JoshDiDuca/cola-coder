@@ -3,6 +3,8 @@ import type { SpecialistEntry, SpecialistsView } from '../types';
 import { isApiError } from '../types';
 import { getSpecialists } from '../api';
 import { formatPercent } from '../format';
+import LoadingSpinner from './LoadingSpinner';
+import EmptyState from './EmptyState';
 
 function SpecialistRow({ entry }: { entry: SpecialistEntry }): JSX.Element {
   return (
@@ -107,28 +109,24 @@ export default function SpecialistsPanel(): JSX.Element {
         per-domain checkpoints the 125M router can dispatch requests to.
       </div>
 
-      {loading && <div className="muted">loading&hellip;</div>}
+      {loading && <LoadingSpinner label="Loading specialists…" />}
 
       {!loading && error !== null && <div className="err">{error}</div>}
 
       {!loading && error === null && view !== null && (
         <>
           {!view.exists && (
-            <div className="muted spec-empty">
-              <span className="mono">specialists.yaml</span> not found at{' '}
-              <span className="mono">{view.path}</span>.
-            </div>
+            <EmptyState
+              title="No specialists registry"
+              hint={`specialists.yaml not found at ${view.path}. Create it to register per-domain checkpoints.`}
+            />
           )}
 
           {view.exists && view.count === 0 && (
-            <div className="muted spec-empty">
-              No specialists registered yet. Add entries to{' '}
-              <span className="mono">configs/specialists.yaml</span> (domain &rarr; checkpoint,
-              keywords, threshold) to route requests to per-domain models.
-              <div className="spec-empty-path">
-                <span className="k">path</span> <span className="mono">{view.path}</span>
-              </div>
-            </div>
+            <EmptyState
+              title="No specialists registered yet"
+              hint={`Add entries to ${view.path} (domain → checkpoint, keywords, threshold) to route requests to per-domain models.`}
+            />
           )}
 
           {view.exists && view.count > 0 && (

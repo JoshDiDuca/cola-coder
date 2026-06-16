@@ -3,6 +3,8 @@ import type { LogFile } from '../types';
 import { isApiError } from '../types';
 import { formatBytes, formatRelativeTime } from '../format';
 import { getLogs, getLog } from '../api';
+import LoadingSpinner from './LoadingSpinner';
+import EmptyState from './EmptyState';
 
 const LINE_OPTIONS = [100, 200, 500] as const;
 const DEFAULT_LINES = 200;
@@ -87,7 +89,10 @@ export default function LogsPanel(): JSX.Element {
       {error && <div className="err">{error}</div>}
 
       {!hasLogs && !error ? (
-        <div className="muted">no log files found</div>
+        <EmptyState
+          title="No log files found"
+          hint="Logs appear here once a training run or server writes output."
+        />
       ) : (
         <div className="log-layout">
           <div className="log-pick">
@@ -109,7 +114,10 @@ export default function LogsPanel(): JSX.Element {
 
           <div className="log-view">
             {selectedLog === null ? (
-              <div className="muted log-view-empty">select a log to view its tail</div>
+              <EmptyState
+                title="No log selected"
+                hint="Pick a log file on the left to view its output."
+              />
             ) : (
               <>
                 <div className="log-view-head">
@@ -130,7 +138,11 @@ export default function LogsPanel(): JSX.Element {
                   </label>
                 </div>
                 <pre className="pre scroll">
-                  {tailLoading ? 'loading…' : tailText || <span className="muted">empty</span>}
+                  {tailLoading ? (
+                    <LoadingSpinner label="Loading log…" inline />
+                  ) : (
+                    tailText || <span className="muted">empty</span>
+                  )}
                 </pre>
               </>
             )}

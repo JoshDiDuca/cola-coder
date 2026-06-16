@@ -10,6 +10,8 @@ import {
   formatParams,
 } from '../../format';
 import MasterDetail, { type MasterItem } from '../MasterDetail';
+import LoadingSpinner from '../LoadingSpinner';
+import EmptyState from '../EmptyState';
 
 // ── Master-detail "Checkpoints" screen ──────────────────────────────────────
 // Left: every checkpoint (newest step first, "latest" badge per model).
@@ -86,9 +88,15 @@ function HealthTab({ checkpoint }: { checkpoint: Checkpoint }): JSX.Element {
     };
   }, [checkpoint.model, checkpoint.step]);
 
-  if (loading) return <div className="muted">loading…</div>;
+  if (loading) return <LoadingSpinner label="Loading checkpoint health…" />;
   if (error) return <div className="err">{error}</div>;
-  if (!health) return <div className="muted">no health data</div>;
+  if (!health)
+    return (
+      <EmptyState
+        title="No health data"
+        hint="Health could not be read for this checkpoint — it may be missing weights."
+      />
+    );
 
   return (
     <div className="ck-section">
@@ -127,7 +135,10 @@ function HealthTab({ checkpoint }: { checkpoint: Checkpoint }): JSX.Element {
 
       <div className="card-title">files</div>
       {health.files.length === 0 ? (
-        <div className="muted">none</div>
+        <EmptyState
+          title="No files"
+          hint="This checkpoint directory contains no weight files."
+        />
       ) : (
         <div className="scroll">
           {health.files.map((f) => (
@@ -265,7 +276,12 @@ function CompareTab({
   }, [canCompare, checkpoint.path, otherPath]);
 
   if (others.length === 0) {
-    return <div className="muted">need another checkpoint to compare against</div>;
+    return (
+      <EmptyState
+        title="Nothing to compare against"
+        hint="Train or keep another checkpoint to enable a side-by-side comparison."
+      />
+    );
   }
 
   return (
