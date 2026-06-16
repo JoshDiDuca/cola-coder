@@ -23,6 +23,7 @@ reimplements the Gopher math).
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 
 from cola_coder.data.filters.repetition import (
     RepetitionThresholds,
@@ -111,3 +112,73 @@ class RepetitionScorer:
     @staticmethod
     def is_available() -> bool:
         return True  # Pure Python, no external dependencies
+
+
+# Coarse severity bins on max_ratio (distance-to-degenerate). Lower = cleaner;
+# ">=1.0" is at/over the Gopher reject boundary (what the hard filter would drop).
+_SEVERITY_BINS: list[tuple[str, float, float]] = [
+    ("clean", 0.0, 0.25),
+    ("low", 0.25, 0.5),
+    ("medium", 0.5, 0.75),
+    ("high", 0.75, 1.0),
+    ("degenerate", 1.0, float("inf")),
+]
+
+
+@dataclass
+class RepetitionProfile:
+    """Corpus-level repetition profile (DATA-075).
+
+    Aggregates ``RepetitionScorer`` over a set of samples to drive (1) a
+    distance-to-degenerate curriculum (``severity_histogram`` / ``mean_score``)
+    and (2) per-source active cleanup (``dominant_metric_counts`` says WHICH kind
+    of repetition dominates — dup lines vs. top n-grams — so the fix differs).
+    """
+
+    count: int
+    mean_score: float
+    degenerate_count: int  # samples at/over the reject boundary (max_ratio >= 1)
+    severity_histogram: dict[str, int] = field(default_factory=dict)
+    dominant_metric_counts: dict[str, int] = field(default_factory=dict)
+
+
+def _severity_label(max_ratio: float) -> str:
+    for label, lo, hi in _SEVERITY_BINS:
+        if lo <= max_ratio < hi:
+            return label
+    return "degenerate"
+
+
+def repetition_profile(codes: list[str]) -> RepetitionProfile:
+    """Aggregate the repetition signal over ``codes`` into a corpus profile.
+
+    Pure function (reuses ``RepetitionScorer`` — DRY; no Gopher math re-derived),
+    MAIN-SAFE. Empty input yields a zeroed profile. ``severity_histogram`` always
+    carries all five bins (clean/low/medium/high/degenerate); ``dominant_metric_counts``
+    tallies each sample's worst metric (the scorer's ``details.dominant_metric``).
+    """
+    scorer = RepetitionScorer()
+    histogram: dict[str, int] = {label: 0 for label, _, _ in _SEVERITY_BINS}
+    dominant: dict[str, int] = {}
+    total_score = 0.0
+    degenerate = 0
+
+    for code in codes:
+        result = scorer.score(code)
+        total_score += result.score
+        details = result.details
+        max_ratio = float(details.get("max_ratio", 0.0)) if isinstance(details, dict) else 0.0
+        histogram[_severity_label(max_ratio)] += 1
+        if max_ratio >= 1.0:
+            degenerate += 1
+        metric = str(details.get("dominant_metric", "none")) if isinstance(details, dict) else "none"
+        dominant[metric] = dominant.get(metric, 0) + 1
+
+    n = len(codes)
+    return RepetitionProfile(
+        count=n,
+        mean_score=round(total_score / n, 4) if n else 0.0,
+        degenerate_count=degenerate,
+        severity_histogram=histogram,
+        dominant_metric_counts=dominant,
+    )

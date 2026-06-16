@@ -2687,3 +2687,23 @@ over a signal ZClip computes anyway. Filed as MODEL-055.
 - [Kumar & Owen 2025 — ZClip: Adaptive Spike Mitigation for LLM Pre-Training (arXiv:2504.02507)](https://arxiv.org/abs/2504.02507)
 - [ZClip reference implementation (bluorion-com/ZClip)](https://github.com/bluorion-com/ZClip)
 - [AdaGC — Adaptive Gradient Clipping for LLM pretraining stability (arXiv:2502.11034)](https://arxiv.org/html/2502.11034v2)
+
+---
+
+## 2026-06-16 — Data quality: repetition profile for curriculum + active cleanup (DATA-075)
+
+**Area:** data quality (rotate: data). Follow-up realizing IDEA-018 from the 2026-06-16 DATA-072 entry. The
+graded `RepetitionScorer` emits, per sample, a `max_ratio` (distance-to-the-Gopher-reject-boundary) and a
+`dominant_metric` (which kind of repetition is worst). `repetition_profile(codes)` aggregates these across a
+corpus into (a) a severity histogram (clean/low/medium/high/degenerate by `max_ratio`) + `mean_score` — a
+distance-to-degenerate signal usable as an EASY→HARD curriculum axis or a corpus health gauge, and (b) a
+`dominant_metric_counts` tally — so per-source active cleanup can target the RIGHT fix (dup-line dedup vs.
+top-n-gram/template stripping). Pure-Python, reuses the scorer (DRY), MAIN-SAFE. 6 tests.
+
+**Original idea — IDEA-020: severity-banded mixing weights.** The histogram is the substrate for a
+data-mixing knob: instead of a single hard reject at `max_ratio >= 1`, assign band weights (clean 1.0 / low
+0.8 / medium 0.4 / high 0.1 / degenerate 0.0) and sample the training mix by band — a smooth corpus-level
+analogue of the per-sample reweighting, letting a small amount of mildly-repetitive boilerplate through
+(it's real-world code) while still starving the degenerate tail. Filed as DATA-076.
+
+**Sources:** internal (builds on the DATA-072 Gopher/FineWeb/DataComp-LM entry, 2026-06-16).

@@ -75,8 +75,10 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   0 = off). Regenerated types (152 interfaces). 13 new tests (schema defaults/overrides, app construct, sampler
   contract) + 217 green, tsc + build green (104 modules), ruff clean. MAIN-SAFE (inference path, gated 409
   while training live; defaults 0.0 = no behavior change). Grounded in min-p (Nguyen et al. 2024) / top-nσ.
-- **UI-105** [ui, low] `open` (2026-06-16) — Expose min-p (+ top-nσ where applicable) controls in the Chat,
-  FIM, and Best-of-N screens too — backend already accepts them; only the per-screen controls are missing.
+- **UI-105** [ui, low] `done` (2026-06-16) — Exposed min-p (+ top-nσ for Chat/FIM; min-p only for Best-of-N)
+  controls in the Chat, FIM, and Best-of-N screens, mirroring InferenceScreen's pattern with each screen's own
+  CSS classes; every request-build site now sends the fields (defaults 0 = off). Frontend-only (backend
+  already accepted them). 3 parallel agents on disjoint screens; tsc + build green (104 modules).
 
 ### UI — config "at a glance" summary (2026-06-16)
 - **UI-103** [ui, medium] `done` (2026-06-16) — "Config summary" tab (Config & pipeline tools): pick a config →
@@ -584,11 +586,15 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   docs skip noisy n-gram metrics. Wired into registry + `configs/scoring.yaml` (opt-in, weight 0.1); auto-
   surfaces in the scoring-config UI via `list_available_scorers`. 14 tests; 41 scorer tests green; ruff clean.
   MAIN-SAFE (pure-Python/CPU). research-log 2026-06-16.
-- **DATA-075 / IDEA-018** [data curation, medium] `open` (2026-06-16) — Repetition-as-curriculum: the scorer
-  emits `details.dominant_metric` + `max_ratio` (which/how-severe). (1) Use `max_ratio` (distance-to-
-  degenerate) as an EASY→HARD curriculum axis; (2) bucket the corpus by `dominant_metric` to drive
-  per-source active cleanup (dedup vs. template-strip). Reporting/aggregation over the existing signal — no
-  model needed. research-log 2026-06-16.
+- **DATA-075 / IDEA-018** [data curation, medium] `done` (2026-06-16) — Shipped `repetition_profile(codes)`
+  + `RepetitionProfile` in `repetition_scorer.py`: aggregates the graded scorer over a corpus into a severity
+  histogram (clean/low/medium/high/degenerate by max_ratio), mean_score, degenerate_count, and a
+  dominant_metric tally — the substrate for (1) a distance-to-degenerate curriculum axis and (2) per-source
+  active cleanup targeting the right fix. Pure-Python, reuses RepetitionScorer (DRY), MAIN-SAFE. 6 tests.
+- **DATA-076 / IDEA-020** [data curation, low] `open` (2026-06-16) — Severity-banded mixing weights: turn the
+  repetition_profile histogram into band sampling weights (clean 1.0 → degenerate 0.0) so the training mix
+  lets a little mildly-repetitive real-world boilerplate through while starving the degenerate tail — a
+  corpus-level smooth analogue of per-sample reweighting. research-log 2026-06-16.
 - **DATA-073** [data curation/eval, low] `open` — Corpus repetition AUDIT: FineWeb-style threshold-ablation
   report ("how many tokens does each Gopher metric remove") + cross-tab against `semantic_dedup` cluster
   sizes (does within-doc repetition correlate with the semantically-redundant clusters?). Pure offline.
