@@ -1,7 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Checkpoint, CheckpointHealth, CompareResult, Job } from '../../types';
+import type {
+  Checkpoint,
+  CheckpointHealth,
+  CheckpointNote,
+  CheckpointNotes,
+  CompareResult,
+  Job,
+} from '../../types';
 import { isApiError } from '../../types';
-import { getCheckpointHealth, getCheckpointCompare, runAction } from '../../api';
+import {
+  getCheckpointHealth,
+  getCheckpointCompare,
+  getCheckpointNotes,
+  setCheckpointNote,
+  deleteCheckpointNote,
+  runAction,
+} from '../../api';
 import {
   formatInteger,
   formatFloat,
@@ -18,7 +32,7 @@ import EmptyState from '../EmptyState';
 // Right: the selected checkpoint's health, an inline compare, and an export
 // launcher — composed as a small tabbed detail so it stays scannable.
 
-type DetailTab = 'health' | 'compare' | 'export';
+type DetailTab = 'health' | 'compare' | 'export' | 'notes';
 
 type ExportFormat = 'gguf-f16' | 'q8' | 'q4' | 'ollama' | 'quantize';
 
@@ -397,6 +411,158 @@ function ExportTab({ checkpoint }: { checkpoint: Checkpoint }): JSX.Element {
   );
 }
 
+// ── Notes tab ─────────────────────────────────────────────────────────────────
+
+interface NotesTabProps {
+  checkpoint: Checkpoint;
+}
+
+/** Find the note keyed by a checkpoint path, if one has been saved. */
+function findNote(notes: CheckpointNote[], path: string): CheckpointNote | null {
+  return notes.find((n) => n.key === path) ?? null;
+}
+
+function NotesTab({ checkpoint }: NotesTabProps): JSX.Element {
+  const path = checkpoint.path;
+
+  const [notes, setNotes] = useState<CheckpointNote[]>([]);
+  const [label, setLabel] = useState<string>('');
+  const [body, setBody] = useState<string>('');
+  const [loading, setLoading] = useState<boolean>(false);
+  const [saving, setSaving] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const existing = useMemo(() => findNote(notes, path), [notes, path]);
+
+  // Load all notes once per selected checkpoint, then pre-fill the form from
+  // the matching note (or reset to empty when this checkpoint has none).
+  useEffect(() => {
+    let active = true;
+    setNotes([]);
+    setLabel('');
+    setBody('');
+    setError(null);
+    setLoading(true);
+    void (async (): Promise<void> => {
+      try {
+        const resp = await getCheckpointNotes();
+        if (!active) return;
+        setNotes(resp.notes);
+        const note = findNote(resp.notes, path);
+        setLabel(note?.label ?? '');
+        setBody(note?.note ?? '');
+      } catch (e) {
+        if (active) setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [path]);
+
+  const applyResult = useCallback(
+    (result: CheckpointNotes): void => {
+      setNotes(result.notes);
+      const note = findNote(result.notes, path);
+      setLabel(note?.label ?? '');
+      setBody(note?.note ?? '');
+    },
+    [path],
+  );
+
+  const onSave = useCallback(async (): Promise<void> => {
+    setError(null);
+    setSaving(true);
+    try {
+      const resp = await setCheckpointNote({ key: path, label, note: body });
+      if (isApiError(resp)) setError(resp.error);
+      else applyResult(resp);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }, [path, label, body, applyResult]);
+
+  const onDelete = useCallback(async (): Promise<void> => {
+    setError(null);
+    setSaving(true);
+    try {
+      const resp = await deleteCheckpointNote(path);
+      if (isApiError(resp)) setError(resp.error);
+      else applyResult(resp);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }, [path, applyResult]);
+
+  if (loading) return <LoadingSpinner label="Loading checkpoint notes…" />;
+
+  return (
+    <div className="ck-section">
+      <div className="row">
+        <span className="k">key</span>
+        <span className="v mono">{path}</span>
+      </div>
+
+      {existing && (
+        <div className="row">
+          <span className="k">updated</span>
+          <span className="v muted">{existing.updated_at}</span>
+        </div>
+      )}
+
+      <label className="muted" htmlFor="ck-note-label">
+        label
+      </label>
+      <input
+        id="ck-note-label"
+        className="input"
+        type="text"
+        value={label}
+        placeholder="Short label for this checkpoint"
+        onChange={(e) => setLabel(e.target.value)}
+      />
+
+      <label className="muted" htmlFor="ck-note-body">
+        note
+      </label>
+      <textarea
+        id="ck-note-body"
+        className="textarea"
+        value={body}
+        placeholder="Notes about this checkpoint…"
+        onChange={(e) => setBody(e.target.value)}
+      />
+
+      <div className="md-toolbar">
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={() => void onSave()}
+          disabled={saving}
+        >
+          {saving ? '…saving' : 'Save'}
+        </button>
+        <button
+          type="button"
+          className="btn btn-danger"
+          onClick={() => void onDelete()}
+          disabled={saving || existing === null}
+        >
+          Delete
+        </button>
+      </div>
+
+      {error && <div className="err">{error}</div>}
+    </div>
+  );
+}
+
 // ── Detail pane ───────────────────────────────────────────────────────────────
 
 function CheckpointDetailPane({
@@ -417,6 +583,7 @@ function CheckpointDetailPane({
     { id: 'health', label: 'Health' },
     { id: 'compare', label: 'Compare' },
     { id: 'export', label: 'Export' },
+    { id: 'notes', label: 'Notes' },
   ];
 
   return (
@@ -447,6 +614,7 @@ function CheckpointDetailPane({
       {tab === 'health' && <HealthTab checkpoint={checkpoint} />}
       {tab === 'compare' && <CompareTab checkpoint={checkpoint} others={others} />}
       {tab === 'export' && <ExportTab checkpoint={checkpoint} />}
+      {tab === 'notes' && <NotesTab checkpoint={checkpoint} />}
     </div>
   );
 }

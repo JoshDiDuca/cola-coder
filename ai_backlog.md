@@ -50,6 +50,18 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   Project-Memory → UI-096. Knowledge write-paths → UI-099 (this cycle). Item status EDIT (in-place rewrite)
   intentionally NOT done — append-only is safe vs. the loop's concurrent writes; in-place mutation deferred.
 
+### UI — checkpoint notes/tags (2026-06-16)
+- **UI-100** [ui, medium] `done` (2026-06-16) — Annotate checkpoints with a label + free-text note from the
+  UI (e.g. "best so far", "before reasoning warmup"). Backend `checkpoint_notes_view.py` persists to a sidecar
+  `<root>/.cola/checkpoint_notes.json` keyed by checkpoint PATH — DELIBERATELY outside `checkpoints/`, so it
+  NEVER writes into a checkpoint dir and can't interfere with the live trainer (verified by a test asserting no
+  `checkpoints/` dir is created). get/set/delete (atomic temp+replace, label≤80/note≤2000 caps, validation).
+  3 endpoints `/api/checkpoints/notes[/set|/delete]`; schemas CheckpointNote/Notes/SetRequest/DeleteRequest
+  (+ drift examples, regenerated types → 145 interfaces); getCheckpointNotes/setCheckpointNote/
+  deleteCheckpointNote in api.ts; new "Notes" tab in CheckpointsScreen (prefilled edit form + delete). Built by
+  2 parallel agents (17 backend tests + UI tab) on disjoint files; keystone owned by main. 165 tests green,
+  tsc + build green (101 modules), ruff clean. MAIN-SAFE.
+
 ### UI — knowledge write-paths: research-log + backlog append (2026-06-16)
 - **UI-099** [ui, medium] `done` (2026-06-16) — Turned the read-only ResearchLog + Backlog panels into
   append-capable ones. Backend: `research_log_append(root, title, body, date=None)` in research_log_view.py

@@ -154,6 +154,16 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "has_training_state": True, "num_params": 1000, "tensor_count": 50,
         "dtypes": ["bf16"], "files": ["model.safetensors"],
     },
+    "CheckpointNote": {
+        "key": "checkpoints/small_react_best/step_00015000", "label": "best so far",
+        "note": "loss plateaued nicely here", "updated_at": "2026-06-16T07:10:00",
+    },
+    "CheckpointNotes": {"notes": []},
+    "CheckpointNoteSetRequest": {
+        "key": "checkpoints/small_react_best/step_00015000",
+        "label": "best so far", "note": "loss plateaued nicely here",
+    },
+    "CheckpointNoteDeleteRequest": {"key": "checkpoints/small_react_best/step_00015000"},
     "RouterCheckpoint": {"path": "p", "name": "router", "step": 100},
     "RouterOverview": {"has_router": True, "checkpoints": [], "domains": ["react"]},
     "ExportFormat": {"key": "gguf", "label": "GGUF", "desc": "d"},

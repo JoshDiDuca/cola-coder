@@ -287,6 +287,27 @@ export interface CheckpointDetail {
   files: string[];
 }
 
+export interface CheckpointNote {
+  key: string;
+  label: string;
+  note: string;
+  updated_at: string;
+}
+
+export interface CheckpointNotes {
+  notes: CheckpointNote[];
+}
+
+export interface CheckpointNoteSetRequest {
+  key: string;
+  label?: string;
+  note?: string;
+}
+
+export interface CheckpointNoteDeleteRequest {
+  key: string;
+}
+
 export interface RouterCheckpoint {
   path: string;
   name: string;

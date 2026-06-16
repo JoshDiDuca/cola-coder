@@ -37,6 +37,8 @@ import type {
   TokenizerHealthReport,
   DataStats,
   CheckpointHealth,
+  CheckpointNotes,
+  CheckpointNoteSetRequest,
   MemoryStats,
   MemoryExport,
   MemoryAddRequest,
@@ -402,6 +404,19 @@ export function getCheckpointCompare(a: string, b: string): Promise<CompareResul
   return j<CompareResult | ApiError>(
     `/api/checkpoints/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`
   );
+}
+
+// Checkpoint notes/tags (sidecar; never touches checkpoint dirs).
+export function getCheckpointNotes(): Promise<CheckpointNotes> {
+  return j<CheckpointNotes>('/api/checkpoints/notes');
+}
+
+export function setCheckpointNote(req: CheckpointNoteSetRequest): Promise<CheckpointNotes | ApiError> {
+  return j<CheckpointNotes | ApiError>('/api/checkpoints/notes/set', postJson(req));
+}
+
+export function deleteCheckpointNote(key: string): Promise<CheckpointNotes | ApiError> {
+  return j<CheckpointNotes | ApiError>('/api/checkpoints/notes/delete', postJson({ key }));
 }
 
 export function getModelCard(path: string): Promise<ModelCard | ApiError> {

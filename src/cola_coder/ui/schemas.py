@@ -333,6 +333,35 @@ class CheckpointDetail(_UiModel):
     files: list[str]
 
 
+class CheckpointNote(_UiModel):
+    """A user annotation for one checkpoint (keyed by its path). Sidecar-stored."""
+
+    key: str
+    label: str
+    note: str
+    updated_at: str
+
+
+class CheckpointNotes(_UiModel):
+    """All checkpoint notes (``GET /api/checkpoints/notes``)."""
+
+    notes: list[CheckpointNote]
+
+
+class CheckpointNoteSetRequest(_UiModel):
+    """Body for ``POST /api/checkpoints/notes/set`` — upsert one note by key (path)."""
+
+    key: str
+    label: str = ""
+    note: str = ""
+
+
+class CheckpointNoteDeleteRequest(_UiModel):
+    """Body for ``POST /api/checkpoints/notes/delete`` — remove a note by key."""
+
+    key: str
+
+
 class RouterCheckpoint(_UiModel):
     path: str
     name: str

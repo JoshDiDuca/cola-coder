@@ -37,6 +37,7 @@ from fastapi.staticfiles import StaticFiles
 from . import backlog_view as blv
 from . import benchmark_results_view as brv
 from . import checkpoint_detail as cd
+from . import checkpoint_notes_view as cnv
 from . import lr_finder_view as lfv
 from . import repo_scores_view as rscv
 from . import filters_catalog_view as fcv
@@ -1081,6 +1082,29 @@ def create_app(
     @app.get("/api/checkpoints/compare", response_model=sch.CompareResult | sch.ErrorResponse)
     def checkpoints_compare_get(a: str, b: str) -> dict:
         return cc.compare_checkpoints(a, b)
+
+    @app.get("/api/checkpoints/notes", response_model=sch.CheckpointNotes)
+    def checkpoint_notes_get() -> dict:
+        """All user checkpoint annotations. Sidecar JSON; never touches checkpoint dirs."""
+        return cnv.checkpoint_notes(str(root))
+
+    @app.post("/api/checkpoints/notes/set",
+              response_model=sch.CheckpointNotes | sch.ErrorResponse)
+    def checkpoint_note_set(req: sch.CheckpointNoteSetRequest) -> dict | JSONResponse:
+        """Upsert a checkpoint note (label/note by path key). MAIN-SAFE; 400 on bad input."""
+        result = cnv.set_checkpoint_note(str(root), key=req.key, label=req.label, note=req.note)
+        if "error" in result:
+            return JSONResponse(result, status_code=400)
+        return result
+
+    @app.post("/api/checkpoints/notes/delete",
+              response_model=sch.CheckpointNotes | sch.ErrorResponse)
+    def checkpoint_note_delete(req: sch.CheckpointNoteDeleteRequest) -> dict | JSONResponse:
+        """Delete a checkpoint note by key. 400 if missing."""
+        result = cnv.delete_checkpoint_note(str(root), key=req.key)
+        if "error" in result:
+            return JSONResponse(result, status_code=400)
+        return result
 
     # Serve the built React app. Mount LAST so /api/* routes resolve first —
     # StaticFiles at "/" otherwise shadows every API route.
