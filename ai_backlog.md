@@ -46,10 +46,22 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   disjoint files; keystone contract (schemas/app/api/types) owned by main. 19 new backend tests + 149
   drift/type tests green, tsc + build green (100 modules), ruff clean. MAIN-SAFE: YAML registry only, never
   touches the live trainer or loads a model. (Closes the top read-only→write parity gap from this cycle's scan.)
-- **UI-095** [ui, medium] `open` (2026-06-16) — Parity-scan follow-ups (read-only screens that should write):
-  Backlog item archive/update (`PATCH /api/backlog/{id}`), Research-log append (`POST /api/research-log/append`),
-  and Project-Memory subsystem (CLI `memory/manager.py` has init/view/edit/compact/stats with ZERO UI — biggest
-  remaining hidden subsystem). All MAIN-SAFE. Pick one per future cycle.
+- **UI-095** [ui, medium] `in-progress` (2026-06-16) — Parity-scan follow-ups (read-only screens that should
+  write). Project-Memory subsystem → DONE as UI-096. Still open: Backlog item archive/update
+  (`PATCH /api/backlog/{id}`) and Research-log append (`POST /api/research-log/append`). Both MAIN-SAFE.
+
+### UI — project-memory workbench (view/add/search/compact) (2026-06-16)
+- **UI-096** [ui, high] `done` (2026-06-16) — Turned the read-only memory stats panel into a full WORKBENCH over
+  the markdown memory store (`memory/manager.py`, the biggest previously-unwired CLI subsystem). New backend
+  helper `src/cola_coder/ui/memory_ops_view.py`: `memory_export` (full content per theme file), `memory_add`
+  (append pattern/error/decision/domain/session, auto-inits store), `memory_search` (CPU TF-IDF retrieve),
+  `memory_compact` (dedup + per-file removal counts). 4 endpoints under `/api/memory/*`. 8 schemas (MemoryFile/
+  Export/AddRequest/SearchRequest/ChunkOut/SearchResult/FileCount/CompactResult) registered + drift examples;
+  regenerated types.gen.ts (135 interfaces). api.ts gains getMemoryExport/addMemory/searchMemory/compactMemory;
+  `ProjectMemoryPanel` expanded to stats + add-form + search + export-view + compact, strict-typed. Built by 2
+  parallel agents (12 backend tests + UI) on disjoint files; keystone contract owned by main. 150 drift/ops
+  tests green, tsc + build green (100 modules), ruff clean. **MAIN-SAFE: pure markdown file I/O + TF-IDF, never
+  imports torch / loads a checkpoint / touches the GPU or live trainer** (verified by a scoping Explore agent).
 
 ### Eval — pass@k estimator input validation (2026-06-16)
 - **EVAL-041** [eval, medium] `done` (2026-06-16) — `pass_at_k(n,c,k)` silently returned a spurious `1.0`

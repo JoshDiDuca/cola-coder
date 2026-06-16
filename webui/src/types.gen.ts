@@ -545,6 +545,52 @@ export interface MemoryStats {
   recent_sample: MemoryEntry[];
 }
 
+export interface MemoryFile {
+  type: string;
+  name: string;
+  content: string;
+  truncated: boolean;
+  entry_count: number;
+}
+
+export interface MemoryExport {
+  initialized: boolean;
+  files: MemoryFile[];
+}
+
+export interface MemoryAddRequest {
+  kind: 'pattern' | 'error' | 'decision' | 'domain' | 'session';
+  primary: string;
+  secondary?: string;
+}
+
+export interface MemorySearchRequest {
+  query: string;
+  max_chunks?: number;
+}
+
+export interface MemoryChunkOut {
+  content: string;
+  source_file: string;
+  section: string;
+  relevance_score: number;
+}
+
+export interface MemorySearchResult {
+  query: string;
+  results: MemoryChunkOut[];
+}
+
+export interface MemoryFileCount {
+  name: string;
+  removed: number;
+}
+
+export interface MemoryCompactResult {
+  removed_total: number;
+  removed: MemoryFileCount[];
+}
+
 export interface IndexStats {
   exists: boolean;
   doc_count: number;

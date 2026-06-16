@@ -242,6 +242,24 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "oldest_at": "2026-06-15 03:21", "newest_at": "2026-06-15 03:21",
         "recent_sample": [],
     },
+    "MemoryFile": {
+        "type": "patterns", "name": "patterns.md",
+        "content": "## Use ScoreMapper\n_Added: 2026-06-15 03:21_\n", "truncated": False,
+        "entry_count": 1,
+    },
+    "MemoryExport": {"initialized": True, "files": []},
+    "MemoryAddRequest": {
+        "kind": "pattern", "primary": "Use ScoreMapper for count->score",
+        "secondary": "from cola_coder.data.scorers.utils import ScoreMapper",
+    },
+    "MemorySearchRequest": {"query": "score mapping", "max_chunks": 5},
+    "MemoryChunkOut": {
+        "content": "Use ScoreMapper for count->score", "source_file": "patterns.md",
+        "section": "Use ScoreMapper", "relevance_score": 0.82,
+    },
+    "MemorySearchResult": {"query": "score mapping", "results": []},
+    "MemoryFileCount": {"name": "errors.md", "removed": 2},
+    "MemoryCompactResult": {"removed_total": 2, "removed": []},
     "IndexStats": {
         "exists": True, "doc_count": 1240, "chunk_count": 1240,
         "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",

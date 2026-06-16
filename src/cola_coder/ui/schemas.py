@@ -591,6 +591,72 @@ class MemoryStats(_UiModel):
     recent_sample: list[MemoryEntry]
 
 
+class MemoryFile(_UiModel):
+    """Full content of one themed memory markdown file (``GET /api/memory/export``)."""
+
+    type: str
+    name: str
+    content: str
+    truncated: bool
+    entry_count: int
+
+
+class MemoryExport(_UiModel):
+    """All memory files for the read view; ``initialized`` false when empty."""
+
+    initialized: bool
+    files: list[MemoryFile]
+
+
+class MemoryAddRequest(_UiModel):
+    """Body for ``POST /api/memory/add`` — append one entry to a theme.
+
+    ``primary`` is the main text; ``secondary`` the optional second field
+    (example/fix/rationale/content/domain depending on ``kind``).
+    """
+
+    kind: Literal["pattern", "error", "decision", "domain", "session"]
+    primary: str
+    secondary: str = ""
+
+
+class MemorySearchRequest(_UiModel):
+    """Body for ``POST /api/memory/search`` — TF-IDF query (CPU only)."""
+
+    query: str
+    max_chunks: int = 5
+
+
+class MemoryChunkOut(_UiModel):
+    """One TF-IDF search hit from the memory store."""
+
+    content: str
+    source_file: str
+    section: str
+    relevance_score: float
+
+
+class MemorySearchResult(_UiModel):
+    """Result of ``POST /api/memory/search``."""
+
+    query: str
+    results: list[MemoryChunkOut]
+
+
+class MemoryFileCount(_UiModel):
+    """Per-file duplicate-removal count from a compaction."""
+
+    name: str
+    removed: int
+
+
+class MemoryCompactResult(_UiModel):
+    """Result of ``POST /api/memory/compact``."""
+
+    removed_total: int
+    removed: list[MemoryFileCount]
+
+
 class IndexStats(_UiModel):
     exists: bool
     doc_count: int

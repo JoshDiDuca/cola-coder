@@ -38,6 +38,11 @@ import type {
   DataStats,
   CheckpointHealth,
   MemoryStats,
+  MemoryExport,
+  MemoryAddRequest,
+  MemorySearchRequest,
+  MemorySearchResult,
+  MemoryCompactResult,
   IndexStats,
   MalwareScanResult,
   EnvCheckReport,
@@ -416,6 +421,26 @@ export function getCheckpointHealth(model: string, step: string): Promise<Checkp
   return j<CheckpointHealth | ApiError>(
     `/api/checkpoint-health?model=${encodeURIComponent(model)}&step=${encodeURIComponent(step)}`,
   );
+}
+
+// Full markdown content per theme file (read view). Robust GET — never an error.
+export function getMemoryExport(): Promise<MemoryExport> {
+  return j<MemoryExport>('/api/memory/export');
+}
+
+// Append one entry (auto-inits the store); returns refreshed stats. MAIN-SAFE.
+export function addMemory(req: MemoryAddRequest): Promise<MemoryStats | ApiError> {
+  return j<MemoryStats | ApiError>('/api/memory/add', postJson(req));
+}
+
+// TF-IDF search the store (CPU only, no model/GPU). 400 on empty query.
+export function searchMemory(req: MemorySearchRequest): Promise<MemorySearchResult | ApiError> {
+  return j<MemorySearchResult | ApiError>('/api/memory/search', postJson(req));
+}
+
+// Drop duplicate entries; returns per-file removals. 400 if uninitialised.
+export function compactMemory(): Promise<MemoryCompactResult | ApiError> {
+  return j<MemoryCompactResult | ApiError>('/api/memory/compact', postJson({}));
 }
 
 export function getMemoryStats(): Promise<MemoryStats | ApiError> {

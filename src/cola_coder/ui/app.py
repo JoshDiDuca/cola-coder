@@ -56,6 +56,7 @@ from . import features as ft
 from . import features_write as fw
 from . import health as hl
 from . import logs as lg
+from . import memory_ops_view as mov
 from . import memory_stats_view as msv
 from . import metrics_history as mh
 from . import model_card as mc
@@ -902,6 +903,35 @@ def create_app(
              response_model=sch.MemoryStats | sch.ErrorResponse)
     def memory_stats_get() -> dict:
         return msv.memory_stats(str(root))
+
+    @app.get("/api/memory/export", response_model=sch.MemoryExport)
+    def memory_export_get() -> dict:
+        """Full markdown content per theme file (read view). MAIN-SAFE (file I/O)."""
+        return mov.memory_export(str(root))
+
+    @app.post("/api/memory/add", response_model=sch.MemoryStats | sch.ErrorResponse)
+    def memory_add_post(req: sch.MemoryAddRequest) -> dict | JSONResponse:
+        """Append one entry (auto-inits the store), return refreshed stats. 400 on bad input."""
+        result = mov.memory_add(str(root), req.kind, req.primary, req.secondary)
+        if "error" in result:
+            return JSONResponse(result, status_code=400)
+        return result
+
+    @app.post("/api/memory/search", response_model=sch.MemorySearchResult | sch.ErrorResponse)
+    def memory_search_post(req: sch.MemorySearchRequest) -> dict | JSONResponse:
+        """TF-IDF search the store (CPU only, no model/GPU). 400 on empty query."""
+        result = mov.memory_search(str(root), req.query, req.max_chunks)
+        if "error" in result:
+            return JSONResponse(result, status_code=400)
+        return result
+
+    @app.post("/api/memory/compact", response_model=sch.MemoryCompactResult | sch.ErrorResponse)
+    def memory_compact_post() -> dict | JSONResponse:
+        """Drop duplicate entries; report per-file removals. 400 if uninitialised."""
+        result = mov.memory_compact(str(root))
+        if "error" in result:
+            return JSONResponse(result, status_code=400)
+        return result
 
     @app.get("/api/retrieval/index-stats",
              response_model=sch.IndexStats | sch.ErrorResponse)
