@@ -922,6 +922,19 @@ export interface SpecialistsView {
   specialists: SpecialistEntry[];
 }
 
+export interface SpecialistSaveRequest {
+  domain: string;
+  checkpoint: string;
+  keywords?: string[];
+  config?: string | null;
+  confidence_threshold?: number | null;
+  description?: string | null;
+}
+
+export interface SpecialistRemoveRequest {
+  domain: string;
+}
+
 export interface GenStreamChunk {
   delta: string;
   done: boolean;

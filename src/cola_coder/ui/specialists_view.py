@@ -21,6 +21,8 @@ Registry shape (per the file's own documented example)::
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -70,3 +72,115 @@ def specialists_view(root: str = ".") -> dict:
     entries.sort(key=lambda e: e["domain"])
 
     return {"path": str(path), "exists": True, "count": len(entries), "specialists": entries}
+
+
+def _atomic_write_yaml(path: Path, data: dict) -> None:
+    """Atomically write ``data`` as YAML (temp file + ``os.replace``), like configs.py."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            yaml.safe_dump(data, handle, sort_keys=True, default_flow_style=False)
+        os.replace(tmp, path)
+    except OSError:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+
+
+def _load_registry(path: Path) -> dict:
+    """Return the full parsed YAML doc (a dict), tolerating a missing/empty file.
+
+    Preserves any sibling top-level keys so a write only touches ``specialists``.
+    Returns ``{"specialists": {}}`` for a missing file and raises ``ValueError`` for
+    a malformed one (so a write never silently drops existing entries).
+    """
+    if not path.is_file():
+        return {"specialists": {}}
+    try:
+        parsed = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise ValueError(f"could not read {path}: {exc}") from exc
+    if parsed is None:
+        return {"specialists": {}}
+    if not isinstance(parsed, dict):
+        raise ValueError(f"{path} is not a YAML mapping")
+    if not isinstance(parsed.get("specialists"), dict):
+        parsed["specialists"] = {}
+    return parsed
+
+
+def save_specialist(
+    root: str,
+    domain: str,
+    checkpoint: str,
+    keywords: list[str],
+    config: str | None = None,
+    confidence_threshold: float | None = None,
+    description: str | None = None,
+) -> dict:
+    """Upsert one specialist entry into ``configs/specialists.yaml`` (add or update).
+
+    Validates the inputs and atomically rewrites the file, preserving every other
+    domain and any sibling top-level keys. Editing this registry on disk does NOT
+    affect a running trainer (it loaded its config at launch) and never loads a model.
+
+    Returns the refreshed ``specialists_view`` dict on success, or ``{"error": str}``
+    on a validation/IO failure (never raises).
+    """
+    domain = domain.strip()
+    if not domain:
+        return {"error": "domain is required"}
+    if "/" in domain or "\\" in domain:
+        return {"error": "domain must not contain path separators"}
+    if not checkpoint.strip():
+        return {"error": "checkpoint is required"}
+    if confidence_threshold is not None and not 0.0 <= confidence_threshold <= 1.0:
+        return {"error": f"confidence_threshold must be in [0, 1], got {confidence_threshold}"}
+
+    entry: dict[str, object] = {
+        "checkpoint": checkpoint.strip(),
+        "keywords": [str(k).strip() for k in keywords if str(k).strip()],
+    }
+    if config is not None and config.strip():
+        entry["config"] = config.strip()
+    if confidence_threshold is not None:
+        entry["confidence_threshold"] = confidence_threshold
+    if description is not None and description.strip():
+        entry["description"] = description.strip()
+
+    path = Path(root) / _SPECIALISTS_REL
+    try:
+        doc = _load_registry(path)
+        doc["specialists"][domain] = entry
+        _atomic_write_yaml(path, doc)
+    except (ValueError, OSError) as exc:
+        return {"error": str(exc)}
+
+    return specialists_view(root)
+
+
+def remove_specialist(root: str, domain: str) -> dict:
+    """Remove one specialist entry from ``configs/specialists.yaml`` by domain.
+
+    Returns the refreshed ``specialists_view`` dict on success, or ``{"error": str}``
+    when the file/domain is missing or the write fails (never raises).
+    """
+    domain = domain.strip()
+    if not domain:
+        return {"error": "domain is required"}
+
+    path = Path(root) / _SPECIALISTS_REL
+    if not path.is_file():
+        return {"error": f"no registry to edit: {path} does not exist"}
+
+    try:
+        doc = _load_registry(path)
+        if domain not in doc["specialists"]:
+            return {"error": f"domain not in registry: {domain}"}
+        del doc["specialists"][domain]
+        _atomic_write_yaml(path, doc)
+    except (ValueError, OSError) as exc:
+        return {"error": str(exc)}
+
+    return specialists_view(root)

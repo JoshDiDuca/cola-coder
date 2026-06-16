@@ -166,6 +166,8 @@ _MODEL_ORDER: list[str] = [
     "GpuProcesses",
     "SpecialistEntry",
     "SpecialistsView",
+    "SpecialistSaveRequest",
+    "SpecialistRemoveRequest",
     "GenStreamChunk",
     "BestOfNRequest",
     "BestOfNCandidate",

@@ -68,6 +68,7 @@ import type {
   ConfigWriteRequest,
   ConfigWriteResult,
   SpecialistsView,
+  SpecialistSaveRequest,
   RetrievalSearchResult,
   GpuProcesses,
   ApiError,
@@ -211,9 +212,20 @@ export function getConfig(path: string): Promise<ConfigContent> {
   return j<ConfigContent>(`/api/config?path=${encodeURIComponent(path)}`);
 }
 
-// Router specialist registry (configs/specialists.yaml), read-only.
+// Router specialist registry (configs/specialists.yaml).
 export function getSpecialists(): Promise<SpecialistsView | ApiError> {
   return j<SpecialistsView | ApiError>('/api/specialists');
+}
+
+// Upsert one specialist (add or update). Backend validates + atomically rewrites
+// the registry and returns the refreshed view; 400 (ApiError) on bad input.
+export function saveSpecialist(req: SpecialistSaveRequest): Promise<SpecialistsView | ApiError> {
+  return j<SpecialistsView | ApiError>('/api/specialists/save', postJson(req));
+}
+
+// Remove one specialist by domain. Returns the refreshed registry; 400 if missing.
+export function removeSpecialist(domain: string): Promise<SpecialistsView | ApiError> {
+  return j<SpecialistsView | ApiError>('/api/specialists/remove', postJson({ domain }));
 }
 
 // Lexical search over the persisted retrieval index (no model/GPU; empty when no index).

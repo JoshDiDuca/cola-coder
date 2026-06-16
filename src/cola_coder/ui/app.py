@@ -800,6 +800,38 @@ def create_app(
     def specialists_get() -> dict:
         return spv.specialists_view(str(root))
 
+    @app.post("/api/specialists/save", response_model=sch.SpecialistsView | sch.ErrorResponse)
+    def specialists_save(req: sch.SpecialistSaveRequest) -> dict | JSONResponse:
+        """Upsert one specialist into configs/specialists.yaml (add or update).
+
+        Validates + atomically rewrites the registry, preserving other domains.
+        Returns the refreshed registry. Safe vs. the live trainer (config read at
+        launch); never loads a model. Validation failures return 400.
+        """
+        result = spv.save_specialist(
+            str(root),
+            domain=req.domain,
+            checkpoint=req.checkpoint,
+            keywords=req.keywords,
+            config=req.config,
+            confidence_threshold=req.confidence_threshold,
+            description=req.description,
+        )
+        if "error" in result:
+            return JSONResponse(result, status_code=400)
+        return result
+
+    @app.post("/api/specialists/remove", response_model=sch.SpecialistsView | sch.ErrorResponse)
+    def specialists_remove(req: sch.SpecialistRemoveRequest) -> dict | JSONResponse:
+        """Remove one specialist from configs/specialists.yaml by domain.
+
+        Returns the refreshed registry; a missing file/domain returns 400.
+        """
+        result = spv.remove_specialist(str(root), domain=req.domain)
+        if "error" in result:
+            return JSONResponse(result, status_code=400)
+        return result
+
     @app.get("/api/router", response_model=sch.RouterOverview)
     def router_get() -> dict:
         return rt.router_overview(str(root))

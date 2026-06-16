@@ -34,6 +34,23 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   on the remaining form launchers (DataScreen Collect/Prepare forms, ConfigEditorPanel) so validation errors
   show a red field border + helper text instead of a detached `.err` div. CSS is already in place (UI-090).
 
+### UI — specialist registry CRUD (write path) (2026-06-16)
+- **UI-094** [ui, high] `done` (2026-06-16) — Turned the read-only specialist registry into full CRUD. Backend:
+  `save_specialist` (upsert) + `remove_specialist` in `specialists_view.py` — validated (domain non-empty / no
+  path separators, checkpoint required, threshold∈[0,1]), atomic temp+replace, preserves sibling domains AND
+  other top-level YAML keys; `POST /api/specialists/save` + `/api/specialists/remove` (→ refreshed
+  `SpecialistsView`, 400 on bad input). Schemas `SpecialistSaveRequest`/`SpecialistRemoveRequest` (registered
+  in gen_ts_types + drift-guard examples), `saveSpecialist`/`removeSpecialist` in api.ts, regenerated
+  types.gen.ts (127 interfaces). Frontend: `SpecialistsPanel` add/update form + per-row remove + "use as
+  template" prefill, strict-typed, both failure channels handled. Built by 2 parallel agents (tests + UI) on
+  disjoint files; keystone contract (schemas/app/api/types) owned by main. 19 new backend tests + 149
+  drift/type tests green, tsc + build green (100 modules), ruff clean. MAIN-SAFE: YAML registry only, never
+  touches the live trainer or loads a model. (Closes the top read-only→write parity gap from this cycle's scan.)
+- **UI-095** [ui, medium] `open` (2026-06-16) — Parity-scan follow-ups (read-only screens that should write):
+  Backlog item archive/update (`PATCH /api/backlog/{id}`), Research-log append (`POST /api/research-log/append`),
+  and Project-Memory subsystem (CLI `memory/manager.py` has init/view/edit/compact/stats with ZERO UI — biggest
+  remaining hidden subsystem). All MAIN-SAFE. Pick one per future cycle.
+
 ### Eval — pass@k estimator input validation (2026-06-16)
 - **EVAL-041** [eval, medium] `done` (2026-06-16) — `pass_at_k(n,c,k)` silently returned a spurious `1.0`
   for `n < k` (estimator is undefined there); its own `compute_pass_at_k` docstring warned about it while
@@ -283,8 +300,11 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   + dependency-free SVG `Sparkline`: loss curve + tok/s). Runnable-actions allow-list
   expanded to 15 (added quality_report, safety_eval, completion_benchmark, benchmark,
   env_check). 27 `/api` routes. +37 UI tests, tsc+vite green, ruff clean.
-- **UI-018** [ui, medium] `open` — Config EDITOR (write path): validate + save YAML configs
-  from the browser (currently read-only). Guard against editing while a run uses the config.
+- **UI-018** [ui, medium] `done` (2026-06-16, verified-stale) — Config editor write path is ALREADY fully
+  implemented end-to-end: `cfg.write_config` (path-traversal-rejected, YAML-validated, atomic temp+replace),
+  `POST /api/config/write`, `writeConfig()` in api.ts, and `ConfigEditorPanel` with edit/validate/save/revert
+  + dirty tracking. The "guard against editing while a run uses the config" is moot — the trainer reads its
+  config at launch, so a disk edit can't affect a live run (the panel says so). Marked done after verifying.
 
 ### Eval rigor (2026-06-14)
 - **EVAL-028** [eval, high] `done` (2026-06-14) — Bootstrap CIs + cross-problem SE for

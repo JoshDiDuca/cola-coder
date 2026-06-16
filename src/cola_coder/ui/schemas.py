@@ -1082,6 +1082,27 @@ class SpecialistsView(_UiModel):
     specialists: list[SpecialistEntry]
 
 
+class SpecialistSaveRequest(_UiModel):
+    """Body for ``POST /api/specialists/save`` — upsert one registry entry.
+
+    Adds the domain if new, updates it in place if it exists. The backend
+    validates and atomically rewrites ``configs/specialists.yaml``.
+    """
+
+    domain: str
+    checkpoint: str
+    keywords: list[str] = []
+    config: str | None = None
+    confidence_threshold: float | None = None
+    description: str | None = None
+
+
+class SpecialistRemoveRequest(_UiModel):
+    """Body for ``POST /api/specialists/remove`` — delete one entry by domain."""
+
+    domain: str
+
+
 class ConfigWriteRequest(_UiModel):
     """Body for ``POST /api/config/write`` — save edited YAML config text."""
 

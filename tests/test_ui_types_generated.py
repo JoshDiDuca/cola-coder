@@ -347,6 +347,12 @@ _EXAMPLES: dict[str, dict[str, object]] = {
     "SpecialistsView": {
         "path": "configs/specialists.yaml", "exists": True, "count": 0, "specialists": [],
     },
+    "SpecialistSaveRequest": {
+        "domain": "react", "checkpoint": "checkpoints/react/latest",
+        "keywords": ["react", "jsx"], "config": "configs/tiny.yaml",
+        "confidence_threshold": 0.6, "description": "React specialist",
+    },
+    "SpecialistRemoveRequest": {"domain": "react"},
     "GenStreamChunk": {"delta": "    return a + b", "done": False, "error": None},
     "BestOfNRequest": {
         "prompt": "def add(a, b):", "checkpoint": "checkpoints/small/latest",
