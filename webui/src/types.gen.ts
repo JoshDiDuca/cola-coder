@@ -44,6 +44,23 @@ export interface StatusResponse {
   checkpoints: Checkpoint[];
 }
 
+export interface ScoreSnippetRequest {
+  code: string;
+}
+
+export interface ScorerBreakdown {
+  name: string;
+  score: number;
+  tier: string;
+}
+
+export interface SnippetScores {
+  scorers: ScorerBreakdown[];
+  mean_score: number;
+  mean_tier: string;
+  count: number;
+}
+
 export interface Dataset {
   name: string;
   path: string;

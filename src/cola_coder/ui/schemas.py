@@ -77,6 +77,29 @@ class StatusResponse(_UiModel):
     checkpoints: list[Checkpoint]
 
 
+class ScoreSnippetRequest(_UiModel):
+    """Body for ``POST /api/data/score-snippet`` — score ad-hoc code (pure-Python scorers)."""
+
+    code: str
+
+
+class ScorerBreakdown(_UiModel):
+    """One scorer's 0–1 quality score + its tier for a snippet."""
+
+    name: str
+    score: float
+    tier: str
+
+
+class SnippetScores(_UiModel):
+    """Per-scorer quality breakdown for a snippet + the unweighted mean."""
+
+    scorers: list[ScorerBreakdown]
+    mean_score: float
+    mean_tier: str
+    count: int
+
+
 class Dataset(_UiModel):
     name: str
     path: str

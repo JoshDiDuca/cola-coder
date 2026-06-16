@@ -3,6 +3,8 @@ import type {
   Dataset,
   Preview,
   ScoreSummary,
+  ScoreSnippetRequest,
+  SnippetScores,
   Job,
   ActionDef,
   ConfigFile,
@@ -114,6 +116,11 @@ export function getStatus(): Promise<StatusResponse> {
 
 export function getDatasets(): Promise<Dataset[]> {
   return j<Dataset[]>('/api/datasets');
+}
+
+// Score an ad-hoc snippet with the pure-Python scorers (no Docker/node/model). 400 on empty.
+export function scoreSnippet(req: ScoreSnippetRequest): Promise<SnippetScores | ApiError> {
+  return j<SnippetScores | ApiError>('/api/data/score-snippet', postJson(req));
 }
 
 export function getPreview(path: string, n?: number): Promise<Preview> {

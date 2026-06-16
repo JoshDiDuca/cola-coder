@@ -73,6 +73,12 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "name": "train.npy", "path": "data/train.npy", "kind": "npy",
         "size_bytes": 1024, "mtime": 1.0, "has_weights": True, "num_samples": 10,
     },
+    "ScoreSnippetRequest": {"code": "export const add = (a: number, b: number) => a + b\n"},
+    "ScorerBreakdown": {"name": "heuristic", "score": 0.72, "tier": "good"},
+    "SnippetScores": {
+        "scorers": [{"name": "heuristic", "score": 0.72, "tier": "good"}],
+        "mean_score": 0.72, "mean_tier": "good", "count": 1,
+    },
     "Job": {
         "id": "j1", "name": "train", "pid": 1234, "status": "running",
         "cmd": ["python", "train.py"], "log": "train.log", "started": 1.0,

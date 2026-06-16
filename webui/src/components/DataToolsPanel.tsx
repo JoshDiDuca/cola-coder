@@ -6,6 +6,7 @@ import VectorIndexPanel from './VectorIndexPanel';
 import SecurityScanPanel from './SecurityScanPanel';
 import FiltersCatalogPanel from './FiltersCatalogPanel';
 import ScoringConfigPanel from './ScoringConfigPanel';
+import ScorerPlaygroundPanel from './ScorerPlaygroundPanel';
 import RepoScoresPanel from './RepoScoresPanel';
 
 // ── Tab identity ──────────────────────────────────────────────────────────────
@@ -21,6 +22,7 @@ type DataTool =
   | 'security'
   | 'filters'
   | 'scoring'
+  | 'scorer'
   | 'repos';
 
 interface TabDef {
@@ -36,6 +38,7 @@ const TABS: readonly TabDef[] = [
   { id: 'security', label: 'Security scan' },
   { id: 'filters', label: 'Filters' },
   { id: 'scoring', label: 'Scoring config' },
+  { id: 'scorer', label: 'Scorer playground' },
   { id: 'repos', label: 'Repo scores' },
 ];
 
@@ -63,6 +66,8 @@ export default function DataToolsPanel(): JSX.Element {
         return <FiltersCatalogPanel />;
       case 'scoring':
         return <ScoringConfigPanel />;
+      case 'scorer':
+        return <ScorerPlaygroundPanel />;
       case 'repos':
         return <RepoScoresPanel />;
       default: {

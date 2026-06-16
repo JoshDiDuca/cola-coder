@@ -46,6 +46,7 @@ from . import checkpoints_compare as cc
 from . import config_diff as cdf
 from . import configs as cfg
 from . import data_sources_view as dsv
+from . import score_snippet_view as snv
 from . import data_stats_view as dst
 from . import datasets as ds
 from . import docs_view as dv
@@ -311,6 +312,15 @@ def create_app(
     @app.get("/api/datasets/scores", response_model=sch.ScoreSummary | sch.ErrorResponse)
     def datasets_scores(path: str) -> dict:
         return ds.score_summary(path)
+
+    @app.post("/api/data/score-snippet", response_model=sch.SnippetScores | sch.ErrorResponse)
+    def data_score_snippet(req: sch.ScoreSnippetRequest) -> dict | JSONResponse:
+        """Score an ad-hoc code snippet with the pure-Python scorers (no Docker/node/
+        model). MAIN-SAFE — never contends with the live trainer. 400 on empty code."""
+        result = snv.score_snippet(req.code)
+        if "error" in result:
+            return JSONResponse(result, status_code=400)
+        return result
 
     @app.get("/api/jobs", response_model=list[sch.Job])
     def jobs_list() -> list[dict]:

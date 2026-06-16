@@ -50,6 +50,18 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   Project-Memory → UI-096. Knowledge write-paths → UI-099 (this cycle). Item status EDIT (in-place rewrite)
   intentionally NOT done — append-only is safe vs. the loop's concurrent writes; in-place mutation deferred.
 
+### UI — quality-scorer playground (2026-06-16)
+- **UI-101** [ui, medium] `done` (2026-06-16) — "Scorer playground" tab in Data tools: paste a code snippet →
+  per-scorer quality breakdown (the 5 PURE-PYTHON scorers: heuristic, educational_value, repetition,
+  injection_safety, cwe_security) + tier bars + unweighted mean. Surfaces the data-weighting signals
+  (incl. last cycle's RepetitionScorer) in the UI. Backend `score_snippet_view.py` instantiates ONLY the
+  deterministic dependency-free scorers — NO Docker/node/model/network — so it's MAIN-SAFE and never contends
+  with the live trainer (tsc/eslint/classifier/llm_judge/stars deliberately excluded). `POST /api/data/score-
+  snippet`; schemas ScoreSnippetRequest/ScorerBreakdown/SnippetScores (+ drift examples, regenerated types →
+  148 interfaces); `scoreSnippet` in api.ts; new `ScorerPlaygroundPanel` wired into DataToolsPanel. Built by
+  2 parallel agents (10 backend tests + UI panel) on disjoint files; keystone owned by main. 161 tests green,
+  tsc + build green (102 modules), ruff clean (fixed an `ssv` alias collision with security_scan_view → `snv`).
+
 ### UI — checkpoint notes/tags (2026-06-16)
 - **UI-100** [ui, medium] `done` (2026-06-16) — Annotate checkpoints with a label + free-text note from the
   UI (e.g. "best so far", "before reasoning warmup"). Backend `checkpoint_notes_view.py` persists to a sidecar
