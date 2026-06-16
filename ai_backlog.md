@@ -34,6 +34,19 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   on the remaining form launchers (DataScreen Collect/Prepare forms, ConfigEditorPanel) so validation errors
   show a red field border + helper text instead of a detached `.err` div. CSS is already in place (UI-090).
 
+### Eval — pass@k estimator input validation (2026-06-16)
+- **EVAL-041** [eval, medium] `done` (2026-06-16) — `pass_at_k(n,c,k)` silently returned a spurious `1.0`
+  for `n < k` (estimator is undefined there); its own `compute_pass_at_k` docstring warned about it while
+  siblings `pass_hat_k`/`g_pass_at_k` already validated. Added matching validation (n>0, 1≤k≤n, 0≤c≤n →
+  ValueError) in `src/cola_coder/evaluation/metrics.py`. All in-tree callers guard `n>=k` (or pass n=1,k=1),
+  so zero behavior change for valid inputs — verified by 154 existing tests + 9 new ones
+  (`tests/test_pass_at_k_validation.py`). MAIN-SAFE (eval only, no training path).
+- **INFER-037 / IDEA-016** [inference, medium] `open` (2026-06-16) — Gap-adaptive best-of-N budget: feed the
+  per-problem capability–reliability gap (`pass@k − pass^k`, already computed) — or a cheap inference-time
+  proxy (sample entropy / first-token disagreement) — into the `--best-of N` path as an ADAPTIVE N: more
+  candidates on high-gap prompts, short-circuit low-gap ones at N=1. Turns an eval diagnostic into an
+  inference cost lever (same compute, allocated where it converts). research-log 2026-06-16.
+
 ### UI polish — fold "More tools" card-grids (2026-06-15)
 - **UI-077** [ui, medium] `done` (2026-06-15) — Replaced the last three "More tools" card-GRIDS
   (Checkpoints/Data/Pipeline) with single tabbed containers: `CheckpointToolsPanel` (Model Card/Manifest/

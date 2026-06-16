@@ -74,6 +74,12 @@ def pass_at_k(n: int, c: int, k: int) -> float:
     This is the proper statistical way to compute pass@k,
     avoiding bias from naive estimation.
 
+    The estimator is undefined for ``n < k`` (you cannot draw k samples from
+    fewer than k) — so this validates its inputs and raises, exactly like its
+    siblings ``pass_hat_k`` and ``g_pass_at_k``. (Previously it silently
+    returned a spurious ``1.0`` for ``n < k``, which biases any aggregate that
+    forgets to pre-filter; all in-tree callers already guard ``n >= k``.)
+
     Args:
         n: Total number of samples generated.
         c: Number of correct samples.
@@ -81,7 +87,18 @@ def pass_at_k(n: int, c: int, k: int) -> float:
 
     Returns:
         Estimated probability of getting at least one correct in k samples.
+
+    Raises:
+        ValueError: If ``n <= 0``, ``k`` is not in ``[1, n]``, or ``c`` is not
+            in ``[0, n]`` — the estimator is undefined for those inputs.
     """
+    if n <= 0:
+        raise ValueError(f"n must be positive, got {n}")
+    if not 1 <= k <= n:
+        raise ValueError(f"k must be in [1, {n}], got {k}")
+    if not 0 <= c <= n:
+        raise ValueError(f"c must be in [0, {n}], got {c}")
+
     if n - c < k:
         return 1.0
 

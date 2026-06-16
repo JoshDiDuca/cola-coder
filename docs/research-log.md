@@ -2541,3 +2541,40 @@ runbook's own "step advancing" criterion, encoded into the live gate. Filed as O
 
 **Sources:** internal — the project's TRAINING SAFETY runbook (the 45-min "hung" SLO and the
 "step number is the only reliable signal" rule are the authority this fix derives from).
+
+---
+
+## 2026-06-16 — Eval: the unbiased pass@k estimator is undefined for n<k (EVAL-041)
+
+**Area:** evaluation (rotate: evaluation). The naive pass@k ("fraction of problems with ≥1
+correct among the first k") is *biased* for k>1: it treats k draws as independent when they're
+drawn without replacement from a finite pool of n samples. The standard fix (Chen et al. 2021,
+HumanEval) is the unbiased estimator `pass@k = 1 − C(n−c, k)/C(n, k)`, which cola-coder already
+implements via the numerically-stable incremental product (no factorials). 2025–2026 practice
+adds variance/uncertainty reporting on top — enlarging n shrinks the variance (LLN), and on a
+small problem set (HumanEval is 62 problems) a bootstrap CI over problems beats a CLT stderr;
+both are already in `metrics.py` (`bootstrap_pass_at_k`, `paired_bootstrap_delta`).
+
+The gap this cycle: `pass_at_k(n, c, k)` is only *defined* for n ≥ k (you cannot draw k samples
+from fewer than k). The bare function silently returned a spurious `1.0` when n < k — its own
+`compute_pass_at_k` docstring even warned about this — while its siblings `pass_hat_k` and
+`g_pass_at_k` validate and raise. That asymmetry is a footgun: any aggregate that forgets the
+`n >= k` pre-filter would read "0 correct of 3 samples" as `pass@5 = 100%`. Fixed: `pass_at_k`
+now validates (n>0, 1≤k≤n, 0≤c≤n) and raises `ValueError`, consistent with the estimator family.
+All in-tree callers already guard `n >= k` (or pass n=1,k=1), so no behavior changes for valid
+inputs — verified by the full metrics + indirect-caller test suites (154 tests green) plus 9 new
+validation tests.
+
+**Original idea — IDEA-016: gap-adaptive best-of-N budget.** The project reports the
+capability–reliability gap `pass@k − pass^k` *per problem* (high gap = "can solve but not
+reliably"). That same per-problem gap is exactly the signal that predicts where best-of-N + a
+verifier pays off. Cross-technique: feed the offline-measured gap (or a cheap proxy: sample
+entropy / first-token disagreement at inference time) into the `--best-of N` path as an ADAPTIVE
+budget — spend more candidates on high-gap prompts and short-circuit low-gap ones at N=1 — instead
+of a flat N. This turns an eval diagnostic into an inference cost lever (same total compute, more
+of it where it converts). Filed as INFER-037.
+
+**Sources:**
+- [Chen et al. 2021 — Evaluating LLMs Trained on Code (HumanEval; unbiased pass@k)](https://arxiv.org/abs/2107.03374)
+- [Statistics for AI/ML: pass@k and the Unbiased Estimator](https://leehanchung.github.io/blogs/2025/09/08/pass-at-k/)
+- [Are Your LLMs Capable of Stable Reasoning? — G-Pass@k (arXiv:2412.13147)](https://arxiv.org/abs/2412.13147)
