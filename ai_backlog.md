@@ -65,6 +65,19 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   Verified end-to-end on the live log (status step/loss/tok_s/eta + metrics 25 points + stability all parse).
   Test file rewritten to the REAL formats (no inline tok/s; ETA separate line); 172 green, ruff clean.
 
+### Inference/UI — expose min-p + top-nσ sampling (2026-06-16)
+- **UI-104 / INFER-038** [inference/ui, medium] `done` (2026-06-16) — The generator already implemented min-p
+  (confidence-scaled floor) and top-nσ (raw-logit truncation) sampling, but they were UNREACHABLE from the UI
+  (schemas/endpoints only plumbed temperature/top_p/top_k). Wired `min_p` + `top_n_sigma` through the request
+  schemas (InferenceRequest/ChatRequest/FimRequest; BestOfNRequest gets min_p only — `generate_best_of_n` has
+  no top-nσ) → the `_run_generation`/`_stream_response` helpers + all 6 generate/chat/fim call sites + the
+  best-of call → the generator. Exposed min-p + top-nσ controls in the generate playground (InferenceScreen,
+  0 = off). Regenerated types (152 interfaces). 13 new tests (schema defaults/overrides, app construct, sampler
+  contract) + 217 green, tsc + build green (104 modules), ruff clean. MAIN-SAFE (inference path, gated 409
+  while training live; defaults 0.0 = no behavior change). Grounded in min-p (Nguyen et al. 2024) / top-nσ.
+- **UI-105** [ui, low] `open` (2026-06-16) — Expose min-p (+ top-nσ where applicable) controls in the Chat,
+  FIM, and Best-of-N screens too — backend already accepts them; only the per-screen controls are missing.
+
 ### UI — config "at a glance" summary (2026-06-16)
 - **UI-103** [ui, medium] `done` (2026-06-16) — "Config summary" tab (Config & pipeline tools): pick a config →
   grouped hyperparameter overview (Model/Training/Data/Checkpoint + Derived effective-batch) instead of raw

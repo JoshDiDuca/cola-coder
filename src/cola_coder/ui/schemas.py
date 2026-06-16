@@ -1075,6 +1075,11 @@ class InferenceRequest(_UiModel):
     temperature: float = 0.8
     top_p: float = 0.9
     top_k: int = 50
+    # Advanced sampling (0 = disabled): min-p keeps tokens >= min_p*max_prob
+    # (adapts to peakedness; good for small models); top-nσ truncates on raw
+    # logits at mean + n·std. Both supported by the generator (Nguyen et al. 2024).
+    min_p: float = 0.0
+    top_n_sigma: float = 0.0
 
 
 class InferenceResult(_UiModel):
@@ -1107,6 +1112,8 @@ class BestOfNRequest(_UiModel):
     temperature: float = 0.8
     top_p: float = 0.9
     top_k: int = 50
+    # min-p floor (0 = disabled); top-nσ is not wired for best-of.
+    min_p: float = 0.0
 
 
 class BestOfNCandidate(_UiModel):
@@ -1160,6 +1167,8 @@ class ChatRequest(_UiModel):
     temperature: float = 0.7
     top_p: float = 0.9
     top_k: int = 50
+    min_p: float = 0.0
+    top_n_sigma: float = 0.0
 
 
 class FimRequest(_UiModel):
@@ -1173,6 +1182,8 @@ class FimRequest(_UiModel):
     temperature: float = 0.2
     top_p: float = 0.9
     top_k: int = 50
+    min_p: float = 0.0
+    top_n_sigma: float = 0.0
 
 
 class RetrievalHit(_UiModel):

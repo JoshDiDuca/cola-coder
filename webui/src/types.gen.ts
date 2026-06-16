@@ -967,6 +967,8 @@ export interface InferenceRequest {
   temperature?: number;
   top_p?: number;
   top_k?: number;
+  min_p?: number;
+  top_n_sigma?: number;
 }
 
 export interface InferenceResult {
@@ -1086,6 +1088,7 @@ export interface BestOfNRequest {
   temperature?: number;
   top_p?: number;
   top_k?: number;
+  min_p?: number;
 }
 
 export interface BestOfNCandidate {
@@ -1118,6 +1121,8 @@ export interface ChatRequest {
   temperature?: number;
   top_p?: number;
   top_k?: number;
+  min_p?: number;
+  top_n_sigma?: number;
 }
 
 export interface FimRequest {
@@ -1129,6 +1134,8 @@ export interface FimRequest {
   temperature?: number;
   top_p?: number;
   top_k?: number;
+  min_p?: number;
+  top_n_sigma?: number;
 }
 
 export interface ConfigKV {

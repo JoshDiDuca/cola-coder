@@ -449,6 +449,7 @@ def create_app(
     def _run_generation(
         prompt: str, checkpoint: str, config: str,
         *, max_tokens: int, temperature: float, top_p: float, top_k: int,
+        min_p: float = 0.0, top_n_sigma: float = 0.0,
     ) -> dict | JSONResponse:
         """Load a checkpoint, generate from ``prompt``, free the model, return result.
 
@@ -467,7 +468,8 @@ def create_app(
             start = time.perf_counter()
             completion = generator.generate(
                 prompt, max_new_tokens=max_tokens, temperature=temperature,
-                top_p=top_p, top_k=top_k, return_new_only=True,
+                top_p=top_p, top_k=top_k, min_p=min_p, top_n_sigma=top_n_sigma,
+                return_new_only=True,
             )
             elapsed = time.perf_counter() - start
             n_tokens = len(_tok.encode(completion)) if hasattr(_tok, "encode") else 0
@@ -498,6 +500,7 @@ def create_app(
             req.prompt, req.checkpoint, req.config,
             max_tokens=req.max_tokens, temperature=req.temperature,
             top_p=req.top_p, top_k=req.top_k,
+            min_p=req.min_p, top_n_sigma=req.top_n_sigma,
         )
 
     @app.post("/api/chat", response_model=sch.InferenceResult | sch.ErrorResponse)
@@ -514,6 +517,7 @@ def create_app(
             prompt, req.checkpoint, req.config,
             max_tokens=req.max_tokens, temperature=req.temperature,
             top_p=req.top_p, top_k=req.top_k,
+            min_p=req.min_p, top_n_sigma=req.top_n_sigma,
         )
 
     @app.post("/api/fim", response_model=sch.InferenceResult | sch.ErrorResponse)
@@ -545,11 +549,13 @@ def create_app(
             prompt, req.checkpoint, req.config,
             max_tokens=req.max_tokens, temperature=req.temperature,
             top_p=req.top_p, top_k=req.top_k,
+            min_p=req.min_p, top_n_sigma=req.top_n_sigma,
         )
 
     def _stream_response(
         prompt: str, checkpoint: str, config: str,
         *, max_tokens: int, temperature: float, top_p: float, top_k: int,
+        min_p: float = 0.0, top_n_sigma: float = 0.0,
     ) -> StreamingResponse:
         """Shared SSE streamer for generate/chat/fim. Load → stream deltas → free.
 
@@ -569,7 +575,7 @@ def create_app(
                 generator, _config, _tok = load_generator(ckpt, conf)
                 for delta in generator.generate_stream(
                     prompt, max_new_tokens=max_tokens, temperature=temperature,
-                    top_p=top_p, top_k=top_k,
+                    top_p=top_p, top_k=top_k, min_p=min_p, top_n_sigma=top_n_sigma,
                 ):
                     yield _frame(delta, False)
                     await asyncio.sleep(0)  # cooperatively yield so the client flushes
@@ -622,7 +628,7 @@ def create_app(
                 generator, req.prompt,
                 num_candidates=max(1, req.num_candidates), language=req.language,
                 max_new_tokens=req.max_tokens, temperature=req.temperature,
-                top_p=req.top_p, top_k=req.top_k,
+                top_p=req.top_p, top_k=req.top_k, min_p=req.min_p,
             )
             elapsed = time.perf_counter() - start
             del generator
@@ -660,6 +666,7 @@ def create_app(
             req.prompt, req.checkpoint, req.config,
             max_tokens=req.max_tokens, temperature=req.temperature,
             top_p=req.top_p, top_k=req.top_k,
+            min_p=req.min_p, top_n_sigma=req.top_n_sigma,
         )
 
     @app.post("/api/chat/stream", response_model=None)
@@ -675,6 +682,7 @@ def create_app(
             prompt, req.checkpoint, req.config,
             max_tokens=req.max_tokens, temperature=req.temperature,
             top_p=req.top_p, top_k=req.top_k,
+            min_p=req.min_p, top_n_sigma=req.top_n_sigma,
         )
 
     @app.post("/api/fim/stream", response_model=None)
@@ -705,6 +713,7 @@ def create_app(
             prompt, req.checkpoint, req.config,
             max_tokens=req.max_tokens, temperature=req.temperature,
             top_p=req.top_p, top_k=req.top_k,
+            min_p=req.min_p, top_n_sigma=req.top_n_sigma,
         )
 
     @app.get("/api/configs", response_model=list[sch.ConfigFile])
