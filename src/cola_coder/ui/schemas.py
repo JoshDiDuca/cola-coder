@@ -1148,6 +1148,34 @@ class SpecialistsView(_UiModel):
     specialists: list[SpecialistEntry]
 
 
+class DomainDetectRequest(_UiModel):
+    """Body for ``POST /api/router/detect-domain`` — classify a code snippet.
+
+    Pure regex heuristic (``features.domain_detector``); no model/GPU. ``filename``
+    is optional extra context (e.g. ``Button.test.tsx`` boosts the testing domain).
+    """
+
+    code: str
+    filename: str = ""
+
+
+class DomainScoreOut(_UiModel):
+    """One domain's match breakdown + normalized confidence (0–1)."""
+
+    domain: str
+    import_matches: int
+    keyword_matches: int
+    raw_score: float
+    confidence: float
+
+
+class DomainDetectResult(_UiModel):
+    """Result of ``POST /api/router/detect-domain`` — ranked domain scores."""
+
+    top_domain: str
+    scores: list[DomainScoreOut]
+
+
 class SpecialistSaveRequest(_UiModel):
     """Body for ``POST /api/specialists/save`` — upsert one registry entry.
 

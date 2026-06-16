@@ -50,6 +50,17 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   write). Project-Memory subsystem → DONE as UI-096. Still open: Backlog item archive/update
   (`PATCH /api/backlog/{id}`) and Research-log append (`POST /api/research-log/append`). Both MAIN-SAFE.
 
+### UI — domain-detection tester (2026-06-16)
+- **UI-097** [ui, medium] `done` (2026-06-16) — Added a "Domain Detection" tool to the System screen: paste a
+  TS/JS snippet → see which framework domain (react/nextjs/graphql/prisma/zod/testing/general) the heuristic
+  router classifies it as, with a ranked confidence bar + import/keyword match counts. Pairs with last cycle's
+  specialist registry (same domain keys → shows which specialist the confidence router would dispatch to).
+  Backend `domain_detect_view.py` wraps `features.domain_detector.detect_domain` (PURE REGEX — no model/GPU);
+  `POST /api/router/detect-domain`; schemas DomainDetectRequest/DomainScoreOut/DomainDetectResult (+ drift
+  examples, regenerated types, 138 interfaces); `detectDomain` in api.ts; new `DomainDetectPanel` wired into
+  SystemScreen. Built by 2 parallel agents (22 backend tests + UI panel) on disjoint files; keystone owned by
+  main. 163 tests green, tsc + build green (101 modules), ruff clean. MAIN-SAFE.
+
 ### UI — project-memory workbench (view/add/search/compact) (2026-06-16)
 - **UI-096** [ui, high] `done` (2026-06-16) — Turned the read-only memory stats panel into a full WORKBENCH over
   the markdown memory store (`memory/manager.py`, the biggest previously-unwired CLI subsystem). New backend

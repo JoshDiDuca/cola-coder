@@ -56,6 +56,7 @@ from . import features as ft
 from . import features_write as fw
 from . import health as hl
 from . import logs as lg
+from . import domain_detect_view as ddv
 from . import memory_ops_view as mov
 from . import memory_stats_view as msv
 from . import metrics_history as mh
@@ -836,6 +837,19 @@ def create_app(
     @app.get("/api/router", response_model=sch.RouterOverview)
     def router_get() -> dict:
         return rt.router_overview(str(root))
+
+    @app.post("/api/router/detect-domain",
+              response_model=sch.DomainDetectResult | sch.ErrorResponse)
+    def detect_domain_post(req: sch.DomainDetectRequest) -> dict | JSONResponse:
+        """Classify a code snippet by framework/domain (regex heuristic).
+
+        MAIN-SAFE: pure regex (features.domain_detector), no model/GPU. Empty code
+        returns 400. Pairs with the specialist registry (same domain keys).
+        """
+        result = ddv.detect_domain_view(req.code, req.filename)
+        if "error" in result:
+            return JSONResponse(result, status_code=400)
+        return result
 
     @app.get("/api/exports", response_model=sch.ExportOverview)
     def exports_get() -> dict:

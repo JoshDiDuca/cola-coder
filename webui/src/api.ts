@@ -74,6 +74,8 @@ import type {
   ConfigWriteResult,
   SpecialistsView,
   SpecialistSaveRequest,
+  DomainDetectRequest,
+  DomainDetectResult,
   RetrievalSearchResult,
   GpuProcesses,
   ApiError,
@@ -231,6 +233,12 @@ export function saveSpecialist(req: SpecialistSaveRequest): Promise<SpecialistsV
 // Remove one specialist by domain. Returns the refreshed registry; 400 if missing.
 export function removeSpecialist(domain: string): Promise<SpecialistsView | ApiError> {
   return j<SpecialistsView | ApiError>('/api/specialists/remove', postJson({ domain }));
+}
+
+// Classify a code snippet by framework/domain (regex heuristic; no model/GPU).
+// Returns ranked domain scores; 400 on empty code.
+export function detectDomain(req: DomainDetectRequest): Promise<DomainDetectResult | ApiError> {
+  return j<DomainDetectResult | ApiError>('/api/router/detect-domain', postJson(req));
 }
 
 // Lexical search over the persisted retrieval index (no model/GPU; empty when no index).

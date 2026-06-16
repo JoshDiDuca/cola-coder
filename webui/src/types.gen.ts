@@ -981,6 +981,24 @@ export interface SpecialistRemoveRequest {
   domain: string;
 }
 
+export interface DomainDetectRequest {
+  code: string;
+  filename?: string;
+}
+
+export interface DomainScoreOut {
+  domain: string;
+  import_matches: number;
+  keyword_matches: number;
+  raw_score: number;
+  confidence: number;
+}
+
+export interface DomainDetectResult {
+  top_domain: string;
+  scores: DomainScoreOut[];
+}
+
 export interface GenStreamChunk {
   delta: string;
   done: boolean;

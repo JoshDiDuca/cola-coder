@@ -14,6 +14,7 @@ import DocsBrowserPanel from '../DocsBrowserPanel';
 import ScriptsCatalogPanel from '../ScriptsCatalogPanel';
 import StoragePanel from '../StoragePanel';
 import SpecialistsPanel from '../SpecialistsPanel';
+import DomainDetectPanel from '../DomainDetectPanel';
 import RetrievalSearchPanel from '../RetrievalSearchPanel';
 
 // ── Master-detail "System & Tools" screen ───────────────────────────────────
@@ -35,6 +36,7 @@ const SYSTEM_TOOLS: readonly SystemTool[] = [
   { id: 'features', title: 'Features', subtitle: 'Configuration', render: () => <FeaturesPanel /> },
   { id: 'reasoning', title: 'Reasoning Config', subtitle: 'Configuration', render: () => <ReasoningPanel /> },
   { id: 'specialists', title: 'Domain Specialists', subtitle: 'Configuration', render: () => <SpecialistsPanel /> },
+  { id: 'domain-test', title: 'Domain Detection', subtitle: 'Configuration', render: () => <DomainDetectPanel /> },
   { id: 'problems', title: 'Reasoning Problems', subtitle: 'Configuration', render: () => <ReasoningProblemsPanel /> },
   { id: 'search', title: 'Code Search', subtitle: 'Knowledge', render: () => <RetrievalSearchPanel /> },
   { id: 'memory', title: 'Project Memory', subtitle: 'Knowledge', render: () => <ProjectMemoryPanel /> },

@@ -371,6 +371,21 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "confidence_threshold": 0.6, "description": "React specialist",
     },
     "SpecialistRemoveRequest": {"domain": "react"},
+    "DomainDetectRequest": {
+        "code": "import React from 'react'\nexport const App = () => <div/>",
+        "filename": "App.tsx",
+    },
+    "DomainScoreOut": {
+        "domain": "react", "import_matches": 1, "keyword_matches": 2,
+        "raw_score": 5.0, "confidence": 0.83,
+    },
+    "DomainDetectResult": {
+        "top_domain": "react",
+        "scores": [{
+            "domain": "react", "import_matches": 1, "keyword_matches": 2,
+            "raw_score": 5.0, "confidence": 0.83,
+        }],
+    },
     "GenStreamChunk": {"delta": "    return a + b", "done": False, "error": None},
     "BestOfNRequest": {
         "prompt": "def add(a, b):", "checkpoint": "checkpoints/small/latest",
