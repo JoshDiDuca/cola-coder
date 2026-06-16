@@ -88,6 +88,11 @@ scoring:
       enabled: false       # opt-in; pure-Python, CPU-only, deterministic
       weight: 0.1
 
+    repetition:            # DATA-072: graded Gopher-repetition signal (soft down-weight)
+      enabled: false       # opt-in; pairs with RepetitionFilter (hard-drop); pure-Python
+      weight: 0.1
+      min_words: 50        # skip noisy n-gram metrics below this word count
+
   # Score-to-training-weight tier mapping
   tier_weights:
     excellent: 2.0    # score >= 0.8

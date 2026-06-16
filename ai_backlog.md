@@ -484,9 +484,19 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   < min_words=50). Char fractions bounded [0,1] via non-overlapping coverage. Closes the within-document
   repetition gap (across-doc dedup — exact/MinHash/semantic — can't see looping inside one file). Registered
   + listed in data-menu Advanced Filters. +19 tests, CPU-only, no model/GPU. See research-log 2026-06-14.
-- **DATA-072** [data curation, medium] `open` — Surface DATA-071's repetition metrics as extra `CodeScorer`
-  breakdown signals → per-chunk quality weights (`weight_scoring.py`), so looping/boilerplate down-weights
-  the soft score in addition to the hard filter reject. Reuse `compute_repetition_metrics` (no recompute).
+- **DATA-072** [data curation, medium] `done` (2026-06-16) — Shipped `RepetitionScorer`
+  (`data/scorers/repetition_scorer.py`): a standalone, independently-weightable `CodeScorer` that maps the
+  shared Gopher `compute_repetition_metrics` (DRY, no recompute) to a continuous 0–1 score via
+  `1 - min(1, max_ratio)` (ratio = metric/its reject threshold), so looping/boilerplate is DOWN-WEIGHTED
+  softly in addition to the hard `RepetitionFilter` drop (reweight-over-filter, FineWeb/DataComp-LM). Short
+  docs skip noisy n-gram metrics. Wired into registry + `configs/scoring.yaml` (opt-in, weight 0.1); auto-
+  surfaces in the scoring-config UI via `list_available_scorers`. 14 tests; 41 scorer tests green; ruff clean.
+  MAIN-SAFE (pure-Python/CPU). research-log 2026-06-16.
+- **DATA-075 / IDEA-018** [data curation, medium] `open` (2026-06-16) — Repetition-as-curriculum: the scorer
+  emits `details.dominant_metric` + `max_ratio` (which/how-severe). (1) Use `max_ratio` (distance-to-
+  degenerate) as an EASY→HARD curriculum axis; (2) bucket the corpus by `dominant_metric` to drive
+  per-source active cleanup (dedup vs. template-strip). Reporting/aggregation over the existing signal — no
+  model needed. research-log 2026-06-16.
 - **DATA-073** [data curation/eval, low] `open` — Corpus repetition AUDIT: FineWeb-style threshold-ablation
   report ("how many tokens does each Gopher metric remove") + cross-tab against `semantic_dedup` cluster
   sizes (does within-doc repetition correlate with the semantically-redundant clusters?). Pure offline.

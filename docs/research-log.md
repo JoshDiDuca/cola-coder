@@ -2616,3 +2616,38 @@ DomainDetectPanel.
 - [Cost-Saving LLM Cascades with Early Abstention (arXiv:2502.09054)](https://arxiv.org/pdf/2502.09054)
 - [UCCI: Calibrated Uncertainty for Cost-Optimal LLM Cascade Routing (arXiv:2605.18796)](https://arxiv.org/html/2605.18796)
 - [Learning to Route LLMs with Confidence Tokens (arXiv:2410.13284)](https://arxiv.org/pdf/2410.13284)
+
+---
+
+## 2026-06-16 — Data quality: graded repetition as a quality signal, not just a filter (DATA-072)
+
+**Area:** data quality (rotate: data). Frontier pre-training corpora (Gopher/MassiveText, RedPajama-v2,
+FineWeb, DataComp-LM) all screen *degenerate* documents — text/code dominated by repeated lines,
+paragraphs, or word n-grams (looping generations, copy-pasted boilerplate, accidental dups). cola-coder
+already implements the canonical Gopher "any-of-13-thresholds" screen as a hard-reject `RepetitionFilter`.
+But the 2025–2026 data-centric consensus (FineWeb ablations, DataComp-LM) is that **graded reweighting
+beats hard filtering** at the margin: a binary drop throws away borderline-but-useful samples and erodes
+diversity, whereas a continuous quality weight keeps them at reduced influence. The same Gopher metrics
+that drive the reject decision are a ready-made *continuous* signal.
+
+Implemented (DATA-072): `RepetitionScorer` — a standalone, independently-weightable `CodeScorer` that
+reuses the shared `compute_repetition_metrics` (DRY; no re-derivation of the Gopher math) and maps it to
+0–1 via `1 - min(1, max_ratio)` where `ratio = metric / its Gopher threshold`. Clean code scores ~1.0;
+code at/over any reject boundary scores 0.0 (exactly what the hard filter would drop), with everything in
+between down-weighted smoothly. Short docs skip the noisy n-gram metrics (the filter's ≥50-word guard).
+Pure-Python/CPU, MAIN-SAFE, wired into the scorer registry + `configs/scoring.yaml` (opt-in, weight 0.1)
+and it auto-surfaces in the scoring-config UI via `list_available_scorers`. 14 unit tests.
+
+**Original idea — IDEA-018: repetition-as-curriculum, not just weight.** The scorer collapses 13 metrics
+to one number, but `details.dominant_metric` + `max_ratio` carry *which kind* of repetition and *how
+severe*. Two cross-technique uses: (1) feed `max_ratio` (distance-to-degenerate) as an EASY→HARD curriculum
+axis — mildly-repetitive samples are "easy" boilerplate the model should see early, near-threshold samples
+late or never; (2) bucket the corpus by `dominant_metric` to drive *active data improvement* — if
+`dup_line_frac` dominates one source and `top_3gram` another, the cleanup (dedup vs. template-stripping)
+differs per source. The scorer already emits both fields, so this is a reporting/aggregation pass over an
+existing signal, no model needed. Filed as DATA-075.
+
+**Sources:**
+- [Rae et al. 2021 — Scaling Language Models: Gopher (repetition filters, §A.1.1)](https://arxiv.org/abs/2112.11446)
+- [Penedo et al. 2024 — The FineWeb Datasets (filter ablations, reweight vs. drop)](https://arxiv.org/abs/2406.17557)
+- [Li et al. 2024 — DataComp-LM (data-centric quality-weighting)](https://arxiv.org/abs/2406.11794)

@@ -130,6 +130,12 @@ def _instantiate_scorer(
         elif name == "educational_value":
             from cola_coder.data.scorers.educational_value import EducationalValueScorer
             return EducationalValueScorer()
+        elif name == "repetition":
+            from cola_coder.data.scorers.repetition_scorer import RepetitionScorer
+            kwargs: dict[str, Any] = {}
+            if "min_words" in cfg:
+                kwargs["min_words"] = int(cfg["min_words"])
+            return RepetitionScorer(**kwargs)
         elif name == "classifier":
             from cola_coder.data.scorers.classifier import ClassifierScorer
             model_dir = cfg.get("model_dir", "models/quality_classifier")
