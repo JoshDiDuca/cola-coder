@@ -18,6 +18,7 @@ import FimScreen from './components/screens/FimScreen';
 import BestOfNScreen from './components/screens/BestOfNScreen';
 
 import LiveTrainingPanel from './components/LiveTrainingPanel';
+import LossStabilityPanel from './components/LossStabilityPanel';
 import TrainingPanel from './components/TrainingPanel';
 import SystemPanel from './components/SystemPanel';
 import MetricsChartPanel from './components/MetricsChartPanel';
@@ -95,6 +96,7 @@ function Page({
       return (
         <div className="page-grid">
           <LiveTrainingPanel training={snap?.training ?? null} />
+          <LossStabilityPanel />
           <CheckpointEvalSummary />
           <TrainingPanel training={snap?.training ?? null} />
           <SystemPanel system={snap?.system ?? null} />

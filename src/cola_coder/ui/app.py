@@ -59,6 +59,7 @@ from . import features_write as fw
 from . import health as hl
 from . import logs as lg
 from . import domain_detect_view as ddv
+from . import loss_stability_view as lsv
 from . import memory_ops_view as mov
 from . import memory_stats_view as msv
 from . import metrics_history as mh
@@ -986,6 +987,12 @@ def create_app(
              response_model=sch.VramEstimate | sch.ErrorResponse)
     def vram_estimate_get(config: str) -> dict:
         return vev.vram_estimate(config)
+
+    @app.get("/api/training/stability",
+             response_model=sch.LossStability | sch.ErrorResponse)
+    def training_stability_get() -> dict:
+        """Loss-curve stability meter (trend + z-score spike detection). MAIN-SAFE."""
+        return lsv.loss_stability(log_path)
 
     @app.get("/api/project-health",
              response_model=sch.ProjectHealthReport | sch.ErrorResponse)

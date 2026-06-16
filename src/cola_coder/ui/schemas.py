@@ -57,6 +57,18 @@ class TrainingStatus(_UiModel):
     eta: str | None = None
 
 
+class LossStability(_UiModel):
+    """Dashboard loss-stability meter (ZClip z-score spike idea on the loss curve)."""
+
+    current_loss: float | None
+    ema_loss: float | None
+    trend: Literal["improving", "flat", "worsening", "unknown"]
+    spike_count: int
+    recent_max_z: float | None
+    verdict: Literal["stable", "watch", "spiking", "insufficient_data"]
+    points_used: int
+
+
 class SystemStatus(_UiModel):
     gpu_name: str | None
     gpu_util_pct: float | None

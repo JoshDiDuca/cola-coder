@@ -12,28 +12,34 @@ import re
 import subprocess
 from pathlib import Path
 
-# Matches a "pretty" log line such as:
+# Matches a "pretty" log line. The trainer writes the trailing token count then
+# either ends the line OR continues "tok/s | ETA …" on the NEXT line, so the
+# count is anchored on end-of-line with an OPTIONAL "tok/s" — this matches both
+# the inline-"tok/s" format and the current split format (BUG-138 lesson: the
+# step line itself does NOT carry the ETA suffix; the ETA is a separate line).
 #   03:12:20 step   2,500 ( 1.7%) loss 1.6057 ppl      5.0 lr 6.00e-04     1,813 tok/s
-#   08:38:21 step 16,200 (10.8%) loss 1.2492 ppl 3.5 lr 6e-04 11,738 tok/s | ETA 338h 58m (11:37)
-# The trailing token count is anchored on the literal "tok/s" — NOT on end-of-line —
-# because the trainer now appends "| ETA …" after it (BUG-138). Anchoring on $ silently
-# stopped matching, freezing the dashboard's live step/loss/tok_s.
+#   08:53:16 step  16,300 (10.9%) loss 1.2487 ppl      3.5 lr 6.00e-04    10,985
 _LOG_LINE_RE = re.compile(
     r"step\s+([\d,]+)\s*\(\s*([\d.]+)%\)"
     r".*?loss\s+([\d.]+)"
     r".*?ppl\s+([\d.]+)"
-    r".*?([\d,]+)\s*tok/s"
+    r".*?([\d,]+)\s*(?:tok/s)?\s*$"
 )
 
-# Optional "ETA 338h 58m 51s (11:37)" suffix → the human-readable time-remaining
-# string ("338h 58m 51s"). Absent on older logs, so always optional.
-_ETA_RE = re.compile(r"ETA\s+(.+?)\s*(?:\(|$)")
+# "ETA 338h 58m 51s (11:37)" → the human-readable time-remaining ("338h 58m 51s").
+# The ETA lives on its OWN line in the log, so this is scanned over the FULL text
+# (not the step line). Absent on older logs.
+_ETA_RE = re.compile(r"ETA\s+(.+?)\s*(?:\(|$)", re.MULTILINE)
 
 
-def _extract_eta(line: str) -> str | None:
-    """Return the ETA time-remaining string from a log line, or None if absent."""
-    m = _ETA_RE.search(line)
-    return m.group(1).strip() if m else None
+def _extract_eta(text: str) -> str | None:
+    """Return the most recent ETA time-remaining string in ``text``, or None.
+
+    Scans the whole log text (the ETA is on its own line, separate from the step
+    line) and returns the LAST occurrence — the freshest estimate.
+    """
+    matches = _ETA_RE.findall(text)
+    return matches[-1].strip() if matches else None
 
 # Matches a tqdm bar such as:
 #   Training:   2%|x| 2515/150000 [04:40<700:27:01, 17.10s/it]
@@ -205,7 +211,7 @@ def _parse_log(text: str) -> dict | None:
         "tok_per_s": _to_float(match_obj.group(5)),
         "s_per_it": None,
         "last_log_line": match_line.strip(),
-        "eta": _extract_eta(match_line),
+        "eta": _extract_eta(text),
     }
 
 

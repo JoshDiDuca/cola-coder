@@ -1004,6 +1004,16 @@ export interface GpuProcesses {
   restricted: boolean;
 }
 
+export interface LossStability {
+  current_loss: number | null;
+  ema_loss: number | null;
+  trend: 'improving' | 'flat' | 'worsening' | 'unknown';
+  spike_count: number;
+  recent_max_z: number | null;
+  verdict: 'stable' | 'watch' | 'spiking' | 'insufficient_data';
+  points_used: number;
+}
+
 export interface SpecialistEntry {
   domain: string;
   checkpoint: string;

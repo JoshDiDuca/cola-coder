@@ -49,6 +49,10 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "loss": 2.5, "ppl": 12.1, "tok_per_s": 1800.0, "s_per_it": 0.5,
         "last_log_line": "step 100", "step_stalled_s": 12.0, "eta": "338h 58m 51s",
     },
+    "LossStability": {
+        "current_loss": 1.25, "ema_loss": 1.31, "trend": "improving",
+        "spike_count": 0, "recent_max_z": 0.8, "verdict": "stable", "points_used": 60,
+    },
     "SystemStatus": {
         "gpu_name": "RTX 4080", "gpu_util_pct": 90.0, "gpu_mem_used_mb": 8000.0,
         "gpu_mem_total_mb": 16000.0, "gpu_power_w": 200.0,

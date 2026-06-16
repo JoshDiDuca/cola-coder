@@ -14,16 +14,17 @@ from pathlib import Path
 
 # Matches a "pretty" log line such as:
 #   03:12:20 step   2,500 ( 1.7%) loss 1.6057 ppl      5.0 lr 6.00e-04     1,813 tok/s
-#   08:38:21 step 16,200 (10.8%) loss 1.2492 ppl 3.5 lr 6e-04 11,738 tok/s | ETA 338h (11:37)
+#   08:53:16 step  16,300 (10.9%) loss 1.2487 ppl      3.5 lr 6.00e-04    10,985
 # Field extraction mirrors status._LOG_LINE_RE, extended to also capture lr. The tok/s
-# count is anchored on the literal "tok/s" (NOT end-of-line) so the trainer's trailing
-# "| ETA …" suffix doesn't break the match and freeze the metrics chart (BUG-138).
+# count is anchored on end-of-line with an OPTIONAL "tok/s" — the trainer writes the
+# count then continues "tok/s | ETA …" on the NEXT line, so the step line ends at the
+# count (BUG-138 lesson: requiring a literal "tok/s" froze the chart on the real format).
 _LOG_LINE_RE = re.compile(
     r"step\s+([\d,]+)\s*\(\s*([\d.]+)%\)"
     r".*?loss\s+([\d.]+)"
     r".*?ppl\s+([\d.]+)"
     r".*?lr\s+([\d.eE+-]+)"
-    r".*?([\d,]+)\s*tok/s"
+    r".*?([\d,]+)\s*(?:tok/s)?\s*$"
 )
 
 

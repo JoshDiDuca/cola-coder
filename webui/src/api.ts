@@ -51,6 +51,7 @@ import type {
   MalwareScanResult,
   EnvCheckReport,
   VramEstimate,
+  LossStability,
   ProjectHealthReport,
   BenchmarkResults,
   SafetyEvalResults,
@@ -498,6 +499,11 @@ export function getEnvCheck(): Promise<EnvCheckReport | ApiError> {
 
 export function getVramEstimate(config: string): Promise<VramEstimate | ApiError> {
   return j<VramEstimate | ApiError>(`/api/vram-estimate?config=${encodeURIComponent(config)}`);
+}
+
+// Loss-curve stability meter (trend + z-score spike detection over the log).
+export function getLossStability(): Promise<LossStability | ApiError> {
+  return j<LossStability | ApiError>('/api/training/stability');
 }
 
 export function getProjectHealth(): Promise<ProjectHealthReport | ApiError> {

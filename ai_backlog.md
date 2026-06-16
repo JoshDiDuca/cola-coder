@@ -50,17 +50,32 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   Project-Memory → UI-096. Knowledge write-paths → UI-099 (this cycle). Item status EDIT (in-place rewrite)
   intentionally NOT done — append-only is safe vs. the loop's concurrent writes; in-place mutation deferred.
 
-### BUG — live status + metrics chart frozen by trainer's ETA log suffix (2026-06-16)
-- **BUG-138** [bug/ui, high] `done` (2026-06-16) — The trainer's pretty log line gained a trailing
-  ` | ETA 338h 58m 51s (11:37)` suffix, but BOTH `status._LOG_LINE_RE` and `metrics_history._LOG_LINE_RE`
-  anchored their tok/s capture on end-of-line (`...tok/s)?\s*$`) → the regex silently STOPPED matching the
-  current log format, so the dashboard's live training panel AND the metrics chart were parsing stale/empty
-  data (the .err tqdm path still worked, masking it). Fixed by anchoring the count on the literal `tok/s`
-  (NOT `$`) in both parsers — verified the 5th group is the tok/s count, not the lr digits (the lazy-match
-  trap). Bonus: capture the ETA string (`_extract_eta`) → new `TrainingStatus.eta` field, surfaced in
-  LiveTrainingPanel as an "ETA …" chip (genuinely useful for watching a multi-day run). 10 regression tests
-  (both parsers, ETA + legacy lines, public-API round-trip) + 169 green, tsc + build green (102 modules),
-  ruff clean. Built by 2 parallel agents (tests + panel) on disjoint files; backend fix owned by main.
+### BUG — live status/metrics parser (BUG-138 misdiagnosis → BUG-139 correction) (2026-06-16)
+- **BUG-138** [bug/ui, high] `dropped` (2026-06-16) — MISDIAGNOSIS, corrected by BUG-139. I believed the
+  trainer's step line ended with `… tok/s | ETA …` on one line and "fixed" both parsers to require a literal
+  `tok/s`. That synthetic line was WRONG: the REAL step line ends at the token count (`… 10,985 `, no inline
+  `tok/s`) and emits `tok/s | ETA …` on a SEPARATE line. The original `$`-anchored optional-`tok/s` regex
+  already matched the real format, so the dashboard was NOT broken — my change INTRODUCED a regression
+  (verified: `loss_stability` got 0 points on the real log). Lesson: validate a parser "fix" against the
+  REAL artifact bytes, not a hand-typed example. The ETA capture idea survives (see BUG-139).
+- **BUG-139** [bug/ui, high] `done` (2026-06-16) — Reverted both `_LOG_LINE_RE`s to the end-of-line anchor
+  with OPTIONAL `tok/s` (matches the real split format AND the legacy inline-`tok/s` format — both pinned by
+  tests). Kept the useful half: `TrainingStatus.eta`, now sourced by `_extract_eta(text)` scanning the FULL
+  log (the ETA is on its own line) → real run shows "337h 31m 47s" in the LiveTrainingPanel ETA chip.
+  Verified end-to-end on the live log (status step/loss/tok_s/eta + metrics 25 points + stability all parse).
+  Test file rewritten to the REAL formats (no inline tok/s; ETA separate line); 172 green, ruff clean.
+
+### UI — loss-stability meter on the dashboard (2026-06-16)
+- **UI-102 / MODEL-055(partial)** [ui+observability, medium] `done` (2026-06-16) — Dashboard "Loss stability"
+  panel: applies ZClip's z-score spike idea (research-log 2026-06-16) to the OBSERVABLE loss curve (grad norm
+  isn't logged). Backend `loss_stability_view.py`: pure `compute_loss_stability(losses)` (EMA + trend +
+  z-score spike detection over loss deltas → verdict stable/watch/spiking/insufficient_data) + `loss_stability`
+  reusing `metrics_history.training_history` (DRY). `GET /api/training/stability`; schema `LossStability`
+  (+ drift example, regenerated types → 149 interfaces); `getLossStability` in api.ts; new `LossStabilityPanel`
+  (15s poll, exhaustive verdict/trend mapping) wired beside LiveTrainingPanel on the dashboard. Built by 2
+  parallel agents (9 backend tests + UI) on disjoint files. 172 tests green, tsc + build green (103 modules),
+  ruff clean. MAIN-SAFE (read-only over the log). Partially realizes MODEL-055/IDEA-019 (instability meter)
+  using the loss curve; the grad-norm z-meter still needs the ZClip-into-trainer worktree wiring.
 
 ### Optimizers — ZClip adaptive grad-norm spike mitigation (2026-06-16)
 - **MODEL-054** [optimizers/stability, medium] `done` (2026-06-16) — `ZClipper` (`training/zclip.py`): EMA

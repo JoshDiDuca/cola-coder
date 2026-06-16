@@ -181,6 +181,7 @@ _MODEL_ORDER: list[str] = [
     "RetrievalSearchResult",
     "GpuProcess",
     "GpuProcesses",
+    "LossStability",
     "SpecialistEntry",
     "SpecialistsView",
     "SpecialistSaveRequest",
