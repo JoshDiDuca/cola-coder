@@ -1,9 +1,44 @@
 import { useCallback, useState } from 'react';
 import type { ChangeEvent } from 'react';
-import type { DomainDetectRequest, DomainDetectResult, DomainScoreOut } from '../types';
+import type {
+  DomainDetectRequest,
+  DomainDetectResult,
+  DomainScoreOut,
+  RouteDecisionOut,
+} from '../types';
 import { isApiError } from '../types';
 import { detectDomain } from '../api';
 import { formatPercent } from '../format';
+
+type RouteReason = RouteDecisionOut['reason'];
+
+const KNOWN_REASONS = ['ok', 'low_confidence', 'low_margin', 'no_signal'] as const;
+type KnownReason = (typeof KNOWN_REASONS)[number];
+
+function isKnownReason(reason: RouteReason): reason is KnownReason {
+  return (KNOWN_REASONS as readonly string[]).includes(reason);
+}
+
+/** Map a router reason code to friendly, human-readable text. */
+function describeReason(reason: RouteReason): string {
+  if (!isKnownReason(reason)) {
+    return reason;
+  }
+  switch (reason) {
+    case 'ok':
+      return 'confident specialist match';
+    case 'low_confidence':
+      return 'top score below confidence threshold';
+    case 'low_margin':
+      return 'top two domains too close';
+    case 'no_signal':
+      return 'no domain signal';
+    default: {
+      const _exhaustive: never = reason;
+      return _exhaustive;
+    }
+  }
+}
 
 /**
  * Domain Detection tool: paste a code snippet and see which framework/domain
@@ -87,6 +122,28 @@ export default function DomainDetectPanel(): JSX.Element {
 
       {result !== null && (
         <div>
+          <div className="card-title">Routing decision</div>
+          <div className="row">
+            <span className="muted">Router dispatches to:</span>{' '}
+            {result.routing.abstained ? (
+              <span className="tag warn">{result.routing.domain}</span>
+            ) : (
+              <span className="tag">{result.routing.domain}</span>
+            )}
+            {result.routing.abstained && (
+              <span className="muted">— fell back to the general model</span>
+            )}
+          </div>
+          <div className="row">
+            <span className="muted">margin:</span>{' '}
+            <span className="mono">{formatPercent(result.routing.margin)}</span>{' '}
+            <span className="muted">· {describeReason(result.routing.reason)}</span>
+          </div>
+          <div className="muted">
+            Routing can differ from the top raw score — it abstains on weak or ambiguous signals.
+          </div>
+
+          <div className="card-title">raw scores</div>
           <div className="row">
             <span className="muted">Top domain:</span> <span className="tag">{result.top_domain}</span>
           </div>

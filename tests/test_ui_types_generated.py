@@ -379,12 +379,20 @@ _EXAMPLES: dict[str, dict[str, object]] = {
         "domain": "react", "import_matches": 1, "keyword_matches": 2,
         "raw_score": 5.0, "confidence": 0.83,
     },
+    "RouteDecisionOut": {
+        "domain": "react", "confidence": 0.83, "margin": 0.6,
+        "abstained": False, "reason": "ok",
+    },
     "DomainDetectResult": {
         "top_domain": "react",
         "scores": [{
             "domain": "react", "import_matches": 1, "keyword_matches": 2,
             "raw_score": 5.0, "confidence": 0.83,
         }],
+        "routing": {
+            "domain": "react", "confidence": 0.83, "margin": 0.6,
+            "abstained": False, "reason": "ok",
+        },
     },
     "GenStreamChunk": {"delta": "    return a + b", "done": False, "error": None},
     "BestOfNRequest": {

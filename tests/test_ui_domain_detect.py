@@ -165,3 +165,59 @@ class TestSchemaIntegrity:
         """``top_domain`` equals the domain of the first (highest) score."""
         result = detect_domain_view(REACT_SNIPPET)
         assert result["top_domain"] == result["scores"][0]["domain"]
+
+
+# Keys the margin-aware routing decision must expose on every valid call.
+EXPECTED_ROUTING_KEYS = {"domain", "confidence", "margin", "abstained", "reason"}
+
+# The four reason strings ``route_with_abstention`` may emit.
+KNOWN_ROUTING_REASONS = {"ok", "low_confidence", "low_margin", "no_signal"}
+
+
+class TestRoutingField:
+    """The ``routing`` key carries the margin-aware abstention decision.
+
+    ``detect_domain_view`` now augments its result with a ``routing`` dict from
+    :func:`route_with_abstention`, which either dispatches to a specialist or
+    abstains to ``general`` based on confidence and margin.
+    """
+
+    def test_routing_has_correct_keys_and_types(self) -> None:
+        """The routing dict exposes exactly the documented keys and types."""
+        result = detect_domain_view(REACT_SNIPPET)
+        assert "error" not in result
+        routing = result["routing"]
+        assert isinstance(routing, dict)
+        assert set(routing.keys()) == EXPECTED_ROUTING_KEYS
+        assert isinstance(routing["domain"], str)
+        assert isinstance(routing["confidence"], float)
+        assert isinstance(routing["margin"], float)
+        assert isinstance(routing["abstained"], bool)
+        assert isinstance(routing["reason"], str)
+        assert 0.0 <= routing["confidence"] <= 1.0
+        assert 0.0 <= routing["margin"] <= 1.0
+
+    def test_clear_react_snippet_routes_confidently(self) -> None:
+        """A clean single-domain React snippet routes to react without abstaining."""
+        result = detect_domain_view(REACT_SNIPPET)
+        routing = result["routing"]
+        assert routing["domain"] == "react"
+        assert routing["abstained"] is False
+        assert routing["reason"] == "ok"
+
+    def test_error_path_has_no_routing_key(self) -> None:
+        """Empty/whitespace input returns an error dict with no routing key."""
+        for blank in ("", "   ", "\n", "\t\n  ", "\r\n"):
+            result = detect_domain_view(blank)
+            assert "error" in result
+            assert "routing" not in result
+
+    @pytest.mark.parametrize(
+        "code",
+        [REACT_SNIPPET, ZOD_SNIPPET, PRISMA_SNIPPET, TESTING_SNIPPET, GENERIC_SNIPPET],
+    )
+    def test_routing_reason_is_always_known(self, code: str) -> None:
+        """Every valid (non-error) call yields one of the four known reasons."""
+        result = detect_domain_view(code)
+        assert "error" not in result
+        assert result["routing"]["reason"] in KNOWN_ROUTING_REASONS

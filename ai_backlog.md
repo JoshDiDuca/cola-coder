@@ -56,12 +56,17 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   in `features/domain_detector.py`. Dispatches to a specialist only when the top domain clears BOTH an
   absolute-confidence AND a margin-over-runner-up gate, else abstains to `general` with a reason. Purely
   additive (detect_domain/classify untouched), MAIN-SAFE regex. 10 tests. Grounded in 2026 LLM-cascade /
-  selective-prediction research (research-log 2026-06-16). Follow-ups (open): coverage–vs–accuracy curve
-  tooling to pick the gates from data (replacing the hand-picked 0.1), and surfacing the RouteDecision in
-  the new DomainDetectPanel (UI-098).
-- **UI-098** [ui, low] `open` (2026-06-16) — Surface `route_with_abstention`'s RouteDecision (chosen domain,
-  margin, abstained + reason) in DomainDetectPanel so the tester shows the ACTUAL routing decision, not just
-  raw scores. Needs a small schema (RouteDecisionOut) + endpoint or fold into the existing detect-domain result.
+  selective-prediction research (research-log 2026-06-16). Follow-ups DONE this cycle → UI-098 / IDEA-017.
+- **UI-098 / IDEA-017** [ui+routing, medium] `done` (2026-06-16) — Completed MODEL-053 end-to-end. (a) Folded
+  `route_with_abstention` into the detect-domain result: new `RouteDecisionOut` schema, `domain_detect_view`
+  now returns `routing` (domain/confidence/margin/abstained/reason), DomainDetectResult carries it (regenerated
+  types, 139 interfaces), and `DomainDetectPanel` shows "Router dispatches to: X" with an abstained badge +
+  friendly reason (exhaustive never-checked mapping) above the raw scores. (b) Risk–coverage curve tooling:
+  `CoveragePoint` + `risk_coverage_curve(labeled_samples, confidence_grid, min_margin)` + `best_operating_point`
+  in domain_detector.py — sweep the gate over a labelled corpus to pick the operating threshold from data
+  (selective-prediction risk–coverage) instead of the hand-picked 0.1. Built by 3 parallel agents (panel /
+  curve+tests / detect-view tests) on disjoint files; keystone owned by main. 191 tests green (9 curve + 8
+  routing-field + others), tsc + build green (101 modules), ruff clean. MAIN-SAFE (regex only).
 
 ### UI — domain-detection tester (2026-06-16)
 - **UI-097** [ui, medium] `done` (2026-06-16) — Added a "Domain Detection" tool to the System screen: paste a

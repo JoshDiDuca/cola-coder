@@ -994,9 +994,18 @@ export interface DomainScoreOut {
   confidence: number;
 }
 
+export interface RouteDecisionOut {
+  domain: string;
+  confidence: number;
+  margin: number;
+  abstained: boolean;
+  reason: string;
+}
+
 export interface DomainDetectResult {
   top_domain: string;
   scores: DomainScoreOut[];
+  routing: RouteDecisionOut;
 }
 
 export interface GenStreamChunk {

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 
-from cola_coder.features.domain_detector import detect_domain
+from cola_coder.features.domain_detector import detect_domain, route_with_abstention
 
 logger = logging.getLogger(__name__)
 
@@ -43,4 +43,15 @@ def detect_domain_view(code: str, filename: str = "") -> dict:
         for s in scores
     ]
     top_domain = score_dicts[0]["domain"] if score_dicts else "general"
-    return {"top_domain": top_domain, "scores": score_dicts}
+
+    # The margin-aware routing decision (MODEL-053): what the cascade would DO,
+    # which can differ from the raw argmax when the top pick is weak/ambiguous.
+    decision = route_with_abstention(code, filename)
+    routing = {
+        "domain": decision.domain,
+        "confidence": round(float(decision.confidence), 4),
+        "margin": round(float(decision.margin), 4),
+        "abstained": decision.abstained,
+        "reason": decision.reason,
+    }
+    return {"top_domain": top_domain, "scores": score_dicts, "routing": routing}

@@ -1169,11 +1169,27 @@ class DomainScoreOut(_UiModel):
     confidence: float
 
 
+class RouteDecisionOut(_UiModel):
+    """The margin-aware routing decision (MODEL-053) for the detected snippet.
+
+    Shows what the specialist cascade would actually DO: dispatch to ``domain``,
+    or abstain to ``general`` when the top pick's confidence/margin is too weak
+    (``abstained`` true; ``reason`` names the guard).
+    """
+
+    domain: str
+    confidence: float
+    margin: float
+    abstained: bool
+    reason: str
+
+
 class DomainDetectResult(_UiModel):
-    """Result of ``POST /api/router/detect-domain`` — ranked domain scores."""
+    """Result of ``POST /api/router/detect-domain`` — ranked scores + routing."""
 
     top_domain: str
     scores: list[DomainScoreOut]
+    routing: RouteDecisionOut
 
 
 class SpecialistSaveRequest(_UiModel):

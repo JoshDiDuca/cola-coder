@@ -334,6 +334,96 @@ def route_with_abstention(
     return RouteDecision(top.domain, top.confidence, margin, False, "ok")
 
 
+@dataclass
+class CoveragePoint:
+    """One point on the router's risk–coverage curve at a given confidence gate."""
+    min_confidence: float
+    coverage: float            # fraction of samples routed to a specialist (not abstained/general)
+    specialist_accuracy: float # of the covered samples, fraction routed to the CORRECT domain
+    n_covered: int             # number of samples routed to a specialist
+    n_total: int
+
+
+def risk_coverage_curve(
+    labeled_samples: list[tuple[str, str]],
+    confidence_grid: list[float] | None = None,
+    min_margin: float = 0.15,
+) -> list[CoveragePoint]:
+    """Sweep the confidence gate over a labelled corpus → selective-prediction risk–coverage curve.
+
+    Selective prediction trades coverage (how often the router commits to a specialist)
+    against risk (how often that commitment is wrong). Raising ``min_confidence`` makes
+    the gate stricter: fewer samples are routed (lower coverage) but the ones that are
+    should be more reliable (higher specialist accuracy). Plotting accuracy vs. coverage
+    across the grid lets the operating threshold be chosen from data instead of a
+    hand-picked constant (risk–coverage curve, El-Yaniv & Wiener 2010, arXiv:1901.09192).
+
+    Args:
+        labeled_samples: ``(code, true_domain)`` pairs to evaluate.
+        confidence_grid: Confidence gates to sweep; defaults to ``0.0``…``0.9`` in 0.1 steps.
+        min_margin: Top-1 − top-2 margin floor held fixed across the sweep.
+
+    Returns:
+        One :class:`CoveragePoint` per grid value, in grid order. Empty input → ``[]``.
+    """
+    if not labeled_samples:
+        return []
+
+    if confidence_grid is None:
+        confidence_grid = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+
+    n_total = len(labeled_samples)
+    curve: list[CoveragePoint] = []
+
+    for c in confidence_grid:
+        n_covered = 0
+        n_correct = 0
+        for code, true_domain in labeled_samples:
+            decision = route_with_abstention(
+                code, min_confidence=c, min_margin=min_margin
+            )
+            # "Covered" = the router committed to a specialist (not abstained, not general).
+            if decision.abstained or decision.domain == "general":
+                continue
+            n_covered += 1
+            if decision.domain == true_domain:
+                n_correct += 1
+
+        coverage = n_covered / n_total if n_total > 0 else 0.0
+        specialist_accuracy = n_correct / n_covered if n_covered > 0 else 0.0
+        curve.append(CoveragePoint(
+            min_confidence=c,
+            coverage=coverage,
+            specialist_accuracy=specialist_accuracy,
+            n_covered=n_covered,
+            n_total=n_total,
+        ))
+
+    return curve
+
+
+def best_operating_point(
+    curve: list[CoveragePoint],
+    min_specialist_accuracy: float = 0.8,
+) -> CoveragePoint | None:
+    """The MAX-coverage point whose specialist_accuracy >= the floor, or None if none qualifies.
+
+    Picks the most permissive gate (highest coverage) that still meets the accuracy
+    floor — the natural operating point on a risk–coverage curve.
+
+    Args:
+        curve: Points from :func:`risk_coverage_curve`.
+        min_specialist_accuracy: Minimum acceptable specialist accuracy (0–1).
+
+    Returns:
+        The qualifying :class:`CoveragePoint` with the highest coverage, or ``None``.
+    """
+    qualifying = [p for p in curve if p.specialist_accuracy >= min_specialist_accuracy]
+    if not qualifying:
+        return None
+    return max(qualifying, key=lambda p: p.coverage)
+
+
 def batch_classify(code_samples: list[dict]) -> list[dict]:
     """Classify multiple code samples.
 

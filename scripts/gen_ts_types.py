@@ -178,6 +178,7 @@ _MODEL_ORDER: list[str] = [
     "SpecialistRemoveRequest",
     "DomainDetectRequest",
     "DomainScoreOut",
+    "RouteDecisionOut",
     "DomainDetectResult",
     "GenStreamChunk",
     "BestOfNRequest",
