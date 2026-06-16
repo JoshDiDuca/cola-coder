@@ -14,12 +14,26 @@ from pathlib import Path
 
 # Matches a "pretty" log line such as:
 #   03:12:20 step   2,500 ( 1.7%) loss 1.6057 ppl      5.0 lr 6.00e-04     1,813 tok/s
+#   08:38:21 step 16,200 (10.8%) loss 1.2492 ppl 3.5 lr 6e-04 11,738 tok/s | ETA 338h 58m (11:37)
+# The trailing token count is anchored on the literal "tok/s" — NOT on end-of-line —
+# because the trainer now appends "| ETA …" after it (BUG-138). Anchoring on $ silently
+# stopped matching, freezing the dashboard's live step/loss/tok_s.
 _LOG_LINE_RE = re.compile(
     r"step\s+([\d,]+)\s*\(\s*([\d.]+)%\)"
     r".*?loss\s+([\d.]+)"
     r".*?ppl\s+([\d.]+)"
-    r".*?([\d,]+)\s*(?:tok/s)?\s*$"
+    r".*?([\d,]+)\s*tok/s"
 )
+
+# Optional "ETA 338h 58m 51s (11:37)" suffix → the human-readable time-remaining
+# string ("338h 58m 51s"). Absent on older logs, so always optional.
+_ETA_RE = re.compile(r"ETA\s+(.+?)\s*(?:\(|$)")
+
+
+def _extract_eta(line: str) -> str | None:
+    """Return the ETA time-remaining string from a log line, or None if absent."""
+    m = _ETA_RE.search(line)
+    return m.group(1).strip() if m else None
 
 # Matches a tqdm bar such as:
 #   Training:   2%|x| 2515/150000 [04:40<700:27:01, 17.10s/it]
@@ -139,6 +153,7 @@ def _empty_status(alive: bool) -> dict:
         "s_per_it": None,
         "last_log_line": None,
         "step_stalled_s": None,
+        "eta": None,
     }
 
 
@@ -190,6 +205,7 @@ def _parse_log(text: str) -> dict | None:
         "tok_per_s": _to_float(match_obj.group(5)),
         "s_per_it": None,
         "last_log_line": match_line.strip(),
+        "eta": _extract_eta(match_line),
     }
 
 
@@ -218,6 +234,7 @@ def _parse_err(text: str) -> dict | None:
         "tok_per_s": None,
         "s_per_it": _to_float(match_obj.group(3)),
         "last_log_line": match_line.strip(),
+        "eta": None,
     }
 
 

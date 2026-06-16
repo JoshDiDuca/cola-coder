@@ -47,7 +47,7 @@ _EXAMPLES: dict[str, dict[str, object]] = {
     "TrainingStatus": {
         "alive": True, "step": 100, "total_steps": 1000, "progress_pct": 10.0,
         "loss": 2.5, "ppl": 12.1, "tok_per_s": 1800.0, "s_per_it": 0.5,
-        "last_log_line": "step 100", "step_stalled_s": 12.0,
+        "last_log_line": "step 100", "step_stalled_s": 12.0, "eta": "338h 58m 51s",
     },
     "SystemStatus": {
         "gpu_name": "RTX 4080", "gpu_util_pct": 90.0, "gpu_mem_used_mb": 8000.0,

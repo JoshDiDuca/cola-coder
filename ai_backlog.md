@@ -50,6 +50,18 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   Project-Memory → UI-096. Knowledge write-paths → UI-099 (this cycle). Item status EDIT (in-place rewrite)
   intentionally NOT done — append-only is safe vs. the loop's concurrent writes; in-place mutation deferred.
 
+### BUG — live status + metrics chart frozen by trainer's ETA log suffix (2026-06-16)
+- **BUG-138** [bug/ui, high] `done` (2026-06-16) — The trainer's pretty log line gained a trailing
+  ` | ETA 338h 58m 51s (11:37)` suffix, but BOTH `status._LOG_LINE_RE` and `metrics_history._LOG_LINE_RE`
+  anchored their tok/s capture on end-of-line (`...tok/s)?\s*$`) → the regex silently STOPPED matching the
+  current log format, so the dashboard's live training panel AND the metrics chart were parsing stale/empty
+  data (the .err tqdm path still worked, masking it). Fixed by anchoring the count on the literal `tok/s`
+  (NOT `$`) in both parsers — verified the 5th group is the tok/s count, not the lr digits (the lazy-match
+  trap). Bonus: capture the ETA string (`_extract_eta`) → new `TrainingStatus.eta` field, surfaced in
+  LiveTrainingPanel as an "ETA …" chip (genuinely useful for watching a multi-day run). 10 regression tests
+  (both parsers, ETA + legacy lines, public-API round-trip) + 169 green, tsc + build green (102 modules),
+  ruff clean. Built by 2 parallel agents (tests + panel) on disjoint files; backend fix owned by main.
+
 ### Optimizers — ZClip adaptive grad-norm spike mitigation (2026-06-16)
 - **MODEL-054** [optimizers/stability, medium] `done` (2026-06-16) — `ZClipper` (`training/zclip.py`): EMA
   mean/var of the grad norm + z-score spike test → clip only spikes to `mean + z_thresh*std`, update EMA with

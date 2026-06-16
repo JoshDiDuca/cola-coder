@@ -19,6 +19,7 @@ export interface TrainingStatus {
   s_per_it: number | null;
   last_log_line: string | null;
   step_stalled_s?: number | null;
+  eta?: string | null;
 }
 
 export interface SystemStatus {

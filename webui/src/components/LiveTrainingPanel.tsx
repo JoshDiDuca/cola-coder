@@ -67,6 +67,9 @@ export default function LiveTrainingPanel({
   // Seconds since the step last advanced; warn past the 45-min "hung" threshold.
   const stall = training?.step_stalled_s ?? null;
   const stallWarn = stall !== null && stall > 2700;
+  // Human-readable time-remaining string parsed from the trainer log (e.g. "338h 58m 51s").
+  const eta = training?.eta ?? null;
+  const showEta = live && step !== null && eta != null && eta !== '';
 
   const tiles: StatTile[] = [
     { label: 'loss', value: formatFloat(training?.loss ?? null, 4) },
@@ -144,6 +147,11 @@ export default function LiveTrainingPanel({
             / {formatInteger(totalSteps)} steps
           </span>
           <span className="muted mono live-train-pct">{formatPercent(progressFraction)}</span>
+          {showEta && (
+            <span className="muted mono" title="Estimated time remaining (parsed from the training log).">
+              ETA {eta}
+            </span>
+          )}
           {stall !== null && (
             <span
               className={`live-train-stall mono${stallWarn ? ' warn' : ''}`}

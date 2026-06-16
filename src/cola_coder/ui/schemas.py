@@ -52,6 +52,9 @@ class TrainingStatus(_UiModel):
     # Seconds since the training step last advanced (0 right after an advance);
     # None until a step is seen. Surfaces hung-vs-slow on the dashboard (OPS-003).
     step_stalled_s: float | None = None
+    # Human-readable time-remaining from the trainer's "ETA …" log suffix
+    # (e.g. "338h 58m 51s"), or None if the log carries no ETA (BUG-138).
+    eta: str | None = None
 
 
 class SystemStatus(_UiModel):
