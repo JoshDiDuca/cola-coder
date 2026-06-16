@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { ChangeEvent } from 'react';
 import type {
   BestOfNRequest,
   BestOfNCandidate,
@@ -42,6 +43,7 @@ const DEFAULT_TEMPERATURE = 0.8;
 const DEFAULT_MAX_TOKENS = 256;
 const DEFAULT_TOP_P = 0.9;
 const DEFAULT_TOP_K = 50;
+const DEFAULT_MIN_P = 0; // 0 = disabled
 
 const TRAINING_GUARD_MESSAGE =
   'A training run is live — best-of-N is disabled to protect the GPU. ' +
@@ -55,6 +57,7 @@ interface BestOfNFormState {
   maxTokens: number;
   topP: number;
   topK: number;
+  minP: number;
 }
 
 const DEFAULT_FORM: BestOfNFormState = {
@@ -64,6 +67,7 @@ const DEFAULT_FORM: BestOfNFormState = {
   maxTokens: DEFAULT_MAX_TOKENS,
   topP: DEFAULT_TOP_P,
   topK: DEFAULT_TOP_K,
+  minP: DEFAULT_MIN_P,
 };
 
 /** Parse a numeric <input> value, falling back to a default when blank/NaN. */
@@ -168,6 +172,7 @@ export default function BestOfNScreen({
       temperature: form.temperature,
       top_p: form.topP,
       top_k: form.topK,
+      min_p: form.minP,
     };
 
     setBusy(true);
@@ -396,6 +401,24 @@ export default function BestOfNScreen({
                   }))
                 }
               />
+            </label>
+            <label className="bon-field">
+              <span className="bon-label">min-p</span>
+              <input
+                type="number"
+                step={0.01}
+                min={0}
+                max={1}
+                className="input"
+                value={form.minP}
+                onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                  setForm((f) => ({
+                    ...f,
+                    minP: parseNumber(e.target.value, DEFAULT_MIN_P),
+                  }))
+                }
+              />
+              <span className="bon-hint muted">0 = off</span>
             </label>
           </div>
 

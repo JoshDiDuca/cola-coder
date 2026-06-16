@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { ChangeEvent } from 'react';
 import type { ConfigFile, FimRequest } from '../../types';
 import { getConfigs, openFimStream } from '../../api';
 import { useStreamingGeneration } from '../../hooks/useStreamingGeneration';
@@ -32,6 +33,8 @@ const DEFAULT_TEMPERATURE = 0.2;
 const DEFAULT_MAX_TOKENS = 128;
 const DEFAULT_TOP_P = 0.9;
 const DEFAULT_TOP_K = 50;
+const DEFAULT_MIN_P = 0; // 0 = disabled
+const DEFAULT_TOP_N_SIGMA = 0; // 0 = disabled
 
 const TRAINING_GUARD_MESSAGE =
   'A training run is live — FIM generation is disabled to protect the GPU. ' +
@@ -48,6 +51,8 @@ interface SamplingState {
   maxTokens: number;
   topP: number;
   topK: number;
+  minP: number;
+  topNSigma: number;
 }
 
 const DEFAULT_SAMPLING: SamplingState = {
@@ -55,6 +60,8 @@ const DEFAULT_SAMPLING: SamplingState = {
   maxTokens: DEFAULT_MAX_TOKENS,
   topP: DEFAULT_TOP_P,
   topK: DEFAULT_TOP_K,
+  minP: DEFAULT_MIN_P,
+  topNSigma: DEFAULT_TOP_N_SIGMA,
 };
 
 /** Parse a numeric <input> value, falling back to a default when blank/NaN. */
@@ -224,6 +231,8 @@ export default function FimScreen({ checkpoints, trainingAlive }: FimScreenProps
       temperature: sampling.temperature,
       top_p: sampling.topP,
       top_k: sampling.topK,
+      min_p: sampling.minP,
+      top_n_sigma: sampling.topNSigma,
     };
     start((signal) => openFimStream(req, signal)); // streams the infill token-by-token
   }, [
@@ -408,6 +417,41 @@ export default function FimScreen({ checkpoints, trainingAlive }: FimScreenProps
                   }))
                 }
               />
+            </label>
+            <label className="fim-field">
+              <span className="fim-label">min-p</span>
+              <input
+                type="number"
+                step={0.01}
+                min={0}
+                max={1}
+                className="input"
+                value={sampling.minP}
+                onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                  setSampling((s) => ({
+                    ...s,
+                    minP: parseNumber(e.target.value, DEFAULT_MIN_P),
+                  }))
+                }
+              />
+              <span className="fim-hint muted">0 = off</span>
+            </label>
+            <label className="fim-field">
+              <span className="fim-label">top-nσ</span>
+              <input
+                type="number"
+                step={0.05}
+                min={0}
+                className="input"
+                value={sampling.topNSigma}
+                onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                  setSampling((s) => ({
+                    ...s,
+                    topNSigma: parseNumber(e.target.value, DEFAULT_TOP_N_SIGMA),
+                  }))
+                }
+              />
+              <span className="fim-hint muted">0 = off</span>
             </label>
           </div>
 
