@@ -260,6 +260,80 @@ def classify(code: str, filename: str = "") -> str:
     return "general"
 
 
+@dataclass
+class RouteDecision:
+    """Margin-aware routing decision for the specialist cascade (MODEL-053).
+
+    The confidence router dispatches to a 50M domain specialist or falls back to
+    the general model. A WRONG specialist is worse than the general model, so we
+    abstain to "general" when the top domain is not *decisively* ahead — using both
+    its absolute confidence AND its MARGIN over the runner-up (selective-prediction
+    / cascade routing, arXiv:2502.09054, arXiv:2605.18796).
+    """
+
+    domain: str  # chosen specialist domain, or "general" on abstention
+    confidence: float  # top-1 normalized confidence
+    margin: float  # top-1 minus top-2 confidence (the selective-prediction signal)
+    abstained: bool  # True iff we fell back to general for low confidence/margin
+    reason: str  # "ok" | "low_confidence" | "low_margin" | "no_signal"
+
+
+def detection_margin(scores: list[DomainScore]) -> float:
+    """Top-1 minus top-2 confidence — the margin used for selective routing.
+
+    Returns the lone top-1 confidence when only one domain scored, and 0.0 for an
+    empty list. A small margin means two domains are nearly tied (ambiguous input).
+    """
+    ranked = sorted(scores, key=lambda s: s.confidence, reverse=True)
+    if not ranked:
+        return 0.0
+    if len(ranked) == 1:
+        return ranked[0].confidence
+    return ranked[0].confidence - ranked[1].confidence
+
+
+def route_with_abstention(
+    code: str,
+    filename: str = "",
+    min_confidence: float = 0.4,
+    min_margin: float = 0.15,
+) -> RouteDecision:
+    """Route a snippet to a specialist domain, abstaining to "general" when unsure.
+
+    Dispatches to the top domain only when it clears BOTH ``min_confidence`` and a
+    ``min_margin`` lead over the runner-up; otherwise it abstains to the general
+    model. This is purely additive — it does not change :func:`detect_domain` or
+    :func:`classify` (which the router-training-data path uses). MAIN-SAFE (regex).
+
+    Args:
+        code: Source code to route.
+        filename: Optional filename for extra context.
+        min_confidence: Minimum top-1 confidence to trust a specialist (0–1).
+        min_margin: Minimum top-1 − top-2 confidence gap to trust a specialist.
+
+    Returns:
+        A :class:`RouteDecision`. ``abstained`` is True when it fell back to general
+        because the signal was weak (``reason`` explains which guard tripped).
+    """
+    scores = detect_domain(code, filename)
+    if not scores:
+        return RouteDecision("general", 0.0, 0.0, True, "no_signal")
+
+    ranked = sorted(scores, key=lambda s: s.confidence, reverse=True)
+    top = ranked[0]
+    margin = detection_margin(ranked)
+
+    # The heuristic already emits "general" as the top pick for weak input — that
+    # is a legitimate (non-abstaining) classification, not a fallback.
+    if top.domain == "general":
+        return RouteDecision("general", top.confidence, margin, False, "ok")
+    if top.confidence < min_confidence:
+        return RouteDecision("general", top.confidence, margin, True, "low_confidence")
+    if margin < min_margin:
+        return RouteDecision("general", top.confidence, margin, True, "low_margin")
+    return RouteDecision(top.domain, top.confidence, margin, False, "ok")
+
+
 def batch_classify(code_samples: list[dict]) -> list[dict]:
     """Classify multiple code samples.
 

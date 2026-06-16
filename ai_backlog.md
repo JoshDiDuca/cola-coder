@@ -50,6 +50,19 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   write). Project-Memory subsystem → DONE as UI-096. Still open: Backlog item archive/update
   (`PATCH /api/backlog/{id}`) and Research-log append (`POST /api/research-log/append`). Both MAIN-SAFE.
 
+### Routing — margin-based selective routing (2026-06-16)
+- **MODEL-053 / IDEA-017** [inference/routing, medium] `done` (2026-06-16) — Margin-aware specialist routing:
+  `detection_margin(scores)` + `route_with_abstention(code, filename, min_confidence=0.4, min_margin=0.15)`
+  in `features/domain_detector.py`. Dispatches to a specialist only when the top domain clears BOTH an
+  absolute-confidence AND a margin-over-runner-up gate, else abstains to `general` with a reason. Purely
+  additive (detect_domain/classify untouched), MAIN-SAFE regex. 10 tests. Grounded in 2026 LLM-cascade /
+  selective-prediction research (research-log 2026-06-16). Follow-ups (open): coverage–vs–accuracy curve
+  tooling to pick the gates from data (replacing the hand-picked 0.1), and surfacing the RouteDecision in
+  the new DomainDetectPanel (UI-098).
+- **UI-098** [ui, low] `open` (2026-06-16) — Surface `route_with_abstention`'s RouteDecision (chosen domain,
+  margin, abstained + reason) in DomainDetectPanel so the tester shows the ACTUAL routing decision, not just
+  raw scores. Needs a small schema (RouteDecisionOut) + endpoint or fold into the existing detect-domain result.
+
 ### UI — domain-detection tester (2026-06-16)
 - **UI-097** [ui, medium] `done` (2026-06-16) — Added a "Domain Detection" tool to the System screen: paste a
   TS/JS snippet → see which framework domain (react/nextjs/graphql/prisma/zod/testing/general) the heuristic

@@ -2578,3 +2578,41 @@ of it where it converts). Filed as INFER-037.
 - [Chen et al. 2021 — Evaluating LLMs Trained on Code (HumanEval; unbiased pass@k)](https://arxiv.org/abs/2107.03374)
 - [Statistics for AI/ML: pass@k and the Unbiased Estimator](https://leehanchung.github.io/blogs/2025/09/08/pass-at-k/)
 - [Are Your LLMs Capable of Stable Reasoning? — G-Pass@k (arXiv:2412.13147)](https://arxiv.org/abs/2412.13147)
+
+---
+
+## 2026-06-16 — Inference/routing: margin-based selective routing for the specialist cascade (MODEL-053)
+
+**Area:** inference / routing (rotate: inference). cola-coder's Vision is a confidence router (125M)
+that dispatches each request to a 50M domain specialist (react/nextjs/graphql/prisma/zod/testing) or a
+general fallback. That is exactly an **LLM cascade with abstention**: a cheap classifier decides
+whether a specialized path is trustworthy, else it falls back. The 2025–2026 cascade-routing literature
+is consistent on one point — route on a *calibrated uncertainty* signal, and when in doubt, abstain to
+the safer (more general) tier, because a confidently-wrong specialist is worse than the generalist. A
+recurring, cheap, well-behaved signal is the **margin**: top-1 minus top-2 score. A high top-1 score
+with a *thin* margin means two domains are nearly tied (ambiguous input) — precisely when a hard
+single-label route is most likely wrong.
+
+The project's `features.domain_detector.detect_domain` already produces per-domain normalized
+confidences but the router only ever took the argmax (`classify`), with a single 0.1 threshold and no
+notion of *how far ahead* the winner is. Implemented (purely additive, MAIN-SAFE regex — does NOT touch
+`detect_domain`/`classify`, which the router-training-data path depends on): `detection_margin(scores)`
+and `route_with_abstention(code, filename, min_confidence=0.4, min_margin=0.15) -> RouteDecision`, which
+dispatches to a specialist only when the top domain clears BOTH an absolute-confidence gate AND a
+margin-over-runner-up gate, otherwise abstaining to `general` with a `reason`
+(`low_confidence`/`low_margin`/`no_signal`). 10 unit tests.
+
+**Original idea — IDEA-017: margin-tunable specialist coverage curve.** Because `route_with_abstention`
+exposes both gates, you can sweep `(min_confidence, min_margin)` over a labelled corpus to plot a
+**coverage–vs–specialist-accuracy curve** (selective-prediction's risk–coverage curve, applied to
+routing): x = fraction of requests sent to a specialist (coverage), y = specialist hit-rate on that
+covered set. Pick the operating point where specialist accuracy stays above the general model's
+baseline — that's the *provably-net-positive* routing threshold, derived from data instead of the
+current hand-picked 0.1. Cross-technique: selective-prediction risk–coverage analysis × the specialist
+router. Filed as MODEL-053 (curve tooling) + UI follow-up to surface the RouteDecision in the new
+DomainDetectPanel.
+
+**Sources:**
+- [Cost-Saving LLM Cascades with Early Abstention (arXiv:2502.09054)](https://arxiv.org/pdf/2502.09054)
+- [UCCI: Calibrated Uncertainty for Cost-Optimal LLM Cascade Routing (arXiv:2605.18796)](https://arxiv.org/html/2605.18796)
+- [Learning to Route LLMs with Confidence Tokens (arXiv:2410.13284)](https://arxiv.org/pdf/2410.13284)
