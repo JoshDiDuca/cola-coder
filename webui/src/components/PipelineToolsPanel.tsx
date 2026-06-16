@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import ConfigsPanel from './ConfigsPanel';
+import ConfigSummaryPanel from './ConfigSummaryPanel';
 import VramEstimatePanel from './VramEstimatePanel';
 import LrFinderPanel from './LrFinderPanel';
 import ConfigDiffPanel from './ConfigDiffPanel';
@@ -11,7 +12,7 @@ import PipelineManagerPanel from './PipelineManagerPanel';
 // grid. Each existing panel is wrapped unchanged, one per tab, and lazy-mounted
 // on first open (Configs is the default tab).
 
-type PipeTool = 'configs' | 'vram' | 'lr' | 'diff' | 'pipeline' | 'manager';
+type PipeTool = 'configs' | 'summary' | 'vram' | 'lr' | 'diff' | 'pipeline' | 'manager';
 
 interface PipeToolDef {
   id: PipeTool;
@@ -20,6 +21,7 @@ interface PipeToolDef {
 
 const TABS: readonly PipeToolDef[] = [
   { id: 'configs', label: 'Configs' },
+  { id: 'summary', label: 'Config summary' },
   { id: 'vram', label: 'VRAM estimate' },
   { id: 'lr', label: 'LR finder' },
   { id: 'diff', label: 'Config diff' },
@@ -39,6 +41,8 @@ export default function PipelineToolsPanel(): JSX.Element {
     switch (active) {
       case 'configs':
         return <ConfigsPanel />;
+      case 'summary':
+        return <ConfigSummaryPanel />;
       case 'vram':
         return <VramEstimatePanel />;
       case 'lr':

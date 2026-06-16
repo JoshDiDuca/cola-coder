@@ -1297,6 +1297,29 @@ class SpecialistRemoveRequest(_UiModel):
     domain: str
 
 
+class ConfigKV(_UiModel):
+    """One label→value row in a config summary (value coerced to str at boundary)."""
+
+    label: str
+    value: str
+
+
+class ConfigGroup(_UiModel):
+    """A titled group of config rows (e.g. Model, Training)."""
+
+    title: str
+    items: list[ConfigKV]
+
+
+class ConfigSummary(_UiModel):
+    """Grouped hyperparameter summary of a YAML config (``GET /api/config/summary``)."""
+
+    path: str
+    name: str
+    exists: bool
+    groups: list[ConfigGroup]
+
+
 class ConfigWriteRequest(_UiModel):
     """Body for ``POST /api/config/write`` — save edited YAML config text."""
 

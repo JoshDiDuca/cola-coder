@@ -9,6 +9,7 @@ import type {
   ActionDef,
   ConfigFile,
   ConfigContent,
+  ConfigSummary,
   PipelineRun,
   PipelineRunDetail,
   PipelineDeleteResult,
@@ -229,6 +230,11 @@ export function getConfigs(): Promise<ConfigFile[]> {
 
 export function getConfig(path: string): Promise<ConfigContent> {
   return j<ConfigContent>(`/api/config?path=${encodeURIComponent(path)}`);
+}
+
+// Grouped hyperparameter summary of a config (read-only).
+export function getConfigSummary(path: string): Promise<ConfigSummary | ApiError> {
+  return j<ConfigSummary | ApiError>(`/api/config/summary?path=${encodeURIComponent(path)}`);
 }
 
 // Router specialist registry (configs/specialists.yaml).

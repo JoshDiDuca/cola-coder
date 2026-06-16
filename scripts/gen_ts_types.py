@@ -197,6 +197,9 @@ _MODEL_ORDER: list[str] = [
     "ChatMessage",
     "ChatRequest",
     "FimRequest",
+    "ConfigKV",
+    "ConfigGroup",
+    "ConfigSummary",
     "ConfigWriteRequest",
     "ConfigWriteResult",
 ]

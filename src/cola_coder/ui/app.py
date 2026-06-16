@@ -44,6 +44,7 @@ from . import filters_catalog_view as fcv
 from . import checkpoint_health_view as chv
 from . import checkpoints_compare as cc
 from . import config_diff as cdf
+from . import config_summary_view as cfs
 from . import configs as cfg
 from . import data_sources_view as dsv
 from . import score_snippet_view as snv
@@ -713,6 +714,11 @@ def create_app(
     @app.get("/api/config", response_model=sch.ConfigContent | sch.ErrorResponse)
     def config_get(path: str) -> dict:
         return cfg.read_config(path)
+
+    @app.get("/api/config/summary", response_model=sch.ConfigSummary | sch.ErrorResponse)
+    def config_summary_get(path: str) -> dict:
+        """Grouped hyperparameter summary of a YAML config (read-only). MAIN-SAFE."""
+        return cfs.config_summary(path)
 
     @app.post("/api/config/write", response_model=sch.ConfigWriteResult | sch.ErrorResponse)
     def config_write(req: sch.ConfigWriteRequest) -> dict | JSONResponse:

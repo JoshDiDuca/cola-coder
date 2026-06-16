@@ -65,6 +65,20 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   Verified end-to-end on the live log (status step/loss/tok_s/eta + metrics 25 points + stability all parse).
   Test file rewritten to the REAL formats (no inline tok/s; ETA separate line); 172 green, ruff clean.
 
+### UI — config "at a glance" summary (2026-06-16)
+- **UI-103** [ui, medium] `done` (2026-06-16) — "Config summary" tab (Config & pipeline tools): pick a config →
+  grouped hyperparameter overview (Model/Training/Data/Checkpoint + Derived effective-batch) instead of raw
+  YAML. Backend `config_summary_view.py` parses known keys per section, coerces values to `str` at the boundary
+  (schema-first: concrete `{label,value}`, no open JSON), derives effective batch = batch×grad_accum.
+  `GET /api/config/summary`; schemas ConfigKV/ConfigGroup/ConfigSummary (+ drift examples, regenerated types →
+  152 interfaces); `getConfigSummary` in api.ts; new `ConfigSummaryPanel` (config picker defaulting to the live
+  small_react_best run) wired into PipelineToolsPanel. Built by 2 parallel agents (14 backend tests + UI) on
+  disjoint files. 169 tests green, tsc + build green (104 modules), ruff clean. MAIN-SAFE (read-only).
+- **OPS-004** [infra/diligence, n/a] `done` (2026-06-16) — Audited the UI's external-output parsers for the
+  BUG-139 format-drift class: `get_system_status` nvidia-smi CSV parse is robust (guards missing tool / short
+  output) and `_to_float` gracefully returns None for `[N/A]`/`[Not Supported]`/`""` sentinels. No bug found;
+  logged so the audit isn't repeated.
+
 ### UI — loss-stability meter on the dashboard (2026-06-16)
 - **UI-102 / MODEL-055(partial)** [ui+observability, medium] `done` (2026-06-16) — Dashboard "Loss stability"
   panel: applies ZClip's z-score spike idea (research-log 2026-06-16) to the OBSERVABLE loss curve (grad norm

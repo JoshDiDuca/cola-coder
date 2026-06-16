@@ -1131,6 +1131,23 @@ export interface FimRequest {
   top_k?: number;
 }
 
+export interface ConfigKV {
+  label: string;
+  value: string;
+}
+
+export interface ConfigGroup {
+  title: string;
+  items: ConfigKV[];
+}
+
+export interface ConfigSummary {
+  path: string;
+  name: string;
+  exists: boolean;
+  groups: ConfigGroup[];
+}
+
 export interface ConfigWriteRequest {
   path: string;
   content: string;
