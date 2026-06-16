@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import EmptyState from './EmptyState';
 
 // Reusable master-detail layout: a selectable list on the left, the selected
 // item's detail/actions on the right. This is the core screen shape for the app
@@ -19,8 +20,22 @@ interface MasterDetailProps {
   detail: ReactNode;
   listLabel?: string;
   listAside?: ReactNode;
-  emptyList?: string;
-  emptyDetail?: string;
+  /**
+   * Shown when the list is empty. Accepts a ReactNode so callers can pass a
+   * polished `<EmptyState>`; a bare string still renders (as the default's
+   * title) for backward compatibility.
+   */
+  emptyList?: ReactNode;
+  /** Shown when no item is selected. ReactNode — pass an `<EmptyState>`. */
+  emptyDetail?: ReactNode;
+}
+
+/**
+ * Render empty-slot content: a bare string is wrapped in `<EmptyState>` so even
+ * legacy string callers get the polished box; a ReactNode renders as-is.
+ */
+function renderEmpty(content: ReactNode): ReactNode {
+  return typeof content === 'string' ? <EmptyState title={content} /> : content;
 }
 
 export default function MasterDetail({
@@ -30,8 +45,13 @@ export default function MasterDetail({
   detail,
   listLabel,
   listAside,
-  emptyList = 'Nothing here yet',
-  emptyDetail = 'Select an item to see details',
+  emptyList = <EmptyState title="Nothing here yet" />,
+  emptyDetail = (
+    <EmptyState
+      title="Nothing selected"
+      hint="Choose an item from the list to see its details."
+    />
+  ),
 }: MasterDetailProps) {
   return (
     <div className="md">
@@ -43,7 +63,7 @@ export default function MasterDetail({
           </div>
         )}
         {items.length === 0 ? (
-          <div className="md-list-empty">{emptyList}</div>
+          renderEmpty(emptyList)
         ) : (
           <div className="md-list-items">
             {items.map((it) => (
@@ -66,7 +86,7 @@ export default function MasterDetail({
       </aside>
 
       <section className="md-detail">
-        {selectedId !== null ? detail : <div className="md-detail-empty">{emptyDetail}</div>}
+        {selectedId !== null ? detail : renderEmpty(emptyDetail)}
       </section>
     </div>
   );

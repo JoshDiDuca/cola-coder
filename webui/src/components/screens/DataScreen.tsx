@@ -25,6 +25,7 @@ import {
 } from '../../format';
 import MasterDetail, { type MasterItem } from '../MasterDetail';
 import LoadingSpinner from '../LoadingSpinner';
+import EmptyState from '../EmptyState';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DataScreen — ONE coherent master-detail "Data" screen replacing the old grid
@@ -544,8 +545,8 @@ export default function DataScreen(): JSX.Element {
         onSelect={setSelectedPath}
         listLabel="Datasets"
         listAside={listAside}
-        emptyList="No datasets under data/ yet — Collect or Prepare to populate."
-        emptyDetail="Select a dataset to see its stats, preview, and quality scores."
+        emptyList={<EmptyState title="No datasets yet" hint="Collect or Prepare data to populate data/." icon="▦" />}
+        emptyDetail={<EmptyState title="No dataset selected" hint="Pick a dataset to see its stats, preview, and quality scores." icon="▦" />}
         detail={selected !== null ? <DatasetDetail dataset={selected} /> : null}
       />
     </div>

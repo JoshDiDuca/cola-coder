@@ -19,6 +19,7 @@ import {
 import { formatRelativeTime } from '../../format';
 import MasterDetail, { type MasterItem } from '../MasterDetail';
 import PipelineLauncher from '../PipelineLauncher';
+import EmptyState from '../EmptyState';
 
 // ── Master-detail "Configs & Pipeline" screen (R2) ────────────────────────────
 // Top: the one-click full-pipeline launcher. Below: a master-detail view of every
@@ -533,8 +534,8 @@ export default function PipelineScreen(props: PipelineScreenProps): JSX.Element 
           onSelect={setSelectedId}
           listLabel={`${items.length} run${items.length === 1 ? '' : 's'}`}
           listAside={<NewRunForm configs={configs} onCreate={(n, p) => void onCreate(n, p)} busy={busy} />}
-          emptyList="No pipeline runs yet — create one or launch the full pipeline above"
-          emptyDetail="Select a run to see its stage timeline"
+          emptyList={<EmptyState title="No pipeline runs yet" hint="Create a run or launch the full pipeline above to get started." icon="⛓" />}
+          emptyDetail={<EmptyState title="No run selected" hint="Pick a run to see its stage timeline." icon="⛓" />}
           detail={detailNode}
         />
       </section>

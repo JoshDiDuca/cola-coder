@@ -502,8 +502,8 @@ export default function CheckpointsScreen({
       selectedId={selectedId}
       onSelect={setSelectedId}
       listLabel={`${items.length} checkpoint${items.length === 1 ? '' : 's'}`}
-      emptyList="No checkpoints yet — train a model first"
-      emptyDetail="Select a checkpoint to see its health, compare it, or export it"
+      emptyList={<EmptyState title="No checkpoints yet" hint="Train a model to produce checkpoints here." icon="◆" />}
+      emptyDetail={<EmptyState title="No checkpoint selected" hint="Pick a checkpoint to see its health, compare it, or export it." icon="◆" />}
       detail={
         selected ? <CheckpointDetailPane checkpoint={selected} others={others} /> : null
       }

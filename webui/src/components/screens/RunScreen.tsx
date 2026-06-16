@@ -4,6 +4,7 @@ import { jobLogStreamUrl, stopJob } from '../../api';
 import { formatRelativeTime } from '../../format';
 import ActionsPanel from '../ActionsPanel';
 import MasterDetail, { type MasterItem } from '../MasterDetail';
+import EmptyState from '../EmptyState';
 
 // ── "Run & Jobs" screen ──────────────────────────────────────────────────────
 // Top: the action gallery for LAUNCHING work. Below: a master-detail jobs view —
@@ -225,8 +226,8 @@ export default function RunScreen({ jobs, trainingAlive }: RunScreenProps): JSX.
           selectedId={selectedId}
           onSelect={setSelectedId}
           listLabel={`${items.length} job${items.length === 1 ? '' : 's'}`}
-          emptyList="No jobs yet — launch an action above"
-          emptyDetail="Select a job to follow its live log"
+          emptyList={<EmptyState title="No background jobs" hint="Launch an action above to see jobs stream here." icon="▶" />}
+          emptyDetail={<EmptyState title="No job selected" hint="Pick a job to follow its live log." icon="▶" />}
           detail={
             selectedJob ? <JobDetail job={selectedJob} onStop={(id) => void onStop(id)} /> : null
           }

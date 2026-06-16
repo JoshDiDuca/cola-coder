@@ -20,11 +20,16 @@ e.g. BUG-004 was downgraded to not-a-bug after checking the math.
   form-error pattern. Adopted across EvalsPanel, CheckpointsScreen, SpecialistsPanel, DataScreen, JobsPanel,
   LogsPanel (built by 3 parallel agents on disjoint files; I owned index.css + the 2 components + EvalsPanel).
   tsc + build green (100 modules, +2). MAIN-SAFE: presentational only, zero backend/schema/training changes.
-- **UI-091** [ui, medium] `open` (2026-06-16) — Follow-up: `MasterDetail.tsx` takes `emptyList`/`emptyDetail`
-  as plain `string` props, so list/detail empty-states across Checkpoints/Data/etc. can't use the new
-  `EmptyState`. Widen those props to `ReactNode` (string is assignable, so backward-compatible) OR have
-  MasterDetail wrap a string default in `<EmptyState>`, then pass real EmptyStates from callers. Low risk,
-  high visual payoff (every master-detail screen's empty list gets the polished treatment).
+- **UI-091** [ui, medium] `done` (2026-06-16) — Widened `MasterDetail.tsx` `emptyList`/`emptyDetail` from
+  `string` to `ReactNode` + a `renderEmpty()` helper that auto-wraps a bare string in `<EmptyState>` (so
+  legacy string callers still get the box — backward-compatible). Defaults are now real `<EmptyState>` nodes.
+  Upgraded ALL 6 master-detail screens to pass polished `<EmptyState title hint icon />` (Checkpoints, Data,
+  Eval, Pipeline, System, Run) via 3 parallel agents on disjoint files. Every empty list/detail across the
+  app now reads the same. `.md-detail-empty` CSS kept (EvalScreen still uses it for inner detail empties).
+  tsc + build green (100 modules). MAIN-SAFE presentational only.
+- **UI-093** [ui, low] `open` (2026-06-16) — EvalScreen.tsx has 4 inner `<div className="md-detail-empty">`
+  placeholders (sub-section empties, not the MasterDetail prop) that could also adopt `<EmptyState>` for
+  consistency. Small, isolated.
 - **UI-092** [ui, low] `open` (2026-06-16) — Adopt the `:focus-visible` ring + `.input.error`/`.field-error`
   on the remaining form launchers (DataScreen Collect/Prepare forms, ConfigEditorPanel) so validation errors
   show a red field border + helper text instead of a detached `.err` div. CSS is already in place (UI-090).

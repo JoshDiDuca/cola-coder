@@ -26,6 +26,7 @@ import {
 import { formatFloat, formatInteger, formatRelativeTime } from '../../format';
 import MasterDetail, { type MasterItem } from '../MasterDetail';
 import Sparkline from '../Sparkline';
+import EmptyState from '../EmptyState';
 
 // ── Category (pinned) item identity ──────────────────────────────────────────
 // Pinned category items live at the top of the unified list. Their ids are
@@ -799,8 +800,8 @@ export default function EvalScreen(): JSX.Element {
         onSelect={setSelectedId}
         detail={detail}
         listLabel="Evaluations"
-        emptyList="No eval artifacts found"
-        emptyDetail="Select an evaluation to see details"
+        emptyList={<EmptyState title="No eval artifacts found" hint="Run an evaluation to see pass@k and benchmark results here." icon="✓" />}
+        emptyDetail={<EmptyState title="No evaluation selected" hint="Pick an evaluation to see its detailed metrics." icon="✓" />}
       />
     </div>
   );

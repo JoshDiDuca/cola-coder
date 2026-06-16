@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import MasterDetail, { type MasterItem } from '../MasterDetail';
+import EmptyState from '../EmptyState';
 
 import EnvCheckPanel from '../EnvCheckPanel';
 import ProjectHealthPanel from '../ProjectHealthPanel';
@@ -68,7 +69,7 @@ export default function SystemScreen(): JSX.Element {
       selectedId={selectedId}
       onSelect={setSelectedId}
       listLabel={`${SYSTEM_TOOLS.length} tools`}
-      emptyDetail="Select a tool to see details"
+      emptyDetail={<EmptyState title="No tool selected" hint="Pick a tool from the list to see its details." icon="⚙" />}
       detail={selected ? <div className="sys-detail">{selected.render()}</div> : null}
     />
   );
